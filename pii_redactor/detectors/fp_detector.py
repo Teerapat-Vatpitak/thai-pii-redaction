@@ -14,6 +14,8 @@ from pii_redactor.detectors.thai_id import is_valid_thai_id
 
 def _luhn_check(digits: str) -> bool:
     """Return True if digits pass the Luhn algorithm."""
+    if not digits:
+        return False
     try:
         total = 0
         for i, ch in enumerate(reversed(digits)):
@@ -109,7 +111,7 @@ _RE_PHONE_LANDLINE = re.compile(
     r"\b(0[2-5]\d[-\s]?\d{3}[-\s]?\d{4})\b"
 )
 _RE_PHONE_INTL = re.compile(
-    r"\b(\+66[-\s]?\d[-\s]?\d{3}[-\s]?\d{4})\b"
+    r"(?<![a-zA-Z0-9_])(\+66[-\s]?\d[-\s]?\d{3}[-\s]?\d{4})\b"
 )
 _RE_BANK_ACCOUNT_1 = re.compile(
     r"\b(\d{3}[-\s]?\d{1}[-\s]?\d{5}[-\s]?\d{1})\b"
@@ -134,6 +136,7 @@ _RE_STUDENT_ID = re.compile(
 )
 
 _SEP_RE = re.compile(r"[-\s]")
+_THAI_CHAR_RE = re.compile(r"[฀-๿]")
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +200,6 @@ def detect_fp(text: str) -> list[Entity]:
 
     # 8. VEHICLE_PLATE
     # Reject matches where the Thai consonants are mid-word (preceded by a Thai char)
-    _THAI_CHAR_RE = re.compile(r"[฀-๿]")
     for m in _RE_VEHICLE_PLATE.finditer(text):
         start = m.start(1)
         if start > 0 and _THAI_CHAR_RE.match(text[start - 1]):

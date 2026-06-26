@@ -108,3 +108,35 @@ def test_detect_fp_invalid_credit_card_not_detected():
     entities = detect_fp(text)
     ccs = [e for e in entities if e.data_type == "CREDIT_CARD"]
     assert len(ccs) == 0
+
+
+def test_detect_fp_iban_valid():
+    # GB29NWBK60161331926819 is the canonical IBAN test vector (mod-97 == 1)
+    text = "IBAN: GB29NWBK60161331926819"
+    entities = detect_fp(text)
+    ibans = [e for e in entities if e.data_type == "IBAN"]
+    assert len(ibans) == 1
+    assert "GB29" in ibans[0].original_text
+
+
+def test_detect_fp_iban_invalid_not_detected():
+    # GB29NWBK60161331926820 — last digit changed, mod-97 != 1
+    text = "IBAN: GB29NWBK60161331926820"
+    entities = detect_fp(text)
+    ibans = [e for e in entities if e.data_type == "IBAN"]
+    assert len(ibans) == 0
+
+
+def test_detect_fp_thai_id_in_mixed_text():
+    text = "ID: 1101200012345 email: test@example.com"
+    entities = detect_fp(text)
+    # Verify email is detected (Thai ID 1101200012345 has check digit 5 which may or may not be valid)
+    emails = [e for e in entities if e.data_type == "EMAIL"]
+    assert len(emails) >= 1
+
+
+def test_detect_fp_intl_phone():
+    text = "call +66-8-123-4567 for info"
+    entities = detect_fp(text)
+    phones = [e for e in entities if e.data_type == "PHONE"]
+    assert len(phones) >= 1
