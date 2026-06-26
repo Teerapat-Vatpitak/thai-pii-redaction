@@ -5,7 +5,7 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
-from pii_redactor.models import EntityRegistry, PseudonymizedDocument, AIResponse, ReverseResult
+from pii_redactor.models import EntityRegistry, AIResponse, ReverseResult
 from pii_redactor.output_validator import ValidationResult
 from pii_redactor.exporter import ExportResult
 from pii_redactor.session_vault import SessionVault
