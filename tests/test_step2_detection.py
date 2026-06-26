@@ -140,3 +140,139 @@ def test_detect_fp_intl_phone():
     entities = detect_fp(text)
     phones = [e for e in entities if e.data_type == "PHONE"]
     assert len(phones) >= 1
+
+
+# ---------------------------------------------------------------------------
+# TB detector tests
+# ---------------------------------------------------------------------------
+
+from pii_redactor.detectors.tb_detector import detect_tb
+from pii_redactor.detectors.fn_scanner import scan_fn
+
+
+def test_detect_tb_returns_list():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    result = detect_tb(text)
+    assert isinstance(result, list)
+    for e in result:
+        assert isinstance(e, Entity)
+
+
+def test_detect_tb_redact_type():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    result = detect_tb(text)
+    for e in result:
+        assert e.redact_type == "TB"
+
+
+def test_detect_tb_no_overlap():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    entities = detect_tb(text)
+    for i, e1 in enumerate(entities):
+        for j, e2 in enumerate(entities):
+            if i != j:
+                assert e1.span[1] <= e2.span[0] or e1.span[0] >= e2.span[1]
+
+
+def test_detect_tb_span_min_2():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    entities = detect_tb(text)
+    for e in entities:
+        assert e.span[1] - e.span[0] >= 2
+
+
+def test_detect_tb_sample_thai():
+    from pathlib import Path
+    text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
+    result = detect_tb(text)
+    assert isinstance(result, list)
+
+
+def test_detect_tb_sorted_by_span():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    entities = detect_tb(text)
+    if len(entities) >= 2:
+        for i in range(len(entities) - 1):
+            assert entities[i].span[0] <= entities[i + 1].span[0]
+
+
+def test_detect_tb_empty_text():
+    result = detect_tb("")
+    assert result == []
+
+
+def test_detect_tb_score():
+    text = "นายวิทยา สมบูรณ์ อาศัยอยู่ที่กรุงเทพมหานคร"
+    entities = detect_tb(text)
+    for e in entities:
+        assert isinstance(e.score, float)
+        assert 0.0 <= e.score <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# FN scanner tests
+# ---------------------------------------------------------------------------
+
+def test_scan_fn_no_duplicates():
+    import uuid as _uuid
+    text = "email: test@example.com and 1234567890123"
+    existing = [Entity(
+        entity_id=str(_uuid.uuid4()),
+        redact_type="FP",
+        data_type="EMAIL",
+        span=(7, 23),
+        score=1.0,
+        original_text="test@example.com",
+    )]
+    new_ents = scan_fn(text, existing)
+    for e in new_ents:
+        assert not (e.span[0] < 23 and e.span[1] > 7)
+
+
+def test_scan_fn_finds_new():
+    text = "her id is 1234567890123 and more"
+    new_ents = scan_fn(text, [])
+    thirteen_digit = [e for e in new_ents if e.data_type == "THAI_ID"]
+    assert len(thirteen_digit) >= 1
+
+
+def test_scan_fn_returns_list():
+    result = scan_fn("hello world", [])
+    assert isinstance(result, list)
+
+
+def test_scan_fn_sorted_by_span():
+    text = "id: 1234567890123 email: foo@bar.com date: 01/01/2000"
+    result = scan_fn(text, [])
+    if len(result) >= 2:
+        for i in range(len(result) - 1):
+            assert result[i].span[0] <= result[i + 1].span[0]
+
+
+def test_scan_fn_entity_fields():
+    text = "foo@bar.com"
+    result = scan_fn(text, [])
+    emails = [e for e in result if e.data_type == "EMAIL"]
+    assert len(emails) >= 1
+    e = emails[0]
+    assert isinstance(e, Entity)
+    assert e.redact_type == "TB"
+    assert isinstance(e.entity_id, str)
+    assert len(e.entity_id) > 0
+
+
+def test_scan_fn_no_overlap_with_existing():
+    import uuid as _uuid
+    text = "date: 01/06/2024 and something"
+    existing = [Entity(
+        entity_id=str(_uuid.uuid4()),
+        redact_type="FP",
+        data_type="DATE_OF_BIRTH",
+        span=(6, 16),
+        score=1.0,
+        original_text="01/06/2024",
+    )]
+    new_ents = scan_fn(text, existing)
+    for e in new_ents:
+        # Should not overlap with (6, 16)
+        assert e.span[1] <= 6 or e.span[0] >= 16
