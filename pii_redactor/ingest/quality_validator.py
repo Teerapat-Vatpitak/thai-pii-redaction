@@ -1,5 +1,5 @@
 """Input quality validation."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -32,8 +32,8 @@ def _pattern_validation(text: str, min_thai_ratio: float) -> tuple[bool, list[st
             f"Low Thai character ratio: {thai_ratio:.1%} (expected >= {min_thai_ratio:.1%})"
         )
 
-    # Check for garbled text (high proportion of replacement characters or control chars)
-    replacement_count = text.count('?') + text.count('?')
+    # Check for garbled text (high proportion of replacement characters)
+    replacement_count = text.count('?') + text.count('�')
     if replacement_count / max(total_non_space, 1) > 0.05:
         warnings.append(f"High replacement character ratio: {replacement_count} found")
 
@@ -50,12 +50,10 @@ def _structure_validation(text: str) -> tuple[bool, list[str]]:
     if len(lines) == 0:
         return False, ["No non-empty lines found"]
 
-    # Check average line length — very short lines may indicate extraction issues
     avg_line_len = sum(len(l) for l in lines) / len(lines)
     if avg_line_len < 3:
         warnings.append(f"Very short average line length: {avg_line_len:.1f} chars")
 
-    # Check for excessive single-character lines (OCR artifact indicator)
     single_char_lines = sum(1 for l in lines if len(l.strip()) == 1)
     if len(lines) > 5 and single_char_lines / len(lines) > 0.3:
         warnings.append(
@@ -90,13 +88,10 @@ def _ocr_confidence_validation(
 def _compute_score(pattern_ok: bool, structure_ok: bool, ocr_ok: bool,
                    all_warnings: list[str]) -> tuple[float, str]:
     """Returns (score, grade)"""
-    # Base scores
     score = 100.0
 
     if not pattern_ok:
         score -= 40.0
-    elif any("Low Thai" in w for w in all_warnings):
-        score -= 20.0
     elif any("replacement" in w for w in all_warnings):
         score -= 15.0
 
@@ -132,23 +127,19 @@ def validate(
     text: str,
     source_type: str,
     *,
-    ocr_confidence: float | None = None,   # Pass OCR average confidence (0-1) if pdf_hybrid
-    min_thai_ratio: float = 0.1,           # Minimum fraction of Thai chars expected
+    ocr_confidence: float | None = None,
+    min_thai_ratio: float = 0.1,
 ) -> QualityResult:
     """
     Validate cleaned text quality before PII detection.
 
     source_type: "text" | "pdf_text" | "pdf_hybrid"
     """
-    # Run all validations
     pattern_ok, pattern_warnings = _pattern_validation(text, min_thai_ratio)
     structure_ok, structure_warnings = _structure_validation(text)
     ocr_ok, ocr_warnings = _ocr_confidence_validation(source_type, ocr_confidence)
 
-    # Combine warnings
     all_warnings = pattern_warnings + structure_warnings + ocr_warnings
-
-    # Compute score and grade
     score, grade = _compute_score(pattern_ok, structure_ok, ocr_ok, all_warnings)
 
     return QualityResult(
