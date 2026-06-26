@@ -1,0 +1,2 @@
+"""Output validation."""
+pass

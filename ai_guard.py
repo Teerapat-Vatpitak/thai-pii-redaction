@@ -1,0 +1,2 @@
+"""AI guard utility."""
+pass

@@ -1,0 +1,2 @@
+"""Full name scanner."""
+pass

@@ -1,0 +1,2 @@
+"""File type detection."""
+pass

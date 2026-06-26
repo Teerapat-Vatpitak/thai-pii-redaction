@@ -1,0 +1,2 @@
+"""Full name detector."""
+pass

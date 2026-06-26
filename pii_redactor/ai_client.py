@@ -1,0 +1,2 @@
+"""AI client integration."""
+pass

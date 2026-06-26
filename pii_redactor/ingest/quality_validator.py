@@ -1,0 +1,2 @@
+"""Input quality validation."""
+pass

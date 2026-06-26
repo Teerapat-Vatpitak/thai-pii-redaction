@@ -1,0 +1,2 @@
+"""Full name generator."""
+pass
