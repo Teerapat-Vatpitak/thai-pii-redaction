@@ -99,13 +99,21 @@ def anonymize(
         pseudonymized = pseudonymized[:start] + pseudonym + pseudonymized[end:]
 
     # Step 4: consistency scan - replace remaining verbatim occurrences
+    # Build known pseudonyms set first to avoid cascading: skip replacement
+    # when the original text is itself a known pseudonym (would corrupt vault mapping)
+    known_pseudonyms_scan: set[str] = set()
+    for entity in sorted_entities:
+        rec = vault.get_by_entity_id(entity.entity_id)
+        if rec is not None:
+            known_pseudonyms_scan.add(rec.pseudonym)
+
     for entity in sorted_entities:
         existing = vault.get_by_entity_id(entity.entity_id)
         if existing is None:
             continue
         original = entity.original_text
         pseudo = existing.pseudonym
-        if original in pseudonymized:
+        if original in pseudonymized and original not in known_pseudonyms_scan:
             pseudonymized = pseudonymized.replace(original, pseudo)
 
     # Step 5: post-replace PII leak check

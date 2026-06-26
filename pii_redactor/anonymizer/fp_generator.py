@@ -63,7 +63,7 @@ def _gen_date(rng: random.Random, original: str) -> str:
     if len(parts) == 3 and len(parts[2]) == 4:
         year = rng.randint(2490, 2560)
     else:
-        year = rng.randint(90, 60)
+        year = rng.randint(60, 99)
     return f"{day:02d}{sep}{month:02d}{sep}{year}"
 
 
