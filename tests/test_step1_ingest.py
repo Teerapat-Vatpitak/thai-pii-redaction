@@ -173,3 +173,62 @@ def test_clean_sample_thai():
     result = clean(text, interactive=False)
     assert "วิทยา" in result.text
     assert "1101200012345" in result.text  # Thai ID preserved
+
+
+# ---------------------------------------------------------------------------
+# quality_validator tests (Task 5)
+# ---------------------------------------------------------------------------
+
+from pii_redactor.ingest.quality_validator import validate, QualityResult
+
+
+def test_validate_returns_quality_result():
+    result = validate("สวัสดีครับ ทดสอบข้อความภาษาไทย", "text")
+    assert isinstance(result, QualityResult)
+    assert 0 <= result.quality_score <= 100
+    assert result.grade in ("A", "B", "C", "D", "F")
+
+
+def test_validate_good_thai_text_scores_high():
+    # The sample Thai text should score well
+    from pathlib import Path
+    text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
+    result = validate(text, "text")
+    assert result.quality_score >= 60  # At least grade B
+    assert result.pattern_ok
+
+
+def test_validate_empty_text_fails():
+    result = validate("", "text")
+    assert result.quality_score < 40
+    assert not result.pattern_ok
+    assert len(result.warnings) > 0
+
+
+def test_validate_whitespace_only_fails():
+    result = validate("   \n\n   ", "text")
+    assert not result.pattern_ok
+
+
+def test_validate_grade_a():
+    # Pure Thai text should score A
+    text = "สวัสดีครับ นี่คือข้อความภาษาไทยที่สมบูรณ์ มีหลายประโยค\nแต่ละประโยคมีความยาวเพียงพอ"
+    result = validate(text, "text")
+    assert result.grade in ("A", "B")  # Should be at least B
+
+
+def test_validate_ocr_confidence_text_type():
+    # For non-pdf_hybrid, ocr_confidence_ok should be True even without confidence
+    result = validate("some text", "text")
+    assert result.ocr_confidence_ok is True
+
+
+def test_validate_pdf_hybrid_low_confidence():
+    result = validate("some text", "pdf_hybrid", ocr_confidence=0.5)
+    assert not result.ocr_confidence_ok
+    assert any("OCR confidence" in w for w in result.warnings)
+
+
+def test_validate_pdf_hybrid_good_confidence():
+    result = validate("some thai text", "pdf_hybrid", ocr_confidence=0.9)
+    assert result.ocr_confidence_ok
