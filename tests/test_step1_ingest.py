@@ -106,3 +106,70 @@ def test_detect_pdf_hybrid(tmp_path):
 def test_extract_unknown_source_type_raises():
     with pytest.raises(ValueError, match="Unknown source_type"):
         extract("tests/sample_thai.txt", "unknown_type")
+
+
+# ---------------------------------------------------------------------------
+# text_cleaner tests (Task 4)
+# ---------------------------------------------------------------------------
+
+from pii_redactor.ingest.text_cleaner import clean, CleanResult
+
+
+def test_clean_whitespace_normalization():
+    text = "Hello   World\n\n\n\nParagraph"
+    result = clean(text)
+    assert "   " not in result.text    # no triple spaces
+    assert "\n\n\n" not in result.text  # no triple newlines
+    assert isinstance(result, CleanResult)
+
+
+def test_clean_unicode_normalization():
+    # NFC normalization: combine base + combining char into precomposed
+    import unicodedata
+    # Thai text should remain valid after NFC
+    text = "สวัสดี"
+    result = clean(text)
+    assert unicodedata.is_normalized('NFC', result.text)
+
+
+def test_clean_removes_zero_width():
+    text = "Hello​World"  # zero-width space between
+    result = clean(text)
+    assert '​' not in result.text
+
+
+def test_clean_thai_digits():
+    text = "มี ๑๒๓ คน"
+    result = clean(text)
+    assert "123" in result.text
+    assert "๑" not in result.text
+
+
+def test_clean_returns_clean_result():
+    result = clean("test text")
+    assert hasattr(result, 'text')
+    assert hasattr(result, 'skipped_sentence_review')
+    assert hasattr(result, 'ocr_error_flags')
+    assert hasattr(result, 'broken_sentence_candidates')
+    assert hasattr(result, 'post_clean_warnings')
+
+
+def test_clean_non_interactive_skips_review():
+    # Text with a potential broken sentence
+    text = "This is a long sentence that continues\nnext line starts here"
+    result = clean(text, interactive=False)
+    # Should not hang, should complete immediately
+    assert isinstance(result.text, str)
+
+
+def test_clean_empty_text():
+    result = clean("")
+    assert result.text == ""
+
+
+def test_clean_sample_thai():
+    from pathlib import Path
+    text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
+    result = clean(text, interactive=False)
+    assert "วิทยา" in result.text
+    assert "1101200012345" in result.text  # Thai ID preserved
