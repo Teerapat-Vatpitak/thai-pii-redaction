@@ -138,3 +138,10 @@ def test_vault_multiple_writes_same_entity():
     # Second write should overwrite first
     result = vault.get_by_entity_id(entity_id)
     assert result.pseudonym == "Y"
+    # Old pseudonym must NOT point to anything (stale reverse mapping cleared)
+    old = vault.get_by_pseudonym("X")
+    assert old is None or old.pseudonym != "Y"
+    # New pseudonym must work
+    new = vault.get_by_pseudonym("Y")
+    assert new is not None
+    assert new.entity_id == entity_id

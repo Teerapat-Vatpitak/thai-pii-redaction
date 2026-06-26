@@ -50,6 +50,11 @@ class SessionVault:
             record: VaultRecord to store
         """
         self._touch()
+        # Clean up stale reverse mapping if entity_id already exists with a different pseudonym
+        if record.entity_id in self._table:
+            old_pseudonym = self._table[record.entity_id].pseudonym
+            if old_pseudonym != record.pseudonym:
+                self._reverse.pop(old_pseudonym, None)
         self._table[record.entity_id] = record
         self._reverse[record.pseudonym] = record.entity_id
         self._audit("write", record.entity_id)
