@@ -22,7 +22,7 @@ class ValidationResult:
     layer2_completeness_ok: bool  # Layer 2: pseudonym residue and entity counts ok
     layer3_integrity_ok: bool  # Layer 3: UTF-8 encodable, no abrupt truncation
     flags: list[str]  # All flags from all layers
-    halt: bool  # True if Layer 1 or Layer 3 failed (halt pipeline)
+    halt: bool  # True if Layer 3 failed (Layer 1 raises PIILeakError instead)
 
 
 class PIILeakError(Exception):
@@ -51,6 +51,9 @@ def _layer1_pii_scan(text: str, vault: SessionVault) -> tuple[bool, list[str]]:
         (pii_clean, flags) where pii_clean=True if all detected PII is expected
     """
     flags = []
+
+    # Enforce idle timeout before accessing vault data
+    vault.check_idle()
 
     # Build set of known originals from vault
     known_originals: set[str] = set()
