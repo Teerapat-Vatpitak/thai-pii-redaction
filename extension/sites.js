@@ -65,12 +65,18 @@ window.AIGUARD_SITES = (function () {
       const vis = list.filter(visible);
       return vis.length ? vis[vis.length - 1] : list[0] || null;
     },
+    // Verified live (2026-06-27): Claude renders each reply in
+    // div.font-claude-response. Older builds used .font-claude-message;
+    // both are kept, and [data-is-streaming] (the assistant turn wrapper)
+    // is a stable last-resort fallback.
     assistantMessages: function () {
-      return Array.from(
-        document.querySelectorAll(
-          "div.font-claude-message, [data-testid='message-content']"
-        )
+      let nodes = Array.from(
+        document.querySelectorAll("div.font-claude-response, div.font-claude-message")
       );
+      if (!nodes.length) {
+        nodes = Array.from(document.querySelectorAll("[data-is-streaming]"));
+      }
+      return nodes;
     },
     readComposer: readComposer,
     writeComposer: writeComposer,
