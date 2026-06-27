@@ -17,6 +17,13 @@
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
+.aiguard-logo {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: none;
+}
+
 .aiguard-btn {
   border: 1px solid #2563eb;
   background: #2563eb;

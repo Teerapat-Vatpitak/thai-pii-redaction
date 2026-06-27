@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="AI Guard logo" width="140" />
+</p>
+
 # AI Guard — Thai PII Redaction
 
 Mask Thai personal data (PII) before sending it to an external AI, then restore the real values locally. Everything runs on your machine — raw PII never leaves the device (PDPA-friendly).

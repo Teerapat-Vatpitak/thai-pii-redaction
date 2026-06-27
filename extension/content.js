@@ -42,9 +42,13 @@
 
   // ---- floating control bar ---------------------------------------------
   const bar = el("div", "bar");
+  const logo = el("img", "logo");
+  logo.src = chrome.runtime.getURL("icons/icon32.png");
+  logo.alt = "AI Guard";
   const maskBtn = el("button", "btn", "Mask PII");
   const restoreBtn = el("button", "btn ghost", "Restore PII");
   const status = el("span", "status", "");
+  bar.appendChild(logo);
   bar.appendChild(maskBtn);
   bar.appendChild(restoreBtn);
   bar.appendChild(status);
