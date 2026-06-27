@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pii_redactor.pipeline import run_pipeline
@@ -18,6 +21,15 @@ app = FastAPI(
     description="Thai PII Redaction Pipeline — PSU FTC 2026",
     version="1.0.0",
 )
+
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/static/index.html")
 
 
 class SanitizeRequest(BaseModel):

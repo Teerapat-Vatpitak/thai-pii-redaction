@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Guard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <span class="logo" data-i18n="appName">AI Guard</span>
+  <div class="lang-toggle">
+    <button id="langBtnEn" class="active">EN</button>
+    <button id="langBtnTh">TH</button>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="active" data-tab="guard" data-i18n="tab1">AI Guard</button>
+  <button data-tab="report" data-i18n="tab2">PDPA Report</button>
+  <button data-tab="pdf" data-i18n="tab3">PDF Redact</button>
+</div>
+
+<main class="content">
+
+  <!-- Tab 1: AI Guard -->
+  <section id="tab-guard" class="tab-panel active">
+
+    <div class="field">
+      <label for="guardInput" data-i18n="step1Label">Your document</label>
+      <textarea id="guardInput" rows="7"
+        data-i18n-placeholder="step1Placeholder"
+        placeholder="Paste your text here..."></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button id="maskBtn" class="btn btn-primary" data-i18n="maskBtn">Mask PII</button>
+      <span id="maskCount" class="badge badge-blue hidden"></span>
+    </div>
+    <div id="guardError" class="error-msg hidden"></div>
+
+    <div id="maskedSection" class="hidden">
+      <div class="step-divider" data-i18n="step2Title">Step 2 — Send to AI</div>
+      <p class="info-text" data-i18n="step2Hint">Copy the masked text above and paste it into ChatGPT or Claude. When you receive the response, paste it below.</p>
+
+      <div class="field">
+        <label data-i18n="maskedLabel">Masked text</label>
+        <textarea id="maskedOut" rows="6" readonly></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="copyMaskedBtn" class="btn btn-ghost" data-i18n="copyBtn">Copy</button>
+      </div>
+    </div>
+
+    <div id="step2Section" class="hidden">
+      <div class="step-divider" style="margin-top:28px;">Step 3</div>
+    </div>
+
+    <div id="step3Section" class="hidden">
+      <div class="field">
+        <label for="guardResponseInput" data-i18n="step3Label">AI response (with masked tokens)</label>
+        <textarea id="guardResponseInput" rows="7"
+          data-i18n-placeholder="step3Placeholder"
+          placeholder="Paste the AI response here..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="restoreBtn" class="btn btn-primary" data-i18n="restoreBtn">Restore</button>
+      </div>
+      <div id="restoreError" class="error-msg hidden"></div>
+    </div>
+
+    <div id="restoredSection" class="hidden">
+      <div class="field" style="margin-top:20px;">
+        <label data-i18n="restoredLabel">Restored text</label>
+        <div id="restoredOut" class="output-block"></div>
+      </div>
+      <div class="btn-row">
+        <button id="copyRestoredBtn" class="btn btn-ghost" data-i18n="copyBtn">Copy</button>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Tab 2: PDPA Report -->
+  <section id="tab-report" class="tab-panel">
+
+    <div class="field">
+      <label for="reportInput" data-i18n="reportInputLabel">Text to analyze</label>
+      <textarea id="reportInput" rows="7"
+        data-i18n-placeholder="reportInputPlaceholder"
+        placeholder="Paste your document here..."></textarea>
+    </div>
+    <div class="btn-row">
+      <button id="analyzeBtn" class="btn btn-primary" data-i18n="analyzeBtn">Analyze</button>
+    </div>
+    <div id="reportError" class="error-msg hidden"></div>
+
+    <div id="reportCard" class="risk-card hidden">
+      <div class="risk-header">
+        <span class="risk-title" data-i18n="reportTitle">PDPA Risk Report</span>
+        <span id="riskBadge"></span>
+      </div>
+      <div class="risk-rows">
+        <div class="risk-row">
+          <span class="label" data-i18n="totalEntities">Total entities</span>
+          <span class="value" id="totalCount"></span>
+        </div>
+        <div class="risk-row">
+          <span class="label" data-i18n="structuredPII">Structured PII</span>
+          <span class="value" id="fpCount"></span>
+        </div>
+        <div class="risk-row">
+          <span class="label" data-i18n="namedEntities">Named entities</span>
+          <span class="value" id="tbCount"></span>
+        </div>
+      </div>
+      <div style="padding: 12px 20px 4px; border-top: 1px solid var(--border);">
+        <label style="margin-bottom:8px;" data-i18n="entityTypes">Entity types</label>
+      </div>
+      <div id="entityPills" class="entity-pills"></div>
+    </div>
+
+  </section>
+
+  <!-- Tab 3: PDF Redact -->
+  <section id="tab-pdf" class="tab-panel">
+
+    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload PDF">
+      <div class="dropzone-icon">&#128196;</div>
+      <div class="dropzone-text" data-i18n="dropzoneText">Click to select a PDF, or drag and drop</div>
+      <div id="dropzoneFile" class="dropzone-file hidden"></div>
+    </div>
+    <input type="file" id="pdfInput" accept="application/pdf" style="display:none" aria-hidden="true">
+    <p class="info-text" data-i18n="pdfNote">Analysis only — the original file is not modified.</p>
+
+    <div class="btn-row">
+      <button id="analyzePdfBtn" class="btn btn-primary" data-i18n="analyzePdfBtn">Analyze PDF</button>
+    </div>
+    <div id="pdfError" class="error-msg hidden"></div>
+
+    <div id="pdfResultSection" class="hidden" style="margin-top:20px;">
+      <label data-i18n="pdfResultLabel">Result</label>
+      <div id="pdfResult" class="output-block" style="margin-top:8px;"></div>
+    </div>
+
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
