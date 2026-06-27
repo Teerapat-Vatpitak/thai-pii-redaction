@@ -152,3 +152,31 @@ def test_analyze_high_risk(client):
     data = resp.json()
     assert data["direct_pii_count"] > 5
     assert data["overall_score"] >= 60
+
+
+def test_sanitize_surrogate_mode_round_trip(client):
+    """Surrogate mode replaces PII with realistic fakes; restore is exact."""
+    text = "ผมชื่อสมชาย ใจดี โทร 081-234-5678 อีเมล somchai@example.com"
+    s = client.post("/api/sanitize", json={"text": text, "mode": "surrogate"}).json()
+    san = s["sanitized_text"]
+    assert len(s["entities"]) >= 2
+    assert san != text
+    # original PII must be gone from the surrogate text
+    assert "081-234-5678" not in san
+    assert "somchai@example.com" not in san
+    # round-trip restore returns the originals exactly
+    r = client.post(
+        "/api/reidentify", json={"session_id": s["session_id"], "text": san}
+    ).json()
+    assert "081-234-5678" in r["restored_text"]
+    assert "somchai@example.com" in r["restored_text"]
+    assert r["leftover_tokens"] == []
+
+
+def test_sanitize_token_mode_unchanged(client):
+    """Token mode still emits bracket tokens (default behavior)."""
+    s = client.post(
+        "/api/sanitize", json={"text": "โทร 081-234-5678", "mode": "token"}
+    ).json()
+    assert "[" in s["sanitized_text"]
+    assert "081-234-5678" not in s["sanitized_text"]

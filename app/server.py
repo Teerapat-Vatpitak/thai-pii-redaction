@@ -24,6 +24,8 @@ from pydantic import BaseModel
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.detectors.fn_scanner import scan_fn
+from pii_redactor.anonymizer.fp_generator import generate_fp
+from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.ingest.text_cleaner import clean
 from pii_redactor.report import generate_report, scan_section26
 from pii_redactor.reid_risk import assess_reid_risk
@@ -90,20 +92,43 @@ def _dedupe_spans(entities: list) -> list:
     return kept
 
 
-def _tokenize(text: str) -> dict:
-    """Detect PII, assign consistent tokens, build sanitized text.
+def _make_surrogate(entity, text: str, salt: str, used: set) -> str:
+    """Generate a realistic, valid-format fake value for an entity.
+
+    Unique within this document so re-identification is unambiguous: avoids
+    duplicating another pseudonym or coinciding with text already present.
+    """
+    fake = ""
+    for attempt in range(8):
+        s = salt if attempt == 0 else f"{salt}:{attempt}"
+        if entity.redact_type == "FP":
+            fake = generate_fp(entity.data_type, entity.original_text, salt=s)
+        else:
+            ctx = text[: entity.span[0]] + "___" + text[entity.span[1] :]
+            fake = generate_tb(entity.data_type, ctx, salt=s, original=entity.original_text)
+        if fake and fake not in used and fake != entity.original_text and fake not in text:
+            return fake
+    return f"{fake}#{len(used) + 1}"  # last-resort disambiguation
+
+
+def _tokenize(text: str, mode: str = "token") -> dict:
+    """Detect PII, assign consistent pseudonyms, build sanitized text.
+
+    mode="token"     -> bracket tokens like [ชื่อ_1] (explicit, robust)
+    mode="surrogate" -> realistic valid-format fake data (reads naturally to the AI)
 
     Returns a dict with original_text, sanitized_text, entities[], token_map,
-    entity_type_counts, section26[].
+    entity_type_counts, section26[]. token_map maps pseudonym -> original.
     """
     fp = detect_fp(text)
     tb = detect_tb(text)
     fn = scan_fn(text, fp + tb)
     entities = _dedupe_spans(fp + tb + fn)
 
-    # assign tokens: same original value -> same token (consistency)
-    token_map: dict[str, str] = {}       # token -> original
-    by_original: dict[tuple, str] = {}    # (data_type, original) -> token
+    salt = uuid.uuid4().hex
+    # assign pseudonyms: same original value -> same pseudonym (consistency)
+    token_map: dict[str, str] = {}       # pseudonym -> original
+    by_original: dict[tuple, str] = {}    # (data_type, original) -> pseudonym
     counters: dict[str, int] = {}
     out_entities = []
 
@@ -111,6 +136,10 @@ def _tokenize(text: str) -> dict:
         key = (e.data_type, e.original_text)
         if key in by_original:
             token = by_original[key]
+        elif mode == "surrogate":
+            token = _make_surrogate(e, text, salt, set(token_map))
+            by_original[key] = token
+            token_map[token] = e.original_text
         else:
             counters[e.data_type] = counters.get(e.data_type, 0) + 1
             label = _TOKEN_LABEL.get(e.data_type, e.data_type)
@@ -145,6 +174,7 @@ def _tokenize(text: str) -> dict:
 # ── request models ─────────────────────────────────────────────────────
 class SanitizeRequest(BaseModel):
     text: str
+    mode: str = "token"  # "token" -> [ชื่อ_1] ; "surrogate" -> realistic fake data
 
 
 class ReidentifyRequest(BaseModel):
@@ -166,9 +196,10 @@ def health():
 def sanitize(request: SanitizeRequest):
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
+    mode = request.mode if request.mode in ("token", "surrogate") else "token"
     clean_text = clean(request.text).text
     try:
-        result = _tokenize(clean_text)
+        result = _tokenize(clean_text, mode)
     except Exception as e:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail=str(e))
 

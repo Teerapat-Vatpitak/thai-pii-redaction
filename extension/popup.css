@@ -64,6 +64,31 @@ main {
   line-height: 1.4;
 }
 
+.mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #f5f8fd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.mode-label {
+  font-weight: 600;
+}
+.mode-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.mode-opt code {
+  font-size: 11px;
+}
+
 .lbl {
   display: block;
   font-size: 12px;

@@ -22,6 +22,20 @@ function setMsg(text, kind) {
   m.className = "msg" + (kind ? " " + kind : "");
 }
 
+function currentMode() {
+  const r = document.querySelector('input[name="mode"]:checked');
+  return r && r.value === "surrogate" ? "surrogate" : "token";
+}
+
+// restore the saved mode and persist changes (shared with the in-page bar)
+chrome.storage.local.get("mode", (o) => {
+  const el = document.querySelector(`input[name="mode"][value="${o.mode || "token"}"]`);
+  if (el) el.checked = true;
+});
+document.querySelectorAll('input[name="mode"]').forEach((r) =>
+  r.addEventListener("change", () => chrome.storage.local.set({ mode: currentMode() }))
+);
+
 async function checkHealth() {
   const r = await send({ type: "health" });
   const up = r && r.ok;
@@ -38,7 +52,7 @@ async function doMask() {
     return;
   }
   setMsg("Masking...");
-  const r = await send({ type: "sanitize", text });
+  const r = await send({ type: "sanitize", text, mode: currentMode() });
   if (!r || !r.ok) {
     setMsg(r && r.status === 0 ? "Backend offline" : "Error masking", "err");
     return;

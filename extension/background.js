@@ -83,7 +83,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg.type === "sanitize") {
-      const resp = await postJSON("/api/sanitize", { text: msg.text });
+      // mode comes from the popup message, else the saved toggle (so the
+      // in-page Mask button honors the same choice), else token.
+      let mode = msg.mode;
+      if (!mode) {
+        try {
+          const o = await chrome.storage.local.get("mode");
+          mode = o.mode;
+        } catch (e) {
+          /* default below */
+        }
+      }
+      mode = mode === "surrogate" ? "surrogate" : "token";
+      const resp = await postJSON("/api/sanitize", { text: msg.text, mode });
       if (resp.ok && resp.data && resp.data.session_id) {
         await storeSession(tabId, resp.data.session_id);
       }
