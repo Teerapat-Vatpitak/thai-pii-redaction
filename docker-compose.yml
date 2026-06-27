@@ -1,0 +1,8 @@
+services:
+  ai-guard:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUTF8=1
+    restart: unless-stopped
