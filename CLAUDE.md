@@ -104,6 +104,7 @@ Two parallel detection passes on the Normalized Document Model:
   - High confidence - pattern match alone is sufficient
 - **Text-Based (TB)**: NER + context classifier
   - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the model that actually runs. A WangchanBERTa engine is **roadmap**, not implemented.
+  - Name recall booster: `detectors/name_context.py` (`detect_name_context`, merged inside `detect_tb`) — token-level title/label cues (นาย/นาง/นางสาว/…, ผมชื่อ…, ลงชื่อ) capture names the CRF misses or clips; works on tokens so it ignores substrings like "นายก"/"คุณภาพ".
   - Sliding window ±3 sentences for context (NER is ambiguous without surrounding context)
   - Targets via thainer labels: name (PERSON), address (LOCATION), date (DATE)
   - Span chokepoint: reject spans < 2 characters (prevents single-char NER false positives)

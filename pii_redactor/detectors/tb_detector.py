@@ -197,5 +197,9 @@ def detect_tb(text: str, *, window_size: int = 3) -> list[Entity]:
                 original_text=text[orig_start:orig_end],
             ))
 
+    # Recall booster: title/label-cued names the CRF missed or clipped.
+    from pii_redactor.detectors.name_context import detect_name_context
+    candidates.extend(detect_name_context(text))
+
     # Step 7: Deduplication
     return _deduplicate(candidates)
