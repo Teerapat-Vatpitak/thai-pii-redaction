@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import AIResponse, EntityRegistry
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
@@ -105,10 +106,11 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
         PreSendValidationError: If validation fails
         VaultTimeoutError: If vault has been idle past timeout
     """
-    # 1. PII leak check: fp_detector on pseudonymized text
+    # 1. PII leak check: fp + tb detectors on pseudonymized text
+    # (tb catches name/address leaks that regex/checksum miss)
     # Collect known pseudonyms to avoid false positives
     known_pseudonyms = set(vault._reverse.keys())
-    leak_entities = detect_fp(text)
+    leak_entities = detect_fp(text) + detect_tb(text)
     real_leaks = [e for e in leak_entities if e.original_text not in known_pseudonyms]
     if real_leaks:
         raise PreSendValidationError(

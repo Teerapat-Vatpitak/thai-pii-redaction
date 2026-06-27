@@ -98,3 +98,16 @@ def test_pre_send_validation_idle_timeout():
     provider = FakeLLMProvider()
     with pytest.raises(VaultTimeoutError):
         send_to_ai("text", registry, vault, provider)
+
+
+def test_pre_send_blocks_tb_name_leak():
+    """A real Thai name left in the text must be caught before send.
+
+    Regex/checksum (FP) does not catch names; the pre-send guard must also run
+    the TB (NER) detector so a name/address leak cannot leave the device.
+    """
+    vault = SessionVault()  # empty: the name is not a known pseudonym
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    provider = FakeLLMProvider()
+    with pytest.raises(PreSendValidationError):
+        send_to_ai("ผมชื่อสมชาย ใจดี ครับ", registry, vault, provider)
