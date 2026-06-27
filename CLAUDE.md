@@ -103,10 +103,11 @@ Two parallel detection passes on the Normalized Document Model:
   - Thai national ID (mod-11 Luhn), phone, email, bank account, credit card, IBAN, passport, vehicle plate, student ID, date of birth
   - High confidence - pattern match alone is sufficient
 - **Text-Based (TB)**: NER + context classifier
-  - WangchanBERTa (`pythainlp/thainer-corpus-v2-base-model`) or PyThaiNLP thainer-CRF (CRF is default, faster; WangchanBERTa requires `requirements-ml.txt`)
+  - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the model that actually runs. A WangchanBERTa engine is **roadmap**, not implemented.
   - Sliding window ±3 sentences for context (NER is ambiguous without surrounding context)
-  - Targets: name, surname, address, ethnicity, political opinion, religion, criminal history, health data, disability, union membership (PDPA Section 26 sensitive categories)
-  - Span chokepoint: reject spans < 2 characters (prevents WangchanBERTa single-char false positives with score 1.0)
+  - Targets via thainer labels: name (PERSON), address (LOCATION), date (DATE)
+  - Span chokepoint: reject spans < 2 characters (prevents single-char NER false positives)
+- **Sensitive semantic (optional)**: `sensitive_detector.py` — MiniLM sentence-embedding similarity flags free-form PDPA Section 26 content (health, religion, etc.) the keyword scan misses. Non-generative (flags existing spans only). Requires `requirements-ml.txt`; degrades to no-op when absent.
 
 Post-detection:
 - Span boundary adjustment + deduplication (map repeated entities to original)
@@ -114,13 +115,13 @@ Post-detection:
 - **Entity Registry**: `entity_id`, `redact_type` (FP/TB), `data_type`, `span`, `score`
 - Output: Detection Report → Step 3
 
-**Step 3 - Pseudonymization** (`pii_redactor/anonymizer.py`, `pii_redactor/surrogate.py`)
+**Step 3 - Pseudonymization** (`pii_redactor/anonymizer/`)
 
 Session mapping table (in-memory only, never written to disk; keyed by `entity_id`):
 - If entity already in table → reuse existing pseudonym (consistency)
 - If new entity → route by `redact_type`:
-  - **FP**: format-preserving generator per `data_type` (preserves prefix/format, generates valid checksum, fixed seed per entity for reproducibility)
-  - **TB**: LLM generator (separate endpoint; sends only `type + context`, never real data; generates realistic Thai names/addresses/places)
+  - **FP**: `anonymizer/fp_generator.py` `generate_fp()` — format-preserving generator per `data_type` (valid checksum, SHA256-seeded per entity for reproducibility; no LLM)
+  - **TB**: `anonymizer/tb_generator.py` `generate_tb()` — realistic Thai names/addresses from local hardcoded pools, seeded per entity (no LLM; nothing is sent anywhere)
 
 Replace real data using bboxes from entity registry → consistency check (same entity everywhere) → post-replace scan (verify no real PII remains; halt + alert if found).
 
@@ -132,39 +133,41 @@ Output: **Pseudonymized Document** + session mapping table (for re-identificatio
 
 | Module | Purpose |
 |---|---|
-| `pii_redactor/pipeline.py` | Main pipeline orchestrator, `build_payload` for AI |
-| `pii_redactor/detectors/` | FP (regex/checksum) and TB (NER) detectors |
-| `pii_redactor/anonymizer.py` | Pseudonymization, session vault |
-| `pii_redactor/surrogate.py` | Realistic fake data with valid checksums; `pseudonymize(surrogate=True)` |
-| `pii_redactor/redactor.py` | True PDF redaction via bbox black boxes |
+| `pii_redactor/pipeline.py` | CLI pipeline orchestrator (`run_pipeline`); calls `send_to_ai` |
+| `pii_redactor/detectors/` | FP (regex/checksum), TB (thainer CRF NER), FN scanner |
+| `pii_redactor/anonymizer/` | Package: `anonymizer.py` (vault replace), `fp_generator.py` + `tb_generator.py` (valid-format / Thai fake values) |
+| `pii_redactor/redactor.py` | True PDF redaction via bbox black boxes (wired through `/api/redact-pdf`) |
 | `pii_redactor/reid_risk.py` | Quasi-identifier re-identification risk score (Sweeney model), 0-100 + grade |
-| `pii_redactor/report.py` | PDPA risk report; Section 26 sensitive categories flagged (keyword), not auto-redacted |
-| `pii_redactor/presidio_bridge.py` | Presidio Thai recognizer + checksum validator |
-| `pii_redactor/llm_detector.py` | LLM-based detection with anti-hallucination (only accepts spans present verbatim in source) |
-| `pii_redactor/wangchanberta.py` | Optional WangchanBERTa NER wrapper |
-| `pii_redactor/audit.py` | Audit log |
+| `pii_redactor/report.py` | PDPA risk report; `scan_section26` keyword flags (not auto-redacted) |
+| `pii_redactor/sensitive_detector.py` | Optional MiniLM semantic Section-26 detector (non-generative); no-op without `requirements-ml.txt` |
+| `pii_redactor/ai_client.py` | AI providers (Fake/Ollama/Claude) + pre-send leak guard (`detect_fp`+`detect_tb`) |
+| `pii_redactor/audit.py` | Audit log (entity_id + action + timestamp only; no PII) |
+
+Roadmap (not implemented): WangchanBERTa NER engine, OCR (`ingest/ocr_processor.py` is a stub), Presidio bridge.
 
 ### Web API Endpoints (`app/server.py`, v2 token-mode contract)
 
 - `GET /api/health` → `{status, version}`
-- `POST /api/sanitize {text}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[]}` — token-mode pseudonymization (`[ชื่อ_1]`); stores the token → original map in the in-memory `_SESSIONS` keyed by `session_id`.
-- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens}` — restores tokens from the stored session map.
-- `POST /api/analyze {text}` → full PDPA report `{overall_score, overall_grade, risk_label, direct_pii_count, fp_count, tb_count, section26[], reid, breakdown[], recommendations[]}`.
-- `POST /api/redact-pdf` (multipart `pdf_file`) → `{filename, entity_count, fields[], section26[]}` (analysis for the redaction view; bbox redaction itself is in `pii_redactor/redactor.py`).
+- `POST /api/sanitize {text, mode}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[]}`. `mode="token"` (default) → `[ชื่อ_1]`; `mode="surrogate"` → realistic valid-format fake data (reads naturally to the AI). Stores the pseudonym → original map in the in-memory `_SESSIONS` keyed by `session_id`.
+- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens}` — restores pseudonyms from the stored session map (mode-agnostic).
+- `POST /api/analyze {text}` → full PDPA report `{overall_score, overall_grade, risk_label, direct_pii_count, fp_count, tb_count, section26[], reid, breakdown[], recommendations[]}`. `section26[]` merges keyword hits with optional MiniLM semantic hits (`source:"semantic"`).
+- `POST /api/redact-pdf` (multipart `pdf_file`) → `{filename, entity_count, fields[], section26[], redacted_pdf_b64, before_png_b64, after_png_b64}`. Detects on RAW PDF text (bboxes align), draws black boxes via `pii_redactor/redactor.py`, returns the redacted PDF + page previews.
+
+Note: the web API uses its own token/surrogate path (`_tokenize` + in-memory `_SESSIONS` in `app/server.py`), distinct from the CLI `pipeline.py`/`SessionVault`. Both are tested; they are not unified.
 
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
-- **Vault never leaves device**: session mapping table is in-memory only; `leftover_tokens` check on re-identification
-- **AI payload integrity**: `build_payload` instructs AI to keep tokens (e.g. `[ชื่อ_1]`) intact
-- **PDPA Section 26 sensitive categories**: flagged and reported via `report.py`, not auto-redacted (only keyword/flag detection via `detect_all(use_sensitive=True)`)
-- **LLM anti-hallucination**: LLM detector output filtered to spans that exist verbatim in source text
-- **WangchanBERTa span filter**: reject any entity span < 2 characters before it reaches redaction
+- **Vault never leaves device**: pseudonym → original map is in-memory only (`_SESSIONS` web / `SessionVault` CLI); the extension keeps only `session_id`. `leftover_tokens` check on re-identification.
+- **Pre-send leak guard**: before any send to an external AI, `ai_client._validate_pre_send` re-scans outbound text with `detect_fp` AND `detect_tb`; a real (non-pseudonym) hit halts the send.
+- **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
+- **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
+- **NER span filter**: reject any entity span < 2 characters before it reaches redaction.
 
 ## Requirements Split
 
 - `requirements.txt` - core (PyMuPDF, pdfplumber, PyThaiNLP, regex)
 - `requirements-web.txt` - web (fastapi, uvicorn, requests)
-- `requirements-ml.txt` - WangchanBERTa (torch, transformers, sentencepiece); install only when ML model needed
+- `requirements-ml.txt` - sentence-transformers + torch/transformers (MiniLM sensitive detector; WangchanBERTa engine is roadmap). Install only when the semantic detector is needed.
 
 Note: PyMuPDF is AGPL licensed.
