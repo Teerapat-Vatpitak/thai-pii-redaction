@@ -3,11 +3,45 @@
 // All backend calls happen here: the worker has cross-origin access to
 // localhost via host_permissions, so content scripts on chatgpt.com /
 // claude.ai do not hit page CORS restrictions. The token -> original vault
-// never reaches the extension; we only remember the session_id per tab,
-// in memory, so a Restore can find the right session on the backend.
+// never reaches the extension; we only remember the session_id per tab so a
+// Restore can find the right session on the backend.
+//
+// MV3 service workers are ephemeral -- Chrome evicts them after a short idle
+// period and in-memory variables are lost. The wait for an AI reply easily
+// outlasts the worker, so the per-tab session_id is kept in
+// chrome.storage.session (survives worker restarts, never written to disk,
+// cleared when the browser closes -- consistent with the vault invariant),
+// with an in-memory write-through cache for the fast path.
 
 const BACKENDS = ["http://localhost:8000", "http://127.0.0.1:8000"];
-const tabSession = {}; // tabId -> session_id (in-memory only)
+const sessionCache = {}; // tabId -> session_id (fast path; may be wiped on evict)
+
+function sessionKey(tabId) {
+  return "aiguard_sid_" + tabId;
+}
+
+async function storeSession(tabId, sid) {
+  if (tabId == null) return;
+  sessionCache[tabId] = sid;
+  try {
+    await chrome.storage.session.set({ [sessionKey(tabId)]: sid });
+  } catch (e) {
+    /* cache still holds it for this worker's lifetime */
+  }
+}
+
+async function loadSession(tabId) {
+  if (tabId == null) return null;
+  if (sessionCache[tabId]) return sessionCache[tabId];
+  try {
+    const o = await chrome.storage.session.get(sessionKey(tabId));
+    const sid = o[sessionKey(tabId)] || null;
+    if (sid) sessionCache[tabId] = sid;
+    return sid;
+  } catch (e) {
+    return null;
+  }
+}
 
 async function postJSON(path, body) {
   let lastErr;
@@ -51,7 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "sanitize") {
       const resp = await postJSON("/api/sanitize", { text: msg.text });
       if (resp.ok && resp.data && resp.data.session_id) {
-        if (tabId != null) tabSession[tabId] = resp.data.session_id;
+        await storeSession(tabId, resp.data.session_id);
       }
       sendResponse(resp);
       return;
@@ -59,7 +93,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "reidentify") {
       // Popup passes session_id explicitly; content script relies on the
       // session stored for its tab.
-      const sid = msg.session_id || (tabId != null ? tabSession[tabId] : null);
+      const sid = msg.session_id || (await loadSession(tabId));
       if (!sid) {
         sendResponse({ ok: false, status: 0, error: "no-session" });
         return;
@@ -73,5 +107,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  delete tabSession[tabId];
+  delete sessionCache[tabId];
+  chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
 });
