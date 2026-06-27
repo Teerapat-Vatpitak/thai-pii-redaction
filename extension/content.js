@@ -128,14 +128,28 @@
     setStatus("Restored", "ok");
   }
 
+  // Read an assistant message's text, minus the Restore button we injected
+  // into it (otherwise the button's "Restore PII" label leaks into the text
+  // we send for re-identification).
+  function messageText(node) {
+    let t = node.innerText || node.textContent || "";
+    const btn = node.querySelector(":scope > ." + PREFIX + "msg-btn");
+    if (btn) {
+      const bt = (btn.innerText || btn.textContent || "").trim();
+      if (bt && t.trimEnd().endsWith(bt)) {
+        t = t.trimEnd().slice(0, -bt.length);
+      }
+    }
+    return t;
+  }
+
   // Floating Restore: prefer a text selection, else the last AI reply.
   async function doRestoreFloating() {
     const sel = (window.getSelection && window.getSelection().toString()) || "";
     if (sel.trim()) return restoreText(sel, "selection");
     const msgs = SITE.assistantMessages();
     if (msgs.length) {
-      const last = msgs[msgs.length - 1];
-      return restoreText(last.innerText || last.textContent || "", "last reply");
+      return restoreText(messageText(msgs[msgs.length - 1]), "last reply");
     }
     setStatus("Select the AI reply text first", "err");
   }
@@ -154,7 +168,7 @@
       const b = el("button", "msg-btn", "Restore PII");
       b.addEventListener("click", (e) => {
         e.stopPropagation();
-        restoreText(m.innerText || m.textContent || "", "reply");
+        restoreText(messageText(m), "reply");
       });
       m.appendChild(b);
     }
