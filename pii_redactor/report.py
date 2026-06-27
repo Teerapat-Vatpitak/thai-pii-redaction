@@ -33,6 +33,25 @@ _SECTION26_KEYWORDS = {
 }
 
 
+def scan_section26(text: str) -> list[dict]:
+    """Find Section 26 sensitive-category matches with their spans.
+
+    Returns one entry per category found (first match), each a dict with
+    keys: category, text, start, end. Flag-only — never used for redaction.
+    """
+    hits: list[dict] = []
+    for category, pattern in _SECTION26_KEYWORDS.items():
+        m = pattern.search(text)
+        if m:
+            hits.append({
+                "category": category,
+                "text": m.group(0),
+                "start": m.start(),
+                "end": m.end(),
+            })
+    return hits
+
+
 def generate_report(text: str) -> PDPAReport:
     """
     Generate a PDPA risk assessment report for the given text.

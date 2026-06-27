@@ -1,152 +1,315 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Guard</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Guard — Thai PII Protection</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header>
-  <span class="logo" data-i18n="appName">AI Guard</span>
-  <div class="lang-toggle">
-    <button id="langBtnEn" class="active">EN</button>
-    <button id="langBtnTh">TH</button>
-  </div>
-</header>
+<div class="app">
 
-<div class="tab-bar">
-  <button class="active" data-tab="guard" data-i18n="tab1">AI Guard</button>
-  <button data-tab="report" data-i18n="tab2">PDPA Report</button>
-  <button data-tab="pdf" data-i18n="tab3">PDF Redact</button>
+  <!-- ════════ SIDEBAR ════════ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">AI Guard</div>
+        <div class="brand-sub">THAI PII PROTECTION</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-label"><span>Tools</span></div>
+      <button class="nav-item active" data-view="guard">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>AI Guard</span>
+      </button>
+      <button class="nav-item" data-view="report">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        <span>PDPA Risk Report</span>
+      </button>
+      <button class="nav-item" data-view="pdf">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+        <span>PDF Redact</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div>PSU FTC 2026 &middot; DIIS<br/>Cybersecurity &amp; AI &amp; Data Privacy</div>
+    </div>
+  </aside>
+
+  <!-- ════════ MAIN ════════ -->
+  <main class="main">
+
+    <!-- ──────── AI GUARD ──────── -->
+    <section class="view" id="view-guard">
+      <div class="view-head">
+        <h1>AI Guard</h1>
+        <p>ปกป้องข้อมูลส่วนบุคคลก่อนส่งให้ AI ภายนอก &middot; Pseudonymize PII before sharing with external AI</p>
+      </div>
+
+      <!-- step progress -->
+      <div class="steps">
+        <div class="step is-active clickable" id="step1" data-step="1">
+          <div class="step-dot active" id="step1dot">1</div>
+          <span class="step-text">วางข้อความ</span>
+        </div>
+        <div class="step-line" id="line1"></div>
+        <div class="step locked" id="step2" data-step="2">
+          <div class="step-dot" id="step2dot">2</div>
+          <span class="step-text">ตรวจจับ &amp; ปกปิด</span>
+        </div>
+        <div class="step-line" id="line2"></div>
+        <div class="step locked" id="step3" data-step="3">
+          <div class="step-dot" id="step3dot">3</div>
+          <span class="step-text">กู้คืนข้อมูล</span>
+        </div>
+      </div>
+
+      <!-- Step 1: input -->
+      <div class="card card-pad" id="guardInputCard" style="margin-bottom:12px;">
+        <div class="card-head" style="margin-bottom:14px;">
+          <span class="eyebrow">Step 1</span>
+          <span class="card-title">วางข้อความ / Paste Text</span>
+          <div class="grow" style="display:flex;gap:5px;">
+            <span class="lang-chip">TH</span>
+            <span class="lang-chip en">EN</span>
+          </div>
+        </div>
+        <textarea class="field" id="guardInput" style="height:148px;" placeholder="วางข้อความภาษาไทย/อังกฤษที่มีข้อมูลส่วนบุคคล..."></textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
+          <span class="char-count" id="charCount">0 ตัวอักษร</span>
+          <button class="btn btn-primary" id="sanitizeBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Sanitize &amp; Protect &rarr;
+          </button>
+        </div>
+        <div id="guardError" class="alert alert-red hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- Step 2: results -->
+      <div id="guardResults" class="hidden fade">
+        <div class="card" style="padding:16px 22px;margin-bottom:12px;">
+          <div class="card-head" style="flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+            <span class="eyebrow">Step 2</span>
+            <span class="card-title">ตรวจพบ / Detected</span>
+            <span class="count-pill" id="detectCount">0 PII entities</span>
+            <div class="grow type-chips" id="detectTypes"></div>
+          </div>
+          <div id="s26Alert" class="alert alert-red hidden"></div>
+        </div>
+
+        <div class="diff-grid">
+          <div class="panel panel-orig">
+            <div class="panel-head"><span class="dot dot-grey"></span><span>ต้นฉบับ / Original</span></div>
+            <div class="panel-body"><div class="richtext" id="origRender"></div></div>
+          </div>
+          <div class="panel panel-safe">
+            <div class="panel-head"><span class="dot dot-blue"></span><span>ฉบับปลอดภัย / Sanitized</span><span class="tail">safe to send</span></div>
+            <div class="panel-body"><div class="richtext muted" id="safeRender"></div></div>
+          </div>
+        </div>
+
+        <div class="copy-bar">
+          <span>คัดลอกฉบับปลอดภัยไปวางใน ChatGPT / Claude / Gemini</span>
+          <button class="btn btn-primary" id="copyBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy Sanitized Text
+          </button>
+        </div>
+
+        <div class="next-row">
+          <button class="btn btn-outline" id="goRestoreBtn">ไปขั้นตอนถัดไป: กู้คืนข้อมูล &rarr;</button>
+        </div>
+      </div>
+
+      <!-- Step 3: restore input -->
+      <div id="guardRestoreInput" class="card card-pad hidden fade" style="margin-bottom:12px;">
+        <div class="card-head" style="margin-bottom:14px;">
+          <span class="eyebrow">Step 3</span>
+          <span class="card-title">วาง Response จาก AI / Paste AI Response</span>
+        </div>
+        <textarea class="field" id="aiResponse" style="height:116px;" placeholder="วาง response จาก ChatGPT / Claude / Gemini..."></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+          <button class="btn btn-sky" id="restoreBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.08"/></svg>
+            Restore Original Data &rarr;
+          </button>
+        </div>
+        <div id="restoreError" class="alert alert-red hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- restored result -->
+      <div id="guardRestored" class="restored-card hidden fade" style="margin-bottom:12px;">
+        <div class="restored-head">
+          <div class="title">
+            <div class="check-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span class="label">ข้อมูลถูกกู้คืนแล้ว / Data Restored</span>
+            <span class="mini-pill" id="restoredCount">0 tokens replaced</span>
+          </div>
+          <button class="btn-reset" id="resetBtn">&#8617; Start Over</button>
+        </div>
+        <div style="padding:20px 22px;"><div class="richtext" id="restoredRender"></div></div>
+      </div>
+    </section>
+
+    <!-- ──────── PDPA REPORT ──────── -->
+    <section class="view hidden" id="view-report">
+      <div class="report-top">
+        <div class="view-head" style="margin-bottom:0;">
+          <h1>PDPA Risk Report</h1>
+          <p>รายงานความเสี่ยงตาม พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 &middot; Personal Data Protection Act B.E. 2562</p>
+        </div>
+        <button class="btn btn-ghost" id="analyzeBtn" style="flex-shrink:0;white-space:nowrap;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.08"/></svg>
+          Analyze
+        </button>
+      </div>
+
+      <div class="card card-pad" style="margin-bottom:12px;">
+        <textarea class="field" id="reportInput" style="height:110px;" placeholder="วางข้อความที่ต้องการประเมินความเสี่ยง PDPA..."></textarea>
+        <div id="reportError" class="alert alert-red hidden" style="margin-top:12px;"></div>
+        <div id="reportLoading" class="loading-row hidden" style="margin-top:12px;"><div class="spinner"></div>กำลังวิเคราะห์...</div>
+      </div>
+
+      <div id="reportEmpty" class="card report-empty">วางข้อความแล้วกด Analyze เพื่อสร้างรายงานความเสี่ยง PDPA</div>
+
+      <div id="reportResult" class="hidden fade">
+        <div class="gauge-grid">
+          <div class="card gauge-card">
+            <div class="gauge-label">Overall Risk Score</div>
+            <svg width="148" height="148" viewBox="0 0 120 120" style="margin-bottom:10px;overflow:visible;">
+              <circle cx="60" cy="60" r="48" fill="none" stroke="#E8EDF5" stroke-width="9"/>
+              <circle id="gaugeArc" cx="60" cy="60" r="48" fill="none" stroke="#DC2626" stroke-width="9" stroke-dasharray="0 302" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+              <text id="gaugeGrade" x="60" y="55" text-anchor="middle" style="font-family:'Sarabun',sans-serif;font-size:34px;font-weight:700;fill:#15233B;">–</text>
+              <text id="gaugeScore" x="60" y="71" text-anchor="middle" style="font-family:'Sarabun',sans-serif;font-size:11px;fill:#95A2B8;">0/100</text>
+            </svg>
+            <div class="gauge-risk" id="gaugeRisk">–</div>
+            <div class="gauge-sub">ระดับความเสี่ยงโดยรวม</div>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-label">Direct PII Entities</div>
+              <div class="stat-value" style="color:#D97706;" id="statPii">0</div>
+              <div class="stat-note" id="statPiiNote">FP: 0 &middot; TB: 0</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Section 26 Flags</div>
+              <div class="stat-value" style="color:#DC2626;" id="statS26">0</div>
+              <div class="stat-note" id="statS26Note">–</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Re-ID Risk Score</div>
+              <div class="stat-value" style="color:#EA580C;" id="statReid">0</div>
+              <div class="stat-note" id="statReidNote">–</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Quasi-Identifiers</div>
+              <div class="stat-value" style="color:#7C3AED;" id="statQi">0</div>
+              <div class="stat-note" id="statQiNote">–</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="report-cols">
+          <div class="card card-pad">
+            <div class="section-title">PII Entity Breakdown</div>
+            <div id="breakdown"></div>
+            <div id="breakdownEmpty" class="hidden" style="font-size:12px;color:var(--text-4);">ไม่พบ PII โดยตรง</div>
+          </div>
+
+          <div class="report-col">
+            <div class="card card-pad">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+                <span class="section-title" style="margin-bottom:0;">PDPA Section 26</span>
+                <span class="badge-sensitive">Sensitive Categories</span>
+              </div>
+              <div id="s26List"></div>
+              <div id="s26Empty" class="hidden" style="font-size:12px;color:var(--text-4);">ไม่พบข้อมูลอ่อนไหวตามมาตรา 26</div>
+            </div>
+            <div class="card card-pad">
+              <div class="section-title">Quasi-Identifier Analysis</div>
+              <div class="qi-wrap" id="qiWrap"></div>
+              <div id="qiAlert" class="qi-alert hidden">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>High-risk combo: gender + district + age สามารถระบุตัวบุคคลได้แม้ไม่มี PII โดยตรง</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="section-title">Recommendations</div>
+          <div id="recommendations"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────── PDF REDACT ──────── -->
+    <section class="view hidden" id="view-pdf">
+      <div class="view-head">
+        <h1>PDF Redaction</h1>
+        <p>ลบข้อมูลส่วนบุคคลออกจาก PDF อย่างถาวรด้วย bbox black-box &middot; Permanently redact PII at bounding-box level</p>
+      </div>
+
+      <div id="pdfDrop" class="dropzone">
+        <div class="dz-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+        </div>
+        <div class="dz-title">อัปโหลด PDF / Upload PDF</div>
+        <div class="dz-sub">ลากวางไฟล์ PDF ที่นี่ หรือคลิกเพื่อเลือกไฟล์<br/>Drag and drop here, or click to browse</div>
+        <div class="dz-actions">
+          <button class="btn btn-ghost" id="browseBtn">Browse Files</button>
+        </div>
+        <div id="pdfFileName" class="dz-sub hidden" style="margin-top:16px;margin-bottom:0;color:var(--blue-dark);font-family:var(--mono);font-size:12px;"></div>
+        <div class="dz-note">PDF only &middot; Max 50 MB &middot; Processed locally on-device &middot; PyMuPDF bbox extraction</div>
+      </div>
+      <input type="file" id="pdfInput" accept="application/pdf" style="display:none">
+      <div id="pdfError" class="alert alert-red hidden" style="margin-top:12px;"></div>
+      <div id="pdfLoading" class="loading-row hidden" style="margin-top:14px;"><div class="spinner"></div>กำลังวิเคราะห์ PDF...</div>
+
+      <div id="pdfResult" class="pdf-grid hidden fade" style="margin-top:16px;">
+        <div class="pdf-doc">
+          <div class="pdf-doc-head">
+            <div class="file">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7E8CA3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span id="pdfDocName">document.pdf</span>
+            </div>
+            <span style="font-size:11px;color:var(--text-4);">redacted preview</span>
+          </div>
+          <div class="pdf-sheet" id="pdfSheet"></div>
+        </div>
+
+        <div class="pdf-side">
+          <div class="pdf-done">
+            <div class="h"><span class="dot dot-blue"></span>Redaction Complete</div>
+            <p id="pdfDoneText">PII fields permanently replaced with black boxes. Original text is unrecoverable from this file.</p>
+            <button class="btn btn-primary full-btn" id="downloadBtn">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Redacted PDF
+            </button>
+          </div>
+          <div class="pdf-fields-box">
+            <div class="h">Redacted Fields</div>
+            <div id="redactedFields"></div>
+          </div>
+          <div class="pdf-explain">
+            <div class="h">True Redaction vs AI Guard</div>
+            <p><span style="color:#DC2626;font-weight:600;">PDF Redact:</span> ถาวร ไม่สามารถกู้คืนได้<br/><span style="color:#1D4ED8;font-weight:600;">AI Guard:</span> ชั่วคราว กู้คืนได้จาก session vault<br/>Vault never leaves the device.</p>
+          </div>
+          <button class="btn btn-ghost full-btn" id="pdfResetBtn" style="color:var(--text-2);">&larr; Upload Different File</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
 </div>
-
-<main class="content">
-
-  <!-- Tab 1: AI Guard -->
-  <section id="tab-guard" class="tab-panel active">
-
-    <div class="field">
-      <label for="guardInput" data-i18n="step1Label">Your document</label>
-      <textarea id="guardInput" rows="7"
-        data-i18n-placeholder="step1Placeholder"
-        placeholder="Paste your text here..."></textarea>
-    </div>
-
-    <div class="btn-row">
-      <button id="maskBtn" class="btn btn-primary" data-i18n="maskBtn">Mask PII</button>
-      <span id="maskCount" class="badge badge-blue hidden"></span>
-    </div>
-    <div id="guardError" class="error-msg hidden"></div>
-
-    <div id="maskedSection" class="hidden">
-      <div class="step-divider" data-i18n="step2Title">Step 2 — Send to AI</div>
-      <p class="info-text" data-i18n="step2Hint">Copy the masked text above and paste it into ChatGPT or Claude. When you receive the response, paste it below.</p>
-
-      <div class="field">
-        <label data-i18n="maskedLabel">Masked text</label>
-        <textarea id="maskedOut" rows="6" readonly></textarea>
-      </div>
-      <div class="btn-row">
-        <button id="copyMaskedBtn" class="btn btn-ghost" data-i18n="copyBtn">Copy</button>
-      </div>
-    </div>
-
-    <div id="step2Section" class="hidden">
-      <div class="step-divider" style="margin-top:28px;">Step 3</div>
-    </div>
-
-    <div id="step3Section" class="hidden">
-      <div class="field">
-        <label for="guardResponseInput" data-i18n="step3Label">AI response (with masked tokens)</label>
-        <textarea id="guardResponseInput" rows="7"
-          data-i18n-placeholder="step3Placeholder"
-          placeholder="Paste the AI response here..."></textarea>
-      </div>
-      <div class="btn-row">
-        <button id="restoreBtn" class="btn btn-primary" data-i18n="restoreBtn">Restore</button>
-      </div>
-      <div id="restoreError" class="error-msg hidden"></div>
-    </div>
-
-    <div id="restoredSection" class="hidden">
-      <div class="field" style="margin-top:20px;">
-        <label data-i18n="restoredLabel">Restored text</label>
-        <div id="restoredOut" class="output-block"></div>
-      </div>
-      <div class="btn-row">
-        <button id="copyRestoredBtn" class="btn btn-ghost" data-i18n="copyBtn">Copy</button>
-      </div>
-    </div>
-
-  </section>
-
-  <!-- Tab 2: PDPA Report -->
-  <section id="tab-report" class="tab-panel">
-
-    <div class="field">
-      <label for="reportInput" data-i18n="reportInputLabel">Text to analyze</label>
-      <textarea id="reportInput" rows="7"
-        data-i18n-placeholder="reportInputPlaceholder"
-        placeholder="Paste your document here..."></textarea>
-    </div>
-    <div class="btn-row">
-      <button id="analyzeBtn" class="btn btn-primary" data-i18n="analyzeBtn">Analyze</button>
-    </div>
-    <div id="reportError" class="error-msg hidden"></div>
-
-    <div id="reportCard" class="risk-card hidden">
-      <div class="risk-header">
-        <span class="risk-title" data-i18n="reportTitle">PDPA Risk Report</span>
-        <span id="riskBadge"></span>
-      </div>
-      <div class="risk-rows">
-        <div class="risk-row">
-          <span class="label" data-i18n="totalEntities">Total entities</span>
-          <span class="value" id="totalCount"></span>
-        </div>
-        <div class="risk-row">
-          <span class="label" data-i18n="structuredPII">Structured PII</span>
-          <span class="value" id="fpCount"></span>
-        </div>
-        <div class="risk-row">
-          <span class="label" data-i18n="namedEntities">Named entities</span>
-          <span class="value" id="tbCount"></span>
-        </div>
-      </div>
-      <div style="padding: 12px 20px 4px; border-top: 1px solid var(--border);">
-        <label style="margin-bottom:8px;" data-i18n="entityTypes">Entity types</label>
-      </div>
-      <div id="entityPills" class="entity-pills"></div>
-    </div>
-
-  </section>
-
-  <!-- Tab 3: PDF Redact -->
-  <section id="tab-pdf" class="tab-panel">
-
-    <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Upload PDF">
-      <div class="dropzone-icon">&#128196;</div>
-      <div class="dropzone-text" data-i18n="dropzoneText">Click to select a PDF, or drag and drop</div>
-      <div id="dropzoneFile" class="dropzone-file hidden"></div>
-    </div>
-    <input type="file" id="pdfInput" accept="application/pdf" style="display:none" aria-hidden="true">
-    <p class="info-text" data-i18n="pdfNote">Analysis only — the original file is not modified.</p>
-
-    <div class="btn-row">
-      <button id="analyzePdfBtn" class="btn btn-primary" data-i18n="analyzePdfBtn">Analyze PDF</button>
-    </div>
-    <div id="pdfError" class="error-msg hidden"></div>
-
-    <div id="pdfResultSection" class="hidden" style="margin-top:20px;">
-      <label data-i18n="pdfResultLabel">Result</label>
-      <div id="pdfResult" class="output-block" style="margin-top:8px;"></div>
-    </div>
-
-  </section>
-
-</main>
 
 <script src="app.js"></script>
 </body>
