@@ -9,6 +9,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+*.spec
 .env
 .DS_Store
 step1-7_*.pdf
