@@ -22,6 +22,17 @@
 - ประกาศรอบแรก: 2 ก.ค. 2569 · นำเสนอโปสเตอร์ A1 + ประกาศผล: 10 ก.ค. 2569
 - อัปโหลดไฟล์ผ่าน Google Drive/OneDrive/PSU Storage แชร์ไป **governance@psu.ac.th**
 
+## ไฟล์ออกแบบที่ generate ให้แล้ว (เปิดใช้/แก้ต่อได้เลย)
+
+| ไฟล์ | คืออะไร | วิธีใช้ |
+|---|---|---|
+| `a4.html` | A4 1 หน้า จัดหน้าแล้ว (โลโก้ + before/after ฝังในไฟล์) | เปิดในเบราว์เซอร์ -> Print -> Save as PDF (เลือกขนาด A4) ได้ deliverable ข้อ 13 |
+| `poster.html` | โปสเตอร์ A1 จัดหน้าแล้ว (โลโก้ + before/after + แผนภาพ) | เปิดในเบราว์เซอร์ -> Print -> Save as PDF (เลือกขนาด A1 / กระดาษ custom 594x841mm) |
+| `build_designed_docs.py` | สคริปต์สร้าง a4.html/poster.html ใหม่ (ฝังรูป base64) | `python docs/submission/build_designed_docs.py` หากแก้รูป/เนื้อหาแล้วอยากสร้างใหม่ |
+
+ภาพประกอบ (อยู่ใน `assets/`): `demo-before-after.png` (ก่อน/หลังปกปิด จาก output จริง), `architecture.png` (แผนภาพสถาปัตยกรรม), `logo.svg`/`logo.png`
+> หมายเหตุ: ฟอนต์ในไฟล์ HTML โหลด Sarabun จาก Google Fonts ตอนเปิด (ต้องต่อเน็ตตอน export PDF) เพื่อนปรับสี/เลย์เอาต์/ใส่ QR ต่อใน Canva/Illustrator ได้ตามต้องการ
+
 ## หลักการเขียน (สำคัญ — อย่าแก้ให้เกินจริง)
 เคลมเฉพาะที่ระบบทำได้จริง: regex+checksum, thainer-CRF NER + กฎบริบท, token/surrogate, vault ในเครื่อง,
 true PDF redaction (bbox), ธง ม.26, re-id risk, extension + .exe
