@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "AI Guard - Thai PII Mask",
+  "version": "1.0.0",
+  "description": "Mask Thai PII before sending to ChatGPT/Claude, then restore it locally from the AI reply. PSU FTC 2026.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Guard"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "clipboardWrite"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["sites.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+/* AI Guard injected UI. All classes are aiguard- prefixed to avoid clashing
+   with the host page's styles. */
+
+.aiguard-bar {
+  position: fixed;
+  right: 16px;
+  bottom: 110px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid #e3e9f2;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(21, 35, 59, 0.16);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+.aiguard-btn {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.aiguard-btn:hover {
+  filter: brightness(0.95);
+}
+.aiguard-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.aiguard-btn.aiguard-ghost {
+  background: transparent;
+  color: #2563eb;
+}
+
+.aiguard-status {
+  font-size: 12px;
+  color: #5b6b85;
+  max-width: 180px;
+}
+.aiguard-status.aiguard-ok {
+  color: #15803d;
+}
+.aiguard-status.aiguard-err {
+  color: #b91c1c;
+}
+
+.aiguard-msg-btn {
+  display: inline-block;
+  margin-top: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f5f8fd;
+  color: #2563eb;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.aiguard-msg-btn:hover {
+  background: #e9f0fc;
+}
+
+/* restored-text overlay */
+.aiguard-overlay-back {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: rgba(21, 35, 59, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.aiguard-overlay {
+  position: relative;
+  width: min(680px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(21, 35, 59, 0.3);
+  padding: 20px 22px;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #15233b;
+}
+
+.aiguard-overlay-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: #5b6b85;
+  cursor: pointer;
+}
+
+.aiguard-overlay-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.aiguard-overlay-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.55;
+  background: #f5f8fd;
+  border: 1px solid #e3e9f2;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.aiguard-overlay-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #5b6b85;
+}
+
+@media (prefers-color-scheme: dark) {
+  .aiguard-bar {
+    background: #1b2433;
+    border-color: #2b394f;
+  }
+  .aiguard-status {
+    color: #9fb0cc;
+  }
+}

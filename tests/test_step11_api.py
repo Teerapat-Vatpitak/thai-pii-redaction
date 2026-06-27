@@ -34,6 +34,26 @@ def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+def test_root_redirects_to_docs(client):
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code in (307, 308)
+    assert resp.headers["location"] == "/docs"
+
+
+def test_cors_preflight_allows_extension(client):
+    """The extension calls the API cross-origin; preflight must be allowed."""
+    resp = client.options(
+        "/api/sanitize",
+        headers={
+            "Origin": "https://chatgpt.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" in {k.lower() for k in resp.headers}
+
+
 def test_health_version(client):
     resp = client.get("/api/health")
     assert resp.json()["version"] == "2.0.0"

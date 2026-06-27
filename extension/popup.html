@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>AI Guard</title>
+  </head>
+  <body>
+    <header class="hd">
+      <span class="brand">AI Guard</span>
+      <span id="dot" class="dot"></span>
+      <span id="conn" class="conn">checking...</span>
+    </header>
+
+    <main>
+      <p class="hint">
+        Manual mode. On ChatGPT / Claude, use the in-page Mask / Restore
+        buttons instead.
+      </p>
+
+      <label class="lbl" for="input">Your text</label>
+      <textarea id="input" rows="5" placeholder="Paste text with PII..."></textarea>
+      <div class="row">
+        <button id="maskBtn" class="btn">Mask PII</button>
+        <button id="copyBtn" class="btn ghost" disabled>Copy</button>
+        <span id="msg" class="msg"></span>
+      </div>
+
+      <label class="lbl" for="reply">AI reply (to restore)</label>
+      <textarea id="reply" rows="5" placeholder="Paste the AI reply containing [tokens]..."></textarea>
+      <div class="row">
+        <button id="restoreBtn" class="btn" disabled>Restore</button>
+      </div>
+
+      <pre id="out" class="out" hidden></pre>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

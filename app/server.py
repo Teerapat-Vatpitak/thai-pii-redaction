@@ -1,6 +1,7 @@
 """FastAPI server for the AI Guard Thai PII redaction pipeline.
 
-Web API behind the vanilla-JS frontend in app/static/.
+Local API backend for the browser extension (extension/). The extension runs
+on chatgpt.com / claude.ai and calls these endpoints on localhost.
 
 AI Guard uses TOKEN-mode pseudonymization (e.g. [ชื่อ_1]) so the round-trip
 through an external AI is robust and visually explicit. The token -> original
@@ -13,12 +14,11 @@ from __future__ import annotations
 import io
 import time
 import uuid
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -34,14 +34,21 @@ app = FastAPI(
     version="2.0.0",
 )
 
-_static_dir = Path(__file__).parent / "static"
-if _static_dir.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+# CORS — the browser extension (content script on chatgpt.com / claude.ai)
+# calls this backend cross-origin. No cookies are used, so a wildcard origin
+# without credentials is safe for this localhost-only prototype.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
 
 
 @app.get("/", include_in_schema=False)
 def root():
-    return RedirectResponse(url="/static/index.html")
+    return RedirectResponse(url="/docs")
 
 
 # ── in-memory session store (token -> original maps) ───────────────────

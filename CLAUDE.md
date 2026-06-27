@@ -33,7 +33,12 @@ Thai font: `C:\Windows\Fonts\sarabun-v17-...-regular.ttf`
 ## Running
 
 ```powershell
-# Web server
+# Local API backend (what the browser extension talks to).
+# run.ps1 creates the venv + installs deps on first run, then starts uvicorn.
+./run.ps1                      # Windows
+# ./run.sh                     # git-bash / Linux / macOS
+
+# Or directly:
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m uvicorn app.server:app --port 8000
 
 # CLI demo
@@ -45,17 +50,25 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest tests/test_foo.py::test_name -v
 ```
 
-Launch config for web preview: `.claude/launch.json` profile `thairedact`.
+**Browser extension** (primary UI): start the backend (above), then load `extension/`
+unpacked in Chrome (`chrome://extensions` → Developer mode → Load unpacked). See
+`extension/README.md`. The extension calls the backend cross-origin, so the server
+enables permissive CORS (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
-One core pipeline (`pii_redactor/`) exposed via three storefronts:
+One core pipeline (`pii_redactor/`) exposed via two storefronts over one shared backend:
 
 | Storefront | Entry point |
 |---|---|
+| Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar + popup on ChatGPT/Claude) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
-| Web app | `app/server.py` (FastAPI) + `app/static/` |
-| Browser extension | `extension/` (MV3: popup + floating button on ChatGPT/Claude) |
+
+Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
+product's front door; the backend is API-only (no web frontend) and runs on localhost.
+`/` redirects to `/docs` (Swagger). The extension's service worker calls the backend, so
+CORS is enabled. The browser never holds the vault — only the `session_id`; the
+token → original map lives in the backend's in-memory `_SESSIONS` (`app/server.py`).
 
 ### Pipeline (Step 1-7 per design doc `step1-7_*.pdf`)
 
@@ -131,9 +144,13 @@ Output: **Pseudonymized Document** + session mapping table (for re-identificatio
 | `pii_redactor/wangchanberta.py` | Optional WangchanBERTa NER wrapper |
 | `pii_redactor/audit.py` | Audit log |
 
-### Web API Endpoints
+### Web API Endpoints (`app/server.py`, v2 token-mode contract)
 
-`/api/health`, `/api/sanitize?mode=token|surrogate`, `/api/reidentify`, `/api/redact-pdf` (returns before/after PNG), `/api/extract-file`, `/api/analyze`
+- `GET /api/health` → `{status, version}`
+- `POST /api/sanitize {text}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[]}` — token-mode pseudonymization (`[ชื่อ_1]`); stores the token → original map in the in-memory `_SESSIONS` keyed by `session_id`.
+- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens}` — restores tokens from the stored session map.
+- `POST /api/analyze {text}` → full PDPA report `{overall_score, overall_grade, risk_label, direct_pii_count, fp_count, tb_count, section26[], reid, breakdown[], recommendations[]}`.
+- `POST /api/redact-pdf` (multipart `pdf_file`) → `{filename, entity_count, fields[], section26[]}` (analysis for the redaction view; bbox redaction itself is in `pii_redactor/redactor.py`).
 
 ## Design Invariants
 
