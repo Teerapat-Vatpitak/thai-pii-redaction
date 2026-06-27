@@ -69,7 +69,9 @@ def redact_pdf(
 
     doc = fitz.open(input_pdf_path)
 
-    for page_num, page in enumerate(doc):
+    # text_extractor numbers pages 1-based (both pdfplumber and fitz paths),
+    # so match that here.
+    for page_num, page in enumerate(doc, start=1):
         words_on_page = by_page.get(page_num, [])
         for wb in words_on_page:
             # Check if this word should be redacted

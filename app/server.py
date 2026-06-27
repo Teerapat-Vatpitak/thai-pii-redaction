@@ -11,9 +11,12 @@ written to disk and never sent over the network — consistent with the
 """
 from __future__ import annotations
 
-import io
+import base64
+import shutil
+import tempfile
 import time
 import uuid
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -27,6 +30,9 @@ from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.ingest.text_cleaner import clean
+from pii_redactor.ingest.text_extractor import extract
+from pii_redactor.redactor import redact_pdf as redact_pdf_file
+from pii_redactor.models import EntityRegistry
 from pii_redactor.report import generate_report, scan_section26
 from pii_redactor.reid_risk import assess_reid_risk
 
@@ -326,42 +332,62 @@ def analyze(request: AnalyzeRequest):
     }
 
 
+def _first_page_png(pdf_path: str) -> str:
+    """Render page 1 of a PDF to a base64 PNG (for before/after previews)."""
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(pdf_path)
+    png = doc[0].get_pixmap().tobytes("png")
+    doc.close()
+    return base64.b64encode(png).decode("ascii")
+
+
 @app.post("/api/redact-pdf")
 async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
-    """Analyze a PDF for PII. Returns detected field types for the redaction view.
+    """Redact PII in a text-layer PDF and return the redacted file + previews.
 
-    Note: actual bbox-level PDF redaction (black boxes) is handled in
-    pii_redactor/redactor.py; this endpoint returns the analysis used to
-    drive the redaction preview.
+    Detection runs on the RAW extracted text (not cleaned) so entity text
+    aligns with the word bboxes used to draw the black boxes — the text
+    cleaner would shift char offsets. Scanned/image PDFs (no text layer)
+    produce no redactions here; OCR is on the roadmap.
     """
     if not pdf_file.filename or not pdf_file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
     contents = await pdf_file.read()
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aiguard_redact_"))
+    in_path = tmp_dir / "input.pdf"
+    out_path = tmp_dir / "redacted.pdf"
     try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(stream=io.BytesIO(contents), filetype="pdf")
-        text = "".join(page.get_text() for page in doc)
-        doc.close()
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Could not read PDF: {e}")
+        in_path.write_bytes(contents)
+        try:
+            raw_text, word_bboxes = extract(in_path, "pdf_text")
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Could not read PDF: {e}")
 
-    text = clean(text).text
-    fp = detect_fp(text)
-    tb = detect_tb(text)
-    entities = fp + tb
+        fp = detect_fp(raw_text)
+        tb = detect_tb(raw_text)
+        entities = fp + tb
+        registry = EntityRegistry(entities=entities, fp_count=len(fp), tb_count=len(tb))
 
-    # unique field types, in order of first appearance
-    seen = set()
-    fields = []
-    for e in entities:
-        if e.data_type not in seen:
-            seen.add(e.data_type)
-            fields.append({"data_type": e.data_type, "redact_type": e.redact_type})
+        redact_pdf_file(str(in_path), registry, word_bboxes, str(out_path))
 
-    return {
-        "filename": pdf_file.filename,
-        "entity_count": len(entities),
-        "fields": fields,
-        "section26": scan_section26(text),
-    }
+        # unique field types, in order of first appearance
+        seen = set()
+        fields = []
+        for e in entities:
+            if e.data_type not in seen:
+                seen.add(e.data_type)
+                fields.append({"data_type": e.data_type, "redact_type": e.redact_type})
+
+        return {
+            "filename": pdf_file.filename,
+            "entity_count": len(entities),
+            "fields": fields,
+            "section26": scan_section26(raw_text),
+            "redacted_pdf_b64": base64.b64encode(out_path.read_bytes()).decode("ascii"),
+            "before_png_b64": _first_page_png(str(in_path)),
+            "after_png_b64": _first_page_png(str(out_path)),
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
