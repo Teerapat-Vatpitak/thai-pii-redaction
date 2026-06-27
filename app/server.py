@@ -278,6 +278,18 @@ def analyze(request: AnalyzeRequest):
     breakdown = sorted(breakdown_map.values(), key=lambda x: -x["count"])
 
     section26 = scan_section26(text)
+    # Semantic pass: flag free-form sensitive content the keywords miss.
+    # No-op (empty) when sentence-transformers is not installed.
+    try:
+        from pii_redactor.sensitive_detector import detect_sensitive
+
+        have = {s["category"] for s in section26}
+        for hit in detect_sensitive(text):
+            if hit["category"] not in have:
+                section26 = section26 + [{**hit, "source": "semantic"}]
+                have.add(hit["category"])
+    except Exception:  # pragma: no cover - defensive; model issues never block analyze
+        pass
 
     # structured recommendations with severity levels
     recs = []
