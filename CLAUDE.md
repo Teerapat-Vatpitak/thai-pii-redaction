@@ -103,7 +103,7 @@ Two parallel detection passes on the Normalized Document Model:
   - Thai national ID (mod-11 Luhn), phone, email, bank account, credit card, IBAN, passport, vehicle plate, student ID, date of birth
   - High confidence - pattern match alone is sufficient
 - **Text-Based (TB)**: NER + context classifier
-  - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the model that actually runs. A WangchanBERTa engine is **roadmap**, not implemented.
+  - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the default, fast, fully offline. An opt-in WangchanBERTa engine (`AIGUARD_NER_ENGINE=wangchanberta`, maps to `NER(engine="thainer-v2")`) is available for higher recall at a real cost: ~1.3s/sentence on CPU vs near-instant for CRF. Selected once per process via env var, not per-request; fails loudly (`NEREngineUnavailableError`) rather than silently falling back if `transformers` isn't installed.
   - Name recall booster: `detectors/name_context.py` (`detect_name_context`, merged inside `detect_tb`) — token-level title/label cues (นาย/นาง/นางสาว/…, ผมชื่อ…, ลงชื่อ) capture names the CRF misses or clips; works on tokens so it ignores substrings like "นายก"/"คุณภาพ".
   - Sliding window ±3 sentences for context (NER is ambiguous without surrounding context)
   - Targets via thainer labels: name (PERSON), address (LOCATION), date (DATE)
@@ -170,7 +170,7 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/models.py` | Shared dataclasses (`Entity`, `EntityRegistry`, `WordBbox`, `VaultRecord`, `AIResponse`, `ReverseResult`, ...) |
 | `pii_redactor/ingest/ocr_processor.py` | Step 1 (hybrid/scanned PDFs): per-page PaddleOCR extraction, deskew/denoise/sharpen preprocessing, retry x3 → `human_review` flag. Optional (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed |
 
-Roadmap (not implemented): WangchanBERTa NER engine, Presidio bridge.
+Roadmap (not implemented): Presidio bridge.
 
 ### Web API Endpoints (`app/server.py`, v2 token-mode contract)
 
