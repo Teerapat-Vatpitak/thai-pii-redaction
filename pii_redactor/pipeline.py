@@ -84,10 +84,11 @@ def run_pipeline(
         from pii_redactor.ingest.file_detector import detect_source_type
         from pii_redactor.ingest.text_extractor import extract
         source_type = detect_source_type(input_path)
-        raw_text, _bboxes = extract(input_path, source_type)
+        raw_text, _bboxes, extract_meta = extract(input_path, source_type)
     else:
         raw_text = text
         source_type = "text"
+        extract_meta = {}
 
     from pii_redactor.ingest.text_cleaner import clean
     clean_result = clean(raw_text)
@@ -95,7 +96,9 @@ def run_pipeline(
 
     # Quality check is informational; do not halt on low score
     from pii_redactor.ingest.quality_validator import validate as validate_quality
-    validate_quality(clean_text, source_type)
+    validate_quality(
+        clean_text, source_type, ocr_confidence=extract_meta.get("ocr_confidence")
+    )
 
     # --- Step 2: Detection ---
     from pii_redactor.detectors.fp_detector import detect_fp

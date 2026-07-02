@@ -1,8 +1,10 @@
 # Build dist/AIGuard.exe — a double-click launcher for the AI Guard backend.
 #
 # Bundles the base product (FastAPI + regex/checksum + Thai NER + PDF redaction).
-# The heavy optional ML stack (torch / sentence-transformers) is excluded so the
-# binary stays small; the MiniLM sensitive detector simply stays disabled there.
+# The heavy optional ML stacks (torch / sentence-transformers, paddleocr /
+# paddlepaddle) are excluded so the binary stays small; the MiniLM sensitive
+# detector and scanned-PDF OCR simply stay disabled there (OCR requests 503
+# with a message pointing at requirements-ocr.txt / running from source).
 #
 # It also bundles the PyThaiNLP NER model (the thai-ner CRF file) so NER works
 # offline on a fresh machine with no runtime download. The 400MB+ neural NNER
@@ -40,6 +42,10 @@ if (Test-Path $dataDir) {
     --exclude-module torch `
     --exclude-module sentence_transformers `
     --exclude-module transformers `
+    --exclude-module paddleocr `
+    --exclude-module paddlepaddle `
+    --exclude-module paddle `
+    --exclude-module cv2 `
     @dataArgs `
     launcher.py
 

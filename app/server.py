@@ -29,6 +29,8 @@ from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
+from pii_redactor.ingest.file_detector import detect_source_type
+from pii_redactor.ingest.ocr_processor import OCRUnavailableError
 from pii_redactor.ingest.text_cleaner import clean
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
@@ -356,12 +358,13 @@ def _first_page_png(pdf_path: str) -> str:
 
 @app.post("/api/redact-pdf")
 async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
-    """Redact PII in a text-layer PDF and return the redacted file + previews.
+    """Redact PII in a text-layer or scanned PDF and return the redacted file + previews.
 
     Detection runs on the RAW extracted text (not cleaned) so entity text
     aligns with the word bboxes used to draw the black boxes — the text
-    cleaner would shift char offsets. Scanned/image PDFs (no text layer)
-    produce no redactions here; OCR is on the roadmap.
+    cleaner would shift char offsets. Scanned/image PDFs are routed through
+    OCR (pii_redactor.ingest.ocr_processor) page by page; if the OCR
+    dependencies (requirements-ocr.txt) aren't installed, this returns 503.
     """
     if not pdf_file.filename or not pdf_file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
@@ -373,7 +376,10 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     try:
         in_path.write_bytes(contents)
         try:
-            raw_text, word_bboxes = extract(in_path, "pdf_text")
+            source_type = detect_source_type(in_path)
+            raw_text, word_bboxes, extract_meta = extract(in_path, source_type)
+        except OCRUnavailableError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Could not read PDF: {e}")
 
@@ -394,6 +400,10 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
 
         return {
             "filename": pdf_file.filename,
+            "source_type": source_type,
+            "ocr_confidence": extract_meta.get("ocr_confidence"),
+            "human_review": extract_meta.get("human_review", False),
+            "ocr_warnings": extract_meta.get("warnings", []),
             "entity_count": len(entities),
             "fields": fields,
             "section26": scan_section26(raw_text),

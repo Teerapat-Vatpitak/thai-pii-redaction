@@ -1,3 +1,10 @@
-paddlepaddle>=2.6.0
-paddleocr>=2.7.0
+# paddleocr >=3.0 required for Thai: PP-OCRv5 (paddleocr 3.x) is the first
+# model line with a built-in Thai ("th") recognition model -- paddleocr 2.x's
+# PP-OCRv2/v3/v4 models never included Thai (lang="th" raises AssertionError).
+# paddlepaddle pinned below 3.3.0: 3.3.0/3.3.1 have a CPU-inference regression
+# in the PIR->oneDNN conversion layer (NotImplementedError:
+# ConvertPirAttribute2RuntimeAttribute ...), see
+# https://github.com/PaddlePaddle/Paddle/issues/77340 -- 3.2.2 is unaffected.
+paddlepaddle>=2.6.0,<3.3.0
+paddleocr>=3.0.0
 opencv-python-headless>=4.9.0

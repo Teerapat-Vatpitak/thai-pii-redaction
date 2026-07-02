@@ -35,5 +35,5 @@
 
 ## หลักการเขียน (สำคัญ — อย่าแก้ให้เกินจริง)
 เคลมเฉพาะที่ระบบทำได้จริง: regex+checksum, thainer-CRF NER + กฎบริบท, token/surrogate, vault ในเครื่อง,
-true PDF redaction (bbox), ธง ม.26, re-id risk, extension + .exe
-**ของที่เป็น roadmap (ห้ามเคลมว่าทำแล้ว):** WangchanBERTa, OCR เอกสารสแกน, Presidio bridge, การวัด F1 ทางการ
+true PDF redaction (bbox), OCR ภาพสแกนด้วย PaddleOCR ต่อหน้า (พร้อม retry + human-review flag; ต้องรันจาก source พร้อม `requirements-ocr.txt` — ไม่ได้บันเดิลใน .exe), ธง ม.26, re-id risk, extension + .exe
+**ของที่เป็น roadmap (ห้ามเคลมว่าทำแล้ว):** WangchanBERTa, Presidio bridge, การวัด F1 ทางการ (ไม่มีตัวเลข accuracy ของ OCR ที่ผ่านการวัดจริง — อย่าเคลมตัวเลข)
