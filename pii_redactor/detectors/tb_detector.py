@@ -1,6 +1,8 @@
-"""Text-based (TB) PII detector using PyThaiNLP NER (thainer CRF)."""
+"""Text-based (TB) PII detector using PyThaiNLP NER (thainer CRF by default;
+WangchanBERTa opt-in via AIGUARD_NER_ENGINE)."""
 from __future__ import annotations
 
+import os
 import uuid
 
 from pythainlp import sent_tokenize
@@ -28,14 +30,44 @@ LABEL_MAP: dict[str, str | None] = {
     "LOC": "ADDRESS",
 }
 
-# Lazy-initialized NER instance (first import triggers model load)
+
+class NEREngineUnavailableError(RuntimeError):
+    """AIGUARD_NER_ENGINE is set to an engine whose dependency isn't installed."""
+
+
+# Curated allow-list: only engines verified to emit the same (word, "B-"/"I-"/
+# "O"-tag) shape that _bio_to_spans() below decodes. Do NOT add thai-nner or
+# tltk here without first verifying their .tag() output shape -- they are
+# known to differ (nested entities / different tuple layout).
+_ENGINE_CONFIG: dict[str, dict[str, str | None]] = {
+    "thainer": {"ner_engine": "thainer", "requires": None},
+    "wangchanberta": {"ner_engine": "thainer-v2", "requires": "transformers"},
+}
+
+# Lazy-initialized NER instance (first call triggers model load)
 _ner: NER | None = None
 
 
 def _get_ner() -> NER:
     global _ner
     if _ner is None:
-        _ner = NER(engine="thainer")
+        name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
+        if name not in _ENGINE_CONFIG:
+            raise ValueError(
+                f"Unknown AIGUARD_NER_ENGINE={name!r}; "
+                f"supported: {sorted(_ENGINE_CONFIG)}"
+            )
+        config = _ENGINE_CONFIG[name]
+        requires = config["requires"]
+        if requires is not None:
+            try:
+                __import__(requires)
+            except ImportError:
+                raise NEREngineUnavailableError(
+                    f"AIGUARD_NER_ENGINE={name!r} requires {requires!r}. "
+                    f"Run: pip install -r requirements-ml.txt"
+                ) from None
+        _ner = NER(engine=config["ner_engine"])
     return _ner
 
 
