@@ -39,3 +39,7 @@ export function redactPdf(file) {
   fd.append("pdf_file", file);
   return j("/api/redact-pdf", { method: "POST", body: fd });
 }
+
+export function auditLog(limit = 100, offset = 0) {
+  return j(`/api/audit-log?limit=${limit}&offset=${offset}`);
+}
