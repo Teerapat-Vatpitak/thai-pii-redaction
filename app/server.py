@@ -236,6 +236,45 @@ def health():
     return {"status": "ok", "version": "2.0.0"}
 
 
+@app.get("/api/audit-log")
+def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
+    """Paginated, PII-free audit trail (newest first).
+
+    Reads the JSONL files written by pii_redactor.audit.write_process_log /
+    write_security_log, filtering to a safe field set that never echoes
+    request text or vault content.
+    """
+    log_dir = _get_audit_log_dir()
+    records = []
+    for path in glob.glob(f"{log_dir}/audit_*.jsonl"):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    safe = {"type": r.get("type"), "session_id": r.get("session_id"), "timestamp": r.get("timestamp")}
+                    if r.get("type") == "process":
+                        safe.update(step=r.get("step"), entity_count=r.get("entity_count"),
+                                    validation_result=r.get("validation_result"),
+                                    latency_ms=r.get("latency_ms"), flags=r.get("flags", []))
+                    elif r.get("type") == "security":
+                        safe.update(layer=r.get("layer"), pii_scan_result=r.get("pii_scan_result"),
+                                    retry_count=r.get("retry_count"), error_type=r.get("error_type"),
+                                    rollback_occurred=r.get("rollback_occurred"))
+                    records.append(safe)
+        except OSError:
+            continue
+    records.sort(key=lambda r: r.get("timestamp") or 0, reverse=True)
+    total = len(records)
+    return {"status": "ok", "total_count": total, "limit": limit, "offset": offset,
+            "logs": records[offset:offset + limit]}
+
+
 @app.post("/api/sanitize")
 def sanitize(request: SanitizeRequest):
     start = time.time()
