@@ -12,8 +12,10 @@ written to disk and never sent over the network — consistent with the
 from __future__ import annotations
 
 import base64
+import os
 import shutil
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -59,6 +61,26 @@ app.add_middleware(
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/docs")
+
+
+def _schedule_exit() -> None:
+    """Exit the process shortly after the HTTP response is flushed.
+
+    Localhost-only control path used by the desktop shell (Tauri) to stop the
+    bundled sidecar gracefully. A short delay lets the 200 response reach the
+    caller before the interpreter exits.
+    """
+    def _die() -> None:
+        time.sleep(0.3)
+        os._exit(0)
+
+    threading.Thread(target=_die, daemon=True).start()
+
+
+@app.post("/api/shutdown")
+def shutdown():
+    _schedule_exit()
+    return {"status": "shutting_down"}
 
 
 # ── in-memory session store (token -> original maps) ───────────────────
