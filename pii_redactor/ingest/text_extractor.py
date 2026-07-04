@@ -28,10 +28,9 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
         width = x1 - x0; height = bottom - top
       - Join all pages with "\n\n"
       - If pdfplumber extraction fails or returns empty string:
-        fallback to PyMuPDF (fitz):
-          for each page: page.get_text("words") returns (x0,y0,x1,y1,word,block,line,word_num)
-          Create WordBbox(text=word[4], page=page_num, x=word[0], y=word[1],
-                         width=word[2]-word[0], height=word[3]-word[1])
+        fallback to pypdfium2:
+          for each page: page.get_textpage().get_text_range() for text, and
+          per-character boxes stitched into word-level WordBbox entries.
       - Return (full_text, word_bboxes, {})
 
     For source_type == "pdf_hybrid":
@@ -60,7 +59,7 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
 
 
 def _extract_pdf_text(path: Path) -> tuple[str, list[WordBbox]]:
-    """Extract text and bboxes from a text-layer PDF using pdfplumber with PyMuPDF fallback."""
+    """Extract text and bboxes from a text-layer PDF using pdfplumber with pypdfium2 fallback."""
     try:
         import pdfplumber
 
@@ -94,45 +93,88 @@ def _extract_pdf_text(path: Path) -> tuple[str, list[WordBbox]]:
         if full_text.strip():
             return full_text, word_bboxes
 
-        # pdfplumber returned empty — fall through to PyMuPDF
+        # pdfplumber returned empty — fall through to pypdfium2
     except Exception:
-        pass  # fall through to PyMuPDF
+        pass  # fall through to pypdfium2
 
-    return _extract_pdf_fitz(path)
+    return _extract_pdf_pypdfium2(path)
 
 
 def _extract_page_text_layer(page, page_num: int) -> tuple[str, list[WordBbox]]:
-    """Extract a single fitz page's text layer as (page_text, word_bboxes)."""
-    word_bboxes: list[WordBbox] = []
-    for word in page.get_text("words"):
-        # word tuple: (x0, y0, x1, y1, "text", block_no, line_no, word_no)
-        word_bboxes.append(
-            WordBbox(
-                text=word[4],
-                page=page_num,
-                x=word[0],
-                y=word[1],
-                width=word[2] - word[0],
-                height=word[3] - word[1],
-            )
-        )
-    return page.get_text(), word_bboxes
+    """Extract a single pypdfium2 page's text layer as (page_text, word_bboxes).
+
+    pypdfium2 has no built-in word tokenizer, so words are reconstructed by
+    grouping consecutive non-whitespace characters using per-character boxes
+    (get_charbox), then converting from PDF's bottom-left origin to the
+    top-left origin used elsewhere (pdfplumber's "top" convention).
+    """
+    textpage = page.get_textpage()
+    try:
+        raw_text = textpage.get_text_range()
+        page_height = page.get_size()[1]
+        n_chars = textpage.count_chars()
+
+        word_bboxes: list[WordBbox] = []
+        cur_chars: list[str] = []
+        cur_box: list[float] | None = None  # [left, top, right, bottom]
+
+        def _flush():
+            if cur_chars and cur_box is not None:
+                word_bboxes.append(
+                    WordBbox(
+                        text="".join(cur_chars),
+                        page=page_num,
+                        x=cur_box[0],
+                        y=cur_box[1],
+                        width=cur_box[2] - cur_box[0],
+                        height=cur_box[3] - cur_box[1],
+                    )
+                )
+
+        for i in range(n_chars):
+            ch = raw_text[i]
+            if ch.isspace():
+                _flush()
+                cur_chars = []
+                cur_box = None
+                continue
+
+            left, bottom, right, top = textpage.get_charbox(i)
+            # Convert to top-origin: y = distance from page top.
+            box_top = page_height - top
+            box_bottom = page_height - bottom
+
+            cur_chars.append(ch)
+            if cur_box is None:
+                cur_box = [left, box_top, right, box_bottom]
+            else:
+                cur_box[0] = min(cur_box[0], left)
+                cur_box[1] = min(cur_box[1], box_top)
+                cur_box[2] = max(cur_box[2], right)
+                cur_box[3] = max(cur_box[3], box_bottom)
+
+        _flush()
+        return raw_text.replace("\r\n", "\n"), word_bboxes
+    finally:
+        textpage.close()
 
 
-def _extract_pdf_fitz(path: Path) -> tuple[str, list[WordBbox]]:
-    """Fallback: extract text and bboxes using PyMuPDF (fitz)."""
-    import fitz  # PyMuPDF
+def _extract_pdf_pypdfium2(path: Path) -> tuple[str, list[WordBbox]]:
+    """Fallback: extract text and bboxes using pypdfium2."""
+    import pypdfium2 as pdfium
 
-    doc = fitz.open(str(path))
+    doc = pdfium.PdfDocument(str(path))
     page_texts: list[str] = []
     word_bboxes: list[WordBbox] = []
 
-    for page_num, page in enumerate(doc, start=1):
-        page_text, page_bboxes = _extract_page_text_layer(page, page_num)
-        page_texts.append(page_text)
-        word_bboxes.extend(page_bboxes)
+    try:
+        for page_num, page in enumerate(doc, start=1):
+            page_text, page_bboxes = _extract_page_text_layer(page, page_num)
+            page_texts.append(page_text)
+            word_bboxes.extend(page_bboxes)
+    finally:
+        doc.close()
 
-    doc.close()
     full_text = "\n\n".join(page_texts)
     return full_text, word_bboxes
 
@@ -147,9 +189,9 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
             "without OCR. Run: pip install -r requirements-ocr.txt"
         )
 
-    import fitz  # PyMuPDF
+    import pypdfium2 as pdfium
 
-    doc = fitz.open(str(path))
+    doc = pdfium.PdfDocument(str(path))
     page_texts: list[str] = []
     word_bboxes: list[WordBbox] = []
     pages_ocred: list[int] = []
@@ -158,24 +200,26 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
     confidences: list[float] = []
     human_review_any = False
 
-    for page_num, page in enumerate(doc, start=1):
-        text, bboxes = _extract_page_text_layer(page, page_num)
-        if len(text.strip()) >= PDF_HYBRID_PAGE_TEXT_LAYER_MIN_CHARS:
-            pages_text_layer.append(page_num)
-        else:
-            result = ocr_processor.ocr_page(page, page_num)
-            text, bboxes = result.text, result.words
-            pages_ocred.append(page_num)
-            confidences.append(result.confidence)
-            if result.human_review:
-                human_review_any = True
-                warnings.append(
-                    f"page {page_num}: low OCR confidence after {result.attempts} attempt(s)"
-                )
-        page_texts.append(text)
-        word_bboxes.extend(bboxes)
+    try:
+        for page_num, page in enumerate(doc, start=1):
+            text, bboxes = _extract_page_text_layer(page, page_num)
+            if len(text.strip()) >= PDF_HYBRID_PAGE_TEXT_LAYER_MIN_CHARS:
+                pages_text_layer.append(page_num)
+            else:
+                result = ocr_processor.ocr_page(page, page_num)
+                text, bboxes = result.text, result.words
+                pages_ocred.append(page_num)
+                confidences.append(result.confidence)
+                if result.human_review:
+                    human_review_any = True
+                    warnings.append(
+                        f"page {page_num}: low OCR confidence after {result.attempts} attempt(s)"
+                    )
+            page_texts.append(text)
+            word_bboxes.extend(bboxes)
+    finally:
+        doc.close()
 
-    doc.close()
     full_text = "\n\n".join(page_texts)
     meta = {
         "ocr_confidence": (sum(confidences) / len(confidences)) if confidences else None,
