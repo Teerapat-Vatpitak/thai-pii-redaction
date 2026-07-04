@@ -5,19 +5,20 @@ re-identify round-trip, analyze, and real PDF redaction. The example files in
 examples/ double as the test corpus and as try-it-yourself material for users.
 """
 import base64
+import io
 from pathlib import Path
 
+import pdfplumber
 import pytest
 
 try:
-    import fitz  # PyMuPDF
     from fastapi.testclient import TestClient
     from app.server import app
     DEPS = True
 except ImportError:
     DEPS = False
 
-pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi/PyMuPDF not installed")
+pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
 PROMPTS = sorted((EXAMPLES / "prompts").glob("*.txt"))
@@ -73,9 +74,10 @@ def test_sample_pdf_is_redacted(client):
     assert data["entity_count"] >= 2
 
     redacted = base64.b64decode(data["redacted_pdf_b64"])
-    doc = fitz.open(stream=redacted, filetype="pdf")
-    text = "".join(p.get_text() for p in doc)
-    doc.close()
-    # the structured PII is blacked out of the text layer
+    with pdfplumber.open(io.BytesIO(redacted)) as doc:
+        text = "".join(p.extract_text() or "" for p in doc.pages)
+    # the redacted PDF is flattened to an image, so text extraction finds
+    # nothing at all -- in particular, none of the structured PII.
+    assert text.strip() == ""
     assert "081-234-5678" not in text
     assert "somchai.j@example.co.th" not in text
