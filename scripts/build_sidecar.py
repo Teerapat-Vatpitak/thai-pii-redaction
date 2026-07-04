@@ -39,24 +39,41 @@ EXCLUDE = [
 
 
 def host_triple() -> str:
-    return subprocess.check_output(["rustc", "--print", "host-tuple"], text=True).strip()
+    # Parse the stable `host:` line of `rustc -vV` rather than
+    # `rustc --print host-tuple`: that print-request name changed across rustc
+    # versions (`host-triple` before 1.86, `host-tuple` after), so relying on
+    # either alone breaks on the other. The `-vV` host line is stable.
+    out = subprocess.check_output(["rustc", "-vV"], text=True)
+    for line in out.splitlines():
+        if line.startswith("host:"):
+            return line.split(":", 1)[1].strip()
+    raise RuntimeError("could not determine host triple from `rustc -vV`")
 
 
 def data_args() -> list[str]:
-    """Bundle ~/pythainlp-data (thai-ner CRF model etc.) for offline NER; skip *.pth."""
-    args: list[str] = []
-    data_dir = Path.home() / "pythainlp-data"
-    if data_dir.is_dir():
-        for f in sorted(data_dir.iterdir()):
-            if f.is_file() and f.suffix != ".pth":
-                # PyInstaller --add-data uses the OS path separator (';' win, ':' unix).
-                args += ["--add-data", f"{f}{os.pathsep}pythainlp-data"]
-    else:
-        print(
-            f"WARNING: {data_dir} not found — run the app once so PyThaiNLP downloads "
-            "its NER model, then rebuild for an offline-capable binary.",
-            file=sys.stderr,
+    """Bundle PyThaiNLP's data dir (thai-ner CRF model etc.) for offline NER;
+    skip *.pth (the 431 MB neural model the base engine never uses).
+
+    Resolve the dir via PyThaiNLP's own API so it honors PYTHAINLP_DATA /
+    PYTHAINLP_DATA_DIR instead of assuming ~/pythainlp-data, and hard-fail rather
+    than silently ship a NER-less binary if the CRF model is missing."""
+    from pythainlp.tools import get_pythainlp_data_path
+
+    data_dir = Path(get_pythainlp_data_path())
+    crf = data_dir / "thai-ner-1-4.crfsuite"
+    db = data_dir / "db.json"
+    if not (data_dir.is_dir() and crf.is_file() and db.is_file()):
+        sys.exit(
+            f"ERROR: PyThaiNLP NER model not found in {data_dir} (need db.json + "
+            "thai-ner-1-4.crfsuite). Run `python -c \"from pythainlp.tag import "
+            "NER; NER(engine='thainer')\"` once to download it, then rebuild. "
+            "Refusing to ship a NER-less binary."
         )
+    args: list[str] = []
+    for f in sorted(data_dir.iterdir()):
+        if f.is_file() and f.suffix != ".pth":
+            # PyInstaller --add-data uses the OS path separator (';' win, ':' unix).
+            args += ["--add-data", f"{f}{os.pathsep}pythainlp-data"]
     return args
 
 

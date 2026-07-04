@@ -110,7 +110,14 @@ pub fn kill(app: &AppHandle) {
     // tree-kill below stays the guarantee (a POST can't reliably reap the
     // PyInstaller child process).
     use std::io::Write;
-    if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:8000") {
+    // Bounded: a bare connect()/write() to a filtered or half-open loopback
+    // socket could otherwise block the exit path (this runs on the main thread
+    // from ExitRequested). The force-kill below stays the real guarantee.
+    if let Ok(mut stream) = std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8000".parse().expect("valid socket addr"),
+        Duration::from_millis(500),
+    ) {
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
         let _ = stream.write_all(
             b"POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         );
