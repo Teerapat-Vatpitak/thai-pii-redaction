@@ -12,8 +12,11 @@ written to disk and never sent over the network — consistent with the
 from __future__ import annotations
 
 import base64
+import glob
+import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -21,11 +24,12 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.detectors.fn_scanner import scan_fn
@@ -81,6 +85,16 @@ def _schedule_exit() -> None:
 def shutdown():
     _schedule_exit()
     return {"status": "shutting_down"}
+
+
+def _get_audit_log_dir() -> str:
+    """Audit log directory. Frozen exe -> %APPDATA%/AI Guard/logs; source -> ./logs."""
+    if getattr(sys, "frozen", False):
+        log_dir = Path.home() / "AppData" / "Roaming" / "AI Guard" / "logs"
+    else:
+        log_dir = Path.cwd() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return str(log_dir)
 
 
 # ── in-memory session store (token -> original maps) ───────────────────
@@ -224,6 +238,7 @@ def health():
 
 @app.post("/api/sanitize")
 def sanitize(request: SanitizeRequest):
+    start = time.time()
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
     mode = request.mode if request.mode in ("token", "surrogate") else "token"
@@ -234,6 +249,15 @@ def sanitize(request: SanitizeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     sid = _store_session(result["token_map"])
+    write_process_log(
+        session_id=sid,
+        step="api_sanitize",
+        entity_count=len(result["entities"]),
+        validation_result="pass",
+        flags=[],
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
     return {
         "session_id": sid,
         "original_text": result["original_text"],
@@ -247,6 +271,7 @@ def sanitize(request: SanitizeRequest):
 @app.post("/api/reidentify")
 def reidentify(request: ReidentifyRequest):
     """Restore original PII by replacing tokens using the stored session map."""
+    start = time.time()
     session = _SESSIONS.get(request.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -262,6 +287,15 @@ def reidentify(request: ReidentifyRequest):
 
     leftover = [t for t in token_map if t in restored]  # tokens not restored
 
+    write_process_log(
+        session_id=request.session_id,
+        step="api_reidentify",
+        entity_count=len(replaced),
+        validation_result="warn" if leftover else "pass",
+        flags=[f"leftover:{t}" for t in leftover],
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
     return {
         "restored_text": restored,
         "replaced": replaced,
@@ -282,6 +316,7 @@ def _risk_label(score: float) -> str:
 
 @app.post("/api/analyze")
 def analyze(request: AnalyzeRequest):
+    start = time.time()
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
     text = clean(request.text).text
@@ -349,6 +384,15 @@ def analyze(request: AnalyzeRequest):
             "desc": "ไม่พบข้อมูลส่วนบุคคลที่มีความเสี่ยงสูงในข้อความนี้",
         })
 
+    write_process_log(
+        session_id=str(uuid.uuid4()),
+        step="api_analyze",
+        entity_count=report.direct_pii_count,
+        validation_result="pass",
+        flags=[],
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
     return {
         "overall_score": report.overall_score,
         "overall_grade": report.overall_grade,
@@ -388,6 +432,7 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     OCR (pii_redactor.ingest.ocr_processor) page by page; if the OCR
     dependencies (requirements-ocr.txt) aren't installed, this returns 503.
     """
+    start = time.time()
     if not pdf_file.filename or not pdf_file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
@@ -420,6 +465,15 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
                 seen.add(e.data_type)
                 fields.append({"data_type": e.data_type, "redact_type": e.redact_type})
 
+        write_process_log(
+            session_id=str(uuid.uuid4()),
+            step="api_redact_pdf",
+            entity_count=len(entities),
+            validation_result="pass",
+            flags=[f"source_type:{source_type}"],
+            latency_ms=(time.time() - start) * 1000,
+            output_dir=_get_audit_log_dir(),
+        )
         return {
             "filename": pdf_file.filename,
             "source_type": source_type,

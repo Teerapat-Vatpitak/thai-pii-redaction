@@ -200,3 +200,23 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {"status": "shutting_down"}
     assert called.get("scheduled") is True
+
+
+def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
+    import app.server as server
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    resp = client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย ใจดี เบอร์ 0812345678", "mode": "token"})
+    assert resp.status_code == 200
+
+    logs = list(tmp_path.glob("audit_*_process.jsonl"))
+    assert len(logs) == 1
+    import json
+    rec = json.loads(logs[0].read_text(encoding="utf-8").splitlines()[0])
+    assert rec["type"] == "process"
+    assert rec["step"] == "api_sanitize"
+    assert rec["entity_count"] >= 1
+    # PII-free: the record must not contain the original phone number
+    assert "0812345678" not in logs[0].read_text(encoding="utf-8")
