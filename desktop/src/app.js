@@ -3,12 +3,14 @@ import { renderText } from "./screen-text.js";
 import { renderRedact } from "./screen-redact.js";
 import { renderReport } from "./screen-report.js";
 import { renderSettings } from "./screen-settings.js";
+import { renderAudit } from "./screen-audit.js";
 
 const SCREENS = {
   text: renderText,
   redact: renderRedact,
   report: renderReport,
   settings: renderSettings,
+  audit: renderAudit,
 };
 
 async function waitForBackend() {
