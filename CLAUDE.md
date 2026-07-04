@@ -77,7 +77,7 @@ token → original map lives in the backend's in-memory `_SESSIONS` (`app/server
 File type detection routes to one of three sub-paths:
 
 - **Plain text**: input validation (language, size, Thai support) → encoding validation (all text normalized to UTF-8)
-- **Text-layer PDF**: check if openable → extract text via pdfplumber/PyMuPDF → store word bboxes `(page, x, y, width, height)` for later PDF redaction
+- **Text-layer PDF**: check if openable → extract text via pdfplumber/pypdfium2 → store word bboxes `(page, x, y, width, height)` for later PDF redaction
 - **Hybrid/scanned PDF** (`pii_redactor/ingest/ocr_processor.py`): **per-page**, not whole-document — a page with a real text layer is extracted directly (same path as Text-layer PDF); an image-only page goes through PaddleOCR with image pre-processing (deskew, denoise, unsharp-mask sharpen) → confidence check; retries up to 3 times (escalating DPI/binarization) while confidence < 70%, then sets a `human_review` flag → produces the same `(page, x, y, width, height)` bboxes as the other paths. Optional dependency (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed. `text_extractor.extract()` returns `(text, word_bboxes, meta)` for every source type — `meta` carries `ocr_confidence`/`human_review`/`pages_ocred`/`pages_text_layer`/`warnings` (empty dict for `text`/`pdf_text`).
 
 All paths converge at language detection (Thai primary, English minimum).
@@ -146,7 +146,7 @@ Three layers: Layer 1 re-scans the restored text with `detect_fp` for anything n
 
 **Step 8 - Export** (`pii_redactor/exporter.py`, `export`)
 
-Writes `.txt` or `.pdf_text` (a fresh PyMuPDF-built text dump of the final de-identified string — unrelated to `redactor.py`'s bbox blackout of an original PDF). Halts via `ExportError` if `validation_result.halt`, format unsupported, or output exists without `overwrite=True`.
+Writes `.txt` or `.pdf_text` (a fresh reportlab-built text dump of the final de-identified string — unrelated to `redactor.py`'s flatten-to-image blackout of an original PDF). Halts via `ExportError` if `validation_result.halt`, format unsupported, or output exists without `overwrite=True`.
 
 All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` and each has a dedicated test file (`tests/test_step4_vault.py` … `tests/test_step9_pipeline.py` for the full integration).
 
@@ -193,9 +193,9 @@ Note: the web API uses its own token/surrogate path (`_tokenize` + in-memory `_S
 
 ## Requirements Split
 
-- `requirements.txt` - core (PyMuPDF, pdfplumber, PyThaiNLP, regex, httpx). httpx is core (not web-only) because `pii_redactor/ai_client.py` — imported by the core `pipeline.py` for `OllamaProvider`/`ClaudeProvider` — needs it unconditionally; it used to live only in `requirements-web.txt`, which broke a core-only install.
+- `requirements.txt` - core (pypdfium2, reportlab, Pillow, pdfplumber, PyThaiNLP, regex, httpx). httpx is core (not web-only) because `pii_redactor/ai_client.py` — imported by the core `pipeline.py` for `OllamaProvider`/`ClaudeProvider` — needs it unconditionally; it used to live only in `requirements-web.txt`, which broke a core-only install.
 - `requirements-web.txt` - web (fastapi, uvicorn, requests)
 - `requirements-ml.txt` - sentence-transformers + torch/transformers (MiniLM sensitive detector; WangchanBERTa engine is roadmap). Install only when the semantic detector is needed.
 - `requirements-ocr.txt` - paddlepaddle + paddleocr + opencv-python-headless (scanned/hybrid PDF OCR, `pii_redactor/ingest/ocr_processor.py`). Install only when OCR-ing scanned PDFs is needed; excluded from the packaged `AIGuard.exe` (same treatment as `requirements-ml.txt`).
 
-Note: PyMuPDF is AGPL licensed.
+Note: licensed under Apache-2.0 (see LICENSE/NOTICE). PDF handling uses the permissive pypdfium2 / reportlab / pdfplumber; PyMuPDF (AGPL) was removed in phase 3 (redaction is now flatten-to-image).

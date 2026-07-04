@@ -4,18 +4,19 @@ Verifies the endpoint returns a redacted PDF whose text layer no longer
 contains the detected PII, plus before/after previews.
 """
 import base64
+import io
 
+import pdfplumber
 import pytest
 
 try:
-    import fitz  # PyMuPDF
     from fastapi.testclient import TestClient
     from app.server import app
     DEPS = True
 except ImportError:
     DEPS = False
 
-pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi/PyMuPDF not installed")
+pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 
 
 @pytest.fixture
@@ -26,18 +27,18 @@ def client():
 
 
 def _pdf_with_pii(tmp_path) -> bytes:
-    doc = fitz.open()
-    page = doc.new_page()
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    path = tmp_path / "in.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.setFont("Helvetica", 12)
     # >= 50 chars so file_detector classifies this as pdf_text, not pdf_hybrid
     # (a short-but-real text layer would otherwise be mistaken for a scan).
-    page.insert_text(
-        (50, 72),
-        "Please contact us at 081-234-5678 or email john@example.com today",
-        fontsize=12,
+    c.drawString(
+        50, letter[1] - 72, "Please contact us at 081-234-5678 or email john@example.com today"
     )
-    path = tmp_path / "in.pdf"
-    doc.save(str(path))
-    doc.close()
+    c.save()
     return path.read_bytes()
 
 
@@ -58,10 +59,11 @@ def test_redact_pdf_blacks_out_pii(client, tmp_path):
     assert redacted[:4] == b"%PDF"
     assert data["before_png_b64"] and data["after_png_b64"]
 
-    # the PII is gone from the redacted PDF's text layer
-    doc = fitz.open(stream=redacted, filetype="pdf")
-    text = "".join(p.get_text() for p in doc)
-    doc.close()
+    # the redacted PDF is flattened to an image, so its text layer is empty --
+    # the PII (and everything else) is unrecoverable via text extraction.
+    with pdfplumber.open(io.BytesIO(redacted)) as doc:
+        text = "".join(p.extract_text() or "" for p in doc.pages)
+    assert text.strip() == ""
     assert "081-234-5678" not in text
     assert "john@example.com" not in text
 
@@ -76,14 +78,16 @@ def test_redact_pdf_rejects_non_pdf(client):
 
 def _scanned_pdf(tmp_path) -> bytes:
     """A page with an inserted image and no text layer -- looks scanned."""
-    doc = fitz.open()
-    page = doc.new_page()
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 100, 100))
-    pix.set_rect(pix.irect, (255, 255, 255))
-    page.insert_image(page.rect, pixmap=pix)
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    image = Image.new("RGB", (100, 100), (255, 255, 255))
     path = tmp_path / "scan.pdf"
-    doc.save(str(path))
-    doc.close()
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.save()
     return path.read_bytes()
 
 

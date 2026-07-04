@@ -36,7 +36,8 @@ if (Test-Path $dataDir) {
     --collect-all pythainlp `
     --collect-all pycrfsuite `
     --collect-all pdfplumber `
-    --collect-all pymupdf `
+    --collect-all pypdfium2 `
+    --collect-all reportlab `
     --collect-submodules uvicorn `
     --hidden-import pycrfsuite `
     --exclude-module torch `
