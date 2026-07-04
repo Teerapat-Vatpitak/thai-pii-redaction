@@ -220,3 +220,20 @@ def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
     assert rec["entity_count"] >= 1
     # PII-free: the record must not contain the original phone number
     assert "0812345678" not in logs[0].read_text(encoding="utf-8")
+
+
+def test_audit_log_endpoint_returns_safe_records(tmp_path, monkeypatch):
+    import app.server as server
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย เบอร์ 0812345678", "mode": "token"})
+
+    resp = client.get("/api/audit-log?limit=10&offset=0")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_count"] >= 1
+    rec = data["logs"][0]
+    assert rec["type"] == "process"
+    assert "step" in rec and "entity_count" in rec and "timestamp" in rec
+    assert "0812345678" not in resp.text  # no PII in the audit response
