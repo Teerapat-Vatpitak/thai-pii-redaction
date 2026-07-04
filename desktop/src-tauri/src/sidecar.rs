@@ -73,10 +73,15 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
 /// `taskkill /T /F` on the stored PID to also reap the PyInstaller child.
 pub fn kill(app: &AppHandle) {
     let state = app.state::<SidecarState>();
-    if let Some(child) = state.child.lock().unwrap().take() {
+    // Take the values out of their mutexes into locals first: this drops each
+    // MutexGuard temporary at the `let` statement rather than holding a borrow
+    // of `state` across the `if let` block (which trips E0597 on drop order).
+    let child = state.child.lock().unwrap().take();
+    if let Some(child) = child {
         let _ = child.kill();
     }
-    if let Some(pid) = state.pid.lock().unwrap().take() {
+    let pid = state.pid.lock().unwrap().take();
+    if let Some(pid) = pid {
         let _ = std::process::Command::new("taskkill")
             .args(taskkill_args(pid))
             .output();
