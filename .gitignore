@@ -13,3 +13,4 @@ build/
 .env
 .DS_Store
 step1-7_*.pdf
+logs/
