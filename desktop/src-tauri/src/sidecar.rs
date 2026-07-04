@@ -1,5 +1,6 @@
 /// Build the Windows `taskkill` arguments to force-kill a process tree by PID.
 /// PyInstaller onefile spawns a child; `/T` kills the whole tree, `/F` forces it.
+#[cfg(windows)]
 pub fn taskkill_args(pid: u32) -> Vec<String> {
     vec![
         "/PID".to_string(),
@@ -9,7 +10,7 @@ pub fn taskkill_args(pid: u32) -> Vec<String> {
     ]
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -83,8 +84,27 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Force-kill the sidecar's process tree by PID (best-effort, platform-specific).
+#[cfg(windows)]
+fn force_kill_tree(pid: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(taskkill_args(pid))
+        .output();
+}
+
+#[cfg(not(windows))]
+fn force_kill_tree(pid: u32) {
+    // No portable process-tree kill; SIGKILL the pid. child.kill() above already
+    // handled the directly-spawned process; this reaps the PyInstaller onefile
+    // child on macOS/Linux.
+    let _ = std::process::Command::new("kill")
+        .arg("-9")
+        .arg(pid.to_string())
+        .output();
+}
+
 /// Kill the sidecar process tree. Best-effort: kill the child handle, then
-/// `taskkill /T /F` on the stored PID to also reap the PyInstaller child.
+/// force-kill the stored PID's tree to also reap the PyInstaller child.
 pub fn kill(app: &AppHandle) {
     // Best-effort graceful stop: ask the backend to exit itself. The taskkill
     // tree-kill below stays the guarantee (a POST can't reliably reap the
@@ -105,9 +125,7 @@ pub fn kill(app: &AppHandle) {
     }
     let pid = state.pid.lock().unwrap().take();
     if let Some(pid) = pid {
-        let _ = std::process::Command::new("taskkill")
-            .args(taskkill_args(pid))
-            .output();
+        force_kill_tree(pid);
     }
 }
 
