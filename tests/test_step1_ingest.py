@@ -5,6 +5,7 @@ import pytest
 
 from pii_redactor.ingest.file_detector import detect_source_type, validate_encoding
 from pii_redactor.ingest.text_extractor import extract
+from pii_redactor.models import WordBbox
 
 
 # ---------------------------------------------------------------------------
@@ -38,18 +39,22 @@ def test_validate_encoding_invalid_raises():
 # ---------------------------------------------------------------------------
 
 def test_extract_text_file():
-    text, bboxes = extract("tests/sample_thai.txt", "text")
+    text, bboxes, meta = extract("tests/sample_thai.txt", "text")
     assert "วิทยา" in text
     assert bboxes == []  # no bboxes for plain text
+    assert meta == {}
 
 
 def test_extract_text_returns_unicode():
-    text, _ = extract("tests/sample_thai.txt", "text")
+    text, _, _ = extract("tests/sample_thai.txt", "text")
     assert isinstance(text, str)
 
 
-def test_extract_hybrid_raises_not_implemented():
-    with pytest.raises(NotImplementedError):
+def test_extract_hybrid_without_ocr_deps_raises(monkeypatch):
+    from pii_redactor.ingest import ocr_processor
+
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: False)
+    with pytest.raises(ocr_processor.OCRUnavailableError):
         extract("tests/sample_thai.txt", "pdf_hybrid")
 
 
@@ -80,13 +85,14 @@ def test_detect_pdf_text(tmp_path):
 
 def test_extract_pdf_text(tmp_path):
     pdf_path = _make_test_pdf("Hello World Test", tmp_path)
-    text, bboxes = extract(str(pdf_path), "pdf_text")
+    text, bboxes, meta = extract(str(pdf_path), "pdf_text")
     assert "Hello" in text or "World" in text  # flexible: pdfplumber or PyMuPDF
+    assert meta == {}
 
 
 def test_extract_pdf_text_returns_bboxes(tmp_path):
     pdf_path = _make_test_pdf("Hello World Test", tmp_path)
-    text, bboxes = extract(str(pdf_path), "pdf_text")
+    text, bboxes, meta = extract(str(pdf_path), "pdf_text")
     # At least some word bboxes should be returned
     assert isinstance(bboxes, list)
 
@@ -106,6 +112,66 @@ def test_detect_pdf_hybrid(tmp_path):
 def test_extract_unknown_source_type_raises():
     with pytest.raises(ValueError, match="Unknown source_type"):
         extract("tests/sample_thai.txt", "unknown_type")
+
+
+def _make_hybrid_test_pdf(tmp_path) -> Path:
+    """A page with an inserted image and no insert_text call -- no text layer at all."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 100, 100))
+    pix.set_rect(pix.irect, (255, 255, 255))
+    page.insert_image(page.rect, pixmap=pix)
+    path = tmp_path / "hybrid.pdf"
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+def test_extract_pdf_hybrid_returns_3_tuple_with_meta(tmp_path, monkeypatch):
+    from pii_redactor.ingest import ocr_processor
+
+    pdf_path = _make_hybrid_test_pdf(tmp_path)
+    fake_words = [WordBbox(text="สวัสดี", page=1, x=0, y=0, width=10, height=10)]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=fake_words, text="สวัสดี", confidence=0.9, attempts=1, human_review=False
+        ),
+    )
+
+    text, bboxes, meta = extract(str(pdf_path), "pdf_hybrid")
+
+    assert text == "สวัสดี"
+    assert bboxes == fake_words
+    assert meta["pages_ocred"] == [1]
+    assert meta["pages_text_layer"] == []
+    assert meta["ocr_confidence"] == pytest.approx(0.9)
+    assert meta["human_review"] is False
+    assert meta["warnings"] == []
+
+
+def test_extract_pdf_hybrid_human_review_propagates(tmp_path, monkeypatch):
+    from pii_redactor.ingest import ocr_processor
+
+    pdf_path = _make_hybrid_test_pdf(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=[], text="", confidence=0.2, attempts=3, human_review=True
+        ),
+    )
+
+    text, bboxes, meta = extract(str(pdf_path), "pdf_hybrid")
+
+    assert meta["human_review"] is True
+    assert meta["ocr_confidence"] == pytest.approx(0.2)
+    assert len(meta["warnings"]) == 1
 
 
 # ---------------------------------------------------------------------------

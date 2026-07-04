@@ -256,9 +256,20 @@ def test_scan_fn_entity_fields():
     assert len(emails) >= 1
     e = emails[0]
     assert isinstance(e, Entity)
-    assert e.redact_type == "TB"
+    # THAI_ID/EMAIL/DATE_OF_BIRTH are format-preserving types -- must be "FP"
+    # so anonymizer.py generates a realistic fake value (generate_fp), not
+    # tb_generator's literal "[REDACTED_x]" fallback.
+    assert e.redact_type == "FP"
     assert isinstance(e.entity_id, str)
     assert len(e.entity_id) > 0
+
+
+def test_scan_fn_thai_id_and_date_are_fp():
+    text = "id: 1234567890123 date: 01/01/2000"
+    result = scan_fn(text, [])
+    by_type = {e.data_type: e for e in result}
+    assert by_type["THAI_ID"].redact_type == "FP"
+    assert by_type["DATE_OF_BIRTH"].redact_type == "FP"
 
 
 def test_scan_fn_no_overlap_with_existing():

@@ -1,6 +1,8 @@
 """Input quality validation."""
 from dataclasses import dataclass
 
+OCR_CONFIDENCE_THRESHOLD = 0.7
+
 
 @dataclass
 class QualityResult:
@@ -76,12 +78,13 @@ def _ocr_confidence_validation(
         return True, ["OCR confidence not provided for pdf_hybrid source"]
 
     warnings = []
-    if ocr_confidence < 0.7:
+    if ocr_confidence < OCR_CONFIDENCE_THRESHOLD:
         warnings.append(
-            f"Low OCR confidence: {ocr_confidence:.1%} (threshold: 70%)"
+            f"Low OCR confidence: {ocr_confidence:.1%} "
+            f"(threshold: {OCR_CONFIDENCE_THRESHOLD:.0%})"
         )
 
-    ok = ocr_confidence >= 0.7
+    ok = ocr_confidence >= OCR_CONFIDENCE_THRESHOLD
     return ok, warnings
 
 
