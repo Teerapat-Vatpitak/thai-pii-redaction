@@ -13,8 +13,12 @@ export function renderReport(root) {
   const $ = (id) => root.querySelector(id);
 
   $("#a-go").addEventListener("click", async () => {
+    $("#a-go").disabled = true;
     const text = $("#a-input").value.trim();
-    if (!text) return;
+    if (!text) {
+      $("#a-go").disabled = false;
+      return;
+    }
     $("#a-err").classList.add("hidden");
     try {
       const r = await analyze(text);
@@ -30,6 +34,8 @@ export function renderReport(root) {
     } catch (e) {
       $("#a-err").textContent = "วิเคราะห์ไม่สำเร็จ: " + e.message;
       $("#a-err").classList.remove("hidden");
+    } finally {
+      $("#a-go").disabled = false;
     }
   });
 

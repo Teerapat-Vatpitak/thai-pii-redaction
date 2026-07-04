@@ -36,8 +36,12 @@ export function renderRedact(root) {
   });
 
   $("#r-go").addEventListener("click", async () => {
+    $("#r-go").disabled = true;
     const file = $("#r-file").files[0];
-    if (!file) return;
+    if (!file) {
+      $("#r-go").disabled = false;
+      return;
+    }
     $("#r-err").classList.add("hidden");
     $("#r-status").textContent = "กำลังประมวลผล...";
     try {
@@ -55,6 +59,8 @@ export function renderRedact(root) {
       $("#r-status").textContent = "";
       $("#r-err").textContent = "ปกปิด PDF ไม่สำเร็จ: " + e.message;
       $("#r-err").classList.remove("hidden");
+    } finally {
+      $("#r-go").disabled = false;
     }
   });
 

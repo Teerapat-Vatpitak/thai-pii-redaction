@@ -23,6 +23,7 @@ mod tests {
 }
 
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -36,6 +37,19 @@ pub struct SidecarState {
 
 /// Spawn the `aiguard` sidecar and stream its output to the Rust log.
 pub fn spawn(app: &AppHandle) -> Result<(), String> {
+    // Don't spawn a second backend if one is already listening (defends the
+    // "no second backend" invariant even if single-instance ever fails to
+    // short-circuit the second process).
+    if std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:8000".parse().expect("valid socket addr"),
+        Duration::from_millis(300),
+    )
+    .is_ok()
+    {
+        log::info!("backend already listening on 127.0.0.1:8000; skipping sidecar spawn");
+        return Ok(());
+    }
+
     let (mut rx, child) = app
         .shell()
         .sidecar("aiguard")
@@ -72,6 +86,15 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
 /// Kill the sidecar process tree. Best-effort: kill the child handle, then
 /// `taskkill /T /F` on the stored PID to also reap the PyInstaller child.
 pub fn kill(app: &AppHandle) {
+    // Best-effort graceful stop: ask the backend to exit itself. The taskkill
+    // tree-kill below stays the guarantee (a POST can't reliably reap the
+    // PyInstaller child process).
+    use std::io::Write;
+    if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:8000") {
+        let _ = stream.write_all(
+            b"POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+    }
     let state = app.state::<SidecarState>();
     // Take the values out of their mutexes into locals first: this drops each
     // MutexGuard temporary at the `let` statement rather than holding a borrow

@@ -28,8 +28,12 @@ export function renderText(root) {
   const $ = (id) => root.querySelector(id);
 
   $("#t-mask").addEventListener("click", async () => {
+    $("#t-mask").disabled = true;
     const text = $("#t-input").value.trim();
-    if (!text) return;
+    if (!text) {
+      $("#t-mask").disabled = false;
+      return;
+    }
     $("#t-err").classList.add("hidden");
     try {
       const res = await sanitize(text, mode);
@@ -40,6 +44,8 @@ export function renderText(root) {
     } catch (e) {
       $("#t-err").textContent = "ปกปิดไม่สำเร็จ: " + e.message;
       $("#t-err").classList.remove("hidden");
+    } finally {
+      $("#t-mask").disabled = false;
     }
   });
 

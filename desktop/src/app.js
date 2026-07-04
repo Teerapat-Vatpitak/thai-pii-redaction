@@ -13,7 +13,7 @@ const SCREENS = {
 
 async function waitForBackend() {
   const msg = document.getElementById("boot-msg");
-  for (let attempt = 1; attempt <= 40; attempt++) {
+  for (let attempt = 1; attempt <= 60; attempt++) {
     try {
       await health();
       return true;
