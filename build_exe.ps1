@@ -1,69 +1,17 @@
-# Build dist/AIGuard.exe — a double-click launcher for the AI Guard backend.
+# Build dist/AIGuard.exe (a double-click launcher for the AI Guard backend) and
+# stage it as the Tauri sidecar.
 #
-# Bundles the base product (FastAPI + regex/checksum + Thai NER + PDF redaction).
-# The heavy optional ML stacks (torch / sentence-transformers, paddleocr /
-# paddlepaddle) are excluded so the binary stays small; the MiniLM sensitive
-# detector and scanned-PDF OCR simply stay disabled there (OCR requests 503
-# with a message pointing at requirements-ocr.txt / running from source).
+# Thin Windows wrapper around the cross-platform builder scripts/build_sidecar.py
+# (single source of the PyInstaller flags / excludes / model bundling, shared with
+# macOS/Linux and CI). See that file for the real logic.
 #
-# It also bundles the PyThaiNLP NER model (the thai-ner CRF file) so NER works
-# offline on a fresh machine with no runtime download. The 400MB+ neural NNER
-# model (.pth) is NOT bundled — engine="thainer" only needs the CRF file.
-#
-# Run:  ./build_exe.ps1     ->  dist/AIGuard.exe
+# Run:  ./build_exe.ps1   ->  dist/AIGuard.exe  +  desktop/src-tauri/binaries/aiguard-<triple>.exe
 
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 $env:PYTHONUTF8 = "1"
 
-$python = ".\.venv\Scripts\python.exe"
-& $python -m pip install --quiet pyinstaller
-
-# Bundle the PyThaiNLP data files (skip the large *.pth neural model).
-$dataDir = "$env:USERPROFILE\pythainlp-data"
-$dataArgs = @()
-if (Test-Path $dataDir) {
-    Get-ChildItem $dataDir -File | Where-Object { $_.Extension -ne ".pth" } | ForEach-Object {
-        $dataArgs += "--add-data"
-        $dataArgs += "$($_.FullName);pythainlp-data"
-    }
-} else {
-    Write-Warning "No $dataDir found — run the app once so PyThaiNLP downloads its NER model, then rebuild for an offline-capable exe."
-}
-
-& $python -m PyInstaller --noconfirm --onefile --name AIGuard `
-    --python-option "X utf8=1" `
-    --collect-all pythainlp `
-    --collect-all pycrfsuite `
-    --collect-all pdfplumber `
-    --collect-all pypdfium2 `
-    --collect-all reportlab `
-    --collect-submodules uvicorn `
-    --hidden-import pycrfsuite `
-    --exclude-module torch `
-    --exclude-module sentence_transformers `
-    --exclude-module transformers `
-    --exclude-module paddleocr `
-    --exclude-module paddlepaddle `
-    --exclude-module paddle `
-    --exclude-module cv2 `
-    --exclude-module pythainlp.word_vector `
-    --exclude-module pythainlp.corpus.wordnet `
-    --exclude-module pythainlp.translate `
-    --exclude-module pythainlp.summarize `
-    --exclude-module pythainlp.parse `
-    --exclude-module pythainlp.generate `
-    --exclude-module pythainlp.chat `
-    --exclude-module pythainlp.wangchanberta `
-    --exclude-module pythainlp.phayathaibert `
-    --exclude-module pythainlp.lm `
-    --exclude-module pythainlp.wsd `
-    --exclude-module pythainlp.spell.wanchanberta_thai_grammarly `
-    --exclude-module pythainlp.ulmfit `
-    --exclude-module scipy `
-    --exclude-module pandas `
-    @dataArgs `
-    launcher.py
+& ".\.venv\Scripts\python.exe" "scripts\build_sidecar.py"
 
 Write-Host ""
 Write-Host "Built: dist\AIGuard.exe  (double-click to start the backend)"

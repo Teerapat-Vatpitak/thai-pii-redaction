@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Cross-platform: build the AI Guard backend as a PyInstaller onefile and stage
+it as the Tauri sidecar.
+
+Single source of the PyInstaller build for local dev (Windows / macOS / Linux)
+and CI. Produces `dist/AIGuard[.exe]` and stages it as
+`desktop/src-tauri/binaries/aiguard-<rust-target-triple>[.exe]` (the name Tauri's
+externalBin expects per platform). `build_exe.ps1` and `desktop/build-sidecar.ps1`
+are thin Windows wrappers around this.
+
+Bundles the base product (FastAPI + regex/checksum + Thai thainer-CRF NER +
+pdfplumber/pypdfium2/reportlab PDF). Heavy optional stacks (torch/transformers,
+paddleocr, scipy/pandas) are excluded so the binary stays small.
+"""
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PY = sys.executable
+IS_WINDOWS = os.name == "nt"
+
+COLLECT_ALL = ["pythainlp", "pycrfsuite", "pdfplumber", "pypdfium2", "reportlab"]
+
+# Excludes keep the binary small. torch/transformers/paddle/cv2 are optional ML/OCR
+# stacks; the pythainlp.* submodules are neural features the base engine never uses
+# (excluding them stops PyInstaller from dragging in scipy/pandas via fsspec).
+EXCLUDE = [
+    "torch", "sentence_transformers", "transformers",
+    "paddleocr", "paddlepaddle", "paddle", "cv2",
+    "pythainlp.word_vector", "pythainlp.corpus.wordnet", "pythainlp.translate",
+    "pythainlp.summarize", "pythainlp.parse", "pythainlp.generate", "pythainlp.chat",
+    "pythainlp.wangchanberta", "pythainlp.phayathaibert", "pythainlp.lm",
+    "pythainlp.wsd", "pythainlp.spell.wanchanberta_thai_grammarly", "pythainlp.ulmfit",
+    "scipy", "pandas",
+]
+
+
+def host_triple() -> str:
+    return subprocess.check_output(["rustc", "--print", "host-tuple"], text=True).strip()
+
+
+def data_args() -> list[str]:
+    """Bundle ~/pythainlp-data (thai-ner CRF model etc.) for offline NER; skip *.pth."""
+    args: list[str] = []
+    data_dir = Path.home() / "pythainlp-data"
+    if data_dir.is_dir():
+        for f in sorted(data_dir.iterdir()):
+            if f.is_file() and f.suffix != ".pth":
+                # PyInstaller --add-data uses the OS path separator (';' win, ':' unix).
+                args += ["--add-data", f"{f}{os.pathsep}pythainlp-data"]
+    else:
+        print(
+            f"WARNING: {data_dir} not found — run the app once so PyThaiNLP downloads "
+            "its NER model, then rebuild for an offline-capable binary.",
+            file=sys.stderr,
+        )
+    return args
+
+
+def main() -> None:
+    subprocess.check_call([PY, "-m", "pip", "install", "--quiet", "pyinstaller"])
+
+    cmd = [PY, "-m", "PyInstaller", "--noconfirm", "--onefile", "--name", "AIGuard",
+           "--python-option", "X utf8=1"]
+    for m in COLLECT_ALL:
+        cmd += ["--collect-all", m]
+    cmd += ["--collect-submodules", "uvicorn", "--hidden-import", "pycrfsuite"]
+    for m in EXCLUDE:
+        cmd += ["--exclude-module", m]
+    cmd += data_args()
+    # Absolute paths so we never depend on / mutate the caller's working directory.
+    cmd += ["--distpath", str(ROOT / "dist"),
+            "--workpath", str(ROOT / "build"),
+            "--specpath", str(ROOT),
+            str(ROOT / "launcher.py")]
+    print("Running PyInstaller...")
+    subprocess.check_call(cmd)
+
+    triple = host_triple()
+    suffix = ".exe" if IS_WINDOWS else ""
+    src = ROOT / "dist" / f"AIGuard{suffix}"
+    dst_dir = ROOT / "desktop" / "src-tauri" / "binaries"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / f"aiguard-{triple}{suffix}"
+    shutil.copy2(src, dst)
+    print(f"Sidecar staged: {dst.relative_to(ROOT)}")
+
+
+if __name__ == "__main__":
+    main()
