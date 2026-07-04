@@ -7,7 +7,10 @@ committed sample_document.pdf is already generated with Sarabun).
 """
 from pathlib import Path
 
-import fitz  # PyMuPDF
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
 # All PII below is fabricated for demo purposes only.
 LINES = [
@@ -31,20 +34,24 @@ _FONT_CANDIDATES = [
 
 def main() -> None:
     out = Path(__file__).parent / "sample_document.pdf"
-    font = next((f for f in _FONT_CANDIDATES if Path(f).exists()), None)
+    font_path = next((f for f in _FONT_CANDIDATES if Path(f).exists()), None)
 
-    doc = fitz.open()
-    page = doc.new_page()
-    y = 72
+    font_name = "Helvetica"  # latin-only fallback
+    if font_path:
+        font_name = "Sarabun"
+        pdfmetrics.registerFont(TTFont(font_name, font_path))
+
+    c = canvas.Canvas(str(out), pagesize=letter)
+    page_width, page_height = letter
+    c.setFont(font_name, 14)
+
+    y = page_height - 72
     for line in LINES:
         if line:
-            if font:
-                page.insert_text((72, y), line, fontfile=font, fontname="sarabun", fontsize=14)
-            else:
-                page.insert_text((72, y), line, fontsize=14)  # latin-only fallback
-        y += 28
-    doc.save(str(out))
-    doc.close()
+            c.drawString(72, y, line)
+        y -= 28
+
+    c.save()
     print(f"wrote {out}")
 
 

@@ -64,13 +64,14 @@ def test_extract_hybrid_without_ocr_deps_raises(monkeypatch):
 
 def _make_test_pdf(text: str, tmp_path) -> Path:
     """Create a minimal text-layer PDF for testing."""
-    import fitz
-    doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((50, 50), text, fontsize=12)
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
     path = tmp_path / "test.pdf"
-    doc.save(str(path))
-    doc.close()
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.setFont("Helvetica", 12)
+    c.drawString(50, letter[1] - 50, text)
+    c.save()
     return path
 
 
@@ -86,7 +87,7 @@ def test_detect_pdf_text(tmp_path):
 def test_extract_pdf_text(tmp_path):
     pdf_path = _make_test_pdf("Hello World Test", tmp_path)
     text, bboxes, meta = extract(str(pdf_path), "pdf_text")
-    assert "Hello" in text or "World" in text  # flexible: pdfplumber or PyMuPDF
+    assert "Hello" in text or "World" in text  # flexible: pdfplumber or pypdfium2 fallback
     assert meta == {}
 
 
@@ -99,12 +100,13 @@ def test_extract_pdf_text_returns_bboxes(tmp_path):
 
 def test_detect_pdf_hybrid(tmp_path):
     """A PDF with very little text should be classified as pdf_hybrid."""
-    import fitz
-    doc = fitz.open()
-    doc.new_page()  # blank page — no text at all
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
     path = tmp_path / "blank.pdf"
-    doc.save(str(path))
-    doc.close()
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.showPage()  # blank page — no text at all
+    c.save()
     result = detect_source_type(str(path))
     assert result == "pdf_hybrid"
 
@@ -115,17 +117,17 @@ def test_extract_unknown_source_type_raises():
 
 
 def _make_hybrid_test_pdf(tmp_path) -> Path:
-    """A page with an inserted image and no insert_text call -- no text layer at all."""
-    import fitz
+    """A page with an inserted image and no text calls -- no text layer at all."""
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
 
-    doc = fitz.open()
-    page = doc.new_page()
-    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 100, 100))
-    pix.set_rect(pix.irect, (255, 255, 255))
-    page.insert_image(page.rect, pixmap=pix)
+    image = Image.new("RGB", (100, 100), (255, 255, 255))
     path = tmp_path / "hybrid.pdf"
-    doc.save(str(path))
-    doc.close()
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.save()
     return path
 
 

@@ -453,11 +453,9 @@ def analyze(request: AnalyzeRequest):
 
 def _first_page_png(pdf_path: str) -> str:
     """Render page 1 of a PDF to a base64 PNG (for before/after previews)."""
-    import fitz  # PyMuPDF
+    from pii_redactor.pdf_render import render_page_png
 
-    doc = fitz.open(pdf_path)
-    png = doc[0].get_pixmap().tobytes("png")
-    doc.close()
+    png = render_page_png(pdf_path, page_index=0)
     return base64.b64encode(png).decode("ascii")
 
 

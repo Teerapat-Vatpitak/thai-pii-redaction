@@ -114,7 +114,11 @@ PYTHONUTF8=1 python -m pytest
 
 ## More
 
-Architecture and module map: [`CLAUDE.md`](CLAUDE.md). Note: PyMuPDF is AGPL-licensed.
+Architecture and module map: [`CLAUDE.md`](CLAUDE.md).
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). PDF handling uses the permissively licensed pypdfium2 / reportlab / pdfplumber (PyMuPDF/AGPL is no longer used).
 
 ## Build the .exe yourself
 

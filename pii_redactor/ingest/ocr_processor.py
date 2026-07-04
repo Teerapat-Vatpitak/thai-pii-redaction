@@ -74,12 +74,12 @@ class OCRPageResult:
 
 
 def _render_page_to_array(page, dpi: int):
-    """Render a fitz.Page to an RGB numpy array at the given DPI."""
+    """Render a pypdfium2 PdfPage to an RGB numpy array at the given DPI."""
     import numpy as np
 
-    pix = page.get_pixmap(dpi=dpi)
-    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-    return arr[:, :, :3] if pix.n == 4 else arr
+    scale = dpi / 72.0
+    pil_image = page.render(scale=scale).to_pil().convert("RGB")
+    return np.asarray(pil_image)
 
 
 def _deskew(image):

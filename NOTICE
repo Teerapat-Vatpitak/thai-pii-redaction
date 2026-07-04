@@ -1,0 +1,22 @@
+AI Guard — Thai PII detection and redaction
+Copyright 2026 AI Guard contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product bundles or depends on the following third-party components,
+each under its own permissive license:
+
+- pypdfium2 (Apache-2.0 / BSD-3-Clause) — wraps Google PDFium (BSD-3-Clause),
+  used for PDF page rendering and text extraction.
+- reportlab (BSD-3-Clause) — used to build PDF output.
+- pdfplumber (MIT) — used for text-layer word bounding boxes.
+- Pillow (HPND / MIT-CMU) — image drawing for redaction.
+- PyThaiNLP (Apache-2.0) — Thai tokenization and NER.
+- python-crfsuite (MIT) — CRF sequence labeling for the thainer NER engine.
+
+Optional components (installed separately, not part of the core distribution):
+- sentence-transformers / torch — optional semantic Section-26 detector.
+- paddleocr / paddlepaddle / opencv — optional scanned-PDF OCR.
+
+PyMuPDF (AGPL) is NO LONGER used; it was replaced by the permissive libraries
+above so this project can be distributed under the Apache-2.0 license.
