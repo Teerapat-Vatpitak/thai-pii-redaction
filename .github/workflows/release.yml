@@ -1,0 +1,76 @@
+# Build the Windows installer and attach it to a GitHub Release.
+#
+# STATUS: UNTESTED. This workflow has not been run on GitHub Actions yet — it is
+# a starting point. The first real run (push a `vX.Y.Z` tag, or use the manual
+# "Run workflow" button) will shake out any runner-specific issues (action
+# versions, PyInstaller/tauri build quirks on the hosted runner). Review the
+# first run's logs before relying on it.
+#
+# Trigger: push a tag like `v0.1.0`, or run manually (workflow_dispatch).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the Release and upload assets
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python deps (for the sidecar build)
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-web.txt pyinstaller
+
+      - name: Pre-download the offline NER model
+        # build_exe.ps1 bundles ~/pythainlp-data so NER works offline; importing
+        # the thainer engine once fetches that model into the runner's home dir.
+        shell: pwsh
+        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+
+      - name: Set up Rust (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Build + stage the sidecar (AIGuard.exe)
+        shell: pwsh
+        run: ./desktop/build-sidecar.ps1
+
+      - name: Install desktop (Tauri CLI) deps
+        working-directory: desktop
+        run: npm install
+
+      - name: Build the Tauri app and publish the Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "AI Guard ${{ github.ref_name }}"
+          releaseBody: "AI Guard desktop — Windows installer. See the commit history for changes."
+          releaseDraft: true
+          prerelease: false
