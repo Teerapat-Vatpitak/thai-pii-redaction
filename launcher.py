@@ -35,6 +35,23 @@ def _ensure_pythainlp_data():
                 pass
 
 
+def _watch_parent_and_exit():
+    """On unix the packaged app runs as the forked child of the PyInstaller
+    onefile bootloader (the process Tauri spawns as its sidecar). A SIGKILL to
+    that bootloader does not reach this child, so without this watchdog the
+    backend would be orphaned and keep holding port 8000 as a zombie. Detect the
+    reparent (our parent pid changes once the bootloader dies) and exit so the
+    port is freed. Windows reaps the whole tree via `taskkill /T`, so this is
+    unix-only."""
+    if sys.platform == "win32":
+        return
+    initial_ppid = os.getppid()
+    while True:
+        time.sleep(1.0)
+        if os.getppid() != initial_ppid:
+            os._exit(0)
+
+
 HOST = "127.0.0.1"
 PORT = 8000
 URL = f"http://{HOST}:{PORT}"
@@ -50,6 +67,13 @@ def _open_browser():
 
 def main():
     _ensure_pythainlp_data()
+    if getattr(sys, "frozen", False):
+        # The packaged app is fully offline: it runs only on bundled models and
+        # must never reach the network. This makes a missing model fail loudly at
+        # first use instead of silently trying to download it.
+        os.environ.setdefault("PYTHAINLP_OFFLINE", "1")
+        # Reap this backend if the Tauri sidecar (our parent) is force-killed.
+        threading.Thread(target=_watch_parent_and_exit, daemon=True).start()
     import uvicorn
     from app.server import app
 
