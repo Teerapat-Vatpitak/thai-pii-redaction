@@ -7,10 +7,17 @@ Pre-export validation checks halt flag, path writability, format support.
 from dataclasses import dataclass
 from pathlib import Path
 
-import fitz  # PyMuPDF
-
 from pii_redactor.models import ReverseResult
 from pii_redactor.output_validator import ValidationResult
+
+# Thai-capable TrueType font for pdf_text export. Falls back to reportlab's
+# built-in Helvetica (Latin-only) if not found -- Thai glyphs simply won't
+# render in that case, same trade-off examples/make_sample_pdf.py accepts.
+_THAI_FONT_CANDIDATES = [
+    r"C:\Windows\Fonts\sarabun-v17-latin_latin-ext_thai_vietnamese-regular.ttf",
+    "/usr/share/fonts/truetype/thai/Sarabun-Regular.ttf",
+]
+_PDF_TEXT_FONT_NAME = "Sarabun"
 
 
 @dataclass
@@ -77,29 +84,50 @@ def _export_txt(text: str, output_path: Path) -> int:
     return len(encoded)
 
 
-def _export_pdf_text(text: str, output_path: Path) -> int:
-    """Create a simple text-based PDF using PyMuPDF. Returns byte size."""
-    doc = fitz.open()
-    page = doc.new_page()
+def _register_thai_font() -> str:
+    """Register a Thai-capable TTF with reportlab; fall back to Helvetica."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 
-    # Split into lines and insert at fixed positions
-    # Use a simple layout: start from (50, 72) with line height 14
-    lines = text.split("\n")
-    x, y = 50, 72
+    font_path = next((f for f in _THAI_FONT_CANDIDATES if Path(f).exists()), None)
+    if font_path is None:
+        return "Helvetica"
+
+    if _PDF_TEXT_FONT_NAME not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(_PDF_TEXT_FONT_NAME, font_path))
+    return _PDF_TEXT_FONT_NAME
+
+
+def _export_pdf_text(text: str, output_path: Path) -> int:
+    """Create a simple text-based PDF using reportlab. Returns byte size."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    font_name = _register_thai_font()
+
+    c = canvas.Canvas(str(output_path), pagesize=letter)
+    page_width, page_height = letter
+    c.setFont(font_name, 11)
+
+    # Split into lines and insert at fixed positions.
+    # Use a simple layout: start from (50, height - 72) with line height 14,
+    # matching the previous top-down layout (fitz used a top-left origin;
+    # reportlab uses bottom-left, hence the page_height flip).
+    x = 50
+    y = page_height - 72
     line_height = 14
 
+    lines = text.split("\n")
     for line in lines:
-        if y > page.rect.height - 50:
-            # New page
-            page = doc.new_page()
-            y = 72
-        page.insert_text((x, y), line, fontsize=11)
-        y += line_height
+        if y < 50:
+            c.showPage()
+            c.setFont(font_name, 11)
+            y = page_height - 72
+        c.drawString(x, y, line)
+        y -= line_height
 
-    data = doc.tobytes()
-    doc.close()
-    output_path.write_bytes(data)
-    return len(data)
+    c.save()
+    return output_path.stat().st_size
 
 
 def export(
