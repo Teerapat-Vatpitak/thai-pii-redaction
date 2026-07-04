@@ -5,6 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "binaries/aiguard", "sidecar": true, "args": true }]
+    }
   ]
 }

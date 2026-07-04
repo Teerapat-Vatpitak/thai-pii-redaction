@@ -1,36 +1,26 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop",
+  "productName": "AI Guard",
   "version": "0.1.0",
-  "identifier": "com.teera.desktop",
+  "identifier": "th.ac.psu.aiguard",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../src",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "desktop",
-        "width": 800,
-        "height": 600
-      }
-    ],
     "security": {
-      "csp": null
-    }
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:8000 http://localhost:8000; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "windows": [
+      { "title": "AI Guard", "width": 1100, "height": 760, "resizable": true }
+    ]
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
+    "targets": ["nsis"],
+    "externalBin": ["binaries/aiguard"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
   }
 }
