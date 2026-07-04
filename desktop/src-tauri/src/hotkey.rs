@@ -65,12 +65,12 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
                 if is_mask { mask(app).await } else { restore(app).await }
             });
         }
-    })?;
+    }).unwrap_or_else(|e| log::error!("hotkey register failed: {e}"));
     app.global_shortcut().on_shortcut(restore_sc, move |app, _sc, event| {
         if event.state() == ShortcutState::Pressed {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { restore(app).await });
         }
-    })?;
+    }).unwrap_or_else(|e| log::error!("hotkey register failed: {e}"));
     Ok(())
 }
