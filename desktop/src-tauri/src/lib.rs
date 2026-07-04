@@ -1,4 +1,5 @@
 mod sidecar;
+mod tray;
 
 use tauri::Manager;
 
@@ -17,6 +18,7 @@ pub fn run() {
             if let Err(e) = sidecar::spawn(&app.handle()) {
                 log::error!("failed to start sidecar: {e}");
             }
+            tray::setup(app)?;
             Ok(())
         })
         .build(tauri::generate_context!())
