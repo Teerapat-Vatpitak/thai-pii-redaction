@@ -47,6 +47,21 @@ if (Test-Path $dataDir) {
     --exclude-module paddlepaddle `
     --exclude-module paddle `
     --exclude-module cv2 `
+    --exclude-module pythainlp.word_vector `
+    --exclude-module pythainlp.corpus.wordnet `
+    --exclude-module pythainlp.translate `
+    --exclude-module pythainlp.summarize `
+    --exclude-module pythainlp.parse `
+    --exclude-module pythainlp.generate `
+    --exclude-module pythainlp.chat `
+    --exclude-module pythainlp.wangchanberta `
+    --exclude-module pythainlp.phayathaibert `
+    --exclude-module pythainlp.lm `
+    --exclude-module pythainlp.wsd `
+    --exclude-module pythainlp.spell.wanchanberta_thai_grammarly `
+    --exclude-module pythainlp.ulmfit `
+    --exclude-module scipy `
+    --exclude-module pandas `
     @dataArgs `
     launcher.py
 
