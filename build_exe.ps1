@@ -33,7 +33,10 @@ if (Test-Path $dataDir) {
 
 & $python -m PyInstaller --noconfirm --onefile --name AIGuard `
     --python-option "X utf8=1" `
-    --collect-all pythainlp `
+    --collect-submodules pythainlp.tokenize `
+    --collect-submodules pythainlp.tag `
+    --collect-submodules pythainlp.corpus `
+    --collect-submodules pythainlp.soundex `
     --collect-all pycrfsuite `
     --collect-all pdfplumber `
     --collect-all pymupdf `
@@ -46,6 +49,16 @@ if (Test-Path $dataDir) {
     --exclude-module paddlepaddle `
     --exclude-module paddle `
     --exclude-module cv2 `
+    --exclude-module pythainlp.transliterate `
+    --exclude-module pythainlp.wangchanberta `
+    --exclude-module pythainlp.spell `
+    --exclude-module pythainlp.chat `
+    --exclude-module pythainlp.generate `
+    --exclude-module pythainlp.lm `
+    --exclude-module pythainlp.parse `
+    --exclude-module pythainlp.translate `
+    --exclude-module pythainlp.ulmfit `
+    --exclude-module safetensors.torch `
     @dataArgs `
     launcher.py
 
