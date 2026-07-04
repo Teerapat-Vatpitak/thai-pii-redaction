@@ -10,20 +10,29 @@ def detect_source_type(path: str | Path) -> str:
 
     Logic:
     - If not a PDF (extension not .pdf): return "text"
-    - Open with PyMuPDF (fitz.open). For each page, count chars via page.get_text().
+    - Open with pypdfium2. For each page, count chars via its text page.
       If total chars across all pages >= 50: return "pdf_text"
       Otherwise: return "pdf_hybrid"
-    - If fitz.open fails: raise ValueError(f"Cannot open PDF: {path}")
+    - If the PDF cannot be opened: raise ValueError(f"Cannot open PDF: {path}")
     """
     path = Path(path)
     if path.suffix.lower() != ".pdf":
         return "text"
 
     try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(str(path))
-        total_chars = sum(len(page.get_text()) for page in doc)
-        doc.close()
+        import pypdfium2 as pdfium
+
+        doc = pdfium.PdfDocument(str(path))
+        total_chars = 0
+        try:
+            for page in doc:
+                textpage = page.get_textpage()
+                try:
+                    total_chars += textpage.count_chars()
+                finally:
+                    textpage.close()
+        finally:
+            doc.close()
     except Exception as exc:
         raise ValueError(f"Cannot open PDF: {path}") from exc
 
