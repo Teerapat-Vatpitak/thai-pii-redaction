@@ -180,3 +180,23 @@ def test_sanitize_token_mode_unchanged(client):
     ).json()
     assert "[" in s["sanitized_text"]
     assert "081-234-5678" not in s["sanitized_text"]
+
+
+def test_shutdown_endpoint_returns_ack(monkeypatch):
+    """POST /api/shutdown acknowledges and schedules an exit without killing the test process synchronously."""
+    import app.server as server
+
+    called = {}
+
+    def fake_schedule_exit():
+        called["scheduled"] = True
+
+    monkeypatch.setattr(server, "_schedule_exit", fake_schedule_exit)
+
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    resp = client.post("/api/shutdown")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "shutting_down"}
+    assert called.get("scheduled") is True

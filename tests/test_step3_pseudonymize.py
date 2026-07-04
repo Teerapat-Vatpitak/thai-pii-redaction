@@ -150,3 +150,27 @@ def test_anonymize_returns_pseudonymized_document():
     result = anonymize(text, registry, vault, salt=SALT)
     assert isinstance(result, PseudonymizedDocument)
     assert result.session_id == vault.session_id
+
+
+def test_anonymize_fn_scanner_entities_get_realistic_fake_values():
+    """Regression: fn_scanner-detected THAI_ID/EMAIL must route through
+    generate_fp (realistic fake value), not tb_generator's literal
+    "[REDACTED_x]" fallback -- fn_scanner now tags them redact_type="FP"."""
+    from pii_redactor.detectors.fn_scanner import scan_fn
+
+    text = "id 1234567890123 email foo@bar.com"
+    entities = scan_fn(text, [])
+    assert {e.data_type for e in entities} == {"THAI_ID", "EMAIL"}
+    assert all(e.redact_type == "FP" for e in entities)
+
+    registry = EntityRegistry(
+        entities=entities,
+        fp_count=len(entities),
+        tb_count=0,
+    )
+    vault = SessionVault()
+    result = anonymize(text, registry, vault, salt=SALT)
+    assert "[REDACTED_THAI_ID]" not in result.text
+    assert "[REDACTED_EMAIL]" not in result.text
+    assert "1234567890123" not in result.text
+    assert "foo@bar.com" not in result.text

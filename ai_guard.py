@@ -60,7 +60,7 @@ def cmd_report(args):
 
     try:
         source_type = detect_source_type(args.file)
-        extracted_text, _bboxes = extract(args.file, source_type)
+        extracted_text, _bboxes, _meta = extract(args.file, source_type)
         clean_result = clean(extracted_text)
         text = clean_result.text
     except FileNotFoundError as e:

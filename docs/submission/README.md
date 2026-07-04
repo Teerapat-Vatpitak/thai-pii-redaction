@@ -34,6 +34,6 @@
 > หมายเหตุ: ฟอนต์ในไฟล์ HTML โหลด Sarabun จาก Google Fonts ตอนเปิด (ต้องต่อเน็ตตอน export PDF) เพื่อนปรับสี/เลย์เอาต์/ใส่ QR ต่อใน Canva/Illustrator ได้ตามต้องการ
 
 ## หลักการเขียน (สำคัญ — อย่าแก้ให้เกินจริง)
-เคลมเฉพาะที่ระบบทำได้จริง: regex+checksum, thainer-CRF NER + กฎบริบท, token/surrogate, vault ในเครื่อง,
-true PDF redaction (bbox), ธง ม.26, re-id risk, extension + .exe
-**ของที่เป็น roadmap (ห้ามเคลมว่าทำแล้ว):** WangchanBERTa, OCR เอกสารสแกน, Presidio bridge, การวัด F1 ทางการ
+เคลมเฉพาะที่ระบบทำได้จริง: regex+checksum, thainer-CRF NER + กฎบริบท (default) หรือ WangchanBERTa engine ทางเลือก (เปิดผ่าน `AIGUARD_NER_ENGINE=wangchanberta`, แม่นกว่าแต่ช้ากว่า CRF ~1.3 วินาที/ประโยคบน CPU), token/surrogate, vault ในเครื่อง,
+true PDF redaction (bbox), OCR ภาพสแกนด้วย PaddleOCR ต่อหน้า (พร้อม retry + human-review flag; ต้องรันจาก source พร้อม `requirements-ocr.txt` — ไม่ได้บันเดิลใน .exe), ธง ม.26, re-id risk, extension + .exe
+**ของที่เป็น roadmap (ห้ามเคลมว่าทำแล้ว):** Presidio bridge, การวัด F1 ทางการ (ไม่มีตัวเลข accuracy ที่ผ่านการวัดจริงทั้ง OCR และ WangchanBERTa — อย่าเคลมตัวเลข)
