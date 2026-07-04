@@ -49,8 +49,17 @@ export function renderText(root) {
     }
   });
 
-  $("#t-copy").addEventListener("click", () => {
-    navigator.clipboard.writeText($("#t-masked").textContent);
+  $("#t-copy").addEventListener("click", async () => {
+    const btn = $("#t-copy");
+    try {
+      await navigator.clipboard.writeText($("#t-masked").textContent);
+      const prev = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = prev; }, 1200);
+    } catch (e) {
+      $("#t-err").textContent = "คัดลอกไม่สำเร็จ: " + e.message;
+      $("#t-err").classList.remove("hidden");
+    }
   });
 
   $("#t-restore").addEventListener("click", async () => {
