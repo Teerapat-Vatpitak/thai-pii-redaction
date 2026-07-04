@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Guard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="boot" class="boot">
+    <div class="spinner"></div>
+    <p id="boot-msg">กำลังเริ่มบริการในเครื่อง...</p>
+  </div>
+
+  <div id="app" class="app hidden">
+    <nav class="sidebar">
+      <div class="brand">AI Guard</div>
+      <button class="nav-item" data-tab="text">Mask / Restore</button>
+      <button class="nav-item" data-tab="redact">Redact PDF</button>
+      <button class="nav-item" data-tab="report">PDPA Report</button>
+      <button class="nav-item" data-tab="settings">Settings</button>
+      <div class="status" id="status"><span class="dot"></span> <span id="status-text">online</span></div>
+    </nav>
+    <main class="content" id="screen"></main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
