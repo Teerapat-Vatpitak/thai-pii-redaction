@@ -5,15 +5,15 @@ export function renderSettings(root) {
     <div class="card">
       <b>โหมดการปกปิด</b>
       <div class="row">
-        <label><input type="radio" name="mode" value="token" ${mode === "token" ? "checked" : ""}/> Token — <span class="mono">[ชื่อ_1]</span> (เห็นชัดว่าปกปิดแล้ว)</label>
+        <label><input type="radio" name="mode" value="token" ${mode === "token" ? "checked" : ""}/> Token <span class="mono">[ชื่อ_1]</span> (เห็นชัดว่าปกปิดแล้ว)</label>
       </div>
       <div class="row">
-        <label><input type="radio" name="mode" value="surrogate" ${mode === "surrogate" ? "checked" : ""}/> Surrogate — ข้อมูลปลอมสมจริง (AI อ่านลื่น)</label>
+        <label><input type="radio" name="mode" value="surrogate" ${mode === "surrogate" ? "checked" : ""}/> Surrogate ข้อมูลปลอมสมจริง (AI อ่านลื่น)</label>
       </div>
     </div>
     <div class="card">
       <b>ส่วนขยายเบราว์เซอร์</b>
-      <p>สำหรับปกปิดในหน้าแชต ChatGPT / Claude โดยตรง — ติดตั้งจาก Chrome Web Store (เร็ว ๆ นี้) หรือโหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked</p>
+      <p>สำหรับปกปิดในหน้าแชต ChatGPT / Claude โดยตรง ติดตั้งจาก Chrome Web Store (เร็ว ๆ นี้) หรือโหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked</p>
     </div>
     <div class="card">
       <b>บริการในเครื่อง</b>
