@@ -1,6 +1,7 @@
 mod hotkey;
 mod sidecar;
 mod tray;
+mod updater;
 
 use tauri::Manager;
 
@@ -15,8 +16,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(sidecar::SidecarState::default())
-        .invoke_handler(tauri::generate_handler![quit_app])
+        .invoke_handler(tauri::generate_handler![
+            quit_app,
+            updater::update_check,
+            updater::update_install
+        ])
         .setup(|app| {
             if let Err(e) = sidecar::spawn(&app.handle()) {
                 log::error!("failed to start sidecar: {e}");
