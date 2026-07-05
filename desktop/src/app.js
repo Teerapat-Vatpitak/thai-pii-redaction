@@ -37,6 +37,24 @@ function selectTab(name) {
   SCREENS[name](root);
 }
 
+async function checkForUpdateBanner() {
+  if (!window.__TAURI__) return;
+  try {
+    const info = await window.__TAURI__.core.invoke("update_check");
+    if (!info.available) return;
+    const bar = document.createElement("div");
+    bar.className = "update-banner";
+    bar.textContent = `มีอัปเดตใหม่ ${info.version} ไปที่หน้า Settings เพื่ออัปเดต`;
+    const close = document.createElement("button");
+    close.textContent = "x";
+    close.addEventListener("click", () => bar.remove());
+    bar.appendChild(close);
+    document.getElementById("app").prepend(bar);
+  } catch {
+    // offline, or no published release yet: stay silent
+  }
+}
+
 async function main() {
   const ok = await waitForBackend();
   if (!ok) return;
@@ -46,6 +64,7 @@ async function main() {
     b.addEventListener("click", () => selectTab(b.dataset.tab));
   });
   selectTab("text");
+  checkForUpdateBanner();
 }
 
 main();
