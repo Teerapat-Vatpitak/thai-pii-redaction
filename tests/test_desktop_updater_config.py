@@ -15,6 +15,11 @@ def test_updater_endpoints_are_https():
 
 
 def test_updater_pubkey_present():
+    # Intentionally checks only that the pubkey is non-empty, not that it's a real
+    # key. This knowingly accepts the placeholder value
+    # "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY" until the real Tauri signer key is
+    # generated and substituted in. A placeholder-rejecting assertion would fail
+    # on main while the placeholder is still in use.
     pubkey = _conf()["plugins"]["updater"]["pubkey"]
     assert isinstance(pubkey, str) and pubkey.strip() != ""
 
