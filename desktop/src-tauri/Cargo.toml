@@ -2,7 +2,7 @@
 name = "desktop"
 version = "2.0.0"
 description = "Thai PII detection and redaction — desktop app"
-authors = ["you"]
+authors = ["Teerapat Vatpitak <teerapatv.c@gmail.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
