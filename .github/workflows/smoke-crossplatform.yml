@@ -1,0 +1,39 @@
+# Verify the packaged sidecar's runtime lifecycle + the F1 orphan-port watchdog
+# on real macOS + Linux kernels. The Windows watchdog is a no-op (taskkill /T
+# reaps the tree), so this is unix-only. Runs on merges to main + on demand.
+name: Smoke (cross-platform)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python deps (for the sidecar build)
+        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-web.txt
+
+      - name: Pre-download the offline NER model
+        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+
+      - name: Set up Rust (build_sidecar reads the host triple from rustc)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build + stage the sidecar
+        run: python scripts/build_sidecar.py
+
+      - name: Run the sidecar lifecycle + watchdog smoke check
+        run: python scripts/smoke_sidecar.py
