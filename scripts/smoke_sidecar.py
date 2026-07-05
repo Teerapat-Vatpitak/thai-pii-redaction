@@ -8,6 +8,7 @@ child exits and frees port 8000. Windows reaps the whole tree via `taskkill /T`,
 so this check is unix-only and refuses to run on win32.
 """
 import glob
+import json
 import os
 import socket
 import subprocess
@@ -54,6 +55,23 @@ def health_ok():
         return False
 
 
+def sanitize_ok():
+    data = json.dumps({"text": "ติดต่อ 0812345678", "mode": "token"}).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://{HOST}:{PORT}/api/sanitize",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        if r.status != 200:
+            raise SystemExit(f"FAIL: /api/sanitize returned {r.status}")
+        body = json.loads(r.read())
+    if "sanitized_text" not in body:
+        raise SystemExit("FAIL: /api/sanitize response missing sanitized_text (engine did not run)")
+    print("PASS: /api/sanitize ran (engine loaded)")
+
+
 def run_smoke():
     binary = find_sidecar()
     print(f"sidecar: {binary}")
@@ -63,6 +81,7 @@ def run_smoke():
         if not wait_for(health_ok, timeout=60):
             raise SystemExit("FAIL: sidecar did not serve /api/health within 60s")
         print("PASS: /api/health responded")
+        sanitize_ok()
         # SIGKILL the PyInstaller bootloader parent (uncatchable, like Tauri's unix kill).
         proc.kill()
         proc.wait(timeout=10)
