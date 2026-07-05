@@ -16,7 +16,12 @@ body { margin: 0; font-family: "Segoe UI", Tahoma, sans-serif; color: #1f2937; b
 .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
 .status.offline .dot { background: #ef4444; }
 
+.update-banner { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #2563eb; color: #fff; font-size: 14px; }
+.update-banner button { background: transparent; color: #fff; border: 0; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; opacity: 0.85; }
+.update-banner button:hover { background: rgba(255, 255, 255, 0.15); opacity: 1; }
+
 .content { padding: 24px 28px; overflow: auto; }
+.muted { color: #6b7280; font-size: 13px; }
 h2 { margin-top: 0; }
 textarea { width: 100%; min-height: 140px; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font: inherit; resize: vertical; }
 button.primary { background: #2563eb; color: #fff; border: 0; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; }

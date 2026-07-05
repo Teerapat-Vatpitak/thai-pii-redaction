@@ -17,8 +17,18 @@
       { "title": "AI Guard", "width": 1100, "height": 760, "resizable": true }
     ]
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY"
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
+    "publisher": "Teerapat Vatpitak",
     "targets": ["nsis", "dmg", "deb", "appimage"],
     "externalBin": ["binaries/aiguard"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]

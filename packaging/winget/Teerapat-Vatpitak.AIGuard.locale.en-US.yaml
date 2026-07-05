@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Teerapat-Vatpitak.AIGuard
+PackageVersion: 2.0.0
+PackageLocale: en-US
+Publisher: Teerapat Vatpitak
+PublisherUrl: https://github.com/Teerapat-Vatpitak
+PublisherSupportUrl: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/issues
+PackageName: AI Guard
+PackageUrl: https://github.com/Teerapat-Vatpitak/thai-pii-redaction
+License: Apache-2.0
+LicenseUrl: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Teerapat Vatpitak
+ShortDescription: Mask Thai personal data (PII) before sending it to an external AI, then restore the real values locally.
+Description: >-
+  AI Guard detects and redacts Thai personally identifiable information (PII) for PDPA compliance.
+  Everything runs on your machine, so raw PII never leaves the device. It offers two modes: true PDF
+  redaction (a permanent black box at the bounding-box level) and AI Guard mode, which pseudonymizes
+  PII with tokens before sending text to an external AI and then re-identifies the values locally from
+  an in-memory vault after the response returns.
+Moniker: aiguard
+Tags:
+  - pii
+  - pdpa
+  - privacy
+  - thai
+  - redaction
+  - anonymization
+  - nlp
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
