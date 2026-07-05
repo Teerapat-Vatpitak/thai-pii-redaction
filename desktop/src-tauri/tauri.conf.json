@@ -22,7 +22,7 @@
       "endpoints": [
         "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest/download/latest.json"
       ],
-      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEREJGRjFBNDUxNTYyOUMKUldTY1loVkZHdi9iN1NJd3lsMEVtMFZQL0lWUFNVVzlGekxCUWYrYlA1TE4rV1lnOHp0YmpPdEUK"
     }
   },
   "bundle": {
