@@ -25,7 +25,13 @@ h2.r { color:#BE342C; } h2.b { color:#2563EB; }
 p { font-size:23px; line-height:1.55; }
 .feat { display:grid; grid-template-columns:1fr 1fr; gap:14px 34px; font-size:22px; margin-top:6px; }
 .feat div::before { content:'•'; color:#2563EB; font-weight:700; margin-right:10px; }
-.foot { margin-top:26px; font-size:21px; color:#5B6B85; display:flex; justify-content:space-between; }
+.foot { margin-top:26px; font-size:21px; color:#5B6B85; display:flex; justify-content:space-between; align-items:flex-end; }
+.footqr { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.footteam { align-self:flex-start; }
+.qrbox { display:flex; flex-direction:column; align-items:center; gap:4px; background:#fff;
+          border:1px solid #E3E9F2; border-radius:10px; padding:10px 14px; }
+.qr { width:35mm; height:35mm; display:block; }
+.qrurl { font-size:13px; color:#5B6B85; word-break:break-all; max-width:60mm; text-align:center; }
 </style></head><body>
 <div class="page">
   <div class="head">
@@ -65,8 +71,15 @@ p { font-size:23px; line-height:1.55; }
   </div>
 
   <div class="foot">
-    <div>ผล: ลดความเสี่ยงรั่ว ~100% สำหรับ PII ที่ตรวจจับได้ &nbsp;|&nbsp; ทดสอบจริงบน Claude &nbsp;|&nbsp; ทดสอบอัตโนมัติ 233 กรณี</div>
-    <div>[ทีม / อีเมล / QR code -> GitHub]</div>
+    <div>ผล: ลดความเสี่ยงรั่ว ~100% สำหรับ PII ที่ตรวจจับได้ &nbsp;|&nbsp; ทดสอบจริงบน Claude &nbsp;|&nbsp; ทดสอบอัตโนมัติ 269 กรณี</div>
+    <!-- TODO(user-text): fill in the real team name and contact email once provided. -->
+    <div class="footqr">
+      <div class="footteam">ทีม: {TEAM_NAME} &nbsp;|&nbsp; {TEAM_EMAIL}</div>
+      <div class="qrbox">
+        <img src="data:image/png;base64,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" class="qr">
+        <div class="qrurl">https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest</div>
+      </div>
+    </div>
   </div>
 </div>
 </body></html>
