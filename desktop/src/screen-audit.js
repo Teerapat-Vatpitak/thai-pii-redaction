@@ -3,7 +3,7 @@ import { auditLog } from "./api.js";
 export function renderAudit(root) {
   root.innerHTML = `
     <h2>Audit Log</h2>
-    <p>บันทึกกระบวนการ (ไม่มีข้อมูลส่วนบุคคล) — ล่าสุดก่อน</p>
+    <p>บันทึกกระบวนการ (ไม่มีข้อมูลส่วนบุคคล) ล่าสุดก่อน</p>
     <div class="row"><button class="primary" id="au-refresh">Refresh</button> <span id="au-count"></span></div>
     <div id="au-out"></div>
     <p class="err hidden" id="au-err"></p>
