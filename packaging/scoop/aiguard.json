@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "description": "Mask Thai PII before sending it to an external AI, then restore the real values locally (PDPA-friendly, on-device).",
+    "homepage": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction",
+    "license": "Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v2.0.0/AI.Guard_2.0.0_x64-setup.exe#/dl.7z",
+            "hash": "e0831b9b5b22a2059239617e69de3005176c75d5503df173785bfee26e81c079"
+        }
+    },
+    "pre_install": [
+        "Remove-Item \"$dir\\`$PLUGINSDIR\", \"$dir\\uninstall.exe\" -Recurse -Force -ErrorAction SilentlyContinue"
+    ],
+    "bin": [
+        [
+            "desktop.exe",
+            "aiguard"
+        ]
+    ],
+    "shortcuts": [
+        [
+            "desktop.exe",
+            "AI Guard"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v$version/AI.Guard_$version_x64-setup.exe#/dl.7z"
+            }
+        }
+    }
+}
