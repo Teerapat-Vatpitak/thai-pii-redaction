@@ -18,20 +18,18 @@ Detection runs locally: regex + checksum (Thai ID mod-11, phone, email, …) and
 
 ## Installation
 
-The tool is two parts: a **local backend** (the engine) and a **browser extension** (the UI on ChatGPT/Claude). Install the backend one of two ways, then add the extension.
+The recommended way to run AI Guard is the desktop app: a native installer that bundles the backend, so there is no Python setup. A from-source / pip path is also available for developers.
 
-### Step 1 — Start the backend
+### Option A · Desktop app installer (recommended)
 
-**Option A · Windows .exe (recommended, no Python needed)**
+1. Download the installer for your platform from the [Releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest):
+   - **Windows** (tested, primary platform): `AI.Guard_<version>_x64-setup.exe`
+   - **macOS** (experimental — built in CI, not yet verified on real hardware): `AI.Guard_<version>_aarch64.dmg`
+   - **Linux** (experimental — built in CI, not yet verified on real hardware): `AI.Guard_<version>_amd64.deb` or `AI.Guard_<version>_amd64.AppImage`
+2. Run the installer and launch AI Guard. The backend is bundled and starts with the app — no Python, no separate install, works offline.
+3. The app is not code-signed. On first run, Windows SmartScreen may show an "unknown publisher" warning — click **More info → Run anyway** to continue.
 
-1. Download `AIGuard.exe` from the [Releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases).
-2. Double-click it. Windows SmartScreen may warn about an unknown publisher (the build is unsigned) — click **More info → Run anyway**.
-3. A console window opens and your browser opens to the API docs. The backend is now running at `http://localhost:8000`.
-4. Keep the window open while you use the tool; close it to stop.
-
-The `.exe` is self-contained — it bundles the Thai NER model and works offline. No Python, no install.
-
-**Option B · From source (Windows / Linux / macOS)**
+### Option B · From source (developer alternative)
 
 Prerequisites: **Python 3.11+** and **git**.
 
@@ -46,20 +44,22 @@ cd thai-pii-redaction
 ./run.sh      # Linux / macOS / git-bash
 ```
 
-The script creates a virtual environment and installs dependencies on first run (a few minutes). The first time Thai NER runs it downloads a ~2 MB model (needs internet once).
+The script creates a virtual environment and installs dependencies on first run (a few minutes). The first time Thai NER runs it downloads a ~2 MB model (needs internet once). This starts the same backend the desktop app bundles, at `http://localhost:8000` — useful for the browser extension UI below, or for hitting the API directly.
 
-**Verify either option:** open `http://localhost:8000/api/health` → you should see `{"status":"ok","version":"2.0.0"}`.
+**Verify either option:** open `http://localhost:8000/api/health` → you should see `{"status":"ok"}` with the current version.
 
-### Step 2 — Add the browser extension
+### Optional: browser extension (ChatGPT / Claude in-page UI)
+
+The extension talks to the same local backend, so it works with either install option above (desktop app or from-source).
 
 1. Open `chrome://extensions` in Chrome / Edge (any Chromium browser).
 2. Turn on **Developer mode** (top-right).
-3. Click **Load unpacked** and select the `extension/` folder from this repo. (With the `.exe`, clone or download this repo to get the `extension/` folder — only the backend needs no Python.)
+3. Click **Load unpacked** and select the `extension/` folder from this repo (clone or download the repo to get it).
 4. Pin the **AI Guard** extension so you can reach its popup. It activates on `chatgpt.com`, `chat.openai.com`, and `claude.ai`.
 
 See `extension/README.md` for details.
 
-### Step 3 — Use it on ChatGPT / Claude
+**Using it:**
 
 1. Type a prompt containing PII into the chat box.
 2. Click **Mask PII** (the floating AI Guard bar) — your text becomes tokens or fake data.
@@ -68,9 +68,9 @@ See `extension/README.md` for details.
 
 ### Troubleshooting
 
-- **"Backend offline" in the extension** — the backend isn't running. Start the `.exe` or `run` script (Step 1).
+- **"Backend offline" in the extension** — the backend isn't running. Launch the desktop app, or start it via the `run` script (Option B).
 - **Port 8000 already in use** — close whatever is using it, or stop a previous backend instance.
-- **SmartScreen blocks the .exe** — expected for an unsigned build; choose *More info → Run anyway*.
+- **SmartScreen blocks the installer** — expected for an unsigned build; choose *More info → Run anyway*.
 - **Extension bar doesn't appear** — reload the ChatGPT/Claude tab after loading the extension.
 
 ## Mask modes
@@ -100,7 +100,7 @@ Catches free-form Section 26 content keywords miss (e.g. "ป่วยเป็�
 pip install -r requirements-ml.txt   # large; the feature self-disables if absent
 ```
 
-(Not included in the `.exe`.)
+(Not included in the desktop app or the packaged builds.)
 
 ## Privacy
 
@@ -120,8 +120,6 @@ Architecture and module map: [`CLAUDE.md`](CLAUDE.md).
 
 Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). PDF handling uses the permissively licensed pypdfium2 / reportlab / pdfplumber (PyMuPDF/AGPL is no longer used).
 
-## Build the .exe yourself
+## Build the desktop app yourself
 
-```powershell
-./build_exe.ps1     # -> dist/AIGuard.exe
-```
+See `desktop/README.md` and `packaging/README.md` for the Tauri build (bundles the backend via `desktop/build-sidecar.ps1`).

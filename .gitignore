@@ -14,3 +14,9 @@ build/
 .DS_Store
 step1-7_*.pdf
 logs/
+
+# stray scratch files (kept out of repo root)
+/*.jpg
+/*.jpeg
+/*.png
+/AI_Innovation_for_Future_Society.pdf
