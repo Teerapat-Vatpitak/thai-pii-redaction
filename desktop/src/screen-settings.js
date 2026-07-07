@@ -1,36 +1,60 @@
+import { screenHeader } from "./ui.js";
+
 export function renderSettings(root) {
   const mode = localStorage.getItem("aiguard.mode") || "token";
+
+  const cardStyle = (selected) =>
+    selected ? ` style="border-color:var(--primary);background:var(--primary-soft)"` : "";
+
   root.innerHTML = `
-    <h2>Settings</h2>
-    <div class="card">
-      <b>โหมดการปกปิด</b>
-      <div class="row">
-        <label><input type="radio" name="mode" value="token" ${mode === "token" ? "checked" : ""}/> Token — <span class="mono">[ชื่อ_1]</span> (เห็นชัดว่าปกปิดแล้ว)</label>
+    ${screenHeader("Settings", "ตั้งค่าโหมดปกปิดเริ่มต้นและจัดการโปรแกรม")}
+    <div class="row" id="s-mode-cards">
+      <div class="card" id="s-mode-token" data-mode="token"${cardStyle(mode === "token")}>
+        <div class="row" style="margin: 0 0 var(--s2)">
+          <span style="font-size:14px;font-weight:500">Token</span>
+          <span class="chip chip--token">[ชื่อ_1]</span>
+        </div>
+        <p class="muted">เห็นชัดว่าปกปิดแล้ว เหมาะกับงานที่ต้องตรวจสอบย้อนหลัง</p>
       </div>
-      <div class="row">
-        <label><input type="radio" name="mode" value="surrogate" ${mode === "surrogate" ? "checked" : ""}/> Surrogate — ข้อมูลปลอมสมจริง (AI อ่านลื่น)</label>
+      <div class="card" id="s-mode-surrogate" data-mode="surrogate"${cardStyle(mode === "surrogate")}>
+        <div class="row" style="margin: 0 0 var(--s2)">
+          <span style="font-size:14px;font-weight:500">Surrogate</span>
+          <span style="display:inline-block;width:14px;height:14px;border-radius:var(--r-sm);background:var(--surrogate)"></span>
+        </div>
+        <p class="muted">ข้อมูลปลอมสมจริง ให้ AI อ่านลื่นเหมือนข้อความจริง</p>
       </div>
     </div>
     <div class="card">
       <b>ส่วนขยายเบราว์เซอร์</b>
-      <p>สำหรับปกปิดในหน้าแชต ChatGPT / Claude โดยตรง — ติดตั้งจาก Chrome Web Store (เร็ว ๆ นี้) หรือโหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked</p>
+      <p class="muted">สำหรับปกปิดในหน้าแชต ChatGPT / Claude โดยตรง ติดตั้งจาก Chrome Web Store (เร็ว ๆ นี้) หรือโหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked</p>
     </div>
     <div class="card">
       <b>บริการในเครื่อง</b>
-      <p>API: <span class="mono">http://127.0.0.1:8000</span> · เอกสาร: <span class="mono">/docs</span></p>
-      <div class="row"><button class="primary" id="s-quit">ออกจากโปรแกรม (ปิด backend)</button></div>
+      <p class="muted">API: <span class="mono">http://127.0.0.1:8000</span> · เอกสาร: <span class="mono">/docs</span></p>
+      <div class="row"><button class="btn btn--danger" id="s-quit">ออกจากโปรแกรม (ปิด backend)</button></div>
     </div>
     <div class="card">
       <b>อัปเดตโปรแกรม</b>
-      <p>ตรวจเวอร์ชันใหม่จาก GitHub Releases</p>
-      <div class="row"><button class="primary" id="s-check-update">ตรวจหาอัปเดต</button></div>
+      <p class="muted">ตรวจเวอร์ชันใหม่จาก GitHub Releases</p>
+      <div class="row"><button class="btn btn--primary" id="s-check-update">ตรวจหาอัปเดต</button></div>
       <p id="s-update-status" class="muted"></p>
     </div>
   `;
 
-  root.querySelectorAll('input[name="mode"]').forEach((el) => {
-    el.addEventListener("change", () => {
-      localStorage.setItem("aiguard.mode", el.value);
+  const modeCards = root.querySelectorAll("#s-mode-cards .card");
+  modeCards.forEach((card) => {
+    card.addEventListener("click", () => {
+      const value = card.dataset.mode;
+      localStorage.setItem("aiguard.mode", value);
+      modeCards.forEach((c) => {
+        if (c.dataset.mode === value) {
+          c.style.borderColor = "var(--primary)";
+          c.style.background = "var(--primary-soft)";
+        } else {
+          c.style.borderColor = "";
+          c.style.background = "";
+        }
+      });
     });
   });
 
@@ -53,14 +77,15 @@ export function renderSettings(root) {
           status.textContent = "เป็นเวอร์ชันล่าสุดแล้ว";
           return;
         }
-        status.textContent = `มีอัปเดต ${info.version} `;
+        status.textContent = "";
+        status.append(`มีอัปเดต ${info.version} `);
         const doBtn = document.createElement("button");
-        doBtn.className = "primary";
+        doBtn.className = "btn btn--primary";
         doBtn.textContent = "อัปเดตเลย";
         status.appendChild(doBtn);
         if (info.notes) {
           const notes = document.createElement("div");
-          notes.className = "mono";
+          notes.className = "well";
           notes.textContent = info.notes;
           status.appendChild(notes);
         }

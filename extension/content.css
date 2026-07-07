@@ -1,6 +1,48 @@
 /* AI Guard injected UI. All classes are aiguard- prefixed to avoid clashing
-   with the host page's styles. */
+   with the host page. Tokens are namespaced --ag-* and declared ON the injected
+   roots (never :root, so the host page is untouched) and swapped by the host
+   page's color scheme. The bar uses a system Thai font stack -- no @font-face is
+   injected into the host page. */
 
+.aiguard-bar,
+.aiguard-overlay-back,
+.aiguard-msg-btn {
+  --ag-surface: #ffffff;
+  --ag-ink: #15233b;
+  --ag-muted: #5b6b85;
+  --ag-line: #e3e9f2;
+  --ag-primary: #2563eb;
+  --ag-primary-ink: #ffffff;
+  --ag-primary-soft: #edf3fe;
+  --ag-well: #f1f4f8;
+  --ag-ok: #15803d;
+  --ag-warn: #b45309;
+  --ag-err: #b91c1c;
+  --ag-scrim: rgba(11, 18, 32, 0.55);
+  --ag-shadow-1: 0 4px 16px rgba(21, 35, 59, 0.1);
+  --ag-shadow-2: 0 16px 48px rgba(21, 35, 59, 0.22);
+  --ag-font: "Leelawadee UI", "Thonburi", "Noto Sans Thai", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .aiguard-bar,
+  .aiguard-overlay-back,
+  .aiguard-msg-btn {
+    --ag-surface: #18253c;
+    --ag-ink: #e4eaf4;
+    --ag-muted: #97a6bf;
+    --ag-line: rgba(255, 255, 255, 0.12);
+    --ag-primary: #6d9bff;
+    --ag-primary-ink: #0d1524;
+    --ag-primary-soft: rgba(122, 165, 255, 0.14);
+    --ag-well: #0f1a2c;
+    --ag-ok: #3fb26f;
+    --ag-warn: #d98f2b;
+    --ag-err: #e5636b;
+  }
+}
+
+/* ---- floating bar ---- */
 .aiguard-bar {
   position: fixed;
   right: 16px;
@@ -10,24 +52,20 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: #ffffff;
-  border: 1px solid #e3e9f2;
-  border-radius: 10px;
-  box-shadow: 0 6px 24px rgba(21, 35, 59, 0.16);
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--ag-surface);
+  color: var(--ag-ink);
+  border: 1px solid var(--ag-line);
+  border-radius: 14px;
+  box-shadow: var(--ag-shadow-1);
+  font-family: var(--ag-font);
 }
 
-.aiguard-logo {
-  width: 20px;
-  height: 20px;
-  display: block;
-  flex: none;
-}
+.aiguard-logo { width: 20px; height: 20px; display: block; flex: none; }
 
 .aiguard-btn {
-  border: 1px solid #2563eb;
-  background: #2563eb;
-  color: #ffffff;
+  border: 1px solid var(--ag-primary);
+  background: var(--ag-primary);
+  color: var(--ag-primary-ink);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -36,57 +74,55 @@
   cursor: pointer;
   line-height: 1.2;
 }
-.aiguard-btn:hover {
-  filter: brightness(0.95);
-}
-.aiguard-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.aiguard-btn:hover { filter: brightness(0.96); }
+.aiguard-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ghost keeps a visible 1px hairline border in BOTH light and dark hosts */
 .aiguard-btn.aiguard-ghost {
   background: transparent;
-  color: #2563eb;
+  color: var(--ag-primary);
+  border: 1px solid var(--ag-line);
 }
+.aiguard-btn.aiguard-ghost:hover { background: var(--ag-primary-soft); }
 
 .aiguard-status {
   font-size: 12px;
-  color: #5b6b85;
+  color: var(--ag-muted);
   max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.aiguard-status.aiguard-ok {
-  color: #15803d;
-}
-.aiguard-status.aiguard-err {
-  color: #b91c1c;
-}
+.aiguard-status.aiguard-ok { color: var(--ag-ok); }
+.aiguard-status.aiguard-err { color: var(--ag-err); }
 
+/* ---- per-message restore chip ---- */
 .aiguard-msg-btn {
   display: inline-block;
   margin-top: 8px;
-  border: 1px solid #cbd5e1;
-  background: #f5f8fd;
-  color: #2563eb;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  border: none;
+  background: var(--ag-primary-soft);
+  color: var(--ag-primary);
+  font-family: var(--ag-font);
   font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 7px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 6px;
   cursor: pointer;
 }
-.aiguard-msg-btn:hover {
-  background: #e9f0fc;
-}
+.aiguard-msg-btn:hover { filter: brightness(0.97); }
 
-/* restored-text overlay */
+/* ---- restored-text overlay (scheme-aware; no more white flashbang on dark) ---- */
 .aiguard-overlay-back {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  background: rgba(21, 35, 59, 0.45);
+  background: var(--ag-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  animation: aiguard-fade 240ms ease;
 }
 
 .aiguard-overlay {
@@ -94,56 +130,54 @@
   width: min(680px, 92vw);
   max-height: 80vh;
   overflow: auto;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(21, 35, 59, 0.3);
+  background: var(--ag-surface);
+  color: var(--ag-ink);
+  border: 1px solid var(--ag-line);
+  border-radius: 14px;
+  box-shadow: var(--ag-shadow-2);
   padding: 20px 22px;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  color: #15233b;
+  font-family: var(--ag-font);
+  animation: aiguard-pop 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes aiguard-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aiguard-pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .aiguard-overlay-back, .aiguard-overlay { animation: none; }
 }
 
 .aiguard-overlay-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
-  color: #5b6b85;
+  color: var(--ag-muted);
   cursor: pointer;
+  border-radius: 6px;
 }
+.aiguard-overlay-close:hover { background: var(--ag-well); color: var(--ag-ink); }
 
-.aiguard-overlay-title {
-  font-size: 15px;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
+.aiguard-overlay-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; padding-right: 32px; }
 
 .aiguard-overlay-body {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 14px;
-  line-height: 1.55;
-  background: #f5f8fd;
-  border: 1px solid #e3e9f2;
-  border-radius: 8px;
+  line-height: 1.6;
+  background: var(--ag-well);
+  border: 1px solid var(--ag-line);
+  border-radius: 10px;
   padding: 12px 14px;
+  color: var(--ag-ink);
 }
 
-.aiguard-overlay-meta {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #5b6b85;
-}
-
-@media (prefers-color-scheme: dark) {
-  .aiguard-bar {
-    background: #1b2433;
-    border-color: #2b394f;
-  }
-  .aiguard-status {
-    color: #9fb0cc;
-  }
-}
+.aiguard-overlay-meta { margin-top: 10px; font-size: 12px; color: var(--ag-muted); }

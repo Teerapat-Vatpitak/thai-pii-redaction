@@ -14,6 +14,12 @@ each under its own permissive license:
 - PyThaiNLP (Apache-2.0) — Thai tokenization and NER.
 - python-crfsuite (MIT) — CRF sequence labeling for the thainer NER engine.
 
+Bundled fonts (self-hosted WOFF2 in desktop/src/fonts/ and extension/fonts/,
+used for the application UI):
+- IBM Plex Sans Thai Looped (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
+- IBM Plex Mono (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
+  Source: https://github.com/IBM/plex
+
 Optional components (installed separately, not part of the core distribution):
 - sentence-transformers / torch — optional semantic Section-26 detector.
 - paddleocr / paddlepaddle / opencv — optional scanned-PDF OCR.
