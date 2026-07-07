@@ -1,68 +1,126 @@
 import { sanitize, reidentify } from "./api.js";
+import { screenHeader, escapeHtml } from "./ui.js";
+
+/** Wrap every occurrence of each entity's pseudonym token in a chip span.
+ * Tokens are matched longest-first so a token that is a substring of another
+ * (e.g. two surrogate names sharing a prefix) never gets partially wrapped.
+ * `sanitizedText` must already be escaped with escapeHtml before calling.
+ */
+function highlightTokens(escapedSanitized, entities, chipClass) {
+  const tokens = [...new Set(entities.map((e) => e.token))]
+    .map((t) => escapeHtml(t))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  if (!tokens.length) return escapedSanitized;
+
+  const pattern = new RegExp(
+    tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "g"
+  );
+  return escapedSanitized.replace(
+    pattern,
+    (match) => `<span class="chip ${chipClass}">${match}</span>`
+  );
+}
 
 export function renderText(root) {
-  const mode = localStorage.getItem("aiguard.mode") || "token";
+  let mode = localStorage.getItem("aiguard.mode") || "token";
+
   root.innerHTML = `
-    <h2>Mask / Restore</h2>
-    <p>วางข้อความที่มีข้อมูลส่วนบุคคล กด Mask เพื่อแทนด้วยโทเคน แล้วคัดลอกไปใช้กับ AI ภายนอก</p>
+    ${screenHeader("Mask / Restore", "วางข้อความที่มีข้อมูลส่วนบุคคล กด ปกปิดข้อมูล เพื่อแทนด้วยโทเคน แล้วคัดลอกไปใช้กับ AI ภายนอก")}
+    <div class="seg" id="t-mode-seg" role="tablist">
+      <button type="button" class="seg__opt" id="t-mode-token" aria-selected="${mode === "token"}">Token</button>
+      <button type="button" class="seg__opt" id="t-mode-surrogate" aria-selected="${mode === "surrogate"}">Surrogate</button>
+    </div>
+    <div class="banner banner--err hidden" id="t-err">
+      <span id="t-err-msg"></span>
+      <button class="btn btn--ghost" id="t-err-retry" type="button">ลองอีกครั้ง</button>
+    </div>
     <textarea id="t-input" placeholder="พิมพ์หรือวางข้อความที่นี่..."></textarea>
     <div class="row">
-      <button class="primary" id="t-mask">Mask PII</button>
-      <span>โหมด: <b id="t-mode">${mode}</b> (เปลี่ยนได้ที่ Settings)</span>
+      <button class="btn btn--primary" id="t-mask">ปกปิดข้อมูล</button>
     </div>
     <div class="card hidden" id="t-out">
-      <div class="row"><b>ผลลัพธ์ที่ปกปิดแล้ว</b> <button class="primary" id="t-copy">Copy</button></div>
-      <div class="mono" id="t-masked"></div>
-      <p id="t-count"></p>
-      <hr />
-      <p>วางคำตอบจาก AI (ที่ยังมีโทเคน) เพื่อคืนค่าจริง:</p>
+      <div class="row"><b>ผลลัพธ์ที่ปกปิดแล้ว</b> <button class="btn btn--secondary" id="t-copy">คัดลอก</button></div>
+      <div class="well" id="t-masked"></div>
+      <p class="meta" id="t-count"></p>
+      <div style="border-top: 1px solid var(--line); margin: var(--s4) 0;"></div>
+      <p class="muted">วางคำตอบจาก AI (ที่ยังมีโทเคน) เพื่อคืนค่าจริง</p>
       <textarea id="t-reply" placeholder="วางคำตอบจาก AI ที่นี่..."></textarea>
-      <div class="row"><button class="primary" id="t-restore">Restore PII</button></div>
-      <div class="mono hidden" id="t-restored"></div>
-      <p class="err hidden" id="t-leftover"></p>
+      <div class="row"><button class="btn btn--primary" id="t-restore">คืนค่า</button></div>
+      <div class="well hidden" id="t-restored"></div>
+      <div class="banner banner--warn hidden" id="t-leftover"></div>
     </div>
-    <p class="err hidden" id="t-err"></p>
   `;
 
   let sessionId = null;
+  let lastEntities = [];
   const $ = (id) => root.querySelector(id);
 
-  $("#t-mask").addEventListener("click", async () => {
+  function showError(message, retryFn) {
+    $("#t-err-msg").textContent = message;
+    $("#t-err").classList.remove("hidden");
+    $("#t-err-retry").onclick = () => {
+      $("#t-err").classList.add("hidden");
+      retryFn();
+    };
+  }
+
+  function hideError() {
+    $("#t-err").classList.add("hidden");
+  }
+
+  function setMode(next) {
+    mode = next;
+    $("#t-mode-token").setAttribute("aria-selected", String(mode === "token"));
+    $("#t-mode-surrogate").setAttribute("aria-selected", String(mode === "surrogate"));
+  }
+
+  $("#t-mode-token").addEventListener("click", () => setMode("token"));
+  $("#t-mode-surrogate").addEventListener("click", () => setMode("surrogate"));
+
+  async function doMask() {
     $("#t-mask").disabled = true;
     const text = $("#t-input").value.trim();
     if (!text) {
       $("#t-mask").disabled = false;
       return;
     }
-    $("#t-err").classList.add("hidden");
+    hideError();
     try {
       const res = await sanitize(text, mode);
       sessionId = res.session_id;
-      $("#t-masked").textContent = res.sanitized_text;
-      $("#t-count").textContent = `ปกปิด ${res.entities.length} รายการ`;
+      lastEntities = res.entities || [];
+      const chipClass = mode === "surrogate" ? "chip--surrogate" : "chip--token";
+      $("#t-masked").innerHTML = highlightTokens(
+        escapeHtml(res.sanitized_text),
+        lastEntities,
+        chipClass
+      );
+      $("#t-count").textContent = `ปกปิด ${lastEntities.length} รายการ`;
       $("#t-out").classList.remove("hidden");
     } catch (e) {
-      $("#t-err").textContent = "ปกปิดไม่สำเร็จ: " + e.message;
-      $("#t-err").classList.remove("hidden");
+      showError("ปกปิดไม่สำเร็จ: " + e.message, doMask);
     } finally {
       $("#t-mask").disabled = false;
     }
-  });
+  }
+
+  $("#t-mask").addEventListener("click", doMask);
 
   $("#t-copy").addEventListener("click", async () => {
     const btn = $("#t-copy");
     try {
       await navigator.clipboard.writeText($("#t-masked").textContent);
       const prev = btn.textContent;
-      btn.textContent = "Copied";
+      btn.textContent = "คัดลอกแล้ว";
       setTimeout(() => { btn.textContent = prev; }, 1200);
     } catch (e) {
-      $("#t-err").textContent = "คัดลอกไม่สำเร็จ: " + e.message;
-      $("#t-err").classList.remove("hidden");
+      showError("คัดลอกไม่สำเร็จ: " + e.message, () => $("#t-copy").click());
     }
   });
 
-  $("#t-restore").addEventListener("click", async () => {
+  async function doRestore() {
     if (!sessionId) return;
     const reply = $("#t-reply").value;
     try {
@@ -77,8 +135,9 @@ export function renderText(root) {
         $("#t-leftover").classList.add("hidden");
       }
     } catch (e) {
-      $("#t-err").textContent = "คืนค่าไม่สำเร็จ: " + e.message;
-      $("#t-err").classList.remove("hidden");
+      showError("คืนค่าไม่สำเร็จ: " + e.message, doRestore);
     }
-  });
+  }
+
+  $("#t-restore").addEventListener("click", doRestore);
 }
