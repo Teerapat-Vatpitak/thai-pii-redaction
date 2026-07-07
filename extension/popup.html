@@ -3,6 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      // Apply the saved theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var p = localStorage.getItem("aiguard.theme") || "system";
+          var dark = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="popup.css" />
     <title>AI Guard</title>
@@ -15,6 +25,7 @@
       </span>
       <span id="dot" class="dot"></span>
       <span id="conn" class="conn">กำลังตรวจสอบ...</span>
+      <button id="themeBtn" class="icon-btn" type="button" aria-label="ธีม"></button>
     </header>
 
     <main>

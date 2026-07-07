@@ -1,4 +1,5 @@
 import { health } from "./api.js";
+import { initTheme } from "./theme.js";
 import { renderText } from "./screen-text.js";
 import { renderRedact } from "./screen-redact.js";
 import { renderReport } from "./screen-report.js";
@@ -59,6 +60,7 @@ async function checkForUpdateBanner() {
 }
 
 async function main() {
+  initTheme();
   const ok = await waitForBackend();
   if (!ok) return;
   document.getElementById("boot").classList.add("hidden");
