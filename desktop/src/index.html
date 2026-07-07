@@ -4,23 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Guard</title>
+  <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="boot" class="boot">
+    <div class="boot__brand">
+      <svg class="brand__mark" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>AI Guard</span>
+    </div>
     <div class="spinner"></div>
     <p id="boot-msg">กำลังเริ่มบริการในเครื่อง...</p>
   </div>
 
   <div id="app" class="app hidden">
     <nav class="sidebar">
-      <div class="brand">AI Guard</div>
+      <div class="brand">
+        <svg class="brand__mark" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span>AI Guard</span>
+      </div>
       <button class="nav-item" data-tab="text">Mask / Restore</button>
       <button class="nav-item" data-tab="redact">Redact PDF</button>
       <button class="nav-item" data-tab="report">PDPA Report</button>
       <button class="nav-item" data-tab="settings">Settings</button>
       <button class="nav-item" data-tab="audit">Audit Log</button>
-      <div class="status" id="status"><span class="dot"></span> <span id="status-text">online</span></div>
+      <div class="status" id="status"><span class="dot"></span> <span id="status-text">ทำงานในเครื่อง · localhost:8000</span></div>
     </nav>
     <main class="content" id="screen"></main>
   </div>
