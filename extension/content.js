@@ -46,7 +46,10 @@
   logo.src = chrome.runtime.getURL("icons/icon32.png");
   logo.alt = "AI Guard";
   const maskBtn = el("button", "btn", "Mask PII");
-  const restoreBtn = el("button", "btn ghost", "Restore PII");
+  // el() prefixes only the first token, so the ghost class is written pre-prefixed:
+  // classes become "aiguard-btn aiguard-ghost" to match content.css .aiguard-btn.aiguard-ghost
+  // (also keeps it prefixed so a host page's bare .ghost rule can't touch it).
+  const restoreBtn = el("button", "btn aiguard-ghost", "Restore PII");
   const status = el("span", "status", "");
   bar.appendChild(logo);
   bar.appendChild(maskBtn);
