@@ -1,4 +1,4 @@
-// AI Guard popup: backend status + manual paste-mode fallback.
+// AI Guard side panel: backend status + manual paste-mode workspace.
 // Fetches go through the service worker so they share its host permissions.
 
 const $ = (id) => document.getElementById(id);
@@ -174,4 +174,12 @@ themeMq.addEventListener("change", () => {
 applyTheme();
 renderThemeBtn();
 
+// The side panel stays open, so unlike the old popup we can't rely on a fresh
+// load to re-check the backend. Poll lightly, and re-check whenever the panel
+// regains focus/visibility, so the status dot tracks the backend going up/down.
 checkHealth();
+setInterval(checkHealth, 8000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkHealth();
+});
+window.addEventListener("focus", checkHealth);

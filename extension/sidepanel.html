@@ -14,7 +14,7 @@
       })();
     </script>
     <link rel="stylesheet" href="tokens.css" />
-    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="sidepanel.css" />
     <title>AI Guard</title>
   </head>
   <body>
@@ -30,7 +30,8 @@
 
     <main>
       <p class="hint">
-        โหมดใช้เอง บนหน้า ChatGPT / Claude ใช้ปุ่ม Mask / Restore ในหน้าได้เลย
+        แถบนี้ค้างอยู่ข้างเบราว์เซอร์ วางข้อความมาปกปิดได้ตลอด บนหน้า ChatGPT / Claude
+        ใช้ปุ่ม Mask / Restore ในหน้าได้เลย
       </p>
 
       <div class="seg" id="mode-seg" role="tablist" aria-label="โหมดการปกปิด">
@@ -60,6 +61,6 @@
       <div id="out" class="well" hidden></div>
     </main>
 
-    <script src="popup.js"></script>
+    <script src="sidepanel.js"></script>
   </body>
 </html>

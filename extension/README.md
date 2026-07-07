@@ -42,16 +42,21 @@ appears (bottom right):
 
 Each AI message also gets its own best-effort **Restore PII** button.
 
-### Popup (manual fallback)
+### Side panel (docked workspace)
 
-Click the extension's toolbar icon for a manual panel: paste text, Mask,
-copy the safe version, then paste the reply and Restore. Use this if a site
-update ever moves the in-page bar. The popup also shows backend status.
+Click the extension's toolbar icon to open the **AI Guard side panel**, docked
+to the side of the browser. Unlike a popup it stays open while you work: paste
+text, Mask, copy the safe version, then paste the reply and Restore. Use it on
+any page (not just ChatGPT/Claude), or as a fallback if a site update ever
+moves the in-page bar. The panel also shows live backend status. Close it with
+the toolbar icon again or the panel's own close button; drag its edge to
+resize.
 
 ## When something breaks
 
 - **"Backend offline"**: the local server is not running -- start it with
-  `run.ps1` / `run.sh`.
+  `run.ps1` / `run.sh`. The side panel re-checks status automatically once the
+  backend is back.
 - **In-page bar missing or buttons do nothing**: the host site changed its
   DOM. All selectors live in `sites.js` -- update them there. Meanwhile, use
-  the popup's manual mode.
+  the side panel's manual mode.
