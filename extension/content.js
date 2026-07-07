@@ -1,7 +1,8 @@
 // AI Guard content script.
 //
-// Injects a floating control bar (Mask PII / Restore PII) on ChatGPT and
-// Claude, plus a best-effort "Restore PII" button on each AI message. All
+// Injects a floating control bar (Mask PII / Restore PII) on the supported AI
+// chat sites (ChatGPT, Claude, Gemini, Grok, Perplexity, GLM/Z.ai), plus a
+// best-effort "Restore PII" button on each AI message. All
 // backend calls go through the service worker (background.js); this script
 // only touches the DOM. DOM is built with createElement/textContent only --
 // never innerHTML with backend data.

@@ -61,7 +61,7 @@ One core pipeline (`pii_redactor/`) exposed via two storefronts over one shared 
 
 | Storefront | Entry point |
 |---|---|
-| Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude + docked side panel via `chrome.sidePanel`) |
+| Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
 
 Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
