@@ -137,4 +137,41 @@ $("copyBtn").addEventListener("click", async () => {
   }
 });
 
+// ---- theme: system / light / dark, persisted in localStorage ----
+const THEME_KEY = "aiguard.theme";
+const themeMq = window.matchMedia("(prefers-color-scheme: dark)");
+const THEME_ORDER = ["system", "light", "dark"];
+const THEME_LABEL = { system: "ตามระบบ", light: "สว่าง", dark: "มืด" };
+const THEME_ICON = {
+  light: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>',
+  system: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+};
+function themePref() {
+  return localStorage.getItem(THEME_KEY) || "system";
+}
+function applyTheme() {
+  const p = themePref();
+  const dark = p === "dark" || (p === "system" && themeMq.matches);
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+}
+function renderThemeBtn() {
+  const b = $("themeBtn");
+  const p = themePref();
+  b.innerHTML = THEME_ICON[p]; // constant SVG string, no user input
+  b.title = "ธีม: " + THEME_LABEL[p];
+  b.setAttribute("aria-label", "ธีม: " + THEME_LABEL[p]);
+}
+$("themeBtn").addEventListener("click", () => {
+  const p = themePref();
+  localStorage.setItem(THEME_KEY, THEME_ORDER[(THEME_ORDER.indexOf(p) + 1) % THEME_ORDER.length]);
+  applyTheme();
+  renderThemeBtn();
+});
+themeMq.addEventListener("change", () => {
+  if (themePref() === "system") applyTheme();
+});
+applyTheme();
+renderThemeBtn();
+
 checkHealth();

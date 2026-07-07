@@ -1,4 +1,5 @@
 import { screenHeader } from "./ui.js";
+import { getThemePref, setThemePref } from "./theme.js";
 
 export function renderSettings(root) {
   const mode = localStorage.getItem("aiguard.mode") || "token";
@@ -22,6 +23,15 @@ export function renderSettings(root) {
           <span style="display:inline-block;width:14px;height:14px;border-radius:var(--r-sm);background:var(--surrogate)"></span>
         </div>
         <p class="muted">ข้อมูลปลอมสมจริง ให้ AI อ่านลื่นเหมือนข้อความจริง</p>
+      </div>
+    </div>
+    <div class="card">
+      <b>ธีม</b>
+      <p class="muted">โทนสว่างหรือมืด หรือปรับตามระบบของเครื่อง</p>
+      <div class="seg" id="s-theme" role="tablist" aria-label="ธีม" style="margin-top:var(--s2)">
+        <button class="seg__opt" data-theme-pref="light">สว่าง</button>
+        <button class="seg__opt" data-theme-pref="dark">มืด</button>
+        <button class="seg__opt" data-theme-pref="system">ตามระบบ</button>
       </div>
     </div>
     <div class="card">
@@ -55,6 +65,18 @@ export function renderSettings(root) {
           c.style.background = "";
         }
       });
+    });
+  });
+
+  const themeSeg = root.querySelector("#s-theme");
+  const themePref = getThemePref();
+  themeSeg.querySelectorAll(".seg__opt").forEach((b) => {
+    b.setAttribute("aria-selected", String(b.dataset.themePref === themePref));
+    b.addEventListener("click", () => {
+      setThemePref(b.dataset.themePref);
+      themeSeg.querySelectorAll(".seg__opt").forEach((x) =>
+        x.setAttribute("aria-selected", String(x === b))
+      );
     });
   });
 
