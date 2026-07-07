@@ -1,9 +1,14 @@
 # AI Guard browser extension
 
-Masks Thai PII in your ChatGPT / Claude prompt before you send it, then
-restores the real values locally from the AI's reply. The PII never leaves
-your machine: the extension talks only to the local backend, and the
-token -> original vault stays in the backend's memory.
+Masks Thai PII in your AI chat prompt before you send it, then restores the
+real values locally from the AI's reply. The PII never leaves your machine:
+the extension talks only to the local backend, and the token -> original vault
+stays in the backend's memory.
+
+Works on **ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM / Z.ai**. Site
+DOM selectors live in `sites.js`; each site also has a generic fallback, so
+Mask keeps working even if a site tweaks its UI. On any other page the docked
+side panel (below) still masks/restores by paste.
 
 ## Prerequisites
 
@@ -30,8 +35,9 @@ This serves the API at `http://localhost:8000`. Confirm it is up at
 
 ## Use it
 
-On `chatgpt.com`, `chat.openai.com`, or `claude.ai` a small **AI Guard** bar
-appears (bottom right):
+On a supported site (`chatgpt.com`, `claude.ai`, `gemini.google.com`,
+`grok.com`, `perplexity.ai`, `chat.z.ai` / `chatglm.cn`) a small **AI Guard**
+bar appears (bottom right):
 
 1. Type your prompt (with names, phone numbers, IDs, etc.) in the chat box.
 2. Click **Mask PII** -- the box now shows tokens like `[ชื่อ_1]`,
