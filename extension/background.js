@@ -16,6 +16,16 @@
 const BACKENDS = ["http://localhost:8000", "http://127.0.0.1:8000"];
 const sessionCache = {}; // tabId -> session_id (fast path; may be wiped on evict)
 
+// Clicking the toolbar icon opens the docked side panel (no popup). The
+// behavior is persisted by Chrome, but re-asserting it on install and on
+// worker startup keeps it correct across updates and profile reloads.
+function enableSidePanelOnClick() {
+  if (!chrome.sidePanel || !chrome.sidePanel.setPanelBehavior) return;
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+chrome.runtime.onInstalled.addListener(enableSidePanelOnClick);
+enableSidePanelOnClick();
+
 function sessionKey(tabId) {
   return "aiguard_sid_" + tabId;
 }
@@ -83,7 +93,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg.type === "sanitize") {
-      // mode comes from the popup message, else the saved toggle (so the
+      // mode comes from the side panel message, else the saved toggle (so the
       // in-page Mask button honors the same choice), else token.
       let mode = msg.mode;
       if (!mode) {
@@ -103,8 +113,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
     if (msg.type === "reidentify") {
-      // Popup passes session_id explicitly; content script relies on the
-      // session stored for its tab.
+      // The side panel passes session_id explicitly; content script relies on
+      // the session stored for its tab.
       const sid = msg.session_id || (await loadSession(tabId));
       if (!sid) {
         sendResponse({ ok: false, status: 0, error: "no-session" });

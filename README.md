@@ -55,7 +55,7 @@ The extension talks to the same local backend, so it works with either install o
 1. Open `chrome://extensions` in Chrome / Edge (any Chromium browser).
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select the `extension/` folder from this repo (clone or download the repo to get it).
-4. Pin the **AI Guard** extension so you can reach its popup. It activates on `chatgpt.com`, `chat.openai.com`, and `claude.ai`.
+4. Pin the **AI Guard** extension so its toolbar icon is handy — clicking it opens the docked **side panel**. It activates on `chatgpt.com`, `chat.openai.com`, and `claude.ai`.
 
 See `extension/README.md` for details.
 
@@ -80,7 +80,7 @@ See `extension/README.md` for details.
 | `token` (default) | `[ชื่อ_1]`, `[โทรศัพท์_1]` | you want masking to be obvious |
 | `surrogate` | realistic fake data (valid checksums) | you want the AI to read it naturally |
 
-Switch in the extension popup.
+Switch in the extension side panel.
 
 ## Try the examples
 
