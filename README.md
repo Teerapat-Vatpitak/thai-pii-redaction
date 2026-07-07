@@ -10,7 +10,7 @@ PSU Future Tech Challenge 2026 · AI Innovation for Future Society (Prototype)
 
 ## What it does
 
-- **AI Guard** — on ChatGPT / Claude, replace PII with tokens (`[ชื่อ_1]`) or realistic fake data before sending, then restore the real values from the reply.
+- **AI Guard** — on ChatGPT, Claude, Gemini, Grok, Perplexity, or GLM / Z.ai, replace PII with tokens (`[ชื่อ_1]`) or realistic fake data before sending, then restore the real values from the reply. (On any other page, the docked side panel does the same by paste.)
 - **True PDF redaction** — black out PII in a PDF (removed from the text layer), returns the redacted file + before/after preview.
 - **PDPA report** — risk score plus Section 26 sensitive-data flags (health, religion, …).
 
@@ -55,7 +55,7 @@ The extension talks to the same local backend, so it works with either install o
 1. Open `chrome://extensions` in Chrome / Edge (any Chromium browser).
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select the `extension/` folder from this repo (clone or download the repo to get it).
-4. Pin the **AI Guard** extension so its toolbar icon is handy — clicking it opens the docked **side panel**. It activates on `chatgpt.com`, `chat.openai.com`, and `claude.ai`.
+4. Pin the **AI Guard** extension so its toolbar icon is handy — clicking it opens the docked **side panel**. The in-page bar activates on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `grok.com`, `perplexity.ai`, and `chat.z.ai` / `chatglm.cn`.
 
 See `extension/README.md` for details.
 
