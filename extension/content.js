@@ -36,8 +36,8 @@
   }
 
   function backendError(resp) {
-    if (resp && resp.status === 404) return "Session expired - Mask again";
-    return "Backend offline - run run.ps1 / run.sh";
+    if (resp && resp.status === 404) return "เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง";
+    return "backend ยังไม่ทำงาน เปิดแอป AI Guard";
   }
 
   // ---- floating control bar ---------------------------------------------
@@ -90,15 +90,15 @@
   async function doMask() {
     const composer = SITE.composer();
     if (!composer) {
-      setStatus("Composer not found", "err");
+      setStatus("ไม่พบช่องพิมพ์", "err");
       return;
     }
     const text = SITE.readComposer(composer);
     if (!text) {
-      setStatus("Type something first", "err");
+      setStatus("พิมพ์ข้อความก่อน", "err");
       return;
     }
-    setStatus("Masking...");
+    setStatus("กำลังปกปิด...");
     maskBtn.disabled = true;
     const resp = await send({ type: "sanitize", text });
     maskBtn.disabled = false;
@@ -108,28 +108,28 @@
     }
     SITE.writeComposer(composer, resp.data.sanitized_text);
     const n = (resp.data.entities || []).length;
-    setStatus(n + (n === 1 ? " item masked" : " items masked"), "ok");
+    setStatus("ปกปิด " + n + " รายการ", "ok");
   }
 
   // ---- Restore ----------------------------------------------------------
   async function restoreText(text, sourceLabel) {
     if (!text || !text.trim()) {
-      setStatus("Nothing to restore", "err");
+      setStatus("ไม่มีข้อความให้คืนค่า", "err");
       return;
     }
-    setStatus("Restoring...");
+    setStatus("กำลังคืนค่า...");
     const resp = await send({ type: "reidentify", text });
     if (!resp || !resp.ok) {
-      setStatus(resp && resp.error === "no-session" ? "Mask something first" : backendError(resp), "err");
+      setStatus(resp && resp.error === "no-session" ? "ปกปิดข้อความก่อน" : backendError(resp), "err");
       return;
     }
     const d = resp.data;
     const leftover = (d.leftover_tokens || []).length;
     const meta =
-      d.replaced_count + " token(s) restored" +
-      (leftover ? " - " + leftover + " not matched" : "");
-    showOverlay("Restored (" + sourceLabel + ")", d.restored_text, meta);
-    setStatus("Restored", "ok");
+      "คืนค่า " + d.replaced_count + " รายการ" +
+      (leftover ? " เหลือ " + leftover + " รายการ" : "");
+    showOverlay("คืนค่าแล้ว (" + sourceLabel + ")", d.restored_text, meta);
+    setStatus("คืนค่าแล้ว", "ok");
   }
 
   // Read an assistant message's text, minus the Restore button we injected
@@ -150,12 +150,12 @@
   // Floating Restore: prefer a text selection, else the last AI reply.
   async function doRestoreFloating() {
     const sel = (window.getSelection && window.getSelection().toString()) || "";
-    if (sel.trim()) return restoreText(sel, "selection");
+    if (sel.trim()) return restoreText(sel, "ข้อความที่เลือก");
     const msgs = SITE.assistantMessages();
     if (msgs.length) {
-      return restoreText(messageText(msgs[msgs.length - 1]), "last reply");
+      return restoreText(messageText(msgs[msgs.length - 1]), "คำตอบล่าสุด");
     }
-    setStatus("Select the AI reply text first", "err");
+    setStatus("เลือกข้อความคำตอบ AI ก่อน", "err");
   }
 
   maskBtn.addEventListener("click", doMask);
@@ -169,10 +169,10 @@
     const msgs = SITE.assistantMessages();
     for (const m of msgs) {
       if (m.querySelector(":scope > ." + PREFIX + "msg-btn")) continue;
-      const b = el("button", "msg-btn", "Restore PII");
+      const b = el("button", "msg-btn", "คืนค่า");
       b.addEventListener("click", (e) => {
         e.stopPropagation();
-        restoreText(messageText(m), "reply");
+        restoreText(messageText(m), "คำตอบ");
       });
       m.appendChild(b);
     }
