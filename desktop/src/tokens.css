@@ -1,0 +1,64 @@
+/* AI Guard design tokens — "Vault Door" system.
+   Canonical source. This file is copied byte-identical into extension/tokens.css;
+   the two packages ship separately and cannot @import across each other, so keep
+   them in sync. Font src paths are relative ("fonts/...") and resolve inside each
+   package. Spec: docs/superpowers/specs/2026-07-07-ui-redesign-aiguard-design.md */
+
+@font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:400; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Regular.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:500; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Medium.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:600; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-SemiBold.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Mono"; font-weight:400; font-style:normal; font-display:swap; src:url("fonts/IBMPlexMono-Regular.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Mono"; font-weight:500; font-style:normal; font-display:swap; src:url("fonts/IBMPlexMono-Medium.woff2") format("woff2"); }
+
+:root {
+  --font-ui:"IBM Plex Sans Thai Looped","Leelawadee UI","Thonburi","Noto Sans Thai","Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono","IBM Plex Sans Thai Looped",Consolas,monospace;
+
+  /* surfaces */
+  --bg:#F6F7F9; --surface:#FFFFFF; --surface-raised:#FFFFFF; --well:#F1F4F8;
+  /* ink */
+  --ink:#15233B; --ink-muted:#5B6B85; --ink-faint:#8A97AD;
+  /* lines */
+  --line:#E3E9F2; --line-strong:#C6D0DF;
+  /* primary */
+  --primary:#2563EB; --primary-ink:#FFFFFF; --primary-soft:#EDF3FE;
+  /* state */
+  --ok:#15803D; --ok-soft:#E8F5EC;
+  --warn:#B45309; --warn-soft:#FDF3E4;
+  --err:#B91C1C; --err-soft:#FBEAEA;
+  /* semantic security roles */
+  --pii:#B91C1C; --pii-soft:#FBEAEA; --redact:#0B1220;
+  --token:#2563EB; --token-soft:#EDF3FE;
+  --surrogate:#0D9488; --surrogate-soft:#E6F4F2;
+  /* vault rail (already dark; same in both schemes) */
+  --vault-bg:#0F1D33; --vault-ink:#D5DEED; --vault-muted:#8DA0BF; --vault-active-bg:rgba(255,255,255,.07);
+
+  /* spacing / radii / elevation / motion */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+  --r-sm:6px; --r-md:10px; --r-lg:14px;
+  --shadow-1:0 4px 16px rgba(21,35,59,.10);
+  --shadow-2:0 16px 48px rgba(21,35,59,.22);
+  --t-fast:120ms ease-out;
+  --t-med:180ms cubic-bezier(.2,0,0,1);
+  --t-slow:240ms cubic-bezier(.2,0,0,1);
+}
+
+/* Dark values are defined for the in-page bar/overlay media-query swap and for
+   future app theming. The desktop app and popup ship light-only this pass and
+   do NOT set data-theme. */
+:root[data-theme="dark"] {
+  --bg:#0D1524; --surface:#131E31; --surface-raised:#18253C; --well:#0F1A2C;
+  --ink:#E4EAF4; --ink-muted:#97A6BF; --ink-faint:#6B7B96;
+  --line:rgba(151,166,191,.16); --line-strong:rgba(151,166,191,.32);
+  --primary:#6D9BFF; --primary-ink:#0D1524; --primary-soft:rgba(109,155,255,.14);
+  --ok:#3FB26F; --ok-soft:rgba(63,178,111,.14);
+  --warn:#D98F2B; --warn-soft:rgba(217,143,43,.14);
+  --err:#E5636B; --err-soft:rgba(229,99,107,.14);
+  --pii:#F08085; --pii-soft:rgba(240,128,133,.14); --redact:#000000;
+  --token:#7AA5FF; --token-soft:rgba(122,165,255,.14);
+  --surrogate:#3FBFB2; --surrogate-soft:rgba(63,191,178,.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast:1ms; --t-med:1ms; --t-slow:1ms; }
+}
