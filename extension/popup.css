@@ -27,7 +27,15 @@ body {
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-faint); margin-left: auto; flex: none; }
 .dot.up { background: var(--ok); }
 .dot.down { background: var(--err); }
-.conn { font-size: 11px; color: var(--ink-muted); max-width: 150px; text-align: right; }
+.conn { font-size: 11px; color: var(--ink-muted); max-width: 130px; text-align: right; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; flex: none;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-muted);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+.icon-btn:hover { color: var(--ink); background: var(--well); }
+.icon-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
 main { padding: 12px 14px 16px; }
 
