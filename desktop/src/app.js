@@ -42,14 +42,17 @@ async function checkForUpdateBanner() {
   try {
     const info = await window.__TAURI__.core.invoke("update_check");
     if (!info.available) return;
-    const bar = document.createElement("div");
-    bar.className = "update-banner";
-    bar.textContent = `มีอัปเดตใหม่ ${info.version} ไปที่หน้า Settings เพื่ออัปเดต`;
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    const label = document.createElement("span");
+    label.textContent = `มีอัปเดตใหม่ ${info.version} ไปที่หน้า Settings เพื่ออัปเดต`;
     const close = document.createElement("button");
-    close.textContent = "x";
-    close.addEventListener("click", () => bar.remove());
-    bar.appendChild(close);
-    document.getElementById("app").prepend(bar);
+    close.className = "toast__close";
+    close.setAttribute("aria-label", "ปิด");
+    close.textContent = "×";
+    close.addEventListener("click", () => toast.remove());
+    toast.append(label, close);
+    document.body.appendChild(toast);
   } catch {
     // offline, or no published release yet: stay silent
   }
