@@ -88,7 +88,7 @@ b.k {{ color:#15233B; font-weight:700; }}
     <img src="{LOGO}">
     <div>
       <div class="title">AI Guard — ระบบปกปิดข้อมูลส่วนบุคคลภาษาไทยก่อนใช้งานปัญญาประดิษฐ์ภายนอก</div>
-      <div class="sub">ปกปิด (mask) ข้อมูลส่วนบุคคลก่อนส่งให้ ChatGPT หรือ Claude แล้วคืนค่าจริงในเครื่องของผู้ใช้ — ข้อมูลจริงไม่ออกนอกเครื่อง สอดคล้องกับ PDPA</div>
+      <div class="sub">ปกปิด (mask) ข้อมูลส่วนบุคคลก่อนส่งให้ ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai แล้วคืนค่าจริงในเครื่องของผู้ใช้ — ข้อมูลจริงไม่ออกนอกเครื่อง สอดคล้องกับ PDPA</div>
       <div class="tag">ระดับผลงาน: ต้นแบบ (Prototype) &nbsp;|&nbsp; PSU Future Tech Challenge 2026 — AI Innovation for Future Society</div>
     </div>
   </div>
@@ -98,8 +98,8 @@ b.k {{ color:#15233B; font-weight:700; }}
     <span class="chip">PII มีรูปแบบ 10+ ประเภท</span>
     <span class="chip">ข้อมูลอ่อนไหว ม.26 ครบ 8 หมวด</span>
     <span class="chip">ปกปิด 2 โหมด: รหัส / ข้อมูลปลอมสมจริง</span>
-    <span class="chip">ใช้บน ChatGPT &amp; Claude</span>
-    <span class="chip">ทดสอบอัตโนมัติ 269 กรณี</span>
+    <span class="chip">ใช้บน ChatGPT · Claude · Gemini · Grok · Perplexity · GLM/Z.ai</span>
+    <span class="chip">ทดสอบอัตโนมัติ 272 กรณี</span>
   </div>
 
   <div class="body">
@@ -123,7 +123,7 @@ b.k {{ color:#15233B; font-weight:700; }}
   <div class="grid2">
     <section>
       <h2><span class="n">9</span> ผลลัพธ์ <span class="en">Results</span></h2>
-      <p>ความเสี่ยงข้อมูลรั่วไปยัง AI ภายนอกลดลงเกือบทั้งหมดสำหรับ PII ที่ตรวจจับได้ เพราะตารางสลับค่าอยู่ในหน่วยความจำ ครอบคลุม PII มีรูปแบบ 10+ ประเภท + ชื่อ/ที่อยู่ + อ่อนไหว 8 หมวด ทดสอบครบวงจรบน Claude สำเร็จ ผ่านชุดทดสอบอัตโนมัติ 269 กรณี (การวัด F1 ทางการเป็นงานขั้นต่อไป)</p>
+      <p>ความเสี่ยงข้อมูลรั่วไปยัง AI ภายนอกลดลงเกือบทั้งหมดสำหรับ PII ที่ตรวจจับได้ เพราะตารางสลับค่าอยู่ในหน่วยความจำ ครอบคลุม PII มีรูปแบบ 10+ ประเภท + ชื่อ/ที่อยู่ + อ่อนไหว 8 หมวด ทดสอบครบวงจรบน Claude สำเร็จ ผ่านชุดทดสอบอัตโนมัติ 272 กรณี (การวัด F1 ทางการเป็นงานขั้นต่อไป)</p>
     </section>
     <section>
       <h2><span class="n">10</span> ประโยชน์ที่ได้รับ <span class="en">Impact</span></h2>
@@ -131,7 +131,7 @@ b.k {{ color:#15233B; font-weight:700; }}
     </section>
     <section>
       <h2><span class="n">11</span> แนวทางการขยายผล <span class="en">Scalability</span></h2>
-      <p>ติดตั้ง on-premise ผ่านไฟล์ติดตั้งหรือ Docker ส่วนขยายติดตั้งง่าย ขยายตามจำนวนผู้ใช้โดยไม่มีคอขวดที่เซิร์ฟเวอร์กลาง เปิดเป็นโอเพนซอร์สพร้อม 269 เทสต์และเอกสารสถาปัตยกรรม โรดแมป: WangchanBERTa, OCR เอกสารสแกน, แพลตฟอร์มเพิ่ม, โหมดปกปิด PDF สมบูรณ์</p>
+      <p>ติดตั้ง on-premise ผ่านไฟล์ติดตั้งหรือ Docker ส่วนขยายทำงานบน ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai และติดตั้งง่าย ขยายตามจำนวนผู้ใช้โดยไม่มีคอขวดที่เซิร์ฟเวอร์กลาง เปิดเป็นโอเพนซอร์สพร้อม 272 เทสต์และเอกสารสถาปัตยกรรม รองรับ OCR เอกสารสแกนและ WangchanBERTa engine แล้ว โรดแมป: โหมดปกปิด PDF สมบูรณ์, วัด F1 ทางการ</p>
     </section>
     <section>
       <h2><span class="n">12</span> จริยธรรมและการกำกับข้อมูล <span class="en">Responsible AI</span></h2>
