@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Guard - Thai PII Mask",
-  "version": "1.0.0",
+  "version": "2.2.0",
   "description": "Mask Thai PII before sending to ChatGPT, Claude, Gemini, Grok, Perplexity, or GLM/Z.ai, then restore it locally from the AI reply. PSU FTC 2026.",
   "action": {
     "default_title": "เปิดแถบ AI Guard",
