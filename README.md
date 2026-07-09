@@ -4,9 +4,20 @@
 
 # AI Guard — Thai PII Redaction
 
+<p align="center">
+  <a href="https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest"><img src="https://img.shields.io/github/v/release/Teerapat-Vatpitak/thai-pii-redaction?label=release" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platforms" />
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
+</p>
+
 Mask Thai personal data (PII) before sending it to an external AI, then restore the real values locally. Everything runs on your machine — raw PII never leaves the device (PDPA-friendly).
 
 PSU Future Tech Challenge 2026 · AI Innovation for Future Society (Prototype)
+
+<p align="center">
+  <img src="assets/demo-before-after.png" alt="AI Guard before and after: real Thai PII on the left, masked tokens on the right" width="760" />
+</p>
 
 ## What it does
 
