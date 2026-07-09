@@ -56,7 +56,7 @@ def test_cors_preflight_allows_extension(client):
 
 def test_health_version(client):
     resp = client.get("/api/health")
-    assert resp.json()["version"] == "2.1.0"
+    assert resp.json()["version"] == "2.2.0"
 
 
 def test_sanitize_returns_session_and_entities(client):

@@ -47,7 +47,7 @@ from pii_redactor.reid_risk import assess_reid_risk
 app = FastAPI(
     title="AI Guard API",
     description="Thai PII Redaction Pipeline — PSU FTC 2026",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 # CORS — the browser extension (content script on chatgpt.com / claude.ai)
@@ -233,7 +233,7 @@ class AnalyzeRequest(BaseModel):
 # ── endpoints ──────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.1.0"}
+    return {"status": "ok", "version": "2.2.0"}
 
 
 @app.get("/api/audit-log")
