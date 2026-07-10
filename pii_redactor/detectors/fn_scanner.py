@@ -17,11 +17,14 @@ _FN_PATTERNS: list[tuple[re.Pattern[str], str, str, float]] = [
     # data_types) so anonymizer.py routes them through generate_fp() for a
     # realistic fake value instead of tb_generator's literal "[REDACTED_x]"
     # fallback.
-    (re.compile(r"\b(\d{13})\b"), "THAI_ID", "FP", 0.6),
+    # Digit-boundary lookarounds, not \b: a Thai letter is a word char, so \b
+    # never fires between Thai script and a digit, letting a 13-digit run glued
+    # to Thai text ("รหัส1234567890123") slip past this fallback too.
+    (re.compile(r"(?<!\d)(\d{13})(?!\d)"), "THAI_ID", "FP", 0.6),
     # Email-like patterns with @ (simpler than full RFC pattern)
     (re.compile(r"([^\s@]+@[^\s@]+\.[^\s@]{2,})"), "EMAIL", "FP", 0.7),
     # Date-like patterns in various formats
-    (re.compile(r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b"), "DATE_OF_BIRTH", "FP", 0.6),
+    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})(?!\d)"), "DATE_OF_BIRTH", "FP", 0.6),
 ]
 
 
