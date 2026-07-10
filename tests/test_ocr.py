@@ -10,7 +10,6 @@ functions against synthetic images.
 """
 import builtins
 
-import numpy as np
 import pytest
 
 from pii_redactor.ingest import ocr_processor
@@ -169,13 +168,15 @@ def test_ocr_page_word_count_matches_text(monkeypatch):
 
 
 # --- Tier 2: real preprocessing functions (requires opencv-python-headless) --
-# Each test imports cv2 itself (rather than at module level) so the rest of
-# this file still collects and runs when the optional OCR stack isn't
-# installed -- a module-level importorskip would skip the whole file.
+# Each test imports cv2 and numpy itself (rather than at module level) so the
+# rest of this file still collects and runs when the optional OCR stack isn't
+# installed -- a module-level import of either would break Tier-1 collection.
+# numpy ships with opencv, so the cv2 skip and the numpy import go together.
 
 
 def test_denoise_preserves_shape_and_dtype():
     pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor._denoise(img)
     assert out.shape == img.shape
@@ -184,6 +185,7 @@ def test_denoise_preserves_shape_and_dtype():
 
 def test_sharpen_preserves_shape():
     pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor._sharpen(img)
     assert out.shape == img.shape
@@ -191,6 +193,7 @@ def test_sharpen_preserves_shape():
 
 def test_deskew_preserves_shape():
     pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
     img = np.zeros((50, 50, 3), dtype=np.uint8)
     img[10:40, 10:40] = 255
     out = ocr_processor._deskew(img)
@@ -199,6 +202,7 @@ def test_deskew_preserves_shape():
 
 def test_preprocess_image_level0_keeps_color_shape():
     pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor.preprocess_image(img, level=0)
     assert out.shape == img.shape
@@ -206,6 +210,7 @@ def test_preprocess_image_level0_keeps_color_shape():
 
 def test_preprocess_image_level1_binarizes_to_grayscale():
     pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor.preprocess_image(img, level=1)
     assert out.ndim == 2

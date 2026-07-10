@@ -273,7 +273,7 @@ def test_redact_pdf_no_visible_ink_above_boxes(tmp_path):
     tall Thai ascenders (e.g. in "ถนนพหลโยธิน") rendered ~3pt above the word
     bbox's nominal top, poking out above a too-tight/unpadded black box.
     """
-    import numpy as np
+    np = pytest.importorskip("numpy")
     import pypdfium2 as pdfium
 
     from pii_redactor.detectors.fp_detector import detect_fp
