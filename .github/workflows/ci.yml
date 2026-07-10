@@ -1,0 +1,157 @@
+# Test gate: runs the pytest suite (Windows + Linux), a core-only-install job
+# that keeps the optional-dependency skip tiers honest, the Rust unit tests for
+# the desktop shell, a JS syntax check for the extension + desktop frontend, and
+# a Windows packaged-exe smoke that boots the shipped sidecar end-to-end -- the
+# only platform users actually run, which release.yml/smoke-crossplatform.yml
+# never boot. Runs on every push to main and every PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps (core + web)
+        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-web.txt
+
+      - name: Pre-download the offline NER model
+        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+
+      - name: Run tests
+        env:
+          PYTHONUTF8: "1"
+        run: python -m pytest -q
+
+  pytest-core-only:
+    # Install ONLY requirements.txt -- no web/ml/ocr extras. Every test that
+    # needs an optional dependency must skip (pytest.importorskip / skipif),
+    # never error at collection. This is the guard that caught fastapi- and
+    # numpy-at-module-top-level regressions; it keeps a core-only `pip install`
+    # importable, matching how the packaged sidecar ships.
+    name: pytest (core-only install)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps (core only)
+        run: python -m pip install --upgrade pip -r requirements.txt
+
+      - name: Pre-download the offline NER model
+        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+
+      - name: Run tests (optional-dep tests must skip, not error)
+        env:
+          PYTHONUTF8: "1"
+        run: python -m pytest -q
+
+  rust:
+    name: cargo test (desktop shell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system deps (WebKitGTK for Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Stage a placeholder sidecar
+        # tauri_build::build() checks the externalBin path EXISTS (the real 50 MB
+        # PyInstaller binary is only needed when bundling). The Rust unit tests
+        # are pure logic (kill-arg formatting, updater config), so an empty file
+        # satisfies the check without building the sidecar. The real binary is
+        # booted end-to-end by the windows-exe-smoke job below.
+        run: |
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          mkdir -p desktop/src-tauri/binaries
+          touch "desktop/src-tauri/binaries/aiguard-$triple"
+
+      - name: cargo test
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+  js-syntax:
+    name: js syntax (extension + desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Syntax-check all frontend JS
+        run: |
+          for f in extension/*.js desktop/src/*.js; do
+            echo "checking $f"
+            node --check "$f"
+          done
+
+  windows-exe-smoke:
+    # Build the PyInstaller sidecar and boot the shipped exe end-to-end: confirm
+    # it serves /api/health + /api/sanitize (Thai NER actually loaded), then
+    # taskkill /T /F its tree and assert port 8000 frees. Windows is the primary
+    # platform and the one no other workflow boots.
+    name: packaged exe smoke (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps (core + web, for the sidecar build)
+        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-web.txt
+
+      - name: Pre-download the offline NER model
+        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+
+      - name: Set up Rust (build_sidecar reads the host triple from rustc)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build + stage the sidecar
+        run: python scripts/build_sidecar.py
+
+      - name: Boot the packaged exe and smoke the API
+        env:
+          PYTHONUTF8: "1"
+        run: python scripts/smoke_exe.py
