@@ -99,14 +99,12 @@ def test_extract_pdf_text_returns_bboxes(tmp_path):
 
 
 def test_detect_pdf_hybrid(tmp_path):
-    """A PDF with very little text should be classified as pdf_hybrid."""
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
+    """A page that is an image with no text layer is image-only -> pdf_hybrid.
 
-    path = tmp_path / "blank.pdf"
-    c = canvas.Canvas(str(path), pagesize=letter)
-    c.showPage()  # blank page — no text at all
-    c.save()
+    (A genuinely blank page is not: it has nothing to OCR. See
+    test_recall_leaks.py for the per-page routing regression cases.)
+    """
+    path = _make_hybrid_test_pdf(tmp_path)
     result = detect_source_type(str(path))
     assert result == "pdf_hybrid"
 
