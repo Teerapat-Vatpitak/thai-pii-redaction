@@ -74,3 +74,64 @@ def test_plus66_compact_mobile_is_phone_not_student_id():
 def test_plus66_landline_is_detected():
     # 8 national digits (Bangkok landline, +66 2 xxx xxxx).
     assert "PHONE" in _types(detect_fp("+66 2 123 4567"))
+
+
+# --- Leak 3: per-page PDF routing -------------------------------------------
+# detect_source_type summed characters across the whole document, so a mostly
+# scanned PDF with one text page cleared the 50-char threshold and was routed
+# as pdf_text -- the scanned pages then contributed no text, no OCR, and no
+# warning: an entity_count-0 redaction that looks safe but is not. The fix
+# classifies per page: a page that carries an image but (almost) no text is
+# image-only and forces the OCR-capable hybrid path; a genuinely blank page,
+# having nothing to extract, must not.
+
+
+def _make_pdf(tmp_path, name, pages):
+    """Build a PDF. `pages` is a list of ("text", str) | ("image",) | ("blank",)."""
+    from PIL import Image
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    path = tmp_path / name
+    c = canvas.Canvas(str(path), pagesize=A4)
+    for spec in pages:
+        if spec[0] == "text":
+            c.setFont("Helvetica", 12)
+            c.drawString(72, 720, spec[1])
+        elif spec[0] == "image":
+            img = Image.new("RGB", (400, 300), (128, 128, 128))
+            c.drawImage(ImageReader(img), 72, 400, width=400, height=300)
+        # "blank": draw nothing
+        c.showPage()
+    c.save()
+    return str(path)
+
+
+def test_mixed_pdf_with_scanned_page_is_hybrid(tmp_path):
+    from pii_redactor.ingest.file_detector import detect_source_type
+
+    path = _make_pdf(tmp_path, "mixed.pdf", [
+        ("text", "This is a full page of real selectable text content here."),
+        ("image",),
+    ])
+    assert detect_source_type(path) == "pdf_hybrid", \
+        "a scanned page alongside a text page must not be silently dropped"
+
+
+def test_fully_scanned_pdf_is_hybrid(tmp_path):
+    from pii_redactor.ingest.file_detector import detect_source_type
+
+    path = _make_pdf(tmp_path, "scan.pdf", [("image",)])
+    assert detect_source_type(path) == "pdf_hybrid"
+
+
+def test_text_pdf_with_blank_page_is_not_forced_to_ocr(tmp_path):
+    from pii_redactor.ingest.file_detector import detect_source_type
+
+    path = _make_pdf(tmp_path, "textblank.pdf", [
+        ("text", "This is a full page of real selectable text content here."),
+        ("blank",),
+    ])
+    assert detect_source_type(path) == "pdf_text", \
+        "a blank divider page has nothing to OCR and must stay pdf_text"
