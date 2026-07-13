@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 def client():
     from fastapi.testclient import TestClient
     from app.server import app
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 def test_health(client):
@@ -41,17 +41,17 @@ def test_root_redirects_to_docs(client):
 
 
 def test_cors_preflight_allows_extension(client):
-    """The extension calls the API cross-origin; preflight must be allowed."""
+    origin = "chrome-extension://" + "a" * 32
     resp = client.options(
         "/api/sanitize",
         headers={
-            "Origin": "https://chatgpt.com",
+            "Origin": origin,
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "content-type",
         },
     )
     assert resp.status_code == 200
-    assert "access-control-allow-origin" in {k.lower() for k in resp.headers}
+    assert resp.headers.get("access-control-allow-origin") == origin
 
 
 def test_health_version(client):
@@ -183,7 +183,6 @@ def test_sanitize_token_mode_unchanged(client):
 
 
 def test_shutdown_endpoint_returns_ack(monkeypatch):
-    """POST /api/shutdown acknowledges and schedules an exit without killing the test process synchronously."""
     import app.server as server
 
     called = {}
@@ -194,8 +193,8 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
     monkeypatch.setattr(server, "_schedule_exit", fake_schedule_exit)
 
     from fastapi.testclient import TestClient
-    client = TestClient(server.app)
-    resp = client.post("/api/shutdown")
+    client = TestClient(server.app, base_url="http://localhost")
+    resp = client.post("/api/shutdown", headers={"X-AIGuard-Local": "1"})
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "shutting_down"}
@@ -207,7 +206,7 @@ def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
 
     from fastapi.testclient import TestClient
-    client = TestClient(server.app)
+    client = TestClient(server.app, base_url="http://localhost")
     resp = client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย ใจดี เบอร์ 0812345678", "mode": "token"})
     assert resp.status_code == 200
 
@@ -226,7 +225,7 @@ def test_audit_log_endpoint_returns_safe_records(tmp_path, monkeypatch):
     import app.server as server
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
     from fastapi.testclient import TestClient
-    client = TestClient(server.app)
+    client = TestClient(server.app, base_url="http://localhost")
     client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย เบอร์ 0812345678", "mode": "token"})
 
     resp = client.get("/api/audit-log?limit=10&offset=0")
