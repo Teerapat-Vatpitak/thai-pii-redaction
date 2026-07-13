@@ -28,7 +28,7 @@ PROMPTS = sorted((EXAMPLES / "prompts").glob("*.txt"))
 def client():
     from fastapi.testclient import TestClient
     from app.server import app
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 @pytest.mark.parametrize("prompt_file", PROMPTS, ids=lambda p: p.stem)
