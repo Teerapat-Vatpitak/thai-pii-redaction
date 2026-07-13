@@ -34,6 +34,7 @@ from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.detectors.fn_scanner import scan_fn
+from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.ingest.file_detector import detect_source_type
@@ -151,20 +152,6 @@ _TOKEN_LABEL = {
 }
 
 
-def _dedupe_spans(entities: list) -> list:
-    """Sort by start; drop entities overlapping an already-kept one.
-    Prefers earlier start, then longer span."""
-    ents = sorted(entities, key=lambda e: (e.span[0], -(e.span[1] - e.span[0])))
-    kept = []
-    last_end = -1
-    for e in ents:
-        s, en = e.span
-        if s >= last_end:
-            kept.append(e)
-            last_end = en
-    return kept
-
-
 def _make_surrogate(entity, text: str, salt: str, used: set) -> str:
     """Generate a realistic, valid-format fake value for an entity.
 
@@ -193,10 +180,7 @@ def _tokenize(text: str, mode: str = "token") -> dict:
     Returns a dict with original_text, sanitized_text, entities[], token_map,
     entity_type_counts, section26[]. token_map maps pseudonym -> original.
     """
-    fp = detect_fp(text)
-    tb = detect_tb(text)
-    fn = scan_fn(text, fp + tb)
-    entities = _dedupe_spans(fp + tb + fn)
+    entities = detect_all(text)
 
     salt = uuid.uuid4().hex
     # assign pseudonyms: same original value -> same pseudonym (consistency)
