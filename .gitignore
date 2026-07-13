@@ -14,6 +14,7 @@ build/
 .DS_Store
 step1-7_*.pdf
 logs/
+benchmark/reports/
 
 # stray scratch files (kept out of repo root)
 /*.jpg

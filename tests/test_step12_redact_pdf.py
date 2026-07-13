@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 def client():
     from fastapi.testclient import TestClient
     from app.server import app
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 def _pdf_with_pii(tmp_path) -> bytes:
