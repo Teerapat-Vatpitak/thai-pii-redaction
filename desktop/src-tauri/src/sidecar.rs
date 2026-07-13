@@ -119,7 +119,7 @@ pub fn kill(app: &AppHandle) {
     ) {
         let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
         let _ = stream.write_all(
-            b"POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nX-AIGuard-Local: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         );
     }
     let state = app.state::<SidecarState>();

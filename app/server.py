@@ -24,9 +24,10 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 from pii_redactor.audit import write_process_log
@@ -50,15 +51,16 @@ app = FastAPI(
     version="2.2.0",
 )
 
-# CORS — the browser extension (content script on chatgpt.com / claude.ai)
-# calls this backend cross-origin. No cookies are used, so a wildcard origin
-# without credentials is safe for this localhost-only prototype.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^(chrome-extension://[a-p]{32}|moz-extension://[0-9a-fA-F-]+|tauri://localhost|https?://tauri\.localhost)$",
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=False,
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1"],
 )
 
 
@@ -82,7 +84,9 @@ def _schedule_exit() -> None:
 
 
 @app.post("/api/shutdown")
-def shutdown():
+def shutdown(x_aiguard_local: Annotated[str | None, Header()] = None):
+    if not x_aiguard_local:
+        raise HTTPException(status_code=403, detail="Local shutdown only")
     _schedule_exit()
     return {"status": "shutting_down"}
 
@@ -97,10 +101,13 @@ def _get_audit_log_dir() -> str:
     return str(log_dir)
 
 
-# ── in-memory session store (token -> original maps) ───────────────────
-# Bounded; oldest sessions evicted. In-memory only; never persisted.
 _SESSIONS: dict[str, dict] = {}
 _SESSION_CAP = 200
+_SESSION_TTL_S = 1800
+
+
+def _now() -> float:
+    return time.monotonic()
 
 
 def _store_session(token_map: dict[str, str]) -> str:
@@ -108,8 +115,30 @@ def _store_session(token_map: dict[str, str]) -> str:
     if len(_SESSIONS) >= _SESSION_CAP:
         oldest = min(_SESSIONS, key=lambda k: _SESSIONS[k]["created"])
         _SESSIONS.pop(oldest, None)
-    _SESSIONS[sid] = {"token_map": token_map, "created": time.monotonic()}
+    now = _now()
+    _SESSIONS[sid] = {"token_map": token_map, "created": now, "last_access": now}
     return sid
+
+
+def _get_active_session(session_id: str) -> dict | None:
+    session = _SESSIONS.get(session_id)
+    if session is None:
+        return None
+    if _now() - session["last_access"] > _SESSION_TTL_S:
+        _drop_session(session_id)
+        return None
+    session["last_access"] = _now()
+    return session
+
+
+def _drop_session(session_id: str) -> bool:
+    session = _SESSIONS.pop(session_id, None)
+    if session is None:
+        return False
+    token_map = session.get("token_map") or {}
+    for k in list(token_map):
+        token_map[k] = ""
+    return True
 
 
 # ── token labels ───────────────────────────────────────────────────────
@@ -236,17 +265,17 @@ def health():
     return {"status": "ok", "version": "2.2.0"}
 
 
+_AUDIT_MAX_FILES = 50
+_AUDIT_MAX_RECORDS = 5000
+
+
 @app.get("/api/audit-log")
 def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)):
-    """Paginated, PII-free audit trail (newest first).
-
-    Reads the JSONL files written by pii_redactor.audit.write_process_log /
-    write_security_log, filtering to a safe field set that never echoes
-    request text or vault content.
-    """
     log_dir = _get_audit_log_dir()
+    paths = glob.glob(f"{log_dir}/audit_*.jsonl")
+    paths.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0.0, reverse=True)
     records = []
-    for path in glob.glob(f"{log_dir}/audit_*.jsonl"):
+    for path in paths[:_AUDIT_MAX_FILES]:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -257,7 +286,7 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
                         r = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    safe = {"type": r.get("type"), "session_id": r.get("session_id"), "timestamp": r.get("timestamp")}
+                    safe = {"type": r.get("type"), "timestamp": r.get("timestamp")}
                     if r.get("type") == "process":
                         safe.update(step=r.get("step"), entity_count=r.get("entity_count"),
                                     validation_result=r.get("validation_result"),
@@ -269,6 +298,8 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
                     records.append(safe)
         except OSError:
             continue
+        if len(records) >= _AUDIT_MAX_RECORDS:
+            break
     records.sort(key=lambda r: r.get("timestamp") or 0, reverse=True)
     total = len(records)
     return {"status": "ok", "total_count": total, "limit": limit, "offset": offset,
@@ -311,7 +342,7 @@ def sanitize(request: SanitizeRequest):
 def reidentify(request: ReidentifyRequest):
     """Restore original PII by replacing tokens using the stored session map."""
     start = time.time()
-    session = _SESSIONS.get(request.session_id)
+    session = _get_active_session(request.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
@@ -341,6 +372,11 @@ def reidentify(request: ReidentifyRequest):
         "replaced_count": len(replaced),
         "leftover_tokens": leftover,
     }
+
+
+@app.delete("/api/session/{session_id}")
+def delete_session(session_id: str):
+    return {"deleted": _drop_session(session_id)}
 
 
 def _risk_label(score: float) -> str:
