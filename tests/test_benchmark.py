@@ -138,10 +138,11 @@ def test_ci_gate_crf_recall_floors():
     for t in ["THAI_ID", "CREDIT_CARD", "PASSPORT", "EMAIL", "PHONE",
               "STUDENT_ID", "VEHICLE_PLATE", "DATE_OF_BIRTH"]:
         assert bt[t]["recall"] >= 0.99, (t, bt[t])
-    # BANK_ACCOUNT: a 10-digit account starting 06-09 is indistinguishable from a
-    # mobile and gets labeled PHONE (still redacted -> coverage safe), so its
-    # type-aware recall floors lower. observed 0.921.
-    assert bt["BANK_ACCOUNT"]["recall"] >= 0.85, bt["BANK_ACCOUNT"]
+    # BANK_ACCOUNT: a 10-digit account starting 06-09 also matches the mobile
+    # pattern; the context disambiguation (fp_detector._disambiguate_bank_phone)
+    # sees the "บัญชีธนาคาร" cue in the bank_complaint template and keeps BANK,
+    # so type-aware recall is now perfect. observed 1.000 (was 0.921 pre-fix).
+    assert bt["BANK_ACCOUNT"]["recall"] >= 0.99, bt["BANK_ACCOUNT"]
     # NAME: the name-context booster keeps this high. observed 0.994.
     assert bt["NAME"]["recall"] >= 0.95, bt["NAME"]
     # ADDRESS: CRF location recall is weak -- THIS is the headline gap the
