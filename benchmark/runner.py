@@ -4,10 +4,13 @@ from __future__ import annotations
 import os
 
 from .corpus import build_corpus
+from .gold import load_gold
 from .scorer import score
 
 
-def run_benchmark(engine: str = "crf", seed: int = 42, size: int = 200) -> dict:
+def run_benchmark(
+    engine: str = "crf", seed: int = 42, size: int = 200, source: str = "synthetic"
+) -> dict:
     from pii_redactor.detectors import tb_detector
     from pii_redactor.detectors.aggregate import detect_all
 
@@ -21,7 +24,7 @@ def run_benchmark(engine: str = "crf", seed: int = 42, size: int = 200) -> dict:
     )
     tb_detector._ner = None
     try:
-        samples = build_corpus(seed=seed, size=size)
+        samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
         predictions = []
         for s in samples:
             ents = detect_all(s.text)
@@ -37,12 +40,14 @@ def run_benchmark(engine: str = "crf", seed: int = 42, size: int = 200) -> dict:
     report["engine"] = engine
     report["seed"] = seed
     report["size"] = size
+    report["source"] = source
     return report
 
 
 def render_table(report: dict) -> str:
     lines = [
-        f"engine={report['engine']} seed={report['seed']} size={report['size']}",
+        f"engine={report['engine']} source={report.get('source', 'synthetic')} "
+        f"seed={report['seed']} size={report['size']}",
         f"{'type':<16}{'n':>5}{'recall':>9}{'prec':>9}{'f2':>9}",
     ]
     for t in sorted(report["by_type"]):
