@@ -89,6 +89,58 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
 
 
 # ---------------------------------------------------------------------------
+# BANK vs PHONE context disambiguation
+# ---------------------------------------------------------------------------
+
+def _rightmost_cue(pattern: re.Pattern, ctx: str) -> int:
+    """End offset of the cue nearest the number (rightmost match in ctx), or -1."""
+    end = -1
+    for m in pattern.finditer(ctx):
+        end = m.end()
+    return end
+
+
+def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity]:
+    """Resolve spans that are ambiguously PHONE and BANK_ACCOUNT.
+
+    A 10-digit number starting 06-09 matches both the mobile PHONE and the
+    BANK_ACCOUNT patterns and, on a score tie, PHONE wins deduplication. When
+    both candidates share a span, the cue nearest the number in the preceding
+    ~30 chars decides: a bank cue keeps BANK, a phone cue keeps PHONE, a tie
+    favours BANK, and no cue at all leaves the default (PHONE) untouched.
+    """
+    types_by_span: dict[tuple[int, int], set[str]] = {}
+    for e in candidates:
+        types_by_span.setdefault(e.span, set()).add(e.data_type)
+
+    drop_phone: set[tuple[int, int]] = set()
+    drop_bank: set[tuple[int, int]] = set()
+    for span, types in types_by_span.items():
+        if "PHONE" not in types or "BANK_ACCOUNT" not in types:
+            continue
+        ctx = text[max(0, span[0] - _CUE_WINDOW):span[0]]
+        bank = _rightmost_cue(_BANK_CUE_RE, ctx)
+        phone = _rightmost_cue(_PHONE_CUE_RE, ctx)
+        if bank < 0 and phone < 0:
+            continue
+        if bank >= phone:
+            drop_phone.add(span)
+        else:
+            drop_bank.add(span)
+
+    if not drop_phone and not drop_bank:
+        return candidates
+    out: list[Entity] = []
+    for e in candidates:
+        if e.data_type == "PHONE" and e.span in drop_phone:
+            continue
+        if e.data_type == "BANK_ACCOUNT" and e.span in drop_bank:
+            continue
+        out.append(e)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Compiled patterns
 # ---------------------------------------------------------------------------
 
@@ -147,6 +199,17 @@ _RE_STUDENT_ID = re.compile(
 
 _SEP_RE = re.compile(r"[-\s]")
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
+
+# BANK-vs-PHONE disambiguation cues. A 10-digit number starting 06-09 matches
+# both the mobile PHONE and the BANK_ACCOUNT patterns, so the surrounding text
+# is the only signal. `บัญชี` already covers เลขบัญชี / เลขที่บัญชี as a
+# substring, so the alternation stays minimal.
+_BANK_CUE_RE = re.compile(r"บัญชี|ธนาคาร")
+_PHONE_CUE_RE = re.compile(r"โทรศัพท์|โทร|เบอร์|มือถือ|ติดต่อ")
+# Look back this many characters. Thai runs words together with no spaces, and
+# the disambiguating cue can sit a whole clause before the number (e.g.
+# "บัญชีธนาคารกสิกรไทย เลขที่ 0731122334"), so the window is generous.
+_CUE_WINDOW = 30
 
 
 # ---------------------------------------------------------------------------
@@ -225,4 +288,5 @@ def detect_fp(text: str) -> list[Entity]:
     for m in _RE_STUDENT_ID.finditer(text):
         candidates.append(_make_entity("STUDENT_ID", m, text, score=0.8))
 
+    candidates = _disambiguate_bank_phone(text, candidates)
     return _deduplicate(candidates)
