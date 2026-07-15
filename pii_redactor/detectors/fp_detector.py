@@ -218,6 +218,12 @@ _PHONE_CUE_RE = re.compile(r"โทรศัพท์|โทร|เบอร์|
 # and relaxes that guard.
 _PLATE_CUE_RE = re.compile(r"ทะเบียน")
 _PLATE_CUE_WINDOW = 15
+# The loose plate pattern ([ก-ฮ]{1,3}\s*\d{1,4}) also matches common Thai
+# locality words that are all-consonant and precede a number -- most notably
+# "ซอย N" (Soi/lane N) in addresses. Reject a match whose leading consonant run
+# is such a word; real plate prefixes (กข, ถขก, ...) are not words.
+_PLATE_STOPWORDS = frozenset({"ซอย", "ถนน"})
+_PLATE_LEAD_RE = re.compile(r"[ก-ฮ]{1,3}")
 # Look back this many characters. Thai runs words together with no spaces, and
 # the disambiguating cue can sit a whole clause before the number (e.g.
 # "บัญชีธนาคารกสิกรไทย เลขที่ 0731122334"), so the window is generous.
@@ -289,6 +295,9 @@ def detect_fp(text: str) -> list[Entity]:
     # glued to the label text.
     for m in _RE_VEHICLE_PLATE.finditer(text):
         start = m.start(1)
+        lead = _PLATE_LEAD_RE.match(m.group(1))
+        if lead and lead.group() in _PLATE_STOPWORDS:
+            continue
         if start > 0 and _THAI_CHAR_RE.match(text[start - 1]):
             if not _PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW):start]):
                 continue
