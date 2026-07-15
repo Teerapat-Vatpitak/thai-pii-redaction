@@ -94,7 +94,7 @@ union ยังให้ OVERALL recall สูงสุดบน gold (0.852 เ
 
 ## Trade-off
 
-- crf เร็วที่สุด (offline ~1-5 ms/ประโยค) แต่ recall ต่ำสุดในภาพรวม gold (OVERALL_R 0.815) โดยเฉพาะ ADDRESS (0.882)
+- crf เร็วที่สุด (offline ~1-5 ms/ประโยค) แต่ NAME recall ต่ำ (0.607) และ ADDRESS ยังแพ้ WCB (0.882 เทียบ 1.000) OVERALL_R gold 0.815 ต่ำกว่า union กับ route
 - wcb ยก ADDRESS recall เต็ม 1.000 แต่ทิ้ง NAME-ไม่มี-cue รุนแรง (0.357 บน gold slice name_no_cue 0.381)
 - union recall สูงสุดทั้ง NAME และ ADDRESS พร้อมกัน แลกกับ precision ต่ำสุด (gold 0.616 synthetic 0.900) และต้องรัน 2 engine ต่อ sample
 - route สมดุลกว่า union ด้าน precision (gold 0.667) แต่ NAME ไม่ได้ประโยชน์จาก WCB เลย (เท่า crf เดี่ยว) และยังต้องรัน 2 engine เหมือน union
