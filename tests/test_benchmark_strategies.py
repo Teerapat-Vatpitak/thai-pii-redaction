@@ -7,7 +7,7 @@ import pytest
 
 from pii_redactor.models import Entity
 from benchmark.strategies import union_entities, route_entities
-from benchmark.runner import run_strategy_comparison
+from benchmark.runner import run_strategy_comparison, render_strategy_table
 from benchmark.gold import load_gold
 
 
@@ -47,3 +47,18 @@ def test_run_strategy_comparison_returns_four_reports():
         assert rep["source"] == "gold"
         assert rep["corpus"]["samples"] == len(load_gold())
         assert "by_type" in rep and "overall" in rep
+
+
+def test_render_strategy_table_has_all_strategy_columns():
+    def _rep():
+        return {
+            "by_type": {"NAME": {"recall": 0.5, "precision": 1.0}},
+            "overall": {"recall": 0.5, "precision": 1.0, "coverage_recall": 0.6},
+            "seed": 42, "size": 10, "source": "gold",
+        }
+    reports = {k: _rep() for k in ["crf", "wcb", "union", "route"]}
+    out = render_strategy_table(reports)
+    for col in ["crf_R", "wcb_R", "union_R", "route_R"]:
+        assert col in out
+    assert "NAME" in out
+    assert "OVERALL_R" in out

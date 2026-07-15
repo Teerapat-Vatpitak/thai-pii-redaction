@@ -119,3 +119,24 @@ def run_strategy_comparison(
         rep["size"] = size
         reports[name] = rep
     return reports
+
+
+def render_strategy_table(reports: dict) -> str:
+    order = ["crf", "wcb", "union", "route"]
+    base = reports[order[0]]
+    types = sorted(base["by_type"])
+    lines = [
+        f"strategy comparison source={base.get('source', 'synthetic')} "
+        f"seed={base['seed']} size={base['size']}  (values = recall)",
+        f"{'type':<16}" + "".join(f"{s + '_R':>10}" for s in order),
+    ]
+    for t in types:
+        row = f"{t:<16}"
+        for s in order:
+            c = reports[s]["by_type"].get(t)
+            row += f"{c['recall']:>10.3f}" if c else f"{'-':>10}"
+        lines.append(row)
+    lines.append(f"{'OVERALL_R':<16}" + "".join(f"{reports[s]['overall']['recall']:>10.3f}" for s in order))
+    lines.append(f"{'OVERALL_P':<16}" + "".join(f"{reports[s]['overall']['precision']:>10.3f}" for s in order))
+    lines.append(f"{'coverage':<16}" + "".join(f"{reports[s]['overall']['coverage_recall']:>10.3f}" for s in order))
+    return "\n".join(lines)
