@@ -135,3 +135,35 @@ def test_text_pdf_with_blank_page_is_not_forced_to_ocr(tmp_path):
     ])
     assert detect_source_type(path) == "pdf_text", \
         "a blank divider page has nothing to OCR and must stay pdf_text"
+
+
+# --- Leak 4: PASSPORT / VEHICLE_PLATE glued to Thai script -------------------
+# Same \b-vs-Thai-adjacency class as Leak 1, now for the alphanumeric PASSPORT
+# patterns (which still used \b) and the VEHICLE_PLATE mid-word guard (which
+# rejected any plate preceded by a Thai char). Surfaced by the gold `messy`
+# slice at recall 0.000 on both CRF and WangchanBERTa (docs .../gold-v2-design).
+
+
+def test_passport_standalone_is_detected():
+    # Sanity: a space-delimited passport is caught today.
+    assert "PASSPORT" in _types(detect_fp("หนังสือเดินทาง AB1234567 ออกให้"))
+
+
+def test_passport_glued_to_thai_script_is_detected():
+    text = "หนังสือเดินทางเลขที่AB1234567ออกโดยกรมการกงสุล"
+    ps = _find(detect_fp(text), "PASSPORT")
+    assert ps, "passport glued to Thai script must be detected"
+    assert "AB1234567" in text[ps[0].span[0]:ps[0].span[1]]
+
+
+def test_vehicle_plate_glued_after_cue_is_detected():
+    text = "ทะเบียนรถขก 4471จอดในลานจอด"
+    plates = _find(detect_fp(text), "VEHICLE_PLATE")
+    assert plates, "plate glued to a Thai cue word (ทะเบียนรถ) must be detected"
+    assert "4471" in text[plates[0].span[0]:plates[0].span[1]]
+
+
+def test_thai_glued_plate_without_cue_stays_rejected():
+    # Precision guard: a consonant+number run glued mid-Thai with NO ทะเบียน
+    # cue stays rejected -- the mid-word guard is relaxed only on a plate cue.
+    assert "VEHICLE_PLATE" not in _types(detect_fp("ผมมีรถกก 1234"))
