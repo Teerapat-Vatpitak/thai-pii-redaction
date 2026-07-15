@@ -109,6 +109,27 @@ TYPE ใช้ชุดเดียวกับ detector NAME ADDRESS DATE_OF_BI
 
    แก้แล้ว (คอมมิตถัดจาก v2) passport เปลี่ยน `\b` เป็น alnum-boundary lookaround plate ผ่อน mid-word guard เมื่อมี cue `ทะเบียน` นำหน้าใน ~15 char ผลรัน gold CRF ซ้ำ PASSPORT 0.000 เป็น 1.000 VEHICLE_PLATE 0.000 เป็น 1.000 messy slice 0.750 OVERALL 0.815 BANK/PHONE คงเดิม regression test อยู่ที่ `tests/test_recall_leaks.py` (Leak 4) หมายเหตุ VEHICLE_PLATE precision เดิมต่ำ (ที่อยู่รูป `ซอย N` ถูกจับเป็นป้ายเพราะ regex หลวม) แก้แล้วในคอมมิตถัดมา เพิ่ม stopword `ซอย/ถนน` ตัด match ที่พยัญชนะนำเป็นคำบอกสถานที่ ผลรัน gold CRF ซ้ำ VEHICLE_PLATE precision 0.333 เป็น 1.000 recall คง 1.000 test `test_soi_number_is_not_a_vehicle_plate`
 
+## ผลรัน synthetic หลังใส่ที่อยู่ ซอย (CRF vs WangchanBERTa) 2026-07-15
+
+รันเทียบซ้ำบน corpus สังเคราะห์ที่ครึ่งหนึ่งของที่อยู่เป็นรูป ซอย N แล้ว (seed 42 size 200) เพื่อดูว่าที่อยู่ที่ยากขึ้นกระทบช่องว่าง CRF vs WCB แค่ไหน และ ซอย guard ทน engine ไหม ตัวเลขจาก `benchmark/reports/syn-soi-crf.json` และ `syn-soi-wcb.json`
+
+| ชนิด | n | CRF recall | WCB recall | CRF prec | WCB prec |
+|---|---|---|---|---|---|
+| ADDRESS | 32 | 0.594 | 1.000 | 0.792 | 0.744 |
+| VEHICLE_PLATE | 46 | 1.000 | 1.000 | 1.000 | 1.000 |
+| NAME | 160 | 0.994 | 0.994 | 1.000 | 1.000 |
+| DATE_OF_BIRTH | 32 | 1.000 | 1.000 | 0.421 | 0.421 |
+| structured อื่น (THAI_ID PHONE EMAIL BANK_ACCOUNT CREDIT_CARD PASSPORT STUDENT_ID) | | 1.000 | 1.000 | 1.000 | 1.000 |
+| OVERALL | 598 | 0.977 | 0.998 | 0.923 | 0.916 |
+| coverage_recall | | 0.942 | 0.961 | | |
+
+### อ่านผล
+
+1. ADDRESS ยังเป็นตัวชี้ขาดเหมือนบน synthetic v1 WCB recall 1.000 vs CRF 0.594 แม้ที่อยู่จะเป็นรูป ซอย ที่ยากขึ้น WCB ก็จับครบ CRF ดีขึ้นจาก 0.406 (ก่อนใส่ ซอย) เป็น 0.594 เพราะรูป ซอย พก อำเภอ/เขต เป็น cue ให้ CRF แต่ยังห่าง WCB มาก
+2. VEHICLE_PLATE ทั้งสอง engine 1.000/1.000 ซอย guard อยู่ชั้น FP regex (`_PLATE_STOPWORDS`) เป็น engine-independent การใส่ ซอย เข้า corpus จึงไม่ทำ plate precision ตกทั้งสองฝั่ง กับดักถูกจัดการสะอาดไม่ว่าใช้ engine ไหน
+3. WCB ชนะ overall บน synthetic (0.998 vs 0.977 coverage 0.961 vs 0.942) เพราะ structured เสมอที่ 1.0 NAME เสมอ (synthetic ยังมี title cue) ตัวต่างมีแค่ ADDRESS ต่างจาก gold ที่ถอด title cue แล้ว CRF กลับนำ NAME สรุปเดิมยังยืน synthetic ง่ายเกินจริงตรง NAME ตัว discriminator จริงต้องดู gold
+4. DATE_OF_BIRTH precision 0.421 ทั้งคู่ เป็น FP ของ date regex ที่ over-match engine-independent อยู่นอกขอบเขต documented gap
+
 ## ไม่อยู่ใน v2 (YAGNI)
 
 - real document ของผู้ใช้ (private local hook) เลื่อนไป ถ้าผู้ใช้อยากเสียบทีหลัง harness `--source gold` รองรับได้อยู่แล้วโดยชี้ไฟล์
