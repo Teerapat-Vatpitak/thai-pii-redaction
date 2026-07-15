@@ -187,11 +187,17 @@ _RE_DATE = re.compile(
 _RE_VEHICLE_PLATE = re.compile(
     r"([ก-ฮ]{1,3}\s*\d{1,4})"
 )
+# Passport is alphanumeric, so it needs the same Thai-adjacency handling as the
+# numeric PII above: \b does NOT fire between a Thai letter and "A" (both are
+# word characters in Unicode regex), so a passport glued to Thai text (e.g.
+# "หนังสือเดินทางเลขที่AB1234567") slipped past. Alnum-boundary lookarounds still
+# reject a value embedded in a longer alphanumeric run while allowing Thai/space
+# adjacency.
 _RE_PASSPORT_TH = re.compile(
-    r"\b([A-Z]{2}\d{7})\b"
+    r"(?<![A-Za-z0-9_])([A-Z]{2}\d{7})(?![A-Za-z0-9_])"
 )
 _RE_PASSPORT = re.compile(
-    r"\b([A-Z]{1,2}\d{6,9})\b"
+    r"(?<![A-Za-z0-9_])([A-Z]{1,2}\d{6,9})(?![A-Za-z0-9_])"
 )
 _RE_STUDENT_ID = re.compile(
     r"(?<!\d)(\d{8,12})(?!\d)"
@@ -206,6 +212,12 @@ _THAI_CHAR_RE = re.compile(r"[฀-๿]")
 # substring, so the alternation stays minimal.
 _BANK_CUE_RE = re.compile(r"บัญชี|ธนาคาร")
 _PHONE_CUE_RE = re.compile(r"โทรศัพท์|โทร|เบอร์|มือถือ|ติดต่อ")
+# A vehicle plate glued to Thai text (e.g. "ทะเบียนรถขก 4471") is normally
+# suppressed by the mid-word guard below, which rejects any plate preceded by a
+# Thai char. A plate cue in the ~15 chars before the match marks a real plate
+# and relaxes that guard.
+_PLATE_CUE_RE = re.compile(r"ทะเบียน")
+_PLATE_CUE_WINDOW = 15
 # Look back this many characters. Thai runs words together with no spaces, and
 # the disambiguating cue can sit a whole clause before the number (e.g.
 # "บัญชีธนาคารกสิกรไทย เลขที่ 0731122334"), so the window is generous.
@@ -272,11 +284,14 @@ def detect_fp(text: str) -> list[Entity]:
                 pass
 
     # 8. VEHICLE_PLATE
-    # Reject matches where the Thai consonants are mid-word (preceded by a Thai char)
+    # Reject matches where the Thai consonants are mid-word (preceded by a Thai
+    # char) -- unless a plate cue (ทะเบียน...) just before it marks a real plate
+    # glued to the label text.
     for m in _RE_VEHICLE_PLATE.finditer(text):
         start = m.start(1)
         if start > 0 and _THAI_CHAR_RE.match(text[start - 1]):
-            continue
+            if not _PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW):start]):
+                continue
         candidates.append(_make_entity("VEHICLE_PLATE", m, text, score=0.9))
 
     # 9. PASSPORT (Thai format first, then general)
