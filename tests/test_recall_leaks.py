@@ -167,3 +167,16 @@ def test_thai_glued_plate_without_cue_stays_rejected():
     # Precision guard: a consonant+number run glued mid-Thai with NO ทะเบียน
     # cue stays rejected -- the mid-word guard is relaxed only on a plate cue.
     assert "VEHICLE_PLATE" not in _types(detect_fp("ผมมีรถกก 1234"))
+
+
+def test_soi_number_is_not_a_vehicle_plate():
+    # "ซอย 4" is Thai for "Soi 4" (a lane in an address), not a plate, but
+    # ซ-อ-ย are all consonants followed by a number, so the loose plate regex
+    # matched it. A locality stopword must suppress it while real plates stay.
+    for text in (
+        "88 หมู่บ้านสวนหลวง ซอย 4 ตำบลหนองปรือ",
+        "55/1 ถนนสุขุมวิท ซอย 24 คลองตัน",
+    ):
+        assert "VEHICLE_PLATE" not in _types(detect_fp(text)), text
+    # The real cued plate is unaffected.
+    assert "VEHICLE_PLATE" in _types(detect_fp("ทะเบียนรถขก 4471 จอด"))
