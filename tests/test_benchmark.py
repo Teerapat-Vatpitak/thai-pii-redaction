@@ -138,6 +138,11 @@ def test_ci_gate_crf_recall_floors():
     for t in ["THAI_ID", "CREDIT_CARD", "PASSPORT", "EMAIL", "PHONE",
               "STUDENT_ID", "VEHICLE_PLATE", "DATE_OF_BIRTH"]:
         assert bt[t]["recall"] >= 0.99, (t, bt[t])
+    # VEHICLE_PLATE precision: half the synthetic addresses use a "ซอย N" soi
+    # form, which the loose plate regex would flag as a plate. The locality
+    # stopword (fp_detector._PLATE_STOPWORDS) suppresses it, so precision stays
+    # perfect. observed 1.000 -- a regression here means the ซอย guard broke.
+    assert bt["VEHICLE_PLATE"]["precision"] >= 0.99, bt["VEHICLE_PLATE"]
     # BANK_ACCOUNT: a 10-digit account starting 06-09 also matches the mobile
     # pattern; the context disambiguation (fp_detector._disambiguate_bank_phone)
     # sees the "บัญชีธนาคาร" cue in the bank_complaint template and keeps BANK,
@@ -146,7 +151,8 @@ def test_ci_gate_crf_recall_floors():
     # NAME: the name-context booster keeps this high. observed 0.994.
     assert bt["NAME"]["recall"] >= 0.95, bt["NAME"]
     # ADDRESS: CRF location recall is weak -- THIS is the headline gap the
-    # WangchanBERTa comparison should close. observed 0.406; floor deliberately low.
+    # WangchanBERTa comparison should close. observed 0.594 (the soi form carries
+    # อำเภอ/เขต cues the CRF catches more often); floor deliberately low.
     assert bt["ADDRESS"]["recall"] >= 0.30, bt["ADDRESS"]
     # Every known recall-leak shape (Thai-glued id/email, +66 mobile) still caught.
     assert r["by_slice"]["hard_case"]["recall"] >= 0.99, r["by_slice"]["hard_case"]

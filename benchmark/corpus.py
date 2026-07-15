@@ -58,7 +58,16 @@ def _sample_value(entity_type: str, rng: random.Random) -> str:
         first = rng.choice(MALE_NAMES if male else FEMALE_NAMES)
         return f"{title}{first} {rng.choice(SURNAMES)}"
     if entity_type == "ADDRESS":
-        return f"{rng.randint(1, 999)} {rng.choice(DISTRICTS)}"
+        num = rng.randint(1, 999)
+        district = rng.choice(DISTRICTS)
+        # Half the addresses (by num parity) take a "ซอย N" soi form so the
+        # corpus exercises the plate-precision trap where ซอย + digits looks like
+        # a VEHICLE_PLATE (guarded by fp_detector._PLATE_STOPWORDS). Derived from
+        # the same two rng draws as before -- no extra draw -- so every other
+        # entity value in the corpus stays byte-identical.
+        if num % 2 == 0:
+            return f"{num} ซอย {num % 60 + 1} {district}"
+        return f"{num} {district}"
     raise ValueError(entity_type)
 
 
