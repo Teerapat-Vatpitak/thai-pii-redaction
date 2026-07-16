@@ -72,7 +72,8 @@ Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is
 product's front door; the backend is API-only (no web frontend) and runs on localhost.
 `/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
 CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
-token → original map lives in the backend's in-memory `_SESSIONS` (`app/server.py`).
+token → original map lives in the backend's in-memory `SessionService` sessions
+(`pii_redactor/session_service.py`, one `SessionVault` per session).
 
 ### Pipeline (Step 1-8 per design doc `step1-7_*.pdf`; the file name undercounts — the doc itself documents 8 steps)
 
@@ -197,7 +198,7 @@ Both the web API and the CLI now run on the same core: `pii_redactor/session_ser
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
-- **Vault never leaves device**: pseudonym → original map is in-memory only (`_SESSIONS` web / `SessionVault` CLI); the extension keeps only `session_id`. `leftover_tokens` check on re-identification.
+- **Vault never leaves device**: pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path); the extension keeps only `session_id`. `leftover_tokens` check on re-identification.
 - **Pre-send leak guard**: before any send to an external AI, `ai_client._validate_pre_send` re-scans outbound text with `detect_fp` AND `detect_tb`; a real (non-pseudonym) hit halts the send.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
