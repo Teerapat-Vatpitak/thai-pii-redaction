@@ -355,3 +355,25 @@ def test_anonymize_fn_scanner_entities_get_realistic_fake_values():
     assert "[REDACTED_EMAIL]" not in result.text
     assert "1234567890123" not in result.text
     assert "foo@bar.com" not in result.text
+
+
+# ---------------------------------------------------------------------------
+# token_generator tests
+# ---------------------------------------------------------------------------
+
+def test_generate_token_known_type():
+    from pii_redactor.anonymizer.token_generator import generate_token
+    assert generate_token("NAME", 1) == "[ชื่อ_1]"
+    assert generate_token("PHONE", 3) == "[โทรศัพท์_3]"
+
+
+def test_generate_token_unknown_type_falls_back_to_type_name():
+    from pii_redactor.anonymizer.token_generator import generate_token
+    assert generate_token("MYSTERY", 2) == "[MYSTERY_2]"
+
+
+def test_token_label_map_matches_v2_contract():
+    from pii_redactor.anonymizer.token_generator import TOKEN_LABEL
+    assert TOKEN_LABEL["THAI_ID"] == "บัตรประชาชน"
+    assert TOKEN_LABEL["BANK_ACCOUNT"] == "บัญชีธนาคาร"
+    assert len(TOKEN_LABEL) == 13
