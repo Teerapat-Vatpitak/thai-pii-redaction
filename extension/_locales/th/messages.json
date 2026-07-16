@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "AI Guard — ปกปิดข้อมูลส่วนบุคคลก่อนส่งให้ AI",
+    "description": "Extension name shown in chrome://extensions and the Chrome Web Store listing."
+  },
+  "appDesc": {
+    "message": "ปกปิดข้อมูลส่วนบุคคลไทยก่อนส่งให้แชท AI แล้วคืนค่าในเครื่องคุณ ประมวลผลทั้งหมดในเครื่อง ไม่ส่งข้อมูลออกที่อื่น",
+    "description": "Extension description shown in chrome://extensions and the Chrome Web Store listing."
+  }
+}
