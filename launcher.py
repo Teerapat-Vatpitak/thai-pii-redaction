@@ -5,6 +5,7 @@ the console window stops the server. This is the base product (regex + Thai
 NER); the optional MiniLM sensitive detector is not bundled in the .exe.
 """
 import os
+import secrets
 import shutil
 import sys
 import threading
@@ -65,8 +66,20 @@ def _open_browser():
         pass
 
 
+def _ensure_boot_token():
+    """Generate a random boot token if the environment hasn't supplied one, so
+    the in-process server enforces the control plane (shutdown / delete-session)
+    even when launched standalone. Must run BEFORE `app.server` is imported —
+    the server reads AIGUARD_TOKEN once at import. The value is never printed or
+    logged; a caller that already set AIGUARD_TOKEN (e.g. the Tauri shell, which
+    needs the value to shut the sidecar down) is left untouched."""
+    if not os.environ.get("AIGUARD_TOKEN"):
+        os.environ["AIGUARD_TOKEN"] = secrets.token_hex(16)
+
+
 def main():
     _ensure_pythainlp_data()
+    _ensure_boot_token()
     if getattr(sys, "frozen", False):
         # The packaged app is fully offline: it runs only on bundled models and
         # must never reach the network. This makes a missing model fail loudly at
