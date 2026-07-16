@@ -34,6 +34,10 @@ use tauri_plugin_shell::ShellExt;
 pub struct SidecarState {
     pub child: Mutex<Option<CommandChild>>,
     pub pid: Mutex<Option<u32>>,
+    /// Boot token generated for the sidecar we spawned, if any. `None` when we
+    /// attached to a backend already listening (dev mode / no token), so
+    /// `kill()` falls back to the legacy `X-AIGuard-Local` header only.
+    pub token: Mutex<Option<String>>,
 }
 
 /// Spawn the `aiguard` sidecar and stream its output to the Rust log.
@@ -51,10 +55,17 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    // Random per-boot shared secret. Passed to the sidecar via its env so the
+    // backend enforces the control plane (/api/shutdown, delete-session), and
+    // stored in state so kill() can authenticate its shutdown request. Never
+    // logged.
+    let token = uuid::Uuid::new_v4().simple().to_string();
+
     let (mut rx, child) = app
         .shell()
         .sidecar("aiguard")
         .map_err(|e| format!("create sidecar: {e}"))?
+        .env("AIGUARD_TOKEN", &token)
         .spawn()
         .map_err(|e| format!("spawn sidecar: {e}"))?;
 
@@ -62,6 +73,7 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<SidecarState>();
     *state.child.lock().unwrap() = Some(child);
     *state.pid.lock().unwrap() = Some(pid);
+    *state.token.lock().unwrap() = Some(token);
 
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -110,6 +122,12 @@ pub fn kill(app: &AppHandle) {
     // tree-kill below stays the guarantee (a POST can't reliably reap the
     // PyInstaller child process).
     use std::io::Write;
+    let state = app.state::<SidecarState>();
+    // Snapshot the token (a uuid v4 hex string — safe to place verbatim in a
+    // header) so the shutdown request can authenticate when the backend
+    // enforces the boot token. `None` (attached to a pre-existing backend) ->
+    // legacy header only.
+    let token = state.token.lock().unwrap().clone();
     // Bounded: a bare connect()/write() to a filtered or half-open loopback
     // socket could otherwise block the exit path (this runs on the main thread
     // from ExitRequested). The force-kill below stays the real guarantee.
@@ -118,11 +136,18 @@ pub fn kill(app: &AppHandle) {
         Duration::from_millis(500),
     ) {
         let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-        let _ = stream.write_all(
-            b"POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nX-AIGuard-Local: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        );
+        // Keep X-AIGuard-Local for backward compat with a backend that predates
+        // the token (grace path); add X-AIGuard-Token when we have one.
+        let mut req =
+            String::from("POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nX-AIGuard-Local: 1\r\n");
+        if let Some(tok) = &token {
+            req.push_str("X-AIGuard-Token: ");
+            req.push_str(tok);
+            req.push_str("\r\n");
+        }
+        req.push_str("Content-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ = stream.write_all(req.as_bytes());
     }
-    let state = app.state::<SidecarState>();
     // Take the values out of their mutexes into locals first: this drops each
     // MutexGuard temporary at the `let` statement rather than holding a borrow
     // of `state` across the `if let` block (which trips E0597 on drop order).
