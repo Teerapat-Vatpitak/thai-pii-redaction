@@ -43,6 +43,14 @@ _ADDR_CUE_RE = re.compile(
 _TB_BIRTH_CUE_RE = re.compile(r"เกิด")
 _TB_CUE_WINDOW = 30
 
+# thainer CRF has no reliable signal on out-of-distribution (non-Thai) input --
+# fed a plain English sentence, it still forces some non-O label onto the
+# whole span rather than abstaining. ORGANIZATION is the one honest label with
+# no cue gate of its own (unlike LOCATION/DATE, which route through
+# _apply_cue_upgrades), so an all-Latin "organization" span is always this
+# degenerate guess rather than a real Thai employer/hospital name -- reject it.
+_THAI_CHAR_RE = re.compile(r"[฀-๿]")
+
 
 def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
     if data_type == "LOCATION":
@@ -238,6 +246,9 @@ def _ner_candidates(
                 if data_type is None:
                     continue
                 if (orig_end - orig_start) < 2:
+                    continue
+                entity_text = text[orig_start:orig_end]
+                if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
                     continue
                 data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
                 candidates.append(Entity(
