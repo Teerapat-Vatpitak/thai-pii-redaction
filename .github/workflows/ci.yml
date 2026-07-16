@@ -1,8 +1,9 @@
 # Test gate: runs the pytest suite (Windows + Linux), a core-only-install job
 # that keeps the optional-dependency skip tiers honest, the Rust unit tests for
-# the desktop shell, a JS syntax check for the extension + desktop frontend, and
-# a Windows packaged-exe smoke that boots the shipped sidecar end-to-end -- the
-# only platform users actually run, which release.yml/smoke-crossplatform.yml
+# the desktop shell, a JS syntax check for the extension + desktop frontend, a
+# version drift check (Horizon-1 #5 -- VERSION is the single source of truth),
+# and a Windows packaged-exe smoke that boots the shipped sidecar end-to-end --
+# the only platform users actually run, which release.yml/smoke-crossplatform.yml
 # never boot. Runs on every push to main and every PR.
 name: CI
 
@@ -71,6 +72,23 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: python -m pytest -q
+
+  check-version:
+    # Lightweight, pure-stdlib gate: no pip install needed. Catches version
+    # drift the moment a release bumps one file (Cargo.toml, manifest.json,
+    # ...) and forgets another.
+    name: version drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check VERSION is consistent everywhere
+        run: python scripts/check_version.py
 
   rust:
     name: cargo test (desktop shell)

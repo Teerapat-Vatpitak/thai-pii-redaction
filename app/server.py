@@ -44,10 +44,42 @@ from pii_redactor.models import EntityRegistry
 from pii_redactor.report import generate_report, scan_section26
 from pii_redactor.reid_risk import assess_reid_risk
 
+
+def _read_version() -> str:
+    """Read the product version from the single-source `VERSION` file at repo
+    root (Horizon-1 #5 — one file, everything else derives from it).
+
+    Checked in order:
+    1. Next to a PyInstaller-frozen executable (`sys._MEIPASS`) -- `VERSION` is
+       bundled via `--add-data` in `scripts/build_sidecar.py`.
+    2. Next to this source file, two levels up (`app/server.py` -> repo root)
+       -- the dev / from-source / core-only-install path.
+
+    Falls back to a hardcoded string if VERSION can't be found anywhere (e.g.
+    an old frozen exe built before VERSION was added to PyInstaller datas).
+    """
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "VERSION")
+    candidates.append(Path(__file__).resolve().parent.parent / "VERSION")
+
+    for candidate in candidates:
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+    # Last-resort fallback, outside the single-source system by design:
+    # bump this literal at release time (scripts/bump_version.py does not).
+    return "2.2.0"
+
+
+__version__ = _read_version()
+
 app = FastAPI(
     title="AI Guard API",
     description="Thai PII Redaction Pipeline — PSU FTC 2026",
-    version="2.2.0",
+    version=__version__,
 )
 
 app.add_middleware(
@@ -178,7 +210,7 @@ class AnalyzeRequest(BaseModel):
 def health():
     return {
         "status": "ok",
-        "version": "2.2.0",
+        "version": __version__,
         "capabilities": {"token_required": _token_required()},
     }
 

@@ -87,6 +87,9 @@ def main() -> None:
     cmd += ["--collect-submodules", "uvicorn", "--hidden-import", "pycrfsuite"]
     for m in EXCLUDE:
         cmd += ["--exclude-module", m]
+    # Single-source version (Horizon-1 #5): bundle VERSION at the bundle root
+    # so app/server.py's _read_version() finds it via sys._MEIPASS when frozen.
+    cmd += ["--add-data", f"{ROOT / 'VERSION'}{os.pathsep}."]
     cmd += data_args()
     # Absolute paths so we never depend on / mutate the caller's working directory.
     cmd += ["--distpath", str(ROOT / "dist"),
