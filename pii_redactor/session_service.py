@@ -23,7 +23,7 @@ from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
 from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
 from pii_redactor.reverse_mapper import reverse_map
-from pii_redactor.session_vault import SessionVault
+from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
 class SessionExpiredError(Exception):
@@ -143,89 +143,97 @@ class SessionService:
     ) -> SanitizeOutcome:
         sid, session = self._get_or_create(session_id, mode)
 
-        turn_entities = detect_all(text)
-        registry = EntityRegistry(
-            entities=turn_entities,
-            fp_count=sum(1 for e in turn_entities if e.redact_type == "FP"),
-            tb_count=sum(1 for e in turn_entities if e.redact_type == "TB"),
-        )
         try:
-            pseudo = anonymize(
-                text, registry, session.vault,
-                salt=session.salt, mode=session.mode,
+            turn_entities = detect_all(text)
+            registry = EntityRegistry(
+                entities=turn_entities,
+                fp_count=sum(1 for e in turn_entities if e.redact_type == "FP"),
+                tb_count=sum(1 for e in turn_entities if e.redact_type == "TB"),
             )
-        except (PIILeakError, ValueError) as e:
-            # mask failed — never return the text
-            raise OutboundLeakError([type(e).__name__]) from e
+            try:
+                pseudo = anonymize(
+                    text, registry, session.vault,
+                    salt=session.salt, mode=session.mode,
+                )
+            except (PIILeakError, ValueError) as e:
+                # mask failed — never return the text
+                raise OutboundLeakError([type(e).__name__]) from e
 
-        warnings: list[str] = []
-        leaks = scan_outbound_leaks(pseudo.text, session.vault)
-        fp_leaks = [e for e in leaks if e.redact_type == "FP"]
-        if fp_leaks:
-            raise OutboundLeakError(sorted({e.data_type for e in fp_leaks}))
-        # only register this turn once the guard has cleared the output
-        session.entities.extend(turn_entities)
-        warnings.extend(
-            f"possible_tb_leak:{e.data_type}"
-            for e in leaks if e.redact_type != "FP"
-        )
+            warnings: list[str] = []
+            leaks = scan_outbound_leaks(pseudo.text, session.vault)
+            fp_leaks = [e for e in leaks if e.redact_type == "FP"]
+            if fp_leaks:
+                raise OutboundLeakError(sorted({e.data_type for e in fp_leaks}))
+            # only register this turn once the guard has cleared the output
+            session.entities.extend(turn_entities)
+            warnings.extend(
+                f"possible_tb_leak:{e.data_type}"
+                for e in leaks if e.redact_type != "FP"
+            )
 
-        out_entities = []
-        for e in turn_entities:
-            record = session.vault.get_by_entity_id(e.entity_id)
-            out_entities.append({
-                "start": e.span[0], "end": e.span[1],
-                "data_type": e.data_type, "redact_type": e.redact_type,
-                "token": record.pseudonym if record else "",
-            })
-        type_counts: dict[str, int] = {}
-        for e in out_entities:
-            type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
+            out_entities = []
+            for e in turn_entities:
+                record = session.vault.get_by_entity_id(e.entity_id)
+                out_entities.append({
+                    "start": e.span[0], "end": e.span[1],
+                    "data_type": e.data_type, "redact_type": e.redact_type,
+                    "token": record.pseudonym if record else "",
+                })
+            type_counts: dict[str, int] = {}
+            for e in out_entities:
+                type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
 
-        return SanitizeOutcome(
-            session_id=sid,
-            original_text=text,
-            sanitized_text=pseudo.text,
-            entities=out_entities,
-            entity_type_counts=type_counts,
-            section26=scan_section26(text),
-            warnings=warnings,
-        )
+            return SanitizeOutcome(
+                session_id=sid,
+                original_text=text,
+                sanitized_text=pseudo.text,
+                entities=out_entities,
+                entity_type_counts=type_counts,
+                section26=scan_section26(text),
+                warnings=warnings,
+            )
+        except VaultTimeoutError:
+            self.drop(sid)
+            raise SessionExpiredError("Session not found or expired") from None
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
         sid, session = self._get_or_create(session_id, None)
-        registry = EntityRegistry(
-            entities=session.entities,
-            fp_count=sum(1 for e in session.entities if e.redact_type == "FP"),
-            tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
-        )
-        response = AIResponse(text=text, request_id=sid, latency=0.0)
-        reverse_result = reverse_map(response, registry, session.vault)
-
-        warnings = list(reverse_result.flags)
         try:
-            validation = validate_output(reverse_result, registry, session.vault)
-            warnings.extend(f for f in validation.flags if f not in warnings)
-        except OutputPIILeakError:
-            # inbound direction: the AI fabricated PII-looking data — warn only
-            warnings.append("ai_generated_pii")
+            registry = EntityRegistry(
+                entities=session.entities,
+                fp_count=sum(1 for e in session.entities if e.redact_type == "FP"),
+                tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
+            )
+            response = AIResponse(text=text, request_id=sid, latency=0.0)
+            reverse_result = reverse_map(response, registry, session.vault)
 
-        replaced_pseudonyms = reverse_result.audit_summary.get(
-            "replaced_pseudonyms", []
-        )
-        replaced = []
-        for pseudonym in replaced_pseudonyms:
-            record = session.vault.get_by_pseudonym(pseudonym)
-            if record is not None:
-                replaced.append({"token": pseudonym, "original": record.original})
+            warnings = list(reverse_result.flags)
+            try:
+                validation = validate_output(reverse_result, registry, session.vault)
+                warnings.extend(f for f in validation.flags if f not in warnings)
+            except OutputPIILeakError:
+                # inbound direction: the AI fabricated PII-looking data — warn only
+                warnings.append("ai_generated_pii")
 
-        leftover = [
-            p for p in session.vault._reverse if p in reverse_result.text
-        ]
-        return RestoreOutcome(
-            restored_text=reverse_result.text,
-            replaced=replaced,
-            replaced_count=len(replaced),
-            leftover_tokens=leftover,
-            warnings=warnings,
-        )
+            replaced_pseudonyms = reverse_result.audit_summary.get(
+                "replaced_pseudonyms", []
+            )
+            replaced = []
+            for pseudonym in replaced_pseudonyms:
+                record = session.vault.get_by_pseudonym(pseudonym)
+                if record is not None:
+                    replaced.append({"token": pseudonym, "original": record.original})
+
+            leftover = [
+                p for p in session.vault._reverse if p in reverse_result.text
+            ]
+            return RestoreOutcome(
+                restored_text=reverse_result.text,
+                replaced=replaced,
+                replaced_count=len(replaced),
+                leftover_tokens=leftover,
+                warnings=warnings,
+            )
+        except VaultTimeoutError:
+            self.drop(sid)
+            raise SessionExpiredError("Session not found or expired") from None

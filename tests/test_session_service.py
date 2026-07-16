@@ -229,3 +229,24 @@ def test_restore_multi_turn_uses_accumulated_registry():
     combined = o1.sanitized_text + " " + o2.sanitized_text
     r = svc.restore(o1.session_id, combined)
     assert "081-234-5678" in r.restored_text and "a@b.co" in r.restored_text
+
+
+def test_restore_idle_vault_translates_to_session_expired():
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    _, session = svc._get_or_create(out.session_id, None)
+    session.vault._idle_timeout_s = 0
+    session.vault._last_access -= 1
+    with pytest.raises(SessionExpiredError):
+        svc.restore(out.session_id, out.sanitized_text)
+    assert svc.session_count == 0  # dead session was dropped
+
+
+def test_sanitize_idle_vault_translates_to_session_expired():
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    _, session = svc._get_or_create(out.session_id, None)
+    session.vault._idle_timeout_s = 0
+    session.vault._last_access -= 1
+    with pytest.raises(SessionExpiredError):
+        svc.sanitize("อีเมล a@b.co", session_id=out.session_id)
