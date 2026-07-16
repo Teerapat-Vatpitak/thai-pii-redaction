@@ -15,7 +15,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable
 
-from pii_redactor.models import Entity
+from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
+from pii_redactor.detectors.aggregate import detect_all
+from pii_redactor.leak_guard import scan_outbound_leaks
+from pii_redactor.models import Entity, EntityRegistry
+from pii_redactor.report import scan_section26
 from pii_redactor.session_vault import SessionVault
 
 
@@ -25,6 +29,25 @@ class SessionExpiredError(Exception):
 
 class ModeMismatchError(Exception):
     """Requested mode conflicts with the session's locked mode."""
+
+
+class OutboundLeakError(Exception):
+    """Anonymization could not guarantee a leak-free output. NO PII in message."""
+
+    def __init__(self, leak_types: list[str]):
+        self.leak_types = leak_types
+        super().__init__(f"outbound leak risk: {leak_types}")
+
+
+@dataclass
+class SanitizeOutcome:
+    session_id: str
+    original_text: str
+    sanitized_text: str
+    entities: list[dict]
+    entity_type_counts: dict[str, int]
+    section26: list[dict]
+    warnings: list[str]
 
 
 @dataclass
@@ -98,3 +121,61 @@ class SessionService:
             return False
         session.vault.clear()
         return True
+
+    def sanitize(
+        self,
+        text: str,
+        *,
+        mode: str | None = None,
+        session_id: str | None = None,
+    ) -> SanitizeOutcome:
+        sid, session = self._get_or_create(session_id, mode)
+
+        turn_entities = detect_all(text)
+        registry = EntityRegistry(
+            entities=turn_entities,
+            fp_count=sum(1 for e in turn_entities if e.redact_type == "FP"),
+            tb_count=sum(1 for e in turn_entities if e.redact_type == "TB"),
+        )
+        try:
+            pseudo = anonymize(
+                text, registry, session.vault,
+                salt=session.salt, mode=session.mode,
+            )
+        except (PIILeakError, ValueError) as e:
+            # mask failed — never return the text
+            raise OutboundLeakError([type(e).__name__]) from e
+
+        warnings: list[str] = []
+        leaks = scan_outbound_leaks(pseudo.text, session.vault)
+        fp_leaks = [e for e in leaks if e.redact_type == "FP"]
+        if fp_leaks:
+            raise OutboundLeakError(sorted({e.data_type for e in fp_leaks}))
+        # only register this turn once the guard has cleared the output
+        session.entities.extend(turn_entities)
+        warnings.extend(
+            f"possible_tb_leak:{e.data_type}"
+            for e in leaks if e.redact_type != "FP"
+        )
+
+        out_entities = []
+        for e in turn_entities:
+            record = session.vault.get_by_entity_id(e.entity_id)
+            out_entities.append({
+                "start": e.span[0], "end": e.span[1],
+                "data_type": e.data_type, "redact_type": e.redact_type,
+                "token": record.pseudonym if record else "",
+            })
+        type_counts: dict[str, int] = {}
+        for e in out_entities:
+            type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
+
+        return SanitizeOutcome(
+            session_id=sid,
+            original_text=text,
+            sanitized_text=pseudo.text,
+            entities=out_entities,
+            entity_type_counts=type_counts,
+            section26=scan_section26(text),
+            warnings=warnings,
+        )

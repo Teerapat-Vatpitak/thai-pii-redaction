@@ -95,3 +95,79 @@ def test_unknown_mode_at_capacity_does_not_evict():
     # the live session must have survived the malformed request
     sid_again, _ = svc._get_or_create(sid1, None)
     assert sid_again == sid1
+
+
+from pii_redactor.session_service import OutboundLeakError, SanitizeOutcome
+
+
+def test_sanitize_token_mode_v2_shape():
+    svc, _ = _svc()
+    out = svc.sanitize("ติดต่อ 081-234-5678 หรือ somchai@example.com")
+    assert isinstance(out, SanitizeOutcome)
+    assert "081-234-5678" not in out.sanitized_text
+    assert "somchai@example.com" not in out.sanitized_text
+    assert "[โทรศัพท์_1]" in out.sanitized_text
+    assert "[อีเมล_1]" in out.sanitized_text
+    for e in out.entities:
+        assert set(e) == {"start", "end", "data_type", "redact_type", "token"}
+    assert out.entity_type_counts["PHONE"] == 1
+    assert out.warnings == []
+
+
+def test_sanitize_surrogate_mode_no_brackets():
+    svc, _ = _svc()
+    out = svc.sanitize("ติดต่อ 081-234-5678", mode="surrogate")
+    assert "081-234-5678" not in out.sanitized_text
+    assert "[" not in out.sanitized_text
+
+
+def test_sanitize_multi_turn_same_token():
+    svc, _ = _svc()
+    o1 = svc.sanitize("เบอร์ผม 081-234-5678")
+    o2 = svc.sanitize("ย้ำ เบอร์ 081-234-5678 กับอีเมล a@b.co",
+                      session_id=o1.session_id)
+    assert o2.session_id == o1.session_id
+    tok1 = next(e["token"] for e in o1.entities if e["data_type"] == "PHONE")
+    tok2 = next(e["token"] for e in o2.entities if e["data_type"] == "PHONE")
+    assert tok1 == tok2
+
+
+def test_sanitize_registry_accumulates_across_turns():
+    svc, _ = _svc()
+    o1 = svc.sanitize("เบอร์ 081-234-5678")
+    svc.sanitize("อีเมล a@b.co", session_id=o1.session_id)
+    _, session = svc._get_or_create(o1.session_id, None)
+    types = {e.data_type for e in session.entities}
+    assert {"PHONE", "EMAIL"} <= types
+
+
+def test_sanitize_raises_outbound_leak_when_fp_survives(monkeypatch):
+    """If a checksum-valid FP value somehow survives anonymization, refuse."""
+    import pii_redactor.session_service as svc_mod
+    svc, _ = _svc()
+
+    def fake_scan(text, vault):
+        from pii_redactor.models import Entity
+        return [Entity(entity_id="x", redact_type="FP", data_type="THAI_ID",
+                       span=(0, 13), score=1.0, original_text="1101700230708")]
+
+    monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fake_scan)
+    with pytest.raises(OutboundLeakError) as exc:
+        svc.sanitize("ข้อความอะไรก็ได้ 081-234-5678")
+    assert "THAI_ID" in exc.value.leak_types
+    assert "1101700230708" not in str(exc.value)  # no PII in the error
+
+
+def test_sanitize_tb_leak_becomes_warning(monkeypatch):
+    import pii_redactor.session_service as svc_mod
+    svc, _ = _svc()
+
+    def fake_scan(text, vault):
+        from pii_redactor.models import Entity
+        return [Entity(entity_id="x", redact_type="TB", data_type="NAME",
+                       span=(0, 5), score=0.85, original_text="สมชาย")]
+
+    monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fake_scan)
+    out = svc.sanitize("ข้อความ 081-234-5678")
+    assert out.warnings == ["possible_tb_leak:NAME"]
+    assert "สมชาย" not in " ".join(out.warnings)
