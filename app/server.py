@@ -16,6 +16,7 @@ import base64
 import glob
 import json
 import os
+import secrets
 import shutil
 import sys
 import tempfile
@@ -62,6 +63,35 @@ app.add_middleware(
 )
 
 
+# ── boot token (Horizon-1 #2) ──────────────────────────────────────────
+# Random shared secret read once at import from the AIGUARD_TOKEN env var.
+# Enforced ONLY on the control plane (`POST /api/shutdown`,
+# `DELETE /api/session/{id}`) and ONLY when set — when it is None the grace
+# path keeps the pre-token behavior byte-for-byte (X-AIGuard-Local for
+# shutdown, open delete-session). launcher.py / Tauri generate a value and
+# pass it in via the env; the value is never logged. Tests monkeypatch this
+# module global directly, so the checks below read it dynamically at call time.
+_BOOT_TOKEN: str | None = os.environ.get("AIGUARD_TOKEN") or None
+
+
+def _token_required() -> bool:
+    return _BOOT_TOKEN is not None
+
+
+def _boot_token_ok(supplied: str | None) -> bool:
+    """True when the supplied X-AIGuard-Token authorizes the request.
+
+    When no boot token is configured, always True (grace path — the caller
+    falls back to its legacy check). When one is configured, requires an exact
+    constant-time match of the supplied header.
+    """
+    if _BOOT_TOKEN is None:
+        return True
+    if not supplied:
+        return False
+    return secrets.compare_digest(supplied, _BOOT_TOKEN)
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/docs")
@@ -82,8 +112,16 @@ def _schedule_exit() -> None:
 
 
 @app.post("/api/shutdown")
-def shutdown(x_aiguard_local: Annotated[str | None, Header()] = None):
-    if not x_aiguard_local:
+def shutdown(
+    x_aiguard_local: Annotated[str | None, Header()] = None,
+    x_aiguard_token: Annotated[str | None, Header()] = None,
+):
+    if _BOOT_TOKEN is not None:
+        # Token configured: require it. X-AIGuard-Local alone no longer suffices.
+        if not _boot_token_ok(x_aiguard_token):
+            raise HTTPException(status_code=403, detail="Invalid or missing token")
+    elif not x_aiguard_local:
+        # Grace path (no token): legacy local-header check, unchanged.
         raise HTTPException(status_code=403, detail="Local shutdown only")
     _schedule_exit()
     return {"status": "shutting_down"}
@@ -138,7 +176,11 @@ class AnalyzeRequest(BaseModel):
 # ── endpoints ──────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "2.2.0"}
+    return {
+        "status": "ok",
+        "version": "2.2.0",
+        "capabilities": {"token_required": _token_required()},
+    }
 
 
 _AUDIT_MAX_FILES = 50
@@ -258,7 +300,14 @@ def reidentify(request: ReidentifyRequest):
 
 
 @app.delete("/api/session/{session_id}")
-def delete_session(session_id: str):
+def delete_session(
+    session_id: str,
+    x_aiguard_token: Annotated[str | None, Header()] = None,
+):
+    # Control-plane endpoint: gated by the boot token when one is configured;
+    # open (grace path) when it is not.
+    if not _boot_token_ok(x_aiguard_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing token")
     return {"deleted": SERVICE.drop(session_id)}
 
 
