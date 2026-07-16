@@ -2,7 +2,7 @@
 
 One brain: SessionVault + accumulated EntityRegistry + per-session salt/mode,
 with the same cap/TTL policy the old app/server.py _SESSIONS dict had.
-Sanitize/restore logic arrives in later tasks; this module owns lifecycle.
+Owns session lifecycle plus the sanitize/restore flows.
 
 SECURITY: sessions live in memory only; dropping/evicting a session always
 null-byte-clears its vault first.
@@ -32,6 +32,16 @@ class SessionExpiredError(Exception):
 
 class ModeMismatchError(Exception):
     """Requested mode conflicts with the session's locked mode."""
+
+
+# Flags with these prefixes are informational only on the inbound (restore)
+# direction — the client already gets the same signal via replaced_count/
+# leftover_tokens, and both flags are noisy on a normal chat reply:
+# incomplete_reverse compares unique-pseudonyms-replaced against accumulated
+# entity-instance count (fires even on a perfect restore), and
+# possible_truncation is a layer-3 heuristic aimed at final documents (chat
+# replies routinely lack terminal punctuation).
+_NOISY_PREFIXES = ("incomplete_reverse:", "possible_truncation:")
 
 
 class OutboundLeakError(Exception):
@@ -115,8 +125,9 @@ class SessionService:
             self.drop(oldest)
         sid = str(uuid.uuid4())
         now = self._now()
-        # vault idle timeout mirrors the service TTL; the service check fires
-        # first in practice because both reset on access
+        # vault idle timeout mirrors the service TTL as a second layer; if the
+        # vault trips first (it only refreshes on vault access), sanitize/
+        # restore translate it to SessionExpiredError.
         session = _Session(
             vault=SessionVault(idle_timeout_s=self._ttl_s),
             mode=resolved_mode,
@@ -157,7 +168,7 @@ class SessionService:
                 )
             except (PIILeakError, ValueError) as e:
                 # mask failed — never return the text
-                raise OutboundLeakError([type(e).__name__]) from e
+                raise OutboundLeakError(["ANONYMIZE_FAILED"]) from e
 
             warnings: list[str] = []
             leaks = scan_outbound_leaks(pseudo.text, session.vault)
@@ -198,6 +209,11 @@ class SessionService:
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
         sid, session = self._get_or_create(session_id, None)
+        if not text or not text.strip():
+            return RestoreOutcome(
+                restored_text=text, replaced=[], replaced_count=0,
+                leftover_tokens=[], warnings=[],
+            )
         try:
             registry = EntityRegistry(
                 entities=session.entities,
@@ -207,10 +223,16 @@ class SessionService:
             response = AIResponse(text=text, request_id=sid, latency=0.0)
             reverse_result = reverse_map(response, registry, session.vault)
 
-            warnings = list(reverse_result.flags)
+            warnings = [
+                f for f in reverse_result.flags
+                if not f.startswith(_NOISY_PREFIXES)
+            ]
             try:
                 validation = validate_output(reverse_result, registry, session.vault)
-                warnings.extend(f for f in validation.flags if f not in warnings)
+                warnings.extend(
+                    f for f in validation.flags
+                    if f not in warnings and not f.startswith(_NOISY_PREFIXES)
+                )
             except OutputPIILeakError:
                 # inbound direction: the AI fabricated PII-looking data — warn only
                 warnings.append("ai_generated_pii")

@@ -202,7 +202,7 @@ def test_restore_partial_reply_restores_what_it_can():
     assert phone_token not in r.restored_text
     assert "081-234-5678" in r.restored_text
     assert "a@b.co" not in r.restored_text
-    assert any(w.startswith("incomplete_reverse") for w in r.warnings)
+    assert not any(w.startswith(("incomplete_reverse", "possible_truncation")) for w in r.warnings)
 
 
 def test_restore_unknown_session_raises():
@@ -250,3 +250,32 @@ def test_sanitize_idle_vault_translates_to_session_expired():
     session.vault._last_access -= 1
     with pytest.raises(SessionExpiredError):
         svc.sanitize("อีเมล a@b.co", session_id=out.session_id)
+
+
+def test_restore_happy_path_has_no_warnings():
+    svc, _ = _svc()
+    o1 = svc.sanitize("ผมชื่อ สมชาย ใจดี เบอร์ 081-234-5678")
+    o2 = svc.sanitize("ย้ำ เบอร์ 081-234-5678 ครับ", session_id=o1.session_id)
+    reply = f"สรุป: {o1.sanitized_text} / {o2.sanitized_text}"
+    r = svc.restore(o1.session_id, reply)
+    assert "081-234-5678" in r.restored_text
+    assert r.warnings == []
+
+
+def test_surrogate_same_original_consistent_across_turns():
+    svc, _ = _svc()
+    o1 = svc.sanitize("นาย สมชาย ใจดี มาติดต่อ", mode="surrogate")
+    o2 = svc.sanitize("สมชาย ใจดี โทรมาอีกครั้ง", session_id=o1.session_id)
+    _, session = svc._get_or_create(o1.session_id, None)
+    name_records = [r for r in session.vault._table.values() if r.data_type == "NAME"
+                    and r.original == "สมชาย ใจดี"]
+    assert len({r.pseudonym for r in name_records}) <= 1
+
+
+def test_restore_empty_text_returns_empty_outcome():
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    r = svc.restore(out.session_id, "")
+    assert r.restored_text == "" and r.replaced_count == 0 and r.warnings == []
+    with pytest.raises(SessionExpiredError):
+        svc.restore("unknown", "")

@@ -196,6 +196,15 @@ def sanitize(request: SanitizeRequest):
     except ModeMismatchError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OutboundLeakError as e:
+        write_process_log(
+            session_id="blocked",
+            step="api_sanitize",
+            entity_count=0,
+            validation_result="blocked",
+            flags=[f"leak_type:{t}" for t in e.leak_types],
+            latency_ms=(time.time() - start) * 1000,
+            output_dir=_get_audit_log_dir(),
+        )
         raise HTTPException(
             status_code=422,
             detail={"error": "pii_leak_risk", "types": e.leak_types},
@@ -229,8 +238,6 @@ def reidentify(request: ReidentifyRequest):
         out = SERVICE.restore(request.session_id, request.text)
     except SessionExpiredError:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
     write_process_log(
         session_id=request.session_id,

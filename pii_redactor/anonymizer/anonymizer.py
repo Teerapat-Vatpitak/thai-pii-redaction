@@ -80,11 +80,20 @@ def _generate_unique_pseudonym(
     Re-rolls the seed up to _MAX_COLLISION_REROLLS times. Last resort differs
     by redact_type: FP keeps re-rolling (a '#N' suffix would leave the valid
     FP-looking base embedded in the output and detect_fp would re-flag it) and
-    fails loudly when exhausted; TB may take a '#N' suffix (mirrors the web
-    path's _make_surrogate), but only on a base that is safe to embed — never
-    someone's real value or a string from the source text.
+    fails loudly when exhausted; TB may take a '#N' suffix (mirrors the
+    uniqueness rules the old web-path generator had), but only on a base that
+    is safe to embed — never someone's real value or a string from the source
+    text.
     """
     original = entity.original_text
+
+    # Cross-turn consistency: if this exact original already has a pseudonym
+    # in the vault (regardless of which entity_id produced it), reuse it —
+    # otherwise the same person can get a different fake name/address each
+    # turn depending on which sentence-context tb_generator happened to see.
+    existing = vault.get_by_original(original, data_type=entity.data_type)
+    if existing is not None:
+        return existing.pseudonym
 
     def _available(candidate: str) -> bool:
         if candidate == original:
