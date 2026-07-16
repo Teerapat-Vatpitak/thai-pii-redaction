@@ -110,3 +110,21 @@ def test_sanitize_mode_conflict_400(client):
                        json={"text": "อีกข้อความ", "mode": "surrogate",
                              "session_id": s["session_id"]})
     assert resp.status_code == 400
+
+
+def test_business_doc_surrogates_stay_plausible(client):
+    """Invoice numbers and meeting dates must mask as same-shape values
+    (ID_NUMBER keeps digit length, DATE stays a date) — not as fake
+    passports/birthdays — and restore exactly."""
+    # 8-digit invoice number on purpose — 10 digits would be claimed by the
+    # BANK_ACCOUNT pattern instead of ID_NUMBER.
+    text = "ใบแจ้งหนี้เลขที่ 12345678 นัดประชุมวันที่ 12/05/2569 กับ สมชาย ใจดี"
+    s = client.post("/api/sanitize", json={"text": text, "mode": "surrogate"}).json()
+    assert "12345678" not in s["sanitized_text"]
+    assert "12/05/2569" not in s["sanitized_text"]
+    types = {e["data_type"] for e in s["entities"]}
+    assert "ID_NUMBER" in types and "DATE" in types
+    assert "PASSPORT" not in types and "DATE_OF_BIRTH" not in types
+    r = client.post("/api/reidentify",
+                    json={"session_id": s["session_id"], "text": s["sanitized_text"]}).json()
+    assert "12345678" in r["restored_text"] and "12/05/2569" in r["restored_text"]

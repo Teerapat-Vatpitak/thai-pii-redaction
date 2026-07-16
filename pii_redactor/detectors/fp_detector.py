@@ -212,6 +212,18 @@ _THAI_CHAR_RE = re.compile(r"[฀-๿]")
 # substring, so the alternation stays minimal.
 _BANK_CUE_RE = re.compile(r"บัญชี|ธนาคาร")
 _PHONE_CUE_RE = re.compile(r"โทรศัพท์|โทร|เบอร์|มือถือ|ติดต่อ")
+
+# Honest-label cues (Horizon-2 #10). "เกิด" as substring covers วันเกิด /
+# เกิดวันที่ / เกิดเมื่อ. Student/passport cues gate the wide catch-alls so a
+# business PO/invoice number stops masquerading as a passport or student id --
+# it is still masked, as the generic ID_NUMBER.
+_BIRTH_CUE_RE = re.compile(r"เกิด")
+_STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|student", re.IGNORECASE)
+_PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือเดินทาง|passport", re.IGNORECASE)
+
+
+def _cue_before(cue_re: re.Pattern, text: str, start: int) -> bool:
+    return bool(cue_re.search(text[max(0, start - _CUE_WINDOW):start]))
 # A vehicle plate glued to Thai text (e.g. "ทะเบียนรถขก 4471") is normally
 # suppressed by the mid-word guard below, which rejects any plate preceded by a
 # Thai char. A plate cue in the ~15 chars before the match marks a real plate
@@ -276,7 +288,7 @@ def detect_fp(text: str) -> list[Entity]:
         for m in pattern.finditer(text):
             candidates.append(_make_entity("BANK_ACCOUNT", m, text, score=1.0))
 
-    # 7. DATE_OF_BIRTH
+    # 7. DATE (generic) / DATE_OF_BIRTH (only with a birth cue nearby)
     for m in _RE_DATE.finditer(text):
         raw = m.group(1)
         parts = re.split(r"[/\-]", raw)
@@ -285,7 +297,12 @@ def detect_fp(text: str) -> list[Entity]:
                 day = int(parts[0])
                 month = int(parts[1])
                 if _date_sanity(day, month):
-                    candidates.append(_make_entity("DATE_OF_BIRTH", m, text, score=1.0))
+                    dtype = (
+                        "DATE_OF_BIRTH"
+                        if _cue_before(_BIRTH_CUE_RE, text, m.start(1))
+                        else "DATE"
+                    )
+                    candidates.append(_make_entity(dtype, m, text, score=1.0))
             except ValueError:
                 pass
 
@@ -303,14 +320,25 @@ def detect_fp(text: str) -> list[Entity]:
                 continue
         candidates.append(_make_entity("VEHICLE_PLATE", m, text, score=0.9))
 
-    # 9. PASSPORT (Thai format first, then general)
-    for pattern in (_RE_PASSPORT_TH, _RE_PASSPORT):
-        for m in pattern.finditer(text):
+    # 9. PASSPORT — Thai format always; the general catch-all only with a cue,
+    # otherwise it is a generic reference number (still masked as ID_NUMBER).
+    for m in _RE_PASSPORT_TH.finditer(text):
+        candidates.append(_make_entity("PASSPORT", m, text, score=1.0))
+    for m in _RE_PASSPORT.finditer(text):
+        if _cue_before(_PASSPORT_CUE_RE, text, m.start(1)):
             candidates.append(_make_entity("PASSPORT", m, text, score=1.0))
+        else:
+            candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
 
-    # 10. STUDENT_ID (low priority; deduplication handles overlap)
+    # 10. STUDENT_ID only with a student cue; bare 8-12 digit runs are masked
+    # as the honest generic ID_NUMBER (low priority; dedup handles overlap).
     for m in _RE_STUDENT_ID.finditer(text):
-        candidates.append(_make_entity("STUDENT_ID", m, text, score=0.8))
+        dtype = (
+            "STUDENT_ID"
+            if _cue_before(_STUDENT_CUE_RE, text, m.start(1))
+            else "ID_NUMBER"
+        )
+        candidates.append(_make_entity(dtype, m, text, score=0.8))
 
     candidates = _disambiguate_bank_phone(text, candidates)
     return _deduplicate(candidates)

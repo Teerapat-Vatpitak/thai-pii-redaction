@@ -3,6 +3,7 @@ WangchanBERTa opt-in via AIGUARD_NER_ENGINE)."""
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 from pythainlp import sent_tokenize
@@ -16,19 +17,51 @@ from pii_redactor.models import Entity
 
 LABEL_MAP: dict[str, str | None] = {
     "PERSON": "NAME",
-    "ORGANIZATION": None,   # Not PII; skip
-    "LOCATION": "ADDRESS",
-    "DATE": "DATE_OF_BIRTH",
+    "ORGANIZATION": "ORGANIZATION",  # quasi-identifier (employer/hospital)
+    "LOCATION": "LOCATION",          # upgraded to ADDRESS by cue (below)
+    "DATE": "DATE",                  # upgraded to DATE_OF_BIRTH by cue (below)
     "TIME": None,
     "MONEY": None,
     "PERCENT": None,
     "FACILITY": None,
     "PRODUCT": None,
     # Aliases from brief (kept for safety)
-    "ORG": None,
-    "GPE": "ADDRESS",
-    "LOC": "ADDRESS",
+    "ORG": "ORGANIZATION",
+    "GPE": "LOCATION",
+    "LOC": "LOCATION",
 }
+
+# Cue-based upgrades (same cue-window mechanism as fp_detector's
+# _disambiguate_bank_phone; regexes copied rather than imported to avoid a
+# circular import, same precedent as _deduplicate below).
+# The ADDRESS check includes the span ITSELF because address cues (เขต/ตำบล/
+# ซอย/ถนน) usually sit inside the address text; the DOB check looks only at
+# the preceding context.
+_ADDR_CUE_RE = re.compile(
+    r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่|เลขที่|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด"
+)
+_TB_BIRTH_CUE_RE = re.compile(r"เกิด")
+_TB_CUE_WINDOW = 30
+
+# thainer CRF has no reliable signal on out-of-distribution (non-Thai) input --
+# fed a plain English sentence, it still forces some non-O label onto the
+# whole span rather than abstaining. ORGANIZATION is the one honest label with
+# no cue gate of its own (unlike LOCATION/DATE, which route through
+# _apply_cue_upgrades), so an all-Latin "organization" span is always this
+# degenerate guess rather than a real Thai employer/hospital name -- reject it.
+_THAI_CHAR_RE = re.compile(r"[฀-๿]")
+
+
+def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
+    if data_type == "LOCATION":
+        ctx = text[max(0, start - _TB_CUE_WINDOW):end]
+        if _ADDR_CUE_RE.search(ctx):
+            return "ADDRESS"
+    elif data_type == "DATE":
+        ctx = text[max(0, start - _TB_CUE_WINDOW):start]
+        if _TB_BIRTH_CUE_RE.search(ctx):
+            return "DATE_OF_BIRTH"
+    return data_type
 
 
 class NEREngineUnavailableError(RuntimeError):
@@ -150,50 +183,85 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
 
 
 # ---------------------------------------------------------------------------
-# Sliding-window NER (single engine)
+# Stride-chunk NER (single engine)
 # ---------------------------------------------------------------------------
 
-def _ner_candidates(
-    text: str, ner: NER, sentence_offsets: list[tuple[str, int]], window_size: int
-) -> list[Entity]:
-    """Run one NER engine over the sliding-sentence windows and return TB
-    Entity candidates mapped to original-text offsets (pre-dedup)."""
-    candidates: list[Entity] = []
-    for i, (sent_text, sent_offset) in enumerate(sentence_offsets):
-        window_start = max(0, i - window_size)
-        window_end = min(len(sentence_offsets), i + window_size + 1)
-        context_sents = sentence_offsets[window_start:window_end]
+_CHUNK_CORE_CHARS = 500
 
-        context_text = "".join(s for s, _ in context_sents)
-        context_sent_start = sum(len(s) for s, _ in context_sents[: i - window_start])
-        context_sent_end = context_sent_start + len(sent_text)
+
+def _ner_candidates(
+    text: str, ner: NER, sentence_offsets: list[tuple[str, int]], margin_sentences: int
+) -> list[Entity]:
+    """Run one NER engine over stride chunks and return TB Entity candidates
+    mapped to original-text offsets (pre-dedup).
+
+    Chunks are runs of consecutive sentences whose combined length is capped
+    at ~_CHUNK_CORE_CHARS (always at least one sentence), padded with
+    `margin_sentences` sentences of context on each side. The tagged string is
+    ALWAYS a slice of the original text (a join of sentence strings would drop
+    the gaps between sentences and corrupt every offset after the first gap).
+    Only spans that START inside the chunk core are kept, so margins never
+    duplicate entities across neighbouring chunks. Each sentence is tagged
+    ~1+2*margin/chunk_len times instead of the old sliding window's ~7x.
+    """
+    n = len(sentence_offsets)
+    candidates: list[Entity] = []
+
+    def _sent_start(i: int) -> int:
+        return sentence_offsets[i][1]
+
+    def _sent_end(i: int) -> int:
+        s, off = sentence_offsets[i]
+        return off + len(s)
+
+    chunk_first = 0
+    while chunk_first < n:
+        # grow the core until the char cap (always >= 1 sentence)
+        chunk_last = chunk_first
+        while (
+            chunk_last + 1 < n
+            and _sent_end(chunk_last + 1) - _sent_start(chunk_first) <= _CHUNK_CORE_CHARS
+        ):
+            chunk_last += 1
+
+        core_begin = _sent_start(chunk_first)
+        core_end = _sent_end(chunk_last)
+        ctx_begin = _sent_start(max(0, chunk_first - margin_sentences))
+        ctx_end = _sent_end(min(n - 1, chunk_last + margin_sentences))
+        context_text = text[ctx_begin:ctx_end]
 
         try:
             tagged: list[tuple[str, str]] = ner.tag(context_text)
         except Exception:
-            continue
-        if not tagged:
+            chunk_first = chunk_last + 1
             continue
 
-        raw_spans = _bio_to_spans(tagged, context_text)
-        for ent_text, ctx_start, ctx_end, label in raw_spans:
-            if ctx_start < context_sent_start or ctx_end > context_sent_end:
-                continue
-            data_type = LABEL_MAP.get(label)
-            if data_type is None:
-                continue
-            orig_start = sent_offset + (ctx_start - context_sent_start)
-            orig_end = sent_offset + (ctx_end - context_sent_start)
-            if (orig_end - orig_start) < 2:
-                continue
-            candidates.append(Entity(
-                entity_id=str(uuid.uuid4()),
-                redact_type="TB",
-                data_type=data_type,
-                span=(orig_start, orig_end),
-                score=0.85,
-                original_text=text[orig_start:orig_end],
-            ))
+        if tagged:
+            for ent_text, ctx_start, ctx_end_pos, label in _bio_to_spans(tagged, context_text):
+                orig_start = ctx_begin + ctx_start
+                orig_end = ctx_begin + ctx_end_pos
+                if not (core_begin <= orig_start < core_end):
+                    continue
+                data_type = LABEL_MAP.get(label)
+                if data_type is None:
+                    continue
+                if (orig_end - orig_start) < 2:
+                    continue
+                entity_text = text[orig_start:orig_end]
+                if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
+                    continue
+                data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
+                candidates.append(Entity(
+                    entity_id=str(uuid.uuid4()),
+                    redact_type="TB",
+                    data_type=data_type,
+                    span=(orig_start, orig_end),
+                    score=0.85,
+                    original_text=text[orig_start:orig_end],
+                ))
+
+        chunk_first = chunk_last + 1
+
     return candidates
 
 
@@ -201,13 +269,14 @@ def _ner_candidates(
 # Main detector
 # ---------------------------------------------------------------------------
 
-def detect_tb(text: str, *, window_size: int = 3) -> list[Entity]:
+def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
     """
     Detect text-based PII entities using PyThaiNLP NER (thainer CRF).
 
     Args:
         text: cleaned text to scan
-        window_size: number of sentences before/after context (default +-3)
+        window_size: sentences of margin context on each side of a chunk
+            (default 1; raise to 2 if benchmark recall regresses)
 
     Returns list of Entity objects (redact_type="TB").
     Sorted by span start (ascending).
