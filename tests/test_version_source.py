@@ -60,7 +60,10 @@ def test_fastapi_app_version_matches_VERSION_file():
     assert app.version == _version_file_contents()
 
 
+@pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
 def test_read_version_falls_back_when_file_missing(monkeypatch, tmp_path):
+    # app.server imports fastapi at module top level, so a core-only install
+    # must skip here even though _read_version() itself is stdlib-only.
     from app import server
 
     missing_module_path = tmp_path / "nowhere" / "app" / "server.py"
@@ -70,7 +73,9 @@ def test_read_version_falls_back_when_file_missing(monkeypatch, tmp_path):
     assert server._read_version() == "2.2.0"
 
 
+@pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
 def test_read_version_prefers_meipass_when_frozen(monkeypatch, tmp_path):
+    # Same core-only guard as above: importing app.server needs fastapi.
     from app import server
 
     frozen_dir = tmp_path / "frozen"
