@@ -44,11 +44,8 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m uvicorn app.server:app --port
 # CLI demo
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe demo_cli.py
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py report examples\prompts\02_medical_consult.txt
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py sanitize examples\prompts\01_sick_leave_email.txt
 # (token/surrogate `mode` is a web-API concept — POST /api/sanitize — not a CLI flag)
-# Known issue: `ai_guard.py sanitize <file>` currently halts with PreSendValidationError
-# on Thai text containing title-cued names — the generated fake name is re-detected by
-# the pre-send guard with a span that includes the title, so it fails the exact
-# known-pseudonym match. Use demo_cli.py or the web API for the round-trip demo.
 
 # Tests
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
