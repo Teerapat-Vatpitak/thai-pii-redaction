@@ -11,6 +11,8 @@ TOKEN_LABEL: dict[str, str] = {
     "BANK_ACCOUNT": "บัญชีธนาคาร", "CREDIT_CARD": "บัตรเครดิต",
     "DATE_OF_BIRTH": "วันเกิด", "PASSPORT": "พาสปอร์ต",
     "STUDENT_ID": "รหัสนักศึกษา", "VEHICLE_PLATE": "ทะเบียนรถ", "IBAN": "ไอแบน",
+    "LOCATION": "สถานที่", "DATE": "วันที่",
+    "ORGANIZATION": "องค์กร", "ID_NUMBER": "รหัสอ้างอิง",
 }
 
 

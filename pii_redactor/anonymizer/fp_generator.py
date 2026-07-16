@@ -152,5 +152,9 @@ def generate_fp(data_type: str, original: str, *, salt: str, attempt: int = 0) -
         return _gen_generic(rng, original)
     elif data_type == "STUDENT_ID":
         return "".join(str(rng.randint(0, 9)) for _ in range(len(original)))
+    elif data_type == "DATE":
+        return _gen_date(rng, original)
+    elif data_type == "ID_NUMBER":
+        return "".join(str(rng.randint(0, 9)) for _ in range(len(original)))
     else:
         return _gen_generic(rng, original)
