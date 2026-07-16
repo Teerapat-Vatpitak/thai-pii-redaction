@@ -185,3 +185,20 @@ def test_reverse_map_longest_first():
     assert "orig1" in result.text
     assert "orig2" in result.text
     assert "alice" not in result.text
+
+
+def test_audit_summary_lists_replaced_pseudonyms():
+    """Additive key used by SessionService to build the v2 replaced[] pairs."""
+    import time as _t
+    import uuid as _u
+    from pii_redactor.models import AIResponse, EntityRegistry, VaultRecord
+    from pii_redactor.reverse_mapper import reverse_map
+    from pii_redactor.session_vault import SessionVault
+
+    vault = SessionVault()
+    vault.write(VaultRecord(entity_id=str(_u.uuid4()), original="a@b.co",
+                            pseudonym="[อีเมล_1]", type="FP", data_type="EMAIL",
+                            span=(0, 6), timestamp=_t.monotonic()))
+    resp = AIResponse(text="ส่งไปที่ [อีเมล_1]", request_id="r", latency=0.0)
+    result = reverse_map(resp, EntityRegistry(entities=[], fp_count=0, tb_count=0), vault)
+    assert result.audit_summary["replaced_pseudonyms"] == ["[อีเมล_1]"]

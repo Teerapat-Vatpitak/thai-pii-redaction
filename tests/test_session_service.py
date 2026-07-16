@@ -171,3 +171,61 @@ def test_sanitize_tb_leak_becomes_warning(monkeypatch):
     out = svc.sanitize("ข้อความ 081-234-5678")
     assert out.warnings == ["possible_tb_leak:NAME"]
     assert "สมชาย" not in " ".join(out.warnings)
+
+
+from pii_redactor.session_service import RestoreOutcome
+
+
+def test_restore_round_trip_token_mode():
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678 อีเมล a@b.co")
+    ai_reply = f"สรุปให้: ติดต่อที่ {out.sanitized_text} นะครับ"
+    r = svc.restore(out.session_id, ai_reply)
+    assert isinstance(r, RestoreOutcome)
+    assert "081-234-5678" in r.restored_text
+    assert "a@b.co" in r.restored_text
+    assert r.replaced_count >= 2
+    tokens = {p["token"] for p in r.replaced}
+    assert any(t.startswith("[โทรศัพท์_") for t in tokens)
+    assert r.leftover_tokens == []
+
+
+def test_restore_partial_reply_restores_what_it_can():
+    """AI reply that mangles one token: the intact token still restores and
+    the incomplete-reverse condition surfaces as a warning, never an error."""
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678 อีเมล a@b.co")
+    phone_token = next(e["token"] for e in out.entities if e["data_type"] == "PHONE")
+    email_token = next(e["token"] for e in out.entities if e["data_type"] == "EMAIL")
+    reply = f"{phone_token} และ {email_token[:-1]}}}"  # email token mangled
+    r = svc.restore(out.session_id, reply)
+    assert phone_token not in r.restored_text
+    assert "081-234-5678" in r.restored_text
+    assert "a@b.co" not in r.restored_text
+    assert any(w.startswith("incomplete_reverse") for w in r.warnings)
+
+
+def test_restore_unknown_session_raises():
+    svc, _ = _svc()
+    with pytest.raises(SessionExpiredError):
+        svc.restore("nope", "text")
+
+
+def test_restore_warns_on_ai_generated_pii():
+    """AI reply contains a checksum-valid Thai ID that is NOT in the vault —
+    inbound data, so warn (never block)."""
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    reply = f"{out.sanitized_text} และเลขบัตร 1101700230708"
+    r = svc.restore(out.session_id, reply)
+    assert "081-234-5678" in r.restored_text
+    assert any(w.startswith("ai_generated_pii") for w in r.warnings)
+
+
+def test_restore_multi_turn_uses_accumulated_registry():
+    svc, _ = _svc()
+    o1 = svc.sanitize("เบอร์ 081-234-5678")
+    o2 = svc.sanitize("อีเมล a@b.co", session_id=o1.session_id)
+    combined = o1.sanitized_text + " " + o2.sanitized_text
+    r = svc.restore(o1.session_id, combined)
+    assert "081-234-5678" in r.restored_text and "a@b.co" in r.restored_text

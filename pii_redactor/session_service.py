@@ -18,8 +18,11 @@ from typing import Callable
 from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.leak_guard import scan_outbound_leaks
-from pii_redactor.models import Entity, EntityRegistry
+from pii_redactor.models import AIResponse, Entity, EntityRegistry
+from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
+from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
+from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.session_vault import SessionVault
 
 
@@ -47,6 +50,15 @@ class SanitizeOutcome:
     entities: list[dict]
     entity_type_counts: dict[str, int]
     section26: list[dict]
+    warnings: list[str]
+
+
+@dataclass
+class RestoreOutcome:
+    restored_text: str
+    replaced: list[dict]        # {"token": pseudonym, "original": original} — v2 shape
+    replaced_count: int
+    leftover_tokens: list[str]
     warnings: list[str]
 
 
@@ -177,5 +189,43 @@ class SessionService:
             entities=out_entities,
             entity_type_counts=type_counts,
             section26=scan_section26(text),
+            warnings=warnings,
+        )
+
+    def restore(self, session_id: str, text: str) -> RestoreOutcome:
+        sid, session = self._get_or_create(session_id, None)
+        registry = EntityRegistry(
+            entities=session.entities,
+            fp_count=sum(1 for e in session.entities if e.redact_type == "FP"),
+            tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
+        )
+        response = AIResponse(text=text, request_id=sid, latency=0.0)
+        reverse_result = reverse_map(response, registry, session.vault)
+
+        warnings = list(reverse_result.flags)
+        try:
+            validation = validate_output(reverse_result, registry, session.vault)
+            warnings.extend(f for f in validation.flags if f not in warnings)
+        except OutputPIILeakError:
+            # inbound direction: the AI fabricated PII-looking data — warn only
+            warnings.append("ai_generated_pii")
+
+        replaced_pseudonyms = reverse_result.audit_summary.get(
+            "replaced_pseudonyms", []
+        )
+        replaced = []
+        for pseudonym in replaced_pseudonyms:
+            record = session.vault.get_by_pseudonym(pseudonym)
+            if record is not None:
+                replaced.append({"token": pseudonym, "original": record.original})
+
+        leftover = [
+            p for p in session.vault._reverse if p in reverse_result.text
+        ]
+        return RestoreOutcome(
+            restored_text=reverse_result.text,
+            replaced=replaced,
+            replaced_count=len(replaced),
+            leftover_tokens=leftover,
             warnings=warnings,
         )
