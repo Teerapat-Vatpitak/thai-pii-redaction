@@ -43,7 +43,9 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m uvicorn app.server:app --port
 
 # CLI demo
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe demo_cli.py
-$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py report --mode surrogate
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py report examples\prompts\02_medical_consult.txt
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py sanitize examples\prompts\01_sick_leave_email.txt
+# (token/surrogate `mode` is a web-API concept — POST /api/sanitize — not a CLI flag)
 
 # Tests
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
@@ -52,8 +54,10 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest tests/test_foo.py::tes
 
 **Browser extension** (primary UI): start the backend (above), then load `extension/`
 unpacked in Chrome (`chrome://extensions` → Developer mode → Load unpacked). See
-`extension/README.md`. The extension calls the backend cross-origin, so the server
-enables permissive CORS (`app/server.py`).
+`extension/README.md`. The extension calls the backend cross-origin; the server's CORS
+is a strict allowlist (`allow_origin_regex` for `chrome-extension://`, `moz-extension://`,
+and Tauri origins only — not `*`) plus `TrustedHostMiddleware` limited to
+localhost/127.0.0.1 (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
@@ -66,8 +70,8 @@ One core pipeline (`pii_redactor/`) exposed via two storefronts over one shared 
 
 Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
 product's front door; the backend is API-only (no web frontend) and runs on localhost.
-`/` redirects to `/docs` (Swagger). The extension's service worker calls the backend, so
-CORS is enabled. The browser never holds the vault — only the `session_id`; the
+`/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
+CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
 token → original map lives in the backend's in-memory `_SESSIONS` (`app/server.py`).
 
 ### Pipeline (Step 1-8 per design doc `step1-7_*.pdf`; the file name undercounts — the doc itself documents 8 steps)
@@ -85,7 +89,7 @@ All paths converge at language detection (Thai primary, English minimum).
 **Text Cleaning Pipeline** (runs after ingest):
 1. Whitespace normalization (collapse repeats, remove blank lines)
 2. Unicode normalization (decompose → canonical form)
-3. Character standardization (Thai character shape variants: พ/ว/อ/น forms)
+3. Character standardization (Thai digits → Arabic digits, strip zero-width characters)
 4. Broken word recovery (PyThaiNLP dictionary)
 5. OCR error detection (flag likely OCR substitutions: `2→Z`, `0→O`, `8→B`)
 6. Broken sentence detection: algorithm identifies candidates only, does not auto-fix; pauses pipeline for user review (shows candidates, waits for confirm); on timeout or skip → use original text + log as skipped
@@ -95,6 +99,11 @@ All paths converge at language detection (Thai primary, English minimum).
 - Pattern validation, structure validation, OCR confidence validation, quality scoring
 - Output: **Normalized Document Model** (structured text + metadata + word bboxes)
 
+Note on the CLI orchestrator: `run_pipeline()` calls the quality validator for information
+only (result is not stored on `PipelineResult` and never halts), and it drops PDF word
+bboxes — CLI export is always text-based. Bbox-level true redaction is wired only through
+`POST /api/redact-pdf` → `pii_redactor/redactor.py`.
+
 **Step 2 - PII Detection** (`pii_redactor/detectors/`)
 
 Two parallel detection passes on the Normalized Document Model:
@@ -103,7 +112,7 @@ Two parallel detection passes on the Normalized Document Model:
   - Thai national ID (mod-11 Luhn), phone, email, bank account, credit card, IBAN, passport, vehicle plate, student ID, date of birth
   - High confidence - pattern match alone is sufficient
 - **Text-Based (TB)**: NER + context classifier
-  - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the default, fast, fully offline. An opt-in WangchanBERTa engine (`AIGUARD_NER_ENGINE=wangchanberta`, maps to `NER(engine="thainer-v2")`) is available for higher recall at a real cost: ~1.3s/sentence on CPU vs near-instant for CRF. Selected once per process via env var, not per-request; fails loudly (`NEREngineUnavailableError`) rather than silently falling back if `transformers` isn't installed.
+  - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the default, fast, fully offline. An opt-in WangchanBERTa engine (`AIGUARD_NER_ENGINE=wangchanberta`, maps to `NER(engine="thainer-v2")`) is available for higher recall at a real cost: ~1.3s/sentence on CPU vs near-instant for CRF. Selected once per process via env var, not per-request; fails loudly (`NEREngineUnavailableError`) rather than silently falling back if `transformers` isn't installed. A third value `AIGUARD_NER_ENGINE=union` runs thainer (CRF) and WangchanBERTa together and unions their NER spans (highest recall per the strategy ADR `docs/superpowers/specs/2026-07-15-ner-engine-strategy-decision.md`); opt-in, needs `requirements-ml.txt`, and pays the WangchanBERTa cost on every sentence.
   - Name recall booster: `detectors/name_context.py` (`detect_name_context`, merged inside `detect_tb`) — token-level title/label cues (นาย/นาง/นางสาว/…, ผมชื่อ…, ลงชื่อ) capture names the CRF misses or clips; works on tokens so it ignores substrings like "นายก"/"คุณภาพ".
   - Sliding window ±3 sentences for context (NER is ambiguous without surrounding context)
   - Targets via thainer labels: name (PERSON), address (LOCATION), date (DATE)
@@ -124,7 +133,7 @@ Session mapping table (in-memory only, never written to disk; keyed by `entity_i
   - **FP**: `anonymizer/fp_generator.py` `generate_fp()` — format-preserving generator per `data_type` (valid checksum, SHA256-seeded per entity for reproducibility; no LLM)
   - **TB**: `anonymizer/tb_generator.py` `generate_tb()` — realistic Thai names/addresses from local hardcoded pools, seeded per entity (no LLM; nothing is sent anywhere)
 
-Replace real data using bboxes from entity registry → consistency check (same entity everywhere) → post-replace scan (verify no real PII remains; halt + alert if found).
+Replace real data using character spans from the entity registry (tail-first so earlier offsets stay valid) → consistency check (same entity everywhere) → post-replace scan with `detect_fp` (verify no real structured PII remains; halt + alert if found).
 
 Output: **Pseudonymized Document** + session mapping table (for re-identification) → Step 4 (send to AI)
 
@@ -134,7 +143,7 @@ In-memory only (never persisted), keyed by `entity_id`, with a reverse index key
 
 **Step 5 - Send to AI** (`pii_redactor/ai_client.py`, `send_to_ai`)
 
-`AIProvider` implementations: `FakeLLMProvider` (identity, for tests/dry-runs), `OllamaProvider`, `ClaudeProvider` (needs `ANTHROPIC_API_KEY`). Pre-send guard `_validate_pre_send` re-scans the pseudonymized text with `detect_fp` **and** `detect_tb` (excluding known pseudonyms) and raises `PreSendValidationError` on any real leak, plus a prompt-size check and a vault idle check. Retries up to 3x with exponential backoff on transient network errors; any other exception rolls back the vault snapshot and re-raises. `_validate_response` warns (does not halt) if an expected pseudonym is missing from the AI's reply.
+`AIProvider` implementations: `FakeLLMProvider` (identity, for tests/dry-runs), `OllamaProvider`, `ClaudeProvider` (needs `ANTHROPIC_API_KEY`). Pre-send guard `_validate_pre_send` re-scans the pseudonymized text with `detect_fp` **and** `detect_tb` (excluding known pseudonyms) and raises `PreSendValidationError` on any real leak, plus a prompt-size check and a vault idle check. Retries up to 3x with exponential backoff on transient errors only (timeouts, network errors, HTTP 429/5xx); non-transient HTTP errors (other 4xx) and any other exception roll back the vault snapshot and re-raise. `_validate_response` logs a warning via `logging` (does not halt) if an expected pseudonym is missing from the AI's reply.
 
 **Step 6 - Reverse mapping** (`pii_redactor/reverse_mapper.py`, `reverse_map`)
 
@@ -195,7 +204,7 @@ Note: the web API uses its own token/surrogate path (`_tokenize` + in-memory `_S
 
 - `requirements.txt` - core (pypdfium2, reportlab, Pillow, pdfplumber, PyThaiNLP, regex, httpx). httpx is core (not web-only) because `pii_redactor/ai_client.py` — imported by the core `pipeline.py` for `OllamaProvider`/`ClaudeProvider` — needs it unconditionally; it used to live only in `requirements-web.txt`, which broke a core-only install.
 - `requirements-web.txt` - web (fastapi, uvicorn, requests)
-- `requirements-ml.txt` - sentence-transformers + torch/transformers (MiniLM sensitive detector; WangchanBERTa engine is roadmap). Install only when the semantic detector is needed.
+- `requirements-ml.txt` - sentence-transformers + torch/transformers (MiniLM sensitive detector + the opt-in WangchanBERTa/union NER engines, `AIGUARD_NER_ENGINE`). Install only when the semantic detector or the WangchanBERTa/union NER engine is needed.
 - `requirements-ocr.txt` - paddlepaddle + paddleocr + opencv-python-headless (scanned/hybrid PDF OCR, `pii_redactor/ingest/ocr_processor.py`). Install only when OCR-ing scanned PDFs is needed; excluded from the packaged `AIGuard.exe` (same treatment as `requirements-ml.txt`).
 
 Note: licensed under Apache-2.0 (see LICENSE/NOTICE). PDF handling uses the permissive pypdfium2 / reportlab / pdfplumber; PyMuPDF (AGPL) was removed in phase 3 (redaction is now flatten-to-image).
