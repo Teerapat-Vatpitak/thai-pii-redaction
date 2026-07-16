@@ -1,6 +1,7 @@
 """AI client integration with multiple provider support and validation."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -12,6 +13,8 @@ from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import AIResponse, EntityRegistry
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -181,7 +184,9 @@ def send_to_ai(
         vault: The session vault with pseudonym mappings
         provider: The AI provider to use
         system_prompt: Optional custom system prompt (default: Thai instruction)
-        max_retries: Number of times to retry on network errors (default: 3)
+        max_retries: Number of attempts for transient errors — timeouts,
+            network errors, HTTP 429/5xx (default: 3). Other HTTP 4xx are
+            fatal: vault is rolled back and the error re-raised immediately.
 
     Returns:
         AIResponse with text, request_id, and latency
@@ -209,7 +214,8 @@ def send_to_ai(
 
             # Response validation (warnings only, don't halt)
             warnings = _validate_response(response_text, entity_registry, vault)
-            # Log warnings but don't raise
+            for warning in warnings:
+                logger.warning("AI response validation: %s", warning)
 
             return AIResponse(
                 text=response_text,
@@ -217,14 +223,27 @@ def send_to_ai(
                 latency=latency,
             )
 
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as e:
+        except httpx.HTTPStatusError as e:
+            # Only rate limits and server errors are transient; other 4xx
+            # (auth, bad request) will never succeed on retry.
+            status = e.response.status_code
+            if status != 429 and status < 500:
+                vault.restore(snapshot)
+                raise
             last_error = e
             if attempt < max_retries - 1:
                 backoff = 2 ** attempt  # 1s, 2s, 4s
                 time.sleep(backoff)
             continue
 
-        except Exception as e:
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt  # 1s, 2s, 4s
+                time.sleep(backoff)
+            continue
+
+        except Exception:
             # Fatal error - rollback and re-raise
             vault.restore(snapshot)
             raise

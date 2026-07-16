@@ -4,6 +4,8 @@ import time
 import uuid
 from abc import ABC
 
+import httpx
+
 from pii_redactor.ai_client import (
     FakeLLMProvider,
     send_to_ai,
@@ -98,6 +100,48 @@ def test_pre_send_validation_idle_timeout():
     provider = FakeLLMProvider()
     with pytest.raises(VaultTimeoutError):
         send_to_ai("text", registry, vault, provider)
+
+
+def _http_status_error(status: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://test")
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError(f"HTTP {status}", request=request, response=response)
+
+
+def test_send_to_ai_4xx_is_fatal_no_retry():
+    """Auth/bad-request errors will never succeed on retry: fail fast + rollback."""
+    vault, _ = _make_vault_with_record()
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    calls = {"n": 0}
+
+    class AuthFailProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            calls["n"] += 1
+            raise _http_status_error(401)
+
+    original_table_size = len(vault._table)
+    with pytest.raises(httpx.HTTPStatusError):
+        send_to_ai("text", registry, vault, AuthFailProvider())
+    assert calls["n"] == 1  # no retry on non-transient HTTP error
+    assert len(vault._table) == original_table_size  # vault rolled back
+
+
+def test_send_to_ai_5xx_is_retried():
+    """Server errors are transient: retry with backoff, then succeed."""
+    vault = SessionVault()
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    calls = {"n": 0}
+
+    class FlakyProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_status_error(500)
+            return user
+
+    result = send_to_ai("text", registry, vault, FlakyProvider())
+    assert calls["n"] == 2
+    assert result.text == "text"
 
 
 def test_pre_send_blocks_tb_name_leak():
