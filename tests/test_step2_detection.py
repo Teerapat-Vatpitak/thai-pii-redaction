@@ -387,3 +387,21 @@ def test_tb_organization_is_kept_and_labeled(monkeypatch):
     text = "ผมทำงานที่ธนาคารกสิกรไทยมาห้าปี"
     ents = _fake_ner_detect(text, [("ธนาคารกสิกรไทย", "B-ORGANIZATION")], monkeypatch)
     assert any(e.data_type == "ORGANIZATION" for e in ents)
+
+
+def test_tb_pure_latin_org_is_rejected_by_thai_guard(monkeypatch):
+    """DELIBERATE recall trade (commit 3d02738): thainer CRF hallucinates
+    ORGANIZATION on plain-English text, so an ORGANIZATION span with zero Thai
+    characters is dropped — including a real foreign employer name. Pinned
+    here so any future change to this boundary is a conscious decision."""
+    text = "ผมทำงานที่ Google มาสามปีแล้ว"
+    ents = _fake_ner_detect(text, [("Google", "B-ORGANIZATION")], monkeypatch)
+    assert not any(e.data_type == "ORGANIZATION" for e in ents)
+
+
+def test_tb_mixed_thai_latin_org_survives_thai_guard(monkeypatch):
+    text = "ผมทำงานที่บริษัท เอบีซี จำกัด สาขาไทย"
+    ents = _fake_ner_detect(
+        text, [("บริษัท เอบีซี จำกัด", "B-ORGANIZATION")], monkeypatch
+    )
+    assert any(e.data_type == "ORGANIZATION" for e in ents)
