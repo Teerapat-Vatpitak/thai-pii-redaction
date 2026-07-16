@@ -72,7 +72,8 @@ Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is
 product's front door; the backend is API-only (no web frontend) and runs on localhost.
 `/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
 CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
-token → original map lives in the backend's in-memory `_SESSIONS` (`app/server.py`).
+token → original map lives in the backend's in-memory `SessionService` sessions
+(`pii_redactor/session_service.py`, one `SessionVault` per session).
 
 ### Pipeline (Step 1-8 per design doc `step1-7_*.pdf`; the file name undercounts — the doc itself documents 8 steps)
 
@@ -179,23 +180,25 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/exporter.py` | Step 8: writes final `.txt`/`.pdf_text` output |
 | `pii_redactor/models.py` | Shared dataclasses (`Entity`, `EntityRegistry`, `WordBbox`, `VaultRecord`, `AIResponse`, `ReverseResult`, ...) |
 | `pii_redactor/ingest/ocr_processor.py` | Step 1 (hybrid/scanned PDFs): per-page PaddleOCR extraction, deskew/denoise/sharpen preprocessing, retry x3 → `human_review` flag. Optional (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed |
+| `pii_redactor/session_service.py` | Single brain behind the web API: session lifecycle + sanitize/restore over core components |
+| `pii_redactor/leak_guard.py` | Shared outbound leak scan used by `ai_client` pre-send guard and `SessionService` |
 
 Roadmap (not implemented): Presidio bridge.
 
 ### Web API Endpoints (`app/server.py`, v2 token-mode contract)
 
 - `GET /api/health` → `{status, version}`
-- `POST /api/sanitize {text, mode}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[]}`. `mode="token"` (default) → `[ชื่อ_1]`; `mode="surrogate"` → realistic valid-format fake data (reads naturally to the AI). Stores the pseudonym → original map in the in-memory `_SESSIONS` keyed by `session_id`.
-- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens}` — restores pseudonyms from the stored session map (mode-agnostic).
+- `POST /api/sanitize {text, mode, session_id}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[], warnings[]}`. `mode="token"` (default) → `[ชื่อ_1]`; `mode="surrogate"` → realistic valid-format fake data (reads naturally to the AI). `session_id` is optional — pass an existing one to reuse it for multi-turn token consistency (mode must match the session's locked mode). Stores the pseudonym → original map in `pii_redactor/session_service.py`'s in-memory `SessionService`, keyed by `session_id`.
+- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens, warnings[]}` — restores pseudonyms from the stored session map (mode-agnostic).
 - `POST /api/analyze {text}` → full PDPA report `{overall_score, overall_grade, risk_label, direct_pii_count, fp_count, tb_count, section26[], reid, breakdown[], recommendations[]}`. `section26[]` merges keyword hits with optional MiniLM semantic hits (`source:"semantic"`).
 - `POST /api/redact-pdf` (multipart `pdf_file`) → `{filename, source_type, ocr_confidence, human_review, ocr_warnings, entity_count, fields[], section26[], redacted_pdf_b64, before_png_b64, after_png_b64}`. Detects on RAW extracted text (bboxes align), draws black boxes via `pii_redactor/redactor.py`, returns the redacted PDF + page previews. Routes both text-layer and scanned/hybrid PDFs via `detect_source_type()`; returns HTTP 503 if a scanned PDF needs OCR and `requirements-ocr.txt` isn't installed.
 
-Note: the web API uses its own token/surrogate path (`_tokenize` + in-memory `_SESSIONS` in `app/server.py`), distinct from the CLI `pipeline.py`/`SessionVault`. Both are tested; they are not unified.
+Both the web API and the CLI now run on the same core: `pii_redactor/session_service.py` (`SessionService`) wraps `detect_all` → `anonymize(mode=token|surrogate)` → `leak_guard.scan_outbound_leaks` for `/api/sanitize`, and `reverse_map` → `validate_output` (warnings only, inbound) for `/api/reidentify`. Sessions: cap 200, idle TTL 1800s, vault null-byte-cleared on drop/evict. `/api/sanitize` accepts optional `session_id` for multi-turn token consistency and returns additive `warnings[]`; FP-grade residual leaks return HTTP 422.
 
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
-- **Vault never leaves device**: pseudonym → original map is in-memory only (`_SESSIONS` web / `SessionVault` CLI); the extension keeps only `session_id`. `leftover_tokens` check on re-identification.
+- **Vault never leaves device**: pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path); the extension keeps only `session_id`. `leftover_tokens` check on re-identification.
 - **Pre-send leak guard**: before any send to an external AI, `ai_client._validate_pre_send` re-scans outbound text with `detect_fp` AND `detect_tb`; a real (non-pseudonym) hit halts the send.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.

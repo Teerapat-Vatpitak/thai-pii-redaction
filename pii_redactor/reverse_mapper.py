@@ -109,6 +109,7 @@ def _post_reverse_validate(
         "replaced_count": replaced_count,
         "residue_count": len(residue),
         "restored_pii_types": list({e.data_type for e in restored_pii}),
+        "replaced_pseudonyms": list(replaced),
         "request_id": "unknown",  # Caller can set this
     }
 

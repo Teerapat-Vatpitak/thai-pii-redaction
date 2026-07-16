@@ -165,3 +165,35 @@ def test_vault_multiple_writes_same_entity():
     new = vault.get_by_pseudonym("Y")
     assert new is not None
     assert new.entity_id == entity_id
+
+
+def test_get_by_original_returns_record():
+    vault = SessionVault()
+    rec = _make_record(original="สมชาย ใจดี", pseudonym="บุญชัย")
+    vault.write(rec)
+    found = vault.get_by_original("สมชาย ใจดี")
+    assert found is rec
+
+
+def test_get_by_original_filters_by_data_type():
+    vault = SessionVault()
+    a = _make_record(original="1234", pseudonym="[บัตรประชาชน_1]")
+    a.data_type = "THAI_ID"
+    b = _make_record(original="1234", pseudonym="[โทรศัพท์_1]")
+    b.data_type = "PHONE"
+    vault.write(a)
+    vault.write(b)
+    assert vault.get_by_original("1234", data_type="PHONE") is b
+    assert vault.get_by_original("1234", data_type="THAI_ID") is a
+
+
+def test_get_by_original_missing_returns_none():
+    vault = SessionVault()
+    assert vault.get_by_original("ไม่มี") is None
+
+
+def test_get_by_original_respects_idle_timeout():
+    vault = SessionVault(idle_timeout_s=0)
+    vault._last_access = time.monotonic() - 10
+    with pytest.raises(VaultTimeoutError):
+        vault.get_by_original("x")

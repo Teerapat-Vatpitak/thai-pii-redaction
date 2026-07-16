@@ -81,3 +81,32 @@ def test_sample_pdf_is_redacted(client):
     assert text.strip() == ""
     assert "081-234-5678" not in text
     assert "somchai.j@example.co.th" not in text
+
+
+def test_multi_turn_mask_restore_round_trip(client):
+    """Extension flow across two turns in ONE session: tokens stay consistent
+    and a combined AI reply restores every original."""
+    t1 = client.post("/api/sanitize", json={"text": "ผมชื่อ สมชาย ใจดี เบอร์ 081-234-5678"}).json()
+    t2 = client.post(
+        "/api/sanitize",
+        json={"text": "ย้ำเบอร์ 081-234-5678 และอีเมล somchai@example.com",
+              "session_id": t1["session_id"]},
+    ).json()
+    assert t2["session_id"] == t1["session_id"]
+    tok1 = next(e["token"] for e in t1["entities"] if e["data_type"] == "PHONE")
+    tok2 = next(e["token"] for e in t2["entities"] if e["data_type"] == "PHONE")
+    assert tok1 == tok2
+    reply = t1["sanitized_text"] + "\n" + t2["sanitized_text"]
+    r = client.post("/api/reidentify",
+                    json={"session_id": t1["session_id"], "text": reply}).json()
+    assert "081-234-5678" in r["restored_text"]
+    assert "somchai@example.com" in r["restored_text"]
+    assert "สมชาย ใจดี" in r["restored_text"]
+
+
+def test_sanitize_mode_conflict_400(client):
+    s = client.post("/api/sanitize", json={"text": "เบอร์ 081-234-5678"}).json()
+    resp = client.post("/api/sanitize",
+                       json={"text": "อีกข้อความ", "mode": "surrogate",
+                             "session_id": s["session_id"]})
+    assert resp.status_code == 400
