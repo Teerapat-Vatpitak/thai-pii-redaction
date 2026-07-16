@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "AI Guard — Thai PII Protection for AI Chats",
+    "description": "Extension name shown in chrome://extensions and the Chrome Web Store listing."
+  },
+  "appDesc": {
+    "message": "Masks Thai PII before sending to AI chats, restores it locally from the reply. All processing stays on your device.",
+    "description": "Extension description shown in chrome://extensions and the Chrome Web Store listing."
+  }
+}
