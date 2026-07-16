@@ -44,3 +44,15 @@ def test_no_false_positive_on_khunaphap():
 def test_integration_detect_tb_includes_context_name():
     names = _names("ผมชื่อ สมหญิง รักดี เบอร์ 081-234-5678", fn=detect_tb)
     assert any("รักดี" in n for n in names)
+
+
+def test_label_nouns_not_collected_as_surname():
+    # 'รหัสพนักงาน' / 'เลขบัตรประชาชน' are document-label nouns, never part of
+    # a person name — the group collector must stop before them.
+    names = _names("ผมชื่อ สมชาย รหัสพนักงาน EMP-10234")
+    assert names, "the actual name must still be caught"
+    assert all("รหัส" not in n and "พนักงาน" not in n for n in names)
+
+    names = _names("ผมชื่อ สมชาย เลขบัตรประชาชน 1101700230708")
+    assert names
+    assert all("เลขบัตร" not in n and "ประชาชน" not in n for n in names)

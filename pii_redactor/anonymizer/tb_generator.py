@@ -39,9 +39,12 @@ DISTRICTS = [
 ]
 
 
-def _seeded_rng(salt: str, original: str) -> random.Random:
+def _seeded_rng(salt: str, original: str, attempt: int = 0) -> random.Random:
+    # attempt=0 keeps the historical seed so existing pseudonyms stay stable;
+    # attempt>0 re-rolls deterministically when a collision must be resolved.
+    material = f"{salt}:{original}" if attempt == 0 else f"{salt}:{original}:{attempt}"
     seed = int.from_bytes(
-        hashlib.sha256(f"{salt}:{original}".encode()).digest()[:4],
+        hashlib.sha256(material.encode()).digest()[:4],
         "big",
     )
     return random.Random(seed)
@@ -53,6 +56,7 @@ def generate_tb(
     *,
     salt: str,
     original: str,
+    attempt: int = 0,
 ) -> str:
     """Generate a pseudonym for a text-based PII entity.
 
@@ -61,11 +65,12 @@ def generate_tb(
         context_with_blank: sentence(s) with the original PII replaced by '___'
         salt: per-process random salt
         original: original PII (for seeding; never sent to LLM)
+        attempt: collision re-roll counter; 0 = the stable deterministic value
 
     Returns:
         A realistic Thai fake value
     """
-    rng = _seeded_rng(salt, original)
+    rng = _seeded_rng(salt, original, attempt)
 
     if data_type == "NAME":
         if "นาย" in context_with_blank:
