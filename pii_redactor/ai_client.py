@@ -152,13 +152,27 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
                 # Span sits entirely inside one pseudonym occurrence.
                 continue
             if entity.redact_type == "TB":
-                # Fuzzy NER span straddling pseudonym(s): strip the pseudonym
-                # text and re-scan what is left. FP spans are exact and never
-                # get this leniency.
-                remainder = entity.original_text
-                for p in ordered:
-                    remainder = remainder.replace(p, " ")
-                if not detect_fp(remainder) and not detect_tb(remainder):
+                # Fuzzy NER span straddling pseudonym(s): re-scan only the
+                # parts of the span NOT covered by pseudonym occurrences.
+                # Positional slicing, not string replace — the span may cover
+                # a mere fragment of a pseudonym ('เขตสาทร' out of
+                # '556 เขตสาทร'), which whole-string stripping leaves behind.
+                # Each segment is scanned SEPARATELY: joining them would
+                # fabricate adjacency the text never had (a name cue glued to
+                # the word after the pseudonym reads as a fresh name).
+                # FP spans are exact and never get this leniency.
+                segments = []
+                pos = start
+                for cs, ce in sorted(overlapping):
+                    if cs > pos:
+                        segments.append(text[pos:min(cs, end)])
+                    pos = max(pos, ce)
+                if pos < end:
+                    segments.append(text[pos:end])
+                if all(
+                    not seg.strip() or (not detect_fp(seg) and not detect_tb(seg))
+                    for seg in segments
+                ):
                     continue
         real_leaks.append(entity)
     if real_leaks:

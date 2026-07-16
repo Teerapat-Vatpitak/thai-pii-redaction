@@ -104,18 +104,24 @@ def run_pipeline(
     from pii_redactor.detectors.fp_detector import detect_fp
     from pii_redactor.detectors.tb_detector import detect_tb
     from pii_redactor.detectors.fn_scanner import scan_fn
+    from pii_redactor.detectors.aggregate import dedupe_spans
 
     fp_entities = detect_fp(clean_text)
     tb_entities = detect_tb(clean_text)
 
-    all_so_far = fp_entities + tb_entities
-    fn_entities = scan_fn(clean_text, all_so_far)
+    # Resolve FP/TB span overlaps before replacement: unresolved overlaps
+    # corrupt the text during the anonymizer's tail-first splice. FP wins
+    # (checksum-backed), same central rule the web API ships (aggregate).
+    merged_entities = dedupe_spans(fp_entities + tb_entities)
+    fn_entities = scan_fn(clean_text, merged_entities)
 
-    all_entities = fp_entities + tb_entities + fn_entities
+    all_entities = merged_entities + fn_entities
     entity_registry = EntityRegistry(
         entities=all_entities,
-        fp_count=len(fp_entities),
-        tb_count=len(tb_entities) + len(fn_entities),
+        fp_count=sum(1 for e in merged_entities if e.redact_type == "FP"),
+        # fn hits keep counting toward tb_count (historical contract)
+        tb_count=sum(1 for e in merged_entities if e.redact_type != "FP")
+        + len(fn_entities),
     )
 
     # --- Step 3+4: Pseudonymization ---

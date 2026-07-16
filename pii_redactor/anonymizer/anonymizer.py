@@ -34,10 +34,12 @@ def _get_context_with_blank(text: str, entity: Entity) -> str:
     return context[:local_start] + "___" + context[local_end:]
 
 
-def _generate_pseudonym(entity: Entity, text: str, salt: str) -> str:
+def _generate_pseudonym(entity: Entity, text: str, salt: str, attempt: int = 0) -> str:
     """Generate appropriate pseudonym based on entity redact_type."""
     if entity.redact_type == "FP":
-        return generate_fp(entity.data_type, entity.original_text, salt=salt)
+        return generate_fp(
+            entity.data_type, entity.original_text, salt=salt, attempt=attempt
+        )
     else:
         context = _get_context_with_blank(text, entity)
         return generate_tb(
@@ -45,7 +47,59 @@ def _generate_pseudonym(entity: Entity, text: str, salt: str) -> str:
             context,
             salt=salt,
             original=entity.original_text,
+            attempt=attempt,
         )
+
+
+_MAX_COLLISION_REROLLS = 8
+
+
+def _generate_unique_pseudonym(
+    entity: Entity,
+    text: str,
+    salt: str,
+    vault: SessionVault,
+    all_originals: set[str],
+) -> str:
+    """Generate a pseudonym that cannot be confused with anyone else's data.
+
+    The fake-value pools (esp. Thai names) are small, so two different people
+    can deterministically draw the same pseudonym — the vault reverse index
+    would then restore the wrong person. A candidate is rejected when it:
+    - is already vaulted for a DIFFERENT original (same original = consistency,
+      allowed), or
+    - equals another entity's real value, or appears verbatim in the source
+      text (reverse mapping would rewrite unrelated text).
+
+    Re-rolls the seed up to _MAX_COLLISION_REROLLS times; as a last resort a
+    numeric suffix forces uniqueness (mirrors the web path's _make_surrogate).
+    """
+    original = entity.original_text
+
+    def _available(candidate: str) -> bool:
+        owner_id = vault._reverse.get(candidate)
+        if owner_id is not None:
+            owner = vault._table.get(owner_id)
+            if owner is not None and owner.original != original:
+                return False
+        if candidate in all_originals and candidate != original:
+            return False
+        if candidate in text and candidate != original:
+            return False
+        return True
+
+    candidate = _generate_pseudonym(entity, text, salt)
+    for attempt in range(1, _MAX_COLLISION_REROLLS + 1):
+        if _available(candidate):
+            return candidate
+        candidate = _generate_pseudonym(entity, text, salt, attempt=attempt)
+    if _available(candidate):
+        return candidate
+    base = candidate
+    n = 2
+    while not _available(f"{base}#{n}"):
+        n += 1
+    return f"{base}#{n}"
 
 
 def anonymize(
@@ -79,12 +133,15 @@ def anonymize(
     )
 
     # Step 2 & 3: generate or retrieve pseudonym, then replace span
+    all_originals = {e.original_text for e in entity_registry.entities}
     for entity in sorted_entities:
         existing = vault.get_by_entity_id(entity.entity_id)
         if existing is not None:
             pseudonym = existing.pseudonym
         else:
-            pseudonym = _generate_pseudonym(entity, text, salt)
+            pseudonym = _generate_unique_pseudonym(
+                entity, text, salt, vault, all_originals
+            )
             vault.write(VaultRecord(
                 entity_id=entity.entity_id,
                 original=entity.original_text,
