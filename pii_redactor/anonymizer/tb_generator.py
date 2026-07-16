@@ -37,6 +37,16 @@ DISTRICTS = [
     "เขตบางกอกใหญ่", "เขตพระโขนง", "เขตลาดกระบัง", "เขตมีนบุรี",
     "เขตบึงกุ่ม", "อำเภอเมือง", "อำเภอบางพลี", "อำเภอสามพราน",
 ]
+ORGANIZATIONS = [
+    "บริษัท เจริญวัฒนาการค้า จำกัด", "บริษัท สินทรัพย์รุ่งเรือง จำกัด",
+    "บริษัท พัฒนกิจไทย จำกัด (มหาชน)", "ห้างหุ้นส่วนจำกัด ทองดีพาณิชย์",
+    "บริษัท เมืองทองอุตสาหกรรม จำกัด", "บริษัท ศรีสยามเทรดดิ้ง จำกัด",
+    "บริษัท ก้าวหน้าเอ็นจิเนียริ่ง จำกัด", "บริษัท ไทยสมบูรณ์กรุ๊ป จำกัด",
+    "บริษัท แสงทองพลาสติก จำกัด", "บริษัท นครหลวงโลจิสติกส์ จำกัด",
+    "บริษัท บ้านสวนอาหาร จำกัด", "บริษัท คลังสินค้าไทย จำกัด",
+    "บริษัท อรุณรุ่งการพิมพ์ จำกัด", "บริษัท วารีเทคโนโลยี จำกัด",
+    "บริษัท ปัญญาซอฟต์แวร์ จำกัด",
+]
 
 
 def _seeded_rng(salt: str, original: str, attempt: int = 0) -> random.Random:
@@ -92,6 +102,19 @@ def generate_tb(
         day = rng.randint(1, 28)
         month = rng.randint(1, 12)
         year = rng.randint(2490, 2540)
+        return f"{day:02d}/{month:02d}/{year}"
+
+    elif data_type == "LOCATION":
+        return rng.choice(DISTRICTS)
+
+    elif data_type == "ORGANIZATION":
+        return rng.choice(ORGANIZATIONS)
+
+    elif data_type == "DATE":
+        # generic date, same shape as DATE_OF_BIRTH but recent-past years
+        day = rng.randint(1, 28)
+        month = rng.randint(1, 12)
+        year = rng.randint(2560, 2568)
         return f"{day:02d}/{month:02d}/{year}"
 
     else:

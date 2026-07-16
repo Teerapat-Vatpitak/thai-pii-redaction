@@ -23,8 +23,11 @@ _FN_PATTERNS: list[tuple[re.Pattern[str], str, str, float]] = [
     (re.compile(r"(?<!\d)(\d{13})(?!\d)"), "THAI_ID", "FP", 0.6),
     # Email-like patterns with @ (simpler than full RFC pattern)
     (re.compile(r"([^\s@]+@[^\s@]+\.[^\s@]{2,})"), "EMAIL", "FP", 0.7),
-    # Date-like patterns in various formats
-    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})(?!\d)"), "DATE_OF_BIRTH", "FP", 0.6),
+    # Date-like patterns in various formats. Labeled DATE (not DATE_OF_BIRTH):
+    # this loose fallback has no cue context to gate on, so the honest generic
+    # label is the only defensible one here (see fp_detector.py's cue-gated
+    # DATE/DATE_OF_BIRTH split for the primary pass).
+    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})(?!\d)"), "DATE", "FP", 0.6),
 ]
 
 

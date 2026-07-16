@@ -376,7 +376,9 @@ def test_token_label_map_matches_v2_contract():
     from pii_redactor.anonymizer.token_generator import TOKEN_LABEL
     assert TOKEN_LABEL["THAI_ID"] == "บัตรประชาชน"
     assert TOKEN_LABEL["BANK_ACCOUNT"] == "บัญชีธนาคาร"
-    assert len(TOKEN_LABEL) == 13
+    assert len(TOKEN_LABEL) == 17
+    assert TOKEN_LABEL["ORGANIZATION"] == "องค์กร"
+    assert TOKEN_LABEL["ID_NUMBER"] == "รหัสอ้างอิง"
 
 
 # ---------------------------------------------------------------------------
@@ -437,3 +439,19 @@ def test_anonymize_default_mode_is_surrogate():
     result = anonymize(text, registry, vault, salt=SALT)
     assert "[" not in result.text  # no bracket tokens in surrogate mode
     assert "a@b.co" not in result.text
+
+
+def test_generate_tb_new_types():
+    loc = generate_tb("LOCATION", "ไปเที่ยว ___", salt=SALT, original="เชียงใหม่")
+    assert loc and not loc[0].isdigit()          # a place name, no house number
+    org = generate_tb("ORGANIZATION", "ทำงานที่ ___", salt=SALT, original="ธนาคารกสิกรไทย")
+    assert org and "[REDACTED" not in org
+    date = generate_tb("DATE", "ประชุมวันที่ ___", salt=SALT, original="12 มกราคม 2560")
+    assert "/" in date and "[REDACTED" not in date
+
+
+def test_generate_fp_new_types():
+    idnum = generate_fp("ID_NUMBER", "1234567890", salt=SALT)
+    assert len(idnum) == 10 and idnum.isdigit()
+    date = generate_fp("DATE", "12/05/2560", salt=SALT)
+    assert "/" in date or "-" in date
