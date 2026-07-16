@@ -3,6 +3,7 @@ WangchanBERTa opt-in via AIGUARD_NER_ENGINE)."""
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 from pythainlp import sent_tokenize
@@ -16,19 +17,43 @@ from pii_redactor.models import Entity
 
 LABEL_MAP: dict[str, str | None] = {
     "PERSON": "NAME",
-    "ORGANIZATION": None,   # Not PII; skip
-    "LOCATION": "ADDRESS",
-    "DATE": "DATE_OF_BIRTH",
+    "ORGANIZATION": "ORGANIZATION",  # quasi-identifier (employer/hospital)
+    "LOCATION": "LOCATION",          # upgraded to ADDRESS by cue (below)
+    "DATE": "DATE",                  # upgraded to DATE_OF_BIRTH by cue (below)
     "TIME": None,
     "MONEY": None,
     "PERCENT": None,
     "FACILITY": None,
     "PRODUCT": None,
     # Aliases from brief (kept for safety)
-    "ORG": None,
-    "GPE": "ADDRESS",
-    "LOC": "ADDRESS",
+    "ORG": "ORGANIZATION",
+    "GPE": "LOCATION",
+    "LOC": "LOCATION",
 }
+
+# Cue-based upgrades (same cue-window mechanism as fp_detector's
+# _disambiguate_bank_phone; regexes copied rather than imported to avoid a
+# circular import, same precedent as _deduplicate below).
+# The ADDRESS check includes the span ITSELF because address cues (เขต/ตำบล/
+# ซอย/ถนน) usually sit inside the address text; the DOB check looks only at
+# the preceding context.
+_ADDR_CUE_RE = re.compile(
+    r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่|เลขที่|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด"
+)
+_TB_BIRTH_CUE_RE = re.compile(r"เกิด")
+_TB_CUE_WINDOW = 30
+
+
+def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
+    if data_type == "LOCATION":
+        ctx = text[max(0, start - _TB_CUE_WINDOW):end]
+        if _ADDR_CUE_RE.search(ctx):
+            return "ADDRESS"
+    elif data_type == "DATE":
+        ctx = text[max(0, start - _TB_CUE_WINDOW):start]
+        if _TB_BIRTH_CUE_RE.search(ctx):
+            return "DATE_OF_BIRTH"
+    return data_type
 
 
 class NEREngineUnavailableError(RuntimeError):
@@ -186,6 +211,7 @@ def _ner_candidates(
             orig_end = sent_offset + (ctx_end - context_sent_start)
             if (orig_end - orig_start) < 2:
                 continue
+            data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
             candidates.append(Entity(
                 entity_id=str(uuid.uuid4()),
                 redact_type="TB",

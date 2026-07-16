@@ -343,3 +343,47 @@ def test_fp_nothing_unmasked_by_relabel():
     text = "12/05/2569 และ 1234567890 และ P1234567"
     covered = sorted(e.original_text for e in detect_fp(text))
     assert covered == ["12/05/2569", "1234567890", "P1234567"]
+
+
+# ---------------------------------------------------------------------------
+# TB honest labels: LOCATION/DATE/ORGANIZATION with cue upgrades
+# ---------------------------------------------------------------------------
+
+def _fake_ner_detect(text, bio_tokens, monkeypatch):
+    """Run detect_tb with a fake engine that returns fixed BIO tokens."""
+    import pii_redactor.detectors.tb_detector as tbd
+
+    class FakeNER:
+        def tag(self, chunk):
+            return [(w, t) for (w, t) in bio_tokens if w in chunk]
+
+    monkeypatch.setitem(tbd._ner_cache, "thainer", FakeNER())
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
+    return tbd.detect_tb(text)
+
+
+def test_tb_location_without_cue_stays_location(monkeypatch):
+    text = "ปีหน้าจะไปเที่ยวเชียงใหม่กับครอบครัว"
+    ents = _fake_ner_detect(text, [("เชียงใหม่", "B-LOCATION")], monkeypatch)
+    assert any(e.data_type == "LOCATION" and e.original_text == "เชียงใหม่" for e in ents)
+    assert not any(e.data_type == "ADDRESS" for e in ents)
+
+
+def test_tb_location_with_addr_cue_upgrades_to_address(monkeypatch):
+    text = "บ้านเลขที่ 55 เขตบางรัก กรุงเทพ"
+    ents = _fake_ner_detect(text, [("เขตบางรัก", "B-LOCATION")], monkeypatch)
+    assert any(e.data_type == "ADDRESS" for e in ents)
+
+
+def test_tb_date_with_birth_cue_upgrades_to_dob(monkeypatch):
+    text = "เกิดวันที่ 12 พฤษภาคม 2530 ที่กรุงเทพ"
+    ents = _fake_ner_detect(
+        text, [("12 พฤษภาคม 2530", "B-DATE")], monkeypatch
+    )
+    assert any(e.data_type == "DATE_OF_BIRTH" for e in ents)
+
+
+def test_tb_organization_is_kept_and_labeled(monkeypatch):
+    text = "ผมทำงานที่ธนาคารกสิกรไทยมาห้าปี"
+    ents = _fake_ner_detect(text, [("ธนาคารกสิกรไทย", "B-ORGANIZATION")], monkeypatch)
+    assert any(e.data_type == "ORGANIZATION" for e in ents)
