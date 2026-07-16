@@ -1,6 +1,7 @@
 """AI client integration with multiple provider support and validation."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -12,6 +13,8 @@ from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import AIResponse, EntityRegistry
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -93,6 +96,27 @@ class FakeLLMProvider(AIProvider):
         return user
 
 
+def _pseudonym_ranges(text: str, pseudonyms: list[str]) -> list[tuple[int, int]]:
+    """
+    Character ranges of every known-pseudonym occurrence in text.
+
+    Longest pseudonym first so a shorter pseudonym cannot claim a slice of a
+    longer one (same ordering rule as reverse_mapper); ranges never overlap.
+    """
+    claimed: list[tuple[int, int]] = []
+
+    def _taken(start: int, end: int) -> bool:
+        return any(start < ce and end > cs for cs, ce in claimed)
+
+    for p in sorted(pseudonyms, key=len, reverse=True):
+        pos = 0
+        while (i := text.find(p, pos)) >= 0:
+            if not _taken(i, i + len(p)):
+                claimed.append((i, i + len(p)))
+            pos = i + 1
+    return claimed
+
+
 def _validate_pre_send(text: str, vault: SessionVault) -> None:
     """
     4 checks before sending any prompt to AI.
@@ -107,11 +131,36 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
         VaultTimeoutError: If vault has been idle past timeout
     """
     # 1. PII leak check: fp + tb detectors on pseudonymized text
-    # (tb catches name/address leaks that regex/checksum miss)
-    # Collect known pseudonyms to avoid false positives
+    # (tb catches name/address leaks that regex/checksum miss).
+    # Exact-match exclusion against known pseudonyms is not enough for TB:
+    # NER span boundaries are fuzzy, so a span can swallow ordinary words
+    # around an embedded pseudonym ("หน่อยครับ\nผมชื่อ <pseudonym>") or
+    # re-detect a fragment inside one (the district part of a fake address).
+    # Excuse a span only when pseudonym occurrences fully account for its
+    # PII content; anything else still halts the send.
     known_pseudonyms = set(vault._reverse.keys())
-    leak_entities = detect_fp(text) + detect_tb(text)
-    real_leaks = [e for e in leak_entities if e.original_text not in known_pseudonyms]
+    ordered = sorted((p for p in known_pseudonyms if p), key=len, reverse=True)
+    ranges = _pseudonym_ranges(text, ordered)
+    real_leaks = []
+    for entity in detect_fp(text) + detect_tb(text):
+        if entity.original_text in known_pseudonyms:
+            continue
+        start, end = entity.span
+        overlapping = [(cs, ce) for cs, ce in ranges if cs < end and ce > start]
+        if overlapping:
+            if any(cs <= start and end <= ce for cs, ce in overlapping):
+                # Span sits entirely inside one pseudonym occurrence.
+                continue
+            if entity.redact_type == "TB":
+                # Fuzzy NER span straddling pseudonym(s): strip the pseudonym
+                # text and re-scan what is left. FP spans are exact and never
+                # get this leniency.
+                remainder = entity.original_text
+                for p in ordered:
+                    remainder = remainder.replace(p, " ")
+                if not detect_fp(remainder) and not detect_tb(remainder):
+                    continue
+        real_leaks.append(entity)
     if real_leaks:
         raise PreSendValidationError(
             f"PII detected in text before sending to AI: "
@@ -181,7 +230,9 @@ def send_to_ai(
         vault: The session vault with pseudonym mappings
         provider: The AI provider to use
         system_prompt: Optional custom system prompt (default: Thai instruction)
-        max_retries: Number of times to retry on network errors (default: 3)
+        max_retries: Number of attempts for transient errors — timeouts,
+            network errors, HTTP 429/5xx (default: 3). Other HTTP 4xx are
+            fatal: vault is rolled back and the error re-raised immediately.
 
     Returns:
         AIResponse with text, request_id, and latency
@@ -209,7 +260,8 @@ def send_to_ai(
 
             # Response validation (warnings only, don't halt)
             warnings = _validate_response(response_text, entity_registry, vault)
-            # Log warnings but don't raise
+            for warning in warnings:
+                logger.warning("AI response validation: %s", warning)
 
             return AIResponse(
                 text=response_text,
@@ -217,14 +269,27 @@ def send_to_ai(
                 latency=latency,
             )
 
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as e:
+        except httpx.HTTPStatusError as e:
+            # Only rate limits and server errors are transient; other 4xx
+            # (auth, bad request) will never succeed on retry.
+            status = e.response.status_code
+            if status != 429 and status < 500:
+                vault.restore(snapshot)
+                raise
             last_error = e
             if attempt < max_retries - 1:
                 backoff = 2 ** attempt  # 1s, 2s, 4s
                 time.sleep(backoff)
             continue
 
-        except Exception as e:
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt  # 1s, 2s, 4s
+                time.sleep(backoff)
+            continue
+
+        except Exception:
             # Fatal error - rollback and re-raise
             vault.restore(snapshot)
             raise

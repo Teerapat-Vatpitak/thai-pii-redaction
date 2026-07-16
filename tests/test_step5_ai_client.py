@@ -4,6 +4,8 @@ import time
 import uuid
 from abc import ABC
 
+import httpx
+
 from pii_redactor.ai_client import (
     FakeLLMProvider,
     send_to_ai,
@@ -98,6 +100,123 @@ def test_pre_send_validation_idle_timeout():
     provider = FakeLLMProvider()
     with pytest.raises(VaultTimeoutError):
         send_to_ai("text", registry, vault, provider)
+
+
+def _vault_with(records: dict[str, tuple[str, str]]) -> SessionVault:
+    """Vault from {data_type: (original, pseudonym)}."""
+    vault = SessionVault()
+    for data_type, (original, pseudonym) in records.items():
+        vault.write(VaultRecord(
+            entity_id=str(uuid.uuid4()),
+            original=original,
+            pseudonym=pseudonym,
+            type="TB" if data_type in ("NAME", "ADDRESS") else "FP",
+            data_type=data_type,
+            span=(0, len(original)),
+            timestamp=time.monotonic(),
+        ))
+    return vault
+
+
+def test_pre_send_allows_ner_span_swallowing_pseudonym():
+    """CRF NER can emit a sloppy PERSON span that swallows words around an
+    embedded pseudonym (e.g. 'หน่อยครับ\\nผมชื่อ บุญชัย'). That span is not an
+    exact pseudonym match, but it is fully explained by pseudonym + ordinary
+    words — the guard must not halt on it."""
+    vault = _vault_with({
+        "NAME": ("สมชาย ใจดี", "บุญชัย"),
+        "PHONE": ("081-234-5678", "098-625-9566"),
+        "EMAIL": ("somchai.j@example.co.th", "eve.2068@example.com"),
+    })
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    pseudonymized = (
+        "ช่วยร่างอีเมลแจ้งลาป่วยให้หน่อยครับ\n"
+        "ผมชื่อ บุญชัย รหัสพนักงาน EMP-10234\n"
+        "เบอร์ติดต่อ 098-625-9566 อีเมล eve.2068@example.com\n"
+        "ขอลา 3 วันตั้งแต่วันจันทร์หน้า ส่งถึงหัวหน้าแผนกให้ดูเป็นทางการหน่อยครับ"
+    )
+    result = send_to_ai(pseudonymized, registry, vault, FakeLLMProvider())
+    assert result.text == pseudonymized
+
+
+def test_pre_send_allows_fragment_inside_pseudonym():
+    """NER can also re-detect a FRAGMENT of a pseudonym (e.g. the district part
+    of a fake address). A span lying inside a pseudonym occurrence is not a leak."""
+    vault = _vault_with({
+        "ADDRESS": ("99/1 เขตบางรัก", "412 เขตพระโขนง"),
+        "NAME": ("สมชาย ใจดี", "บุญชัย"),
+    })
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    pseudonymized = "ผมชื่อ บุญชัย อยู่บ้านเลขที่ 412 เขตพระโขนง มาหลายปีแล้วครับ"
+    result = send_to_ai(pseudonymized, registry, vault, FakeLLMProvider())
+    assert result.text == pseudonymized
+
+
+def test_pre_send_still_blocks_real_name_beside_pseudonyms():
+    """A real (cue-detectable) name left in the outbound text must still halt
+    the send even when pseudonyms are present elsewhere."""
+    vault = _vault_with({
+        "NAME": ("สมชาย ใจดี", "บุญชัย"),
+        "PHONE": ("081-234-5678", "098-625-9566"),
+    })
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    leaky = (
+        "ผมชื่อ บุญชัย เบอร์ 098-625-9566 "
+        "ส่วนหัวหน้าผมชื่อ วิชัย ทองแท้ ครับ"
+    )
+    with pytest.raises(PreSendValidationError):
+        send_to_ai(leaky, registry, vault, FakeLLMProvider())
+
+
+def test_pre_send_still_blocks_real_thai_id_beside_pseudonyms():
+    """A checksum-valid Thai ID left in the outbound text must still halt the send."""
+    vault = _vault_with({"NAME": ("สมชาย ใจดี", "บุญชัย")})
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    leaky = "ผมชื่อ บุญชัย เลขบัตรประชาชน 1101700230708"
+    with pytest.raises(PreSendValidationError):
+        send_to_ai(leaky, registry, vault, FakeLLMProvider())
+
+
+def _http_status_error(status: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://test")
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError(f"HTTP {status}", request=request, response=response)
+
+
+def test_send_to_ai_4xx_is_fatal_no_retry():
+    """Auth/bad-request errors will never succeed on retry: fail fast + rollback."""
+    vault, _ = _make_vault_with_record()
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    calls = {"n": 0}
+
+    class AuthFailProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            calls["n"] += 1
+            raise _http_status_error(401)
+
+    original_table_size = len(vault._table)
+    with pytest.raises(httpx.HTTPStatusError):
+        send_to_ai("text", registry, vault, AuthFailProvider())
+    assert calls["n"] == 1  # no retry on non-transient HTTP error
+    assert len(vault._table) == original_table_size  # vault rolled back
+
+
+def test_send_to_ai_5xx_is_retried():
+    """Server errors are transient: retry with backoff, then succeed."""
+    vault = SessionVault()
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    calls = {"n": 0}
+
+    class FlakyProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_status_error(500)
+            return user
+
+    result = send_to_ai("text", registry, vault, FlakyProvider())
+    assert calls["n"] == 2
+    assert result.text == "text"
 
 
 def test_pre_send_blocks_tb_name_leak():

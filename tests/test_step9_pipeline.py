@@ -1,11 +1,16 @@
 """Integration tests for the end-to-end pipeline (Step 9)."""
 import uuid
+from pathlib import Path
 
 import pytest
 
 from pii_redactor.ai_client import FakeLLMProvider
 from pii_redactor.output_validator import ValidationResult
 from pii_redactor.pipeline import PipelineResult, run_pipeline
+
+EXAMPLE_PROMPTS = sorted(
+    (Path(__file__).resolve().parents[1] / "examples" / "prompts").glob("*.txt")
+)
 
 
 def test_pipeline_returns_pipeline_result():
@@ -70,6 +75,22 @@ def test_pipeline_raises_when_both_inputs():
 def test_pipeline_validation_result_is_validation_result():
     result = run_pipeline(text="No PII here.", provider=FakeLLMProvider())
     assert isinstance(result.validation_result, ValidationResult)
+
+
+@pytest.mark.parametrize(
+    "prompt_path", EXAMPLE_PROMPTS, ids=[p.stem for p in EXAMPLE_PROMPTS]
+)
+def test_pipeline_example_prompts_roundtrip(prompt_path):
+    """The shipped example prompts must survive the full pipeline.
+
+    Regression: the pre-send guard used exact-match pseudonym exclusion, but
+    NER emits fuzzy spans around embedded pseudonyms (title/context words get
+    swallowed into the span), so every Thai prompt with a title-cued name
+    halted with PreSendValidationError.
+    """
+    result = run_pipeline(input_path=str(prompt_path), provider=FakeLLMProvider())
+    assert isinstance(result, PipelineResult)
+    assert result.reverse_result.text  # round-trip completed
 
 
 def test_pipeline_with_thai_phone():

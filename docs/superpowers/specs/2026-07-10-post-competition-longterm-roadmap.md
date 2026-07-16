@@ -13,6 +13,20 @@
 
 ผลต่อแผน: item ที่มี "[พัก - OSS solo]" หรือ "[ปรับ - unsigned]" กำกับด้านล่าง ถูกปรับตาม decision เหล่านี้แล้ว ลำดับความสำคัญจริงอยู่ในหัวข้อ "ลำดับที่แนะนำหลังล็อก decision" ท้ายเอกสาร
 
+## อัปเดตสถานะ (2026-07-16)
+
+Horizon 1 คืบไปมากแล้ว สถานะจริง ณ วันนี้ (ยืนยันจากโค้ด/CI ไม่ใช่จากความจำ):
+
+- **#1 แก้ 3 recall leak — เสร็จ** (PR #25, regression ใน `tests/test_recall_leaks.py` ครอบ Thai-glued PII, +66, per-page PDF routing รวมถึง fix ตามหลัง PR #28/#29)
+- **#2 Harden localhost API — เสร็จเกือบหมด**: CORS เป็น strict allowlist (`allow_origin_regex` เฉพาะ extension/Tauri ไม่ใช่ `*`), TrustedHost, `/api/shutdown` ต้องมี header `X-AIGuard-Local`, `_SESSIONS` มี TTL 1800s + `DELETE /api/session/{id}` (ทดสอบใน `tests/test_api_hardening.py`) — **ยังไม่ทำ**: random boot token (`X-AIGuard-Token`) บน mutating endpoint ทั่วไป
+- **#3 CI test gate — เสร็จ** (PR #24, `.github/workflows/ci.yml`: pytest win+ubuntu, core-only job, cargo test, JS syntax check, windows exe smoke)
+- **#4 Collision-safe pseudonym + span merge — ยังไม่ทำ**
+- **#5 Single-source version — ยังไม่ทำ** (Cargo.toml drift 2.1.0 แก้เป็น 2.2.0 แล้ว 2026-07-16 แต่ยังไม่มี VERSION ไฟล์เดียว + CI drift check)
+- **#6 CWS submission / #7 booth latency — ยังไม่ทำ** (ตาราง latency ใน booth-checklist ยังเป็น placeholder)
+- นอกแผน: benchmark v1+v2 (gold) + NER strategy ADR + union engine ใน `detect_tb` เสร็จแล้ว (2026-07-13 ถึง 07-15) ซึ่งกินเนื้องานส่วนใหญ่ของ #9 ล่วงหน้า
+
+ตาราง "ปัญหา/หนี้ที่ยืนยันแล้ว" ด้านล่างคง snapshot ของวันที่ 2026-07-10 ไว้ตามเดิม ให้อ่านคู่กับสถานะข้างบนนี้
+
 ---
 
 ## ภาพรวมระบบตอนนี้ (ground truth)
@@ -27,7 +41,7 @@
 ### จุดแข็งที่มีจริง
 
 - Defense-in-depth ของ CLI path (สแกนซ้ำ 3 จุด แต่ละจุด raise ได้จริง) ออกแบบดี
-- แยก step ชัด แต่ละ module เล็ก มี dataclass contract + test file เฉพาะ (~270 tests, 23 ไฟล์)
+- แยก step ชัด แต่ละ module เล็ก มี dataclass contract + test file เฉพาะ (ชุดทดสอบอัตโนมัติหลายร้อยเคส ตัวเลขจริงดูจาก `pytest --collect-only` / CI ไม่เขียนเลขตายตัวในเอกสารตาม kill-list)
 - Pseudonym แบบ SHA256-seeded ให้ consistency ต่อเอกสารและ reproducible ไม่พึ่ง LLM ไม่มี network ตอน generate
 - FP detection มี checksum จริง (Thai ID mod-11, Luhn) ทำให้ precision ของ structured PII สูง
 - Optional-dependency pattern (OCR / MiniLM) สะอาด degrade เป็น no-op ได้
