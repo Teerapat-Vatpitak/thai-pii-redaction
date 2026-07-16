@@ -12,7 +12,7 @@ class _FakeNER:
 
 
 def _reset(monkeypatch):
-    monkeypatch.setattr(tb_detector, "_ner", None)
+    monkeypatch.setattr(tb_detector, "_ner_cache", {})
 
 
 # --- Tier 1: always runs, no transformers required -------------------------
@@ -68,3 +68,20 @@ def test_wangchanberta_real_engine_detects_person(monkeypatch):
     tagged = ner.tag("นายสมชาย ใจดี อาศัยอยู่ที่กรุงเทพมหานคร")
     labels = {tag.split("-", 1)[1] for _, tag in tagged if tag != "O"}
     assert "PERSON" in labels
+
+
+def test_engine_is_cached_after_first_load(monkeypatch):
+    monkeypatch.delenv("AIGUARD_NER_ENGINE", raising=False)
+    _reset(monkeypatch)
+    calls = {"n": 0}
+
+    class _CountingNER:
+        def __init__(self, engine):
+            calls["n"] += 1
+            self.engine = engine
+
+    monkeypatch.setattr(tb_detector, "NER", _CountingNER)
+    first = tb_detector._get_ner()
+    second = tb_detector._get_ner()
+    assert first is second
+    assert calls["n"] == 1

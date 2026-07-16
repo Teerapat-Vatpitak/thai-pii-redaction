@@ -18,11 +18,11 @@ def run_benchmark(
     # first load. Reset it (and restore afterward) so switching engines in one
     # process actually takes effect and the benchmark never pollutes other tests.
     prev_env = os.environ.get("AIGUARD_NER_ENGINE")
-    prev_ner = tb_detector._ner
+    prev_ner = dict(tb_detector._ner_cache)
     os.environ["AIGUARD_NER_ENGINE"] = (
         "wangchanberta" if engine == "wangchanberta" else "thainer"
     )
-    tb_detector._ner = None
+    tb_detector._ner_cache = {}
     try:
         samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
         predictions = []
@@ -30,7 +30,7 @@ def run_benchmark(
             ents = detect_all(s.text)
             predictions.append([(e.span[0], e.span[1], e.data_type) for e in ents])
     finally:
-        tb_detector._ner = prev_ner
+        tb_detector._ner_cache = prev_ner
         if prev_env is None:
             os.environ.pop("AIGUARD_NER_ENGINE", None)
         else:
@@ -86,14 +86,14 @@ def run_strategy_comparison(
     samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
 
     def _run(engine_env: str):
-        prev_ner = tb_detector._ner
+        prev_ner = dict(tb_detector._ner_cache)
         prev_env = os.environ.get("AIGUARD_NER_ENGINE")
         os.environ["AIGUARD_NER_ENGINE"] = engine_env
-        tb_detector._ner = None
+        tb_detector._ner_cache = {}
         try:
             return [detect_all(s.text) for s in samples]
         finally:
-            tb_detector._ner = prev_ner
+            tb_detector._ner_cache = prev_ner
             if prev_env is None:
                 os.environ.pop("AIGUARD_NER_ENGINE", None)
             else:

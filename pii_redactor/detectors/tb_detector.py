@@ -44,19 +44,21 @@ _ENGINE_CONFIG: dict[str, dict[str, str | None]] = {
     "wangchanberta": {"ner_engine": "thainer-v2", "requires": "transformers"},
 }
 
-# Lazy-initialized NER instance (first call triggers model load)
-_ner: NER | None = None
+# Lazy NER cache, keyed by AIGUARD_NER_ENGINE value (first use per engine loads
+# the model). A dict rather than a single slot so `union` can hold both engines.
+_ner_cache: dict[str, "NER"] = {}
 
 
-def _get_ner() -> NER:
-    global _ner
-    if _ner is None:
-        name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
-        if name not in _ENGINE_CONFIG:
-            raise ValueError(
-                f"Unknown AIGUARD_NER_ENGINE={name!r}; "
-                f"supported: {sorted(_ENGINE_CONFIG)}"
-            )
+def _load_ner(name: str) -> NER:
+    """Return the NER engine for a single engine name (thainer / wangchanberta),
+    loading and caching it on first use. Raises ValueError for an unknown name
+    and NEREngineUnavailableError if the engine's dependency is missing."""
+    if name not in _ENGINE_CONFIG:
+        raise ValueError(
+            f"Unknown AIGUARD_NER_ENGINE={name!r}; "
+            f"supported: {sorted(_ENGINE_CONFIG)} (or 'union')"
+        )
+    if name not in _ner_cache:
         config = _ENGINE_CONFIG[name]
         requires = config["requires"]
         if requires is not None:
@@ -67,8 +69,14 @@ def _get_ner() -> NER:
                     f"AIGUARD_NER_ENGINE={name!r} requires {requires!r}. "
                     f"Run: pip install -r requirements-ml.txt"
                 ) from None
-        _ner = NER(engine=config["ner_engine"])
-    return _ner
+        _ner_cache[name] = NER(engine=config["ner_engine"])
+    return _ner_cache[name]
+
+
+def _get_ner() -> NER:
+    """Select the single engine named by AIGUARD_NER_ENGINE (default thainer)."""
+    name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
+    return _load_ner(name)
 
 
 # ---------------------------------------------------------------------------
