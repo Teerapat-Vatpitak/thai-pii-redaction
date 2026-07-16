@@ -48,8 +48,22 @@ class SessionVault:
 
         Args:
             record: VaultRecord to store
+
+        Raises:
+            ValueError: if the pseudonym is already mapped to a different
+                original — a silent reverse-index overwrite would restore
+                the wrong person's data.
         """
         self._touch()
+        existing_owner_id = self._reverse.get(record.pseudonym)
+        if existing_owner_id is not None and existing_owner_id != record.entity_id:
+            existing_owner = self._table.get(existing_owner_id)
+            if existing_owner is not None and existing_owner.original != record.original:
+                # SECURITY: no pseudonym/original in the message (audit-safe)
+                raise ValueError(
+                    f"pseudonym collision: entity {record.entity_id[:8]} "
+                    f"vs {existing_owner_id[:8]}"
+                )
         # Clean up stale reverse mapping if entity_id already exists with a different pseudonym
         if record.entity_id in self._table:
             old_pseudonym = self._table[record.entity_id].pseudonym

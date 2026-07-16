@@ -9,9 +9,12 @@ import hashlib
 import random
 
 
-def _seeded_rng(salt: str, original: str) -> random.Random:
+def _seeded_rng(salt: str, original: str, attempt: int = 0) -> random.Random:
+    # attempt=0 keeps the historical seed so existing pseudonyms stay stable;
+    # attempt>0 re-rolls deterministically when a collision must be resolved.
+    material = f"{salt}:{original}" if attempt == 0 else f"{salt}:{original}:{attempt}"
     seed = int.from_bytes(
-        hashlib.sha256(f"{salt}:{original}".encode()).digest()[:4],
+        hashlib.sha256(material.encode()).digest()[:4],
         "big",
     )
     return random.Random(seed)
@@ -112,21 +115,22 @@ def _gen_generic(rng: random.Random, original: str) -> str:
     return "".join(result)
 
 
-def generate_fp(data_type: str, original: str, *, salt: str) -> str:
+def generate_fp(data_type: str, original: str, *, salt: str, attempt: int = 0) -> str:
     """Generate a format-preserving pseudonym for a given entity.
 
-    Deterministic: same (data_type, original, salt) -> same pseudonym.
+    Deterministic: same (data_type, original, salt, attempt) -> same pseudonym.
     Uses seeded random: seed = int.from_bytes(SHA256(f"{salt}:{original}").digest()[:4], 'big')
 
     Args:
         data_type: entity type (THAI_ID, PHONE, EMAIL, etc.)
         original: the real PII value
         salt: per-process random salt (never stored)
+        attempt: collision re-roll counter; 0 = the stable deterministic value
 
     Returns:
         A format-preserving fake string
     """
-    rng = _seeded_rng(salt, original)
+    rng = _seeded_rng(salt, original, attempt)
 
     if data_type == "THAI_ID":
         return _gen_thai_id(rng)

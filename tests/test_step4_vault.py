@@ -44,6 +44,26 @@ def test_vault_write_and_read_by_pseudonym():
     assert result is record
 
 
+def test_vault_write_rejects_pseudonym_collision_between_people():
+    """One pseudonym must never map to two different originals: the reverse
+    index would silently point at the last writer and restore the wrong person."""
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="บุญชัย"))
+    with pytest.raises(ValueError):
+        vault.write(_make_record(original="วิชัย ทองแท้", pseudonym="บุญชัย"))
+    # first mapping must be intact
+    assert vault.get_by_pseudonym("บุญชัย").original == "สมชาย ใจดี"
+
+
+def test_vault_write_allows_same_pseudonym_for_same_original():
+    """Consistency path: two entities for the SAME original may share the
+    pseudonym (repeated mentions of one person)."""
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="บุญชัย"))
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="บุญชัย"))
+    assert vault.get_by_pseudonym("บุญชัย").original == "สมชาย ใจดี"
+
+
 def test_vault_get_missing_returns_none():
     """Test that get returns None for nonexistent entries."""
     vault = SessionVault()

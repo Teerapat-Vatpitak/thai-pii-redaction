@@ -34,6 +34,12 @@ _THAI_WORD = re.compile(r"^[ก-๛]{2,}$")
 _NOT_NAME = {
     "ชื่อ", "นามสกุล", "คือ", "ครับ", "ค่ะ", "คะ", "นะ", "และ", "ที่", "ของ", "จาก",
     "อยู่", "เป็น", "อายุ", "มา", "ไป", "ได้", "เบอร์", "อีเมล", "โทร",
+    # document-label nouns ("ผมชื่อ สมชาย รหัสพนักงาน …") — never part of a
+    # person name; without these the group collector swallows the label after
+    # the name as a fake surname. Both compound tokens and their newmm splits.
+    "เลข", "หมายเลข", "บัตร", "บัตรประชาชน", "เลขบัตรประชาชน", "ประชาชน",
+    "รหัส", "รหัสพนักงาน", "พนักงาน", "บัญชี", "เลขบัญชี", "เลขที่บัญชี",
+    "ธนาคาร", "โทรศัพท์", "มือถือ", "ที่อยู่", "ทะเบียน", "เอกสาร",
 }
 
 

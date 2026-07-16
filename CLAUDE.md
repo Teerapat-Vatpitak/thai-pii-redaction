@@ -120,7 +120,7 @@ Two parallel detection passes on the Normalized Document Model:
 - **Sensitive semantic (optional)**: `sensitive_detector.py` — MiniLM sentence-embedding similarity flags free-form PDPA Section 26 content (health, religion, etc.) the keyword scan misses. Non-generative (flags existing spans only). Requires `requirements-ml.txt`; degrades to no-op when absent.
 
 Post-detection:
-- Span boundary adjustment + deduplication (map repeated entities to original)
+- Span boundary adjustment + deduplication (map repeated entities to original). Both the web API (`detect_all`) and the CLI pipeline resolve FP/TB span overlaps through the central `detectors/aggregate.py dedupe_spans` (FP wins — checksum-backed) before any replacement; unresolved overlaps would corrupt the text during the anonymizer's tail-first splice.
 - False negative scan: lightweight second pass (13-digit, `@`, date patterns)
 - **Entity Registry**: `entity_id`, `redact_type` (FP/TB), `data_type`, `span`, `score`
 - Output: Detection Report → Step 3
@@ -132,6 +132,7 @@ Session mapping table (in-memory only, never written to disk; keyed by `entity_i
 - If new entity → route by `redact_type`:
   - **FP**: `anonymizer/fp_generator.py` `generate_fp()` — format-preserving generator per `data_type` (valid checksum, SHA256-seeded per entity for reproducibility; no LLM)
   - **TB**: `anonymizer/tb_generator.py` `generate_tb()` — realistic Thai names/addresses from local hardcoded pools, seeded per entity (no LLM; nothing is sent anywhere)
+  - **Collision-safe**: the fake pools are small, so two different people can draw the same pseudonym. `anonymizer.py _generate_unique_pseudonym` rejects a candidate that is already vaulted for a different original, equals another entity's real value, or appears verbatim in the source text; it re-rolls the seed (generators take `attempt=`) up to 8 times, then forces uniqueness with a `#N` suffix (mirrors the web path). Same original → same pseudonym is still allowed (consistency).
 
 Replace real data using character spans from the entity registry (tail-first so earlier offsets stay valid) → consistency check (same entity everywhere) → post-replace scan with `detect_fp` (verify no real structured PII remains; halt + alert if found).
 
@@ -139,7 +140,7 @@ Output: **Pseudonymized Document** + session mapping table (for re-identificatio
 
 **Step 4 - Session mapping table** (`pii_redactor/session_vault.py`, `SessionVault`)
 
-In-memory only (never persisted), keyed by `entity_id`, with a reverse index keyed by pseudonym for Step 6. Idle timeout (default 1800s) raises `VaultTimeoutError` on read; `snapshot()`/`restore()` support rollback around a failed AI call; `clear()` overwrites `original` with null bytes before dropping references. Its own internal audit log records only `{action, entity_id, timestamp, session_id}` — no PII.
+In-memory only (never persisted), keyed by `entity_id`, with a reverse index keyed by pseudonym for Step 6. `write()` raises `ValueError` if a pseudonym is already mapped to a different original (a silent reverse-index overwrite would restore the wrong person). Idle timeout (default 1800s) raises `VaultTimeoutError` on read; `snapshot()`/`restore()` support rollback around a failed AI call; `clear()` overwrites `original` with null bytes before dropping references. Its own internal audit log records only `{action, entity_id, timestamp, session_id}` — no PII.
 
 **Step 5 - Send to AI** (`pii_redactor/ai_client.py`, `send_to_ai`)
 

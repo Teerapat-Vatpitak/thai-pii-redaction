@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.detectors.name_context import detect_name_context
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import AIResponse, EntityRegistry
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
@@ -117,6 +118,30 @@ def _pseudonym_ranges(text: str, pseudonyms: list[str]) -> list[tuple[int, int]]
     return claimed
 
 
+def _cue_leak_in_window(
+    text: str, start: int, end: int, ranges: list[tuple[int, int]]
+) -> bool:
+    """
+    Cue-preserving re-check for a TB span straddling pseudonym occurrences.
+
+    Scanning the uncovered segments in isolation severs a title/intro cue from
+    a name on the far side of the pseudonym ('นาย <pseudonym> <leaked name>'),
+    which the bare-segment scan can miss when the CRF does not recognise the
+    bare name. Re-run the high-precision cue detector over the span plus a
+    little left context; a detected name covering any non-whitespace character
+    outside the pseudonym occurrences is a real leak.
+    """
+    ctx_start = max(0, start - 16)
+    window = text[ctx_start:end]
+    for nc in detect_name_context(window):
+        g0 = ctx_start + nc.span[0]
+        g1 = ctx_start + nc.span[1]
+        for i in range(max(g0, start), min(g1, end)):
+            if text[i].strip() and not any(cs <= i < ce for cs, ce in ranges):
+                return True
+    return False
+
+
 def _validate_pre_send(text: str, vault: SessionVault) -> None:
     """
     4 checks before sending any prompt to AI.
@@ -152,13 +177,30 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
                 # Span sits entirely inside one pseudonym occurrence.
                 continue
             if entity.redact_type == "TB":
-                # Fuzzy NER span straddling pseudonym(s): strip the pseudonym
-                # text and re-scan what is left. FP spans are exact and never
-                # get this leniency.
-                remainder = entity.original_text
-                for p in ordered:
-                    remainder = remainder.replace(p, " ")
-                if not detect_fp(remainder) and not detect_tb(remainder):
+                # Fuzzy NER span straddling pseudonym(s): re-scan only the
+                # parts of the span NOT covered by pseudonym occurrences.
+                # Positional slicing, not string replace — the span may cover
+                # a mere fragment of a pseudonym ('เขตสาทร' out of
+                # '556 เขตสาทร'), which whole-string stripping leaves behind.
+                # Each segment is scanned SEPARATELY: joining them would
+                # fabricate adjacency the text never had (a name cue glued to
+                # the word after the pseudonym reads as a fresh name).
+                # FP spans are exact and never get this leniency.
+                segments = []
+                pos = start
+                for cs, ce in sorted(overlapping):
+                    if cs > pos:
+                        segments.append(text[pos:min(cs, end)])
+                    pos = max(pos, ce)
+                if pos < end:
+                    segments.append(text[pos:end])
+                segments_clean = all(
+                    not seg.strip() or (not detect_fp(seg) and not detect_tb(seg))
+                    for seg in segments
+                )
+                if segments_clean and not _cue_leak_in_window(
+                    text, start, end, ranges
+                ):
                     continue
         real_leaks.append(entity)
     if real_leaks:

@@ -152,6 +152,66 @@ def test_pre_send_allows_fragment_inside_pseudonym():
     assert result.text == pseudonymized
 
 
+def test_pre_send_allows_span_straddling_pseudonym_fragment():
+    """NER can emit a span covering a FRAGMENT of one pseudonym plus a whole
+    neighbouring pseudonym (e.g. 'เขตสาทร 3548205739' out of the address
+    pseudonym '556 เขตสาทร' followed by a bank pseudonym). The remainder must
+    be computed positionally — string-stripping whole pseudonyms leaves the
+    fragment behind and re-flags it as ADDRESS."""
+    vault = _vault_with({
+        "NAME": ("วิชัย มั่งมี", "ชัยวัฒน์"),
+        "THAI_ID": ("3-1009-02845-17-2", "8079110812780"),
+        "ADDRESS": ("เลขที่บัญชี", "556 เขตสาทร"),
+        "BANK_ACCOUNT": ("123-4-56789-0", "3548205739"),
+        "PHONE": ("086-111-2233", "062-837-6229"),
+    })
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    pseudonymized = (
+        "ช่วยเขียนคำร้องเรียนถึงธนาคารให้หน่อย\n"
+        "ผมชื่อ ชัยวัฒน์ เลขบัตรประชาชน 8079110812780\n"
+        "556 เขตสาทร 3548205739 เบอร์โทร 062-837-6229\n"
+        "ถูกหักค่าธรรมเนียมผิดปกติ 3 ครั้งในเดือนนี้ ขอให้ตรวจสอบและคืนเงินด้วยครับ"
+    )
+    result = send_to_ai(pseudonymized, registry, vault, FakeLLMProvider())
+    assert result.text == pseudonymized
+
+
+def test_pre_send_remainder_segments_scanned_separately():
+    """Joining uncovered segments fabricates adjacency the text never had:
+    'ผมชื่อ <pseudonym> เลขบัตรประชาชน' yields segments 'ผมชื่อ ' and
+    ' เลขบัตรประชาชน' — glued together the name-cue booster reads
+    'เลขบัตรประชาชน' as a name after the cue. Each segment must be scanned
+    on its own."""
+    vault = _vault_with({
+        "NAME": ("วิชัย มั่งมี", "พิทักษ์"),
+        "THAI_ID": ("3-1009-02845-17-2", "4504557656411"),
+        "ADDRESS": ("เลขที่บัญชี", "927 อำเภอบางพลี"),
+        "BANK_ACCOUNT": ("123-4-56789-0", "1444908633"),
+        "PHONE": ("086-111-2233", "060-428-3914"),
+    })
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    pseudonymized = (
+        "ช่วยเขียนคำร้องเรียนถึงธนาคารให้หน่อย\n"
+        "ผมชื่อ พิทักษ์ เลขบัตรประชาชน 4504557656411\n"
+        "927 อำเภอบางพลี 1444908633 เบอร์โทร 060-428-3914\n"
+        "ถูกหักค่าธรรมเนียมผิดปกติ 3 ครั้งในเดือนนี้ ขอให้ตรวจสอบและคืนเงินด้วยครับ"
+    )
+    result = send_to_ai(pseudonymized, registry, vault, FakeLLMProvider())
+    assert result.text == pseudonymized
+
+
+def test_pre_send_blocks_leak_whose_cue_is_split_by_pseudonym():
+    """A cue-detected span 'นาย <pseudonym> <real name>' must still halt even
+    when the CRF cannot recognise the bare real name standalone: scanning the
+    uncovered segments in isolation severs the title cue from the leaked name,
+    so a cue-preserving re-check over the span window is required."""
+    vault = _vault_with({"NAME": ("สมชาย ใจดี", "บุญชัย")})
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    leaky = "เรียน นาย บุญชัย วิชัย ทองแท้ ครับ"
+    with pytest.raises(PreSendValidationError):
+        send_to_ai(leaky, registry, vault, FakeLLMProvider())
+
+
 def test_pre_send_still_blocks_real_name_beside_pseudonyms():
     """A real (cue-detectable) name left in the outbound text must still halt
     the send even when pseudonyms are present elsewhere."""
