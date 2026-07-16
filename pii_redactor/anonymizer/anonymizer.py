@@ -1,5 +1,9 @@
 """Pseudonymization orchestrator.
 
+Two modes: mode="surrogate" (default) draws realistic fake values from
+fp_generator/tb_generator with collision-safe re-rolls; mode="token" emits
+bracket tokens like [ชื่อ_1] via token_generator (web AI-Guard default).
+
 Algorithm:
 1. Sort entities by span[0] DESCENDING (tail-first) to preserve offsets during replacement.
 2. For each entity: vault cache hit -> reuse pseudonym; miss -> generate -> write to vault.
@@ -16,6 +20,7 @@ from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, V
 from pii_redactor.session_vault import SessionVault
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
+from pii_redactor.anonymizer.token_generator import generate_token
 from pii_redactor.detectors.fp_detector import detect_fp
 
 
@@ -75,11 +80,20 @@ def _generate_unique_pseudonym(
     Re-rolls the seed up to _MAX_COLLISION_REROLLS times. Last resort differs
     by redact_type: FP keeps re-rolling (a '#N' suffix would leave the valid
     FP-looking base embedded in the output and detect_fp would re-flag it) and
-    fails loudly when exhausted; TB may take a '#N' suffix (mirrors the web
-    path's _make_surrogate), but only on a base that is safe to embed — never
-    someone's real value or a string from the source text.
+    fails loudly when exhausted; TB may take a '#N' suffix (mirrors the
+    uniqueness rules the old web-path generator had), but only on a base that
+    is safe to embed — never someone's real value or a string from the source
+    text.
     """
     original = entity.original_text
+
+    # Cross-turn consistency: if this exact original already has a pseudonym
+    # in the vault (regardless of which entity_id produced it), reuse it —
+    # otherwise the same person can get a different fake name/address each
+    # turn depending on which sentence-context tb_generator happened to see.
+    existing = vault.get_by_original(original, data_type=entity.data_type)
+    if existing is not None:
+        return existing.pseudonym
 
     def _available(candidate: str) -> bool:
         if candidate == original:
@@ -129,12 +143,32 @@ def _generate_unique_pseudonym(
     )
 
 
+def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
+    """Token-mode pseudonym: reuse the token of the same (data_type, original);
+    otherwise take the next ordinal for that data_type (continues across turns
+    because the count comes from the vault, not from this call)."""
+    existing = vault.get_by_original(entity.original_text, data_type=entity.data_type)
+    if existing is not None:
+        return existing.pseudonym
+    distinct = {
+        r.original for r in vault._table.values() if r.data_type == entity.data_type
+    }
+    ordinal = len(distinct) + 1
+    token = generate_token(entity.data_type, ordinal)
+    # a bracket token colliding with source text is near-impossible; bump anyway
+    while token in text or token in vault._reverse:
+        ordinal += 1
+        token = generate_token(entity.data_type, ordinal)
+    return token
+
+
 def anonymize(
     text: str,
     entity_registry: EntityRegistry,
     vault: SessionVault,
     *,
     salt: str,
+    mode: str = "surrogate",
 ) -> PseudonymizedDocument:
     """Replace all detected PII entities with pseudonyms.
 
@@ -166,9 +200,12 @@ def anonymize(
         if existing is not None:
             pseudonym = existing.pseudonym
         else:
-            pseudonym = _generate_unique_pseudonym(
-                entity, text, salt, vault, all_originals
-            )
+            if mode == "token":
+                pseudonym = _next_token(entity, text, vault)
+            else:
+                pseudonym = _generate_unique_pseudonym(
+                    entity, text, salt, vault, all_originals
+                )
             vault.write(VaultRecord(
                 entity_id=entity.entity_id,
                 original=entity.original_text,

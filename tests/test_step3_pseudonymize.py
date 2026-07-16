@@ -355,3 +355,85 @@ def test_anonymize_fn_scanner_entities_get_realistic_fake_values():
     assert "[REDACTED_EMAIL]" not in result.text
     assert "1234567890123" not in result.text
     assert "foo@bar.com" not in result.text
+
+
+# ---------------------------------------------------------------------------
+# token_generator tests
+# ---------------------------------------------------------------------------
+
+def test_generate_token_known_type():
+    from pii_redactor.anonymizer.token_generator import generate_token
+    assert generate_token("NAME", 1) == "[ชื่อ_1]"
+    assert generate_token("PHONE", 3) == "[โทรศัพท์_3]"
+
+
+def test_generate_token_unknown_type_falls_back_to_type_name():
+    from pii_redactor.anonymizer.token_generator import generate_token
+    assert generate_token("MYSTERY", 2) == "[MYSTERY_2]"
+
+
+def test_token_label_map_matches_v2_contract():
+    from pii_redactor.anonymizer.token_generator import TOKEN_LABEL
+    assert TOKEN_LABEL["THAI_ID"] == "บัตรประชาชน"
+    assert TOKEN_LABEL["BANK_ACCOUNT"] == "บัญชีธนาคาร"
+    assert len(TOKEN_LABEL) == 13
+
+
+# ---------------------------------------------------------------------------
+# anonymize(mode="token") tests
+# ---------------------------------------------------------------------------
+
+def test_anonymize_token_mode_brackets_and_counters():
+    text = "email a@b.co and c@d.co and a@b.co"
+    e1 = _make_entity("EMAIL", text, 6, 12)     # a@b.co
+    e2 = _make_entity("EMAIL", text, 17, 23)    # c@d.co
+    e3 = _make_entity("EMAIL", text, 28, 34)    # a@b.co again
+    registry = EntityRegistry(entities=[e1, e2, e3], fp_count=3, tb_count=0)
+    vault = SessionVault()
+    result = anonymize(text, registry, vault, salt=SALT, mode="token")
+    assert "[อีเมล_1]" in result.text and "[อีเมล_2]" in result.text
+    assert "a@b.co" not in result.text and "c@d.co" not in result.text
+    # same original -> same token
+    p1 = vault.get_by_entity_id(e1.entity_id).pseudonym
+    p3 = vault.get_by_entity_id(e3.entity_id).pseudonym
+    assert p1 == p3
+    # distinct originals -> distinct ordinals
+    p2 = vault.get_by_entity_id(e2.entity_id).pseudonym
+    assert p2 != p1
+
+
+def test_anonymize_token_mode_ordinal_continues_across_calls():
+    """Second call on the SAME vault (multi-turn) must not reuse ordinal 1."""
+    vault = SessionVault()
+    t1 = "email a@b.co"
+    e1 = _make_entity("EMAIL", t1, 6, 12)
+    anonymize(t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0),
+              vault, salt=SALT, mode="token")
+    t2 = "email x@y.co"
+    e2 = _make_entity("EMAIL", t2, 6, 12)
+    r2 = anonymize(t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0),
+                   vault, salt=SALT, mode="token")
+    assert "[อีเมล_2]" in r2.text
+
+
+def test_anonymize_token_mode_same_original_across_calls_reuses_token():
+    vault = SessionVault()
+    t1 = "email a@b.co"
+    e1 = _make_entity("EMAIL", t1, 6, 12)
+    r1 = anonymize(t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0),
+                   vault, salt=SALT, mode="token")
+    t2 = "again a@b.co"
+    e2 = _make_entity("EMAIL", t2, 6, 12)
+    r2 = anonymize(t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0),
+                   vault, salt=SALT, mode="token")
+    assert "[อีเมล_1]" in r1.text and "[อีเมล_1]" in r2.text
+
+
+def test_anonymize_default_mode_is_surrogate():
+    text = "email a@b.co now"
+    e1 = _make_entity("EMAIL", text, 6, 12)
+    registry = EntityRegistry(entities=[e1], fp_count=1, tb_count=0)
+    vault = SessionVault()
+    result = anonymize(text, registry, vault, salt=SALT)
+    assert "[" not in result.text  # no bracket tokens in surrogate mode
+    assert "a@b.co" not in result.text
