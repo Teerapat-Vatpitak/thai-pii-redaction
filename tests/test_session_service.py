@@ -78,3 +78,9 @@ def test_drop_clears_and_reports():
     assert svc.drop(sid) is True
     assert svc.drop(sid) is False
     assert len(session.vault._table) == 0
+
+
+def test_unknown_mode_raises():
+    svc, _ = _svc()
+    with pytest.raises(ModeMismatchError):
+        svc._get_or_create(None, "Token")

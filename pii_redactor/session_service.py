@@ -77,9 +77,12 @@ class SessionService:
         now = self._now()
         # vault idle timeout mirrors the service TTL; the service check fires
         # first in practice because both reset on access
+        resolved_mode = mode or "token"
+        if resolved_mode not in ("token", "surrogate"):
+            raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
         session = _Session(
             vault=SessionVault(idle_timeout_s=self._ttl_s),
-            mode=mode or "token",
+            mode=resolved_mode,
             salt=secrets.token_hex(16),
             created=now,
             last_access=now,
