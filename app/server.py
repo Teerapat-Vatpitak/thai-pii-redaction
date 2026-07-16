@@ -5,9 +5,10 @@ on chatgpt.com / claude.ai and calls these endpoints on localhost.
 
 AI Guard uses TOKEN-mode pseudonymization (e.g. [ชื่อ_1]) so the round-trip
 through an external AI is robust and visually explicit. The token -> original
-map lives in an in-memory session store keyed by session_id. It is never
-written to disk and never sent over the network — consistent with the
-"vault never leaves the device" invariant for a local deployment.
+map lives in `pii_redactor.session_service.SessionService` (in-memory, keyed
+by session_id). It is never written to disk and never sent over the network
+— consistent with the "vault never leaves the device" invariant for a local
+deployment.
 """
 from __future__ import annotations
 
@@ -33,10 +34,6 @@ from pydantic import BaseModel
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
-from pii_redactor.detectors.fn_scanner import scan_fn
-from pii_redactor.detectors.aggregate import detect_all
-from pii_redactor.anonymizer.fp_generator import generate_fp
-from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
 from pii_redactor.ingest.text_cleaner import clean
@@ -102,7 +99,6 @@ def _get_audit_log_dir() -> str:
     return str(log_dir)
 
 
-_SESSIONS: dict[str, dict] = {}
 _SESSION_CAP = 200
 _SESSION_TTL_S = 1800
 
@@ -111,127 +107,23 @@ def _now() -> float:
     return time.monotonic()
 
 
-def _store_session(token_map: dict[str, str]) -> str:
-    sid = str(uuid.uuid4())
-    if len(_SESSIONS) >= _SESSION_CAP:
-        oldest = min(_SESSIONS, key=lambda k: _SESSIONS[k]["created"])
-        _SESSIONS.pop(oldest, None)
-    now = _now()
-    _SESSIONS[sid] = {"token_map": token_map, "created": now, "last_access": now}
-    return sid
+# The single core brain. now_fn is late-bound through the module global so
+# tests that monkeypatch app.server._now keep working.
+from pii_redactor.session_service import (  # noqa: E402
+    ModeMismatchError,
+    OutboundLeakError,
+    SessionExpiredError,
+    SessionService,
+)
 
-
-def _get_active_session(session_id: str) -> dict | None:
-    session = _SESSIONS.get(session_id)
-    if session is None:
-        return None
-    if _now() - session["last_access"] > _SESSION_TTL_S:
-        _drop_session(session_id)
-        return None
-    session["last_access"] = _now()
-    return session
-
-
-def _drop_session(session_id: str) -> bool:
-    session = _SESSIONS.pop(session_id, None)
-    if session is None:
-        return False
-    token_map = session.get("token_map") or {}
-    for k in list(token_map):
-        token_map[k] = ""
-    return True
-
-
-# ── token labels ───────────────────────────────────────────────────────
-_TOKEN_LABEL = {
-    "NAME": "ชื่อ", "SURNAME": "นามสกุล", "THAI_ID": "บัตรประชาชน",
-    "PHONE": "โทรศัพท์", "EMAIL": "อีเมล", "ADDRESS": "ที่อยู่",
-    "BANK_ACCOUNT": "บัญชีธนาคาร", "CREDIT_CARD": "บัตรเครดิต",
-    "DATE_OF_BIRTH": "วันเกิด", "PASSPORT": "พาสปอร์ต",
-    "STUDENT_ID": "รหัสนักศึกษา", "VEHICLE_PLATE": "ทะเบียนรถ", "IBAN": "ไอแบน",
-}
-
-
-def _make_surrogate(entity, text: str, salt: str, used: set) -> str:
-    """Generate a realistic, valid-format fake value for an entity.
-
-    Unique within this document so re-identification is unambiguous: avoids
-    duplicating another pseudonym or coinciding with text already present.
-    """
-    fake = ""
-    for attempt in range(8):
-        s = salt if attempt == 0 else f"{salt}:{attempt}"
-        if entity.redact_type == "FP":
-            fake = generate_fp(entity.data_type, entity.original_text, salt=s)
-        else:
-            ctx = text[: entity.span[0]] + "___" + text[entity.span[1] :]
-            fake = generate_tb(entity.data_type, ctx, salt=s, original=entity.original_text)
-        if fake and fake not in used and fake != entity.original_text and fake not in text:
-            return fake
-    return f"{fake}#{len(used) + 1}"  # last-resort disambiguation
-
-
-def _tokenize(text: str, mode: str = "token") -> dict:
-    """Detect PII, assign consistent pseudonyms, build sanitized text.
-
-    mode="token"     -> bracket tokens like [ชื่อ_1] (explicit, robust)
-    mode="surrogate" -> realistic valid-format fake data (reads naturally to the AI)
-
-    Returns a dict with original_text, sanitized_text, entities[], token_map,
-    entity_type_counts, section26[]. token_map maps pseudonym -> original.
-    """
-    entities = detect_all(text)
-
-    salt = uuid.uuid4().hex
-    # assign pseudonyms: same original value -> same pseudonym (consistency)
-    token_map: dict[str, str] = {}       # pseudonym -> original
-    by_original: dict[tuple, str] = {}    # (data_type, original) -> pseudonym
-    counters: dict[str, int] = {}
-    out_entities = []
-
-    for e in entities:
-        key = (e.data_type, e.original_text)
-        if key in by_original:
-            token = by_original[key]
-        elif mode == "surrogate":
-            token = _make_surrogate(e, text, salt, set(token_map))
-            by_original[key] = token
-            token_map[token] = e.original_text
-        else:
-            counters[e.data_type] = counters.get(e.data_type, 0) + 1
-            label = _TOKEN_LABEL.get(e.data_type, e.data_type)
-            token = f"[{label}_{counters[e.data_type]}]"
-            by_original[key] = token
-            token_map[token] = e.original_text
-        out_entities.append({
-            "start": e.span[0], "end": e.span[1],
-            "data_type": e.data_type, "redact_type": e.redact_type,
-            "token": token,
-        })
-
-    # build sanitized text (tail-first replacement preserves offsets)
-    sanitized = text
-    for e in sorted(out_entities, key=lambda x: x["start"], reverse=True):
-        sanitized = sanitized[:e["start"]] + e["token"] + sanitized[e["end"]:]
-
-    type_counts: dict[str, int] = {}
-    for e in out_entities:
-        type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
-
-    return {
-        "original_text": text,
-        "sanitized_text": sanitized,
-        "entities": out_entities,
-        "token_map": token_map,
-        "entity_type_counts": type_counts,
-        "section26": scan_section26(text),
-    }
+SERVICE = SessionService(cap=_SESSION_CAP, ttl_s=_SESSION_TTL_S, now_fn=lambda: _now())
 
 
 # ── request models ─────────────────────────────────────────────────────
 class SanitizeRequest(BaseModel):
     text: str
-    mode: str = "token"  # "token" -> [ชื่อ_1] ; "surrogate" -> realistic fake data
+    mode: str | None = None      # "token" (default) | "surrogate"; None inherits session mode
+    session_id: str | None = None  # reuse an existing session for multi-turn consistency
 
 
 class ReidentifyRequest(BaseModel):
@@ -295,72 +187,72 @@ def sanitize(request: SanitizeRequest):
     start = time.time()
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
-    mode = request.mode if request.mode in ("token", "surrogate") else "token"
+    mode = request.mode if request.mode in ("token", "surrogate") else None
     clean_text = clean(request.text).text
     try:
-        result = _tokenize(clean_text, mode)
-    except Exception as e:  # pragma: no cover - defensive
-        raise HTTPException(status_code=500, detail=str(e))
+        out = SERVICE.sanitize(clean_text, mode=mode, session_id=request.session_id)
+    except SessionExpiredError:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    except ModeMismatchError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OutboundLeakError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "pii_leak_risk", "types": e.leak_types},
+        )
 
-    sid = _store_session(result["token_map"])
     write_process_log(
-        session_id=sid,
+        session_id=out.session_id,
         step="api_sanitize",
-        entity_count=len(result["entities"]),
-        validation_result="pass",
-        flags=[],
+        entity_count=len(out.entities),
+        validation_result="warn" if out.warnings else "pass",
+        flags=list(out.warnings),
         latency_ms=(time.time() - start) * 1000,
         output_dir=_get_audit_log_dir(),
     )
     return {
-        "session_id": sid,
-        "original_text": result["original_text"],
-        "sanitized_text": result["sanitized_text"],
-        "entities": result["entities"],
-        "entity_type_counts": result["entity_type_counts"],
-        "section26": result["section26"],
+        "session_id": out.session_id,
+        "original_text": out.original_text,
+        "sanitized_text": out.sanitized_text,
+        "entities": out.entities,
+        "entity_type_counts": out.entity_type_counts,
+        "section26": out.section26,
+        "warnings": out.warnings,
     }
 
 
 @app.post("/api/reidentify")
 def reidentify(request: ReidentifyRequest):
-    """Restore original PII by replacing tokens using the stored session map."""
+    """Restore original PII via the core reverse mapper + output validation."""
     start = time.time()
-    session = _get_active_session(request.session_id)
-    if session is None:
+    try:
+        out = SERVICE.restore(request.session_id, request.text)
+    except SessionExpiredError:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-
-    token_map: dict[str, str] = session["token_map"]
-    restored = request.text
-    replaced = []
-    # longest token first to avoid partial overlaps
-    for token in sorted(token_map, key=len, reverse=True):
-        if token in restored:
-            restored = restored.replace(token, token_map[token])
-            replaced.append({"token": token, "original": token_map[token]})
-
-    leftover = [t for t in token_map if t in restored]  # tokens not restored
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     write_process_log(
         session_id=request.session_id,
         step="api_reidentify",
-        entity_count=len(replaced),
-        validation_result="warn" if leftover else "pass",
-        flags=[f"leftover:{t}" for t in leftover],
+        entity_count=out.replaced_count,
+        validation_result="warn" if (out.leftover_tokens or out.warnings) else "pass",
+        flags=[f"leftover:{t}" for t in out.leftover_tokens],
         latency_ms=(time.time() - start) * 1000,
         output_dir=_get_audit_log_dir(),
     )
     return {
-        "restored_text": restored,
-        "replaced": replaced,
-        "replaced_count": len(replaced),
-        "leftover_tokens": leftover,
+        "restored_text": out.restored_text,
+        "replaced": out.replaced,
+        "replaced_count": out.replaced_count,
+        "leftover_tokens": out.leftover_tokens,
+        "warnings": out.warnings,
     }
 
 
 @app.delete("/api/session/{session_id}")
 def delete_session(session_id: str):
-    return {"deleted": _drop_session(session_id)}
+    return {"deleted": SERVICE.drop(session_id)}
 
 
 def _risk_label(score: float) -> str:
