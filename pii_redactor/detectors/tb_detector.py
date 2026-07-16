@@ -150,6 +150,54 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
 
 
 # ---------------------------------------------------------------------------
+# Sliding-window NER (single engine)
+# ---------------------------------------------------------------------------
+
+def _ner_candidates(
+    text: str, ner: NER, sentence_offsets: list[tuple[str, int]], window_size: int
+) -> list[Entity]:
+    """Run one NER engine over the sliding-sentence windows and return TB
+    Entity candidates mapped to original-text offsets (pre-dedup)."""
+    candidates: list[Entity] = []
+    for i, (sent_text, sent_offset) in enumerate(sentence_offsets):
+        window_start = max(0, i - window_size)
+        window_end = min(len(sentence_offsets), i + window_size + 1)
+        context_sents = sentence_offsets[window_start:window_end]
+
+        context_text = "".join(s for s, _ in context_sents)
+        context_sent_start = sum(len(s) for s, _ in context_sents[: i - window_start])
+        context_sent_end = context_sent_start + len(sent_text)
+
+        try:
+            tagged: list[tuple[str, str]] = ner.tag(context_text)
+        except Exception:
+            continue
+        if not tagged:
+            continue
+
+        raw_spans = _bio_to_spans(tagged, context_text)
+        for ent_text, ctx_start, ctx_end, label in raw_spans:
+            if ctx_start < context_sent_start or ctx_end > context_sent_end:
+                continue
+            data_type = LABEL_MAP.get(label)
+            if data_type is None:
+                continue
+            orig_start = sent_offset + (ctx_start - context_sent_start)
+            orig_end = sent_offset + (ctx_end - context_sent_start)
+            if (orig_end - orig_start) < 2:
+                continue
+            candidates.append(Entity(
+                entity_id=str(uuid.uuid4()),
+                redact_type="TB",
+                data_type=data_type,
+                span=(orig_start, orig_end),
+                score=0.85,
+                original_text=text[orig_start:orig_end],
+            ))
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # Main detector
 # ---------------------------------------------------------------------------
 
@@ -169,14 +217,11 @@ def detect_tb(text: str, *, window_size: int = 3) -> list[Entity]:
     if not text or not text.strip():
         return []
 
-    ner = _get_ner()
-
     # Step 1: Sentence tokenization with cumulative offsets
     raw_sentences = sent_tokenize(text, engine="crfcut")
     if not raw_sentences:
         return []
 
-    # Build (sentence_text, start_offset) pairs by walking through text
     sentence_offsets: list[tuple[str, int]] = []
     pos = 0
     for sent in raw_sentences:
@@ -186,60 +231,21 @@ def detect_tb(text: str, *, window_size: int = 3) -> list[Entity]:
         sentence_offsets.append((sent, idx))
         pos = idx + len(sent)
 
+    # Engine selection: union runs both, everything else is a single engine.
+    name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
+    if name == "union":
+        ners = [_load_ner("thainer"), _load_ner("wangchanberta")]
+    else:
+        ners = [_get_ner()]
+
     candidates: list[Entity] = []
+    for ner in ners:
+        candidates.extend(_ner_candidates(text, ner, sentence_offsets, window_size))
 
-    # Step 3: Sliding window NER
-    for i, (sent_text, sent_offset) in enumerate(sentence_offsets):
-        window_start = max(0, i - window_size)
-        window_end = min(len(sentence_offsets), i + window_size + 1)
-        context_sents = sentence_offsets[window_start:window_end]
-
-        # Build context string and track offset of current sentence within context
-        context_text = "".join(s for s, _ in context_sents)
-        context_sent_start = sum(len(s) for s, _ in context_sents[: i - window_start])
-        context_sent_end = context_sent_start + len(sent_text)
-
-        # Step 4: Run NER on context window (tag=None returns BIO tuple list)
-        try:
-            tagged: list[tuple[str, str]] = ner.tag(context_text)
-        except Exception:
-            continue
-
-        if not tagged:
-            continue
-
-        # Step 5: Decode BIO tags to spans within context
-        raw_spans = _bio_to_spans(tagged, context_text)
-
-        for ent_text, ctx_start, ctx_end, label in raw_spans:
-            # Only keep entities whose span falls within current sentence bounds
-            if ctx_start < context_sent_start or ctx_end > context_sent_end:
-                continue
-
-            data_type = LABEL_MAP.get(label)
-            if data_type is None:
-                continue
-
-            # Map context offsets to original text offsets
-            orig_start = sent_offset + (ctx_start - context_sent_start)
-            orig_end = sent_offset + (ctx_end - context_sent_start)
-
-            # Step 6: Span chokepoint — reject spans < 2 chars
-            if (orig_end - orig_start) < 2:
-                continue
-
-            candidates.append(Entity(
-                entity_id=str(uuid.uuid4()),
-                redact_type="TB",
-                data_type=data_type,
-                span=(orig_start, orig_end),
-                score=0.85,
-                original_text=text[orig_start:orig_end],
-            ))
-
-    # Recall booster: title/label-cued names the CRF missed or clipped.
+    # Recall booster: title/label-cued names the NER missed or clipped
+    # (engine-independent, added once).
     from pii_redactor.detectors.name_context import detect_name_context
     candidates.extend(detect_name_context(text))
 
-    # Step 7: Deduplication
+    # Deduplication
     return _deduplicate(candidates)

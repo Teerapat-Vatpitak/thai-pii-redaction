@@ -85,3 +85,41 @@ def test_engine_is_cached_after_first_load(monkeypatch):
     second = tb_detector._get_ner()
     assert first is second
     assert calls["n"] == 1
+
+
+def test_union_without_transformers_raises(monkeypatch):
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "union")
+    _reset(monkeypatch)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "transformers":
+            raise ImportError("mocked missing dependency")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    from pii_redactor.detectors.tb_detector import detect_tb
+    with pytest.raises(tb_detector.NEREngineUnavailableError, match="requirements-ml.txt"):
+        detect_tb("นายสมชาย ใจดี อยู่กรุงเทพมหานคร")
+
+
+def test_union_runs_both_engines_and_merges(monkeypatch):
+    pytest.importorskip("transformers")
+    _reset(monkeypatch)
+    from pii_redactor.detectors.tb_detector import detect_tb
+
+    # Name (title-cued, so it is caught regardless of engine) and a clearly
+    # separate address -- disjoint spans, so dedup never drops one for the other.
+    text = "นายวิชัย ประสงค์ดี อยู่บ้านเลขที่ 45/12 หมู่ 3 ตำบลบางพระ อำเภอศรีราชา จังหวัดชลบุรี"
+
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
+    crf_types = {e.data_type for e in detect_tb(text)}
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "union")
+    uni_types = {e.data_type for e in detect_tb(text)}
+
+    # Union mode ran and produced a person + a location.
+    assert "NAME" in uni_types
+    assert "ADDRESS" in uni_types
+    # Union keeps everything CRF alone found (superset; entities are disjoint so
+    # no cross-engine overlap can drop a type).
+    assert crf_types <= uni_types
