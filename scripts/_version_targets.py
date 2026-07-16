@@ -27,12 +27,14 @@ def read_version_file(root: Path) -> str:
 
 
 def _json_get(path: Path) -> Optional[str]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    # utf-8-sig: tolerate a BOM some Windows editors prepend; plain utf-8
+    # files read identically.
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
     return data.get("version")
 
 
 def _json_set(path: Path, new_version: str) -> None:
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     data = json.loads(text)
     if "version" not in data:
         return  # optional field (e.g. desktop/package.json) -- nothing to update
@@ -79,16 +81,23 @@ def _cargo_lock_set(path: Path, new_version: str) -> None:
         path.write_text(new_text, encoding="utf-8")
 
 
-def targets(root: Path) -> list[tuple[Path, Getter, Setter]]:
+def targets(root: Path) -> list[tuple[Path, Getter, Setter, bool]]:
     """Every file (besides VERSION itself) that carries the version string,
-    as (path-relative-to-root, getter, setter)."""
+    as (path-relative-to-root, getter, setter, optional).
+
+    `optional` distinguishes "this file may legitimately have no version
+    field" (True -- getter None is fine, skip it) from "this file MUST carry
+    a parseable version" (False -- getter None means the parser no longer
+    understands the file's structure, and check_version must fail loudly
+    rather than silently pass a broken drift gate).
+    """
     return [
-        (Path("extension/manifest.json"), _json_get, _json_set),
-        (Path("desktop/src-tauri/tauri.conf.json"), _json_get, _json_set),
-        (Path("desktop/src-tauri/Cargo.toml"), _cargo_toml_get, _cargo_toml_set),
-        (Path("desktop/src-tauri/Cargo.lock"), _cargo_lock_get, _cargo_lock_set),
+        (Path("extension/manifest.json"), _json_get, _json_set, False),
+        (Path("desktop/src-tauri/tauri.conf.json"), _json_get, _json_set, False),
+        (Path("desktop/src-tauri/Cargo.toml"), _cargo_toml_get, _cargo_toml_set, False),
+        (Path("desktop/src-tauri/Cargo.lock"), _cargo_lock_get, _cargo_lock_set, False),
         # desktop/package.json's `version` field is optional per the design
         # spec -- some Tauri scaffolds omit it. _json_get/_json_set already
         # no-op cleanly when the key is absent.
-        (Path("desktop/package.json"), _json_get, _json_set),
+        (Path("desktop/package.json"), _json_get, _json_set, True),
     ]

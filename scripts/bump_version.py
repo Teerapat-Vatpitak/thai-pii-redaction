@@ -40,12 +40,18 @@ def bump(root: Path, new_version: str) -> list[Path]:
     version_file.write_text(new_version + "\n", encoding="utf-8")
     touched = [version_file]
 
-    for rel_path, getter, setter in targets(root):
+    for rel_path, getter, setter, optional in targets(root):
         path = root / rel_path
         if not path.is_file():
             continue
         if getter(path) is None:
-            continue  # version field not present -- nothing to bump
+            if optional:
+                continue  # version field legitimately absent -- nothing to bump
+            raise ValueError(
+                f"could not parse a version from required file {rel_path} -- "
+                "refusing to continue (VERSION was already written; fix the "
+                "file or the parser in scripts/_version_targets.py, then rerun)"
+            )
         setter(path, new_version)
         touched.append(path)
 

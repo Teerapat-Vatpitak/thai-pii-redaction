@@ -128,6 +128,43 @@ def test_check_version_passes_when_all_files_match(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_check_version_detects_drift_via_cargo_toml_regex(tmp_path):
+    # Exercises the regex-based (non-JSON) getter path end to end.
+    repo = _copy_repo_slice(tmp_path)
+    cargo_toml = repo / "desktop" / "src-tauri" / "Cargo.toml"
+    text = cargo_toml.read_text(encoding="utf-8")
+    drifted = text.replace('version = "2.2.0"', 'version = "1.2.3"', 1)
+    assert drifted != text
+    cargo_toml.write_text(drifted, encoding="utf-8")
+
+    result = _run_check(repo)
+    assert result.returncode == 1
+    assert "Cargo.toml" in result.stdout
+
+
+def test_check_version_fails_when_required_file_is_unparseable(tmp_path):
+    # A getter returning None on a REQUIRED file means the parser no longer
+    # understands the file's structure -- the drift gate must fail loudly,
+    # not silently pass. Simulate Cargo.lock's desktop block growing a
+    # `source = ...` line between name and version, which breaks the anchored
+    # regex.
+    repo = _copy_repo_slice(tmp_path)
+    cargo_lock = repo / "desktop" / "src-tauri" / "Cargo.lock"
+    text = cargo_lock.read_text(encoding="utf-8")
+    broken = text.replace(
+        '[[package]]\nname = "desktop"\nversion = ',
+        '[[package]]\nname = "desktop"\nsource = "somewhere"\nversion = ',
+        1,
+    )
+    assert broken != text
+    cargo_lock.write_text(broken, encoding="utf-8")
+
+    result = _run_check(repo)
+    assert result.returncode == 1
+    assert "could not parse" in result.stdout
+    assert "Cargo.lock" in result.stdout
+
+
 def test_check_version_fails_on_real_drift(tmp_path):
     repo = _copy_repo_slice(tmp_path)
     manifest_path = repo / "extension" / "manifest.json"
@@ -191,5 +228,5 @@ def test_bump_version_never_targets_packaging_dir():
     sys.path.insert(0, str(ROOT / "scripts"))
     from _version_targets import targets  # noqa: PLC0415
 
-    tracked_paths = [str(rel_path) for rel_path, _getter, _setter in targets(ROOT)]
+    tracked_paths = [str(rel_path) for rel_path, *_ in targets(ROOT)]
     assert not any(p.startswith("packaging") for p in tracked_paths)

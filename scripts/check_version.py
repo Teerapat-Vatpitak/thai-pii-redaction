@@ -27,14 +27,20 @@ def check(root: Path) -> list[str]:
     is consistent."""
     expected = read_version_file(root)
     problems: list[str] = []
-    for rel_path, getter, _setter in targets(root):
+    for rel_path, getter, _setter, optional in targets(root):
         path = root / rel_path
         if not path.is_file():
             problems.append(f"{rel_path}: file not found")
             continue
         found = getter(path)
         if found is None:
-            continue  # version field not present (e.g. optional package.json field)
+            if optional:
+                continue  # version field legitimately absent (e.g. package.json)
+            # Required file the parser couldn't read a version out of: the
+            # file's structure changed under us. Failing loudly beats a drift
+            # gate that silently passes.
+            problems.append(f"{rel_path}: could not parse a version from this file")
+            continue
         if found != expected:
             problems.append(f"{rel_path}: found {found!r}, expected {expected!r}")
     return problems

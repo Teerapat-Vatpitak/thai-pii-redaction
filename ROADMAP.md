@@ -36,7 +36,7 @@ first.
 | 9 | Thai PII benchmark corpus + CI recall gate | Partial — synthetic v1 + gold v2 corpora and a 4-way NER strategy comparison exist; no CI recall gate yet |
 | 10 | Restructure TB detection (non-overlapping windowing, stop over-mapping DATE/LOCATION) | Not started |
 | 11 | Reproducible, verifiable (but unsigned) Windows build | Not started |
-| 12 | Publish a Presidio bridge as a PyPI plugin | Not started (decision doc exists; kill-listed until benchmark work lands) |
+| 12 | Publish a Presidio bridge as a PyPI plugin | Not started — kill-listed until a one-page decision doc is written and benchmark work lands |
 | 13 | JS/Rust test harness + selector-drift telemetry | Not started |
 
 ## Horizon 3 — Later (3-12 months): moat + sustainability

@@ -10,13 +10,23 @@ reporting an issue, and re-check it still reproduces there.
 
 ## Reporting a vulnerability
 
-Please **do not open a public GitHub issue** for a security vulnerability.
+Please **do not open a public GitHub issue containing exploit details** for
+a security vulnerability — public issues expose real users before a fix
+exists.
 
-Instead, use GitHub's private vulnerability reporting:
-[Security → Report a vulnerability](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/security/advisories/new)
-on this repo. This opens a private advisory visible only to the maintainer
-until a fix is ready, so real users aren't exposed while it's being worked
-on.
+<!-- Maintainers: enable private vulnerability reporting in
+     Settings → Code security so the preferred channel below works. -->
+
+1. **Preferred (if enabled on this repo):** GitHub's private vulnerability
+   reporting —
+   [Security → Report a vulnerability](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/security/advisories/new).
+   This opens a private advisory visible only to the maintainer until a fix
+   is ready.
+2. **Fallback (if that page says private reporting is not enabled):** contact
+   the maintainer directly through the contact channel listed on the GitHub
+   profile ([@Teerapat-Vatpitak](https://github.com/Teerapat-Vatpitak)).
+   If you must open a GitHub issue to get attention, keep it to "I found a
+   security issue, please open a private channel" — no exploit details.
 
 Include, where relevant: the affected version (`VERSION` / release tag),
 a reproduction, and the impact you believe it has (e.g. PII leak to an

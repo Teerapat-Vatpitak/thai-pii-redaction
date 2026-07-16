@@ -69,6 +69,8 @@ def _read_version() -> str:
             return candidate.read_text(encoding="utf-8").strip()
         except OSError:
             continue
+    # Last-resort fallback, outside the single-source system by design:
+    # bump this literal at release time (scripts/bump_version.py does not).
     return "2.2.0"
 
 
