@@ -70,6 +70,11 @@ class SessionService:
             session.last_access = self._now()
             return session_id, session
 
+        # Validate mode BEFORE eviction so malformed requests have no side effects.
+        resolved_mode = mode or "token"
+        if resolved_mode not in ("token", "surrogate"):
+            raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
+
         if len(self._sessions) >= self._cap:
             oldest = min(self._sessions, key=lambda k: self._sessions[k].created)
             self.drop(oldest)
@@ -77,9 +82,6 @@ class SessionService:
         now = self._now()
         # vault idle timeout mirrors the service TTL; the service check fires
         # first in practice because both reset on access
-        resolved_mode = mode or "token"
-        if resolved_mode not in ("token", "surrogate"):
-            raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
         session = _Session(
             vault=SessionVault(idle_timeout_s=self._ttl_s),
             mode=resolved_mode,

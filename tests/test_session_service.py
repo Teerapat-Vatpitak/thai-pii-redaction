@@ -84,3 +84,14 @@ def test_unknown_mode_raises():
     svc, _ = _svc()
     with pytest.raises(ModeMismatchError):
         svc._get_or_create(None, "Token")
+
+
+def test_unknown_mode_at_capacity_does_not_evict():
+    svc, clock = _svc(cap=1)
+    sid1, _ = svc._get_or_create(None, None)
+    clock["t"] += 1
+    with pytest.raises(ModeMismatchError):
+        svc._get_or_create(None, "Token")
+    # the live session must have survived the malformed request
+    sid_again, _ = svc._get_or_create(sid1, None)
+    assert sid_again == sid1
