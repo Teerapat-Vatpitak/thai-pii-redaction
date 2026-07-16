@@ -38,7 +38,11 @@ class Entity:
     # "DATE_OF_BIRTH" | "VEHICLE_PLATE" | "PASSPORT" |
     # "STUDENT_ID" | "IBAN" | "ETHNICITY" |
     # "POLITICAL_OPINION" | "RELIGION" | "CRIMINAL" |
-    # "HEALTH" | "DISABILITY" | "UNION"
+    # "HEALTH" | "DISABILITY" | "UNION" |
+    # "LOCATION" | "DATE" | "ORGANIZATION" | "ID_NUMBER"
+    # (honest fallbacks: LOCATION/DATE/ID_NUMBER upgrade to
+    # ADDRESS/DATE_OF_BIRTH/STUDENT_ID/PASSPORT only when a nearby cue
+    # confirms it; ORGANIZATION has no such upgrade)
     span: tuple[int, int]  # (start, end) char offsets in NormalizedDocumentModel.text
     score: float  # 1.0 for FP (regex+checksum), NER confidence for TB
     original_text: str  # the actual PII text at this span
