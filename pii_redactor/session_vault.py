@@ -111,6 +111,25 @@ class SessionVault:
         self._audit("read_by_pseudonym", entity_id)
         return self._table.get(entity_id)
 
+    def get_by_original(self, original: str, data_type: str | None = None) -> VaultRecord | None:
+        """Lookup by original value (optionally narrowed by data_type).
+
+        Linear scan — vaults are per-session and small. Used by token-mode
+        pseudonym reuse so the same original gets the same token across turns.
+
+        Raises:
+            VaultTimeoutError: If vault has been idle past timeout threshold
+        """
+        self.check_idle()
+        self._touch()
+        for record in self._table.values():
+            if record.original == original and (
+                data_type is None or record.data_type == data_type
+            ):
+                self._audit("read_by_original", record.entity_id)
+                return record
+        return None
+
     def snapshot(self) -> dict:
         """Return a shallow copy of current state for rollback.
 
