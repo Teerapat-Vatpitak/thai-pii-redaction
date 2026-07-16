@@ -232,6 +232,70 @@ def test_anonymize_suffix_fallback_when_generator_exhausted(monkeypatch):
     assert vault.get_by_pseudonym(p1).original != vault.get_by_pseudonym(p2).original
 
 
+def test_anonymize_fp_collision_rerolls_never_suffixes(monkeypatch):
+    """FP pseudonyms must stay format-valid: a '#N' suffix would leave the
+    valid FP-looking base embedded in the output (detect_fp re-flags it).
+    Collisions re-roll instead."""
+    import pii_redactor.anonymizer.anonymizer as anon_mod
+
+    def fake_generate_fp(data_type, original, *, salt, attempt=0):
+        if attempt == 0:
+            return "099-999-9999"          # everyone collides on attempt 0
+        return f"099-999-{9000 + attempt}"  # unique per attempt
+
+    monkeypatch.setattr(anon_mod, "generate_fp", fake_generate_fp)
+
+    text = "call 081-234-5678 or 086-111-2233"
+    e1 = _make_entity("PHONE", text, 5, 17)
+    e2 = _make_entity("PHONE", text, 21, 33)
+    registry = EntityRegistry(entities=[e1, e2], fp_count=2, tb_count=0)
+    vault = SessionVault()
+    anonymize(text, registry, vault, salt=SALT)
+
+    p1 = vault.get_by_entity_id(e1.entity_id).pseudonym
+    p2 = vault.get_by_entity_id(e2.entity_id).pseudonym
+    assert p1 != p2
+    assert "#" not in p1 and "#" not in p2
+
+
+def test_anonymize_fp_exhausted_raises_instead_of_suffix(monkeypatch):
+    """If an FP generator somehow cannot produce a unique value, fail loudly —
+    a suffixed FP value is either misleading or re-flagged as a leak."""
+    import pii_redactor.anonymizer.anonymizer as anon_mod
+
+    def stubborn_generate_fp(data_type, original, *, salt, attempt=0):
+        return "099-999-9999"
+
+    monkeypatch.setattr(anon_mod, "generate_fp", stubborn_generate_fp)
+
+    text = "call 081-234-5678 or 086-111-2233"
+    e1 = _make_entity("PHONE", text, 5, 17)
+    e2 = _make_entity("PHONE", text, 21, 33)
+    registry = EntityRegistry(entities=[e1, e2], fp_count=2, tb_count=0)
+    vault = SessionVault()
+    with pytest.raises(ValueError):
+        anonymize(text, registry, vault, salt=SALT)
+
+
+def test_anonymize_suffix_never_embeds_another_persons_real_value(monkeypatch):
+    """The '#N' last resort must not wrap a base that equals another entity's
+    REAL value — 'สมชาย ใจดี#2' would ship the real name to the AI."""
+    import pii_redactor.anonymizer.anonymizer as anon_mod
+
+    def evil_generate_tb(data_type, context, *, salt, original, attempt=0):
+        return "สมชาย ใจดี"   # always collides with person A's real name
+
+    monkeypatch.setattr(anon_mod, "generate_tb", evil_generate_tb)
+
+    text = "ผู้ร้องคือ สมชาย ใจดี และผู้ถูกร้องคือ วิชัย ทองแท้"
+    e1 = _make_entity("NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB")
+    e2 = _make_entity("NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB")
+    registry = EntityRegistry(entities=[e1, e2], fp_count=0, tb_count=2)
+    vault = SessionVault()
+    with pytest.raises(ValueError):
+        anonymize(text, registry, vault, salt=SALT)
+
+
 def test_anonymize_same_original_still_shares_pseudonym():
     """Consistency must survive the uniqueness check: the SAME original
     appearing as two entities keeps one shared pseudonym (no re-roll)."""

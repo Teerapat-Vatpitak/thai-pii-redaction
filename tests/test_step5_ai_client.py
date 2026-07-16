@@ -200,6 +200,18 @@ def test_pre_send_remainder_segments_scanned_separately():
     assert result.text == pseudonymized
 
 
+def test_pre_send_blocks_leak_whose_cue_is_split_by_pseudonym():
+    """A cue-detected span 'นาย <pseudonym> <real name>' must still halt even
+    when the CRF cannot recognise the bare real name standalone: scanning the
+    uncovered segments in isolation severs the title cue from the leaked name,
+    so a cue-preserving re-check over the span window is required."""
+    vault = _vault_with({"NAME": ("สมชาย ใจดี", "บุญชัย")})
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    leaky = "เรียน นาย บุญชัย วิชัย ทองแท้ ครับ"
+    with pytest.raises(PreSendValidationError):
+        send_to_ai(leaky, registry, vault, FakeLLMProvider())
+
+
 def test_pre_send_still_blocks_real_name_beside_pseudonyms():
     """A real (cue-detectable) name left in the outbound text must still halt
     the send even when pseudonyms are present elsewhere."""

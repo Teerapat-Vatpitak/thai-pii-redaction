@@ -52,6 +52,7 @@ def _generate_pseudonym(entity: Entity, text: str, salt: str, attempt: int = 0) 
 
 
 _MAX_COLLISION_REROLLS = 8
+_MAX_EXTENDED_REROLLS = 64
 
 
 def _generate_unique_pseudonym(
@@ -71,20 +72,26 @@ def _generate_unique_pseudonym(
     - equals another entity's real value, or appears verbatim in the source
       text (reverse mapping would rewrite unrelated text).
 
-    Re-rolls the seed up to _MAX_COLLISION_REROLLS times; as a last resort a
-    numeric suffix forces uniqueness (mirrors the web path's _make_surrogate).
+    Re-rolls the seed up to _MAX_COLLISION_REROLLS times. Last resort differs
+    by redact_type: FP keeps re-rolling (a '#N' suffix would leave the valid
+    FP-looking base embedded in the output and detect_fp would re-flag it) and
+    fails loudly when exhausted; TB may take a '#N' suffix (mirrors the web
+    path's _make_surrogate), but only on a base that is safe to embed — never
+    someone's real value or a string from the source text.
     """
     original = entity.original_text
 
     def _available(candidate: str) -> bool:
+        if candidate == original:
+            return False  # a pseudonym identical to its original masks nothing
         owner_id = vault._reverse.get(candidate)
         if owner_id is not None:
             owner = vault._table.get(owner_id)
             if owner is not None and owner.original != original:
                 return False
-        if candidate in all_originals and candidate != original:
+        if candidate in all_originals:
             return False
-        if candidate in text and candidate != original:
+        if candidate in text:
             return False
         return True
 
@@ -95,11 +102,31 @@ def _generate_unique_pseudonym(
         candidate = _generate_pseudonym(entity, text, salt, attempt=attempt)
     if _available(candidate):
         return candidate
+
     base = candidate
-    n = 2
-    while not _available(f"{base}#{n}"):
-        n += 1
-    return f"{base}#{n}"
+    suffix_ok = (
+        entity.redact_type != "FP"
+        and base != original
+        and base not in all_originals
+        and base not in text
+    )
+    if suffix_ok:
+        n = 2
+        while not _available(f"{base}#{n}"):
+            n += 1
+        return f"{base}#{n}"
+
+    # FP (format must stay valid) or an unsafe-to-embed base: keep re-rolling.
+    for attempt in range(_MAX_COLLISION_REROLLS + 1, _MAX_EXTENDED_REROLLS + 1):
+        candidate = _generate_pseudonym(entity, text, salt, attempt=attempt)
+        if _available(candidate):
+            return candidate
+    # SECURITY: no pseudonym/original values in the message
+    raise ValueError(
+        f"unable to generate a unique pseudonym for entity "
+        f"{entity.entity_id[:8]} ({entity.data_type}) "
+        f"after {_MAX_EXTENDED_REROLLS} attempts"
+    )
 
 
 def anonymize(
