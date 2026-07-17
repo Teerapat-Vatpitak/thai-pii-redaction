@@ -47,10 +47,22 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py report examples\prom
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py sanitize examples\prompts\01_sick_leave_email.txt
 # (token/surrogate `mode` is a web-API concept — POST /api/sanitize — not a CLI flag)
 
-# Tests
+# Tests (Python)
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest tests/test_foo.py::test_name -v
+
+# Tests (JS — extension harness, vitest+jsdom; needs `npm install` once)
+npm run test:js
+
+# Tests (Rust — Tauri shell incl. sidecar kill-sequence tests)
+cd desktop/src-tauri; cargo test
 ```
+
+JS harness note: `extension/sites.js` carries an additive CommonJS export shim
+(`module.exports` — dead code in Chrome) exposing `selectFor(hostname)` + every
+site config so `extension/tests/` can pin selector behavior against the DOM
+fixtures in `extension/tests/fixtures/`. Playwright live-DOM checks and the
+selector-drift badge are roadmap (Horizon-2 #13 รอบถัดไป).
 
 **Browser extension** (primary UI): start the backend (above), then load `extension/`
 unpacked in Chrome (`chrome://extensions` → Developer mode → Load unpacked). See
