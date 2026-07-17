@@ -27,7 +27,8 @@ _FN_PATTERNS: list[tuple[re.Pattern[str], str, str, float]] = [
     # this loose fallback has no cue context to gate on, so the honest generic
     # label is the only defensible one here (see fp_detector.py's cue-gated
     # DATE/DATE_OF_BIRTH split for the primary pass).
-    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})(?!\d)"), "DATE", "FP", 0.6),
+    # day-first (dd-mm-yyyy) OR ISO year-first (yyyy-mm-dd).
+    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})(?!\d)"), "DATE", "FP", 0.6),
 ]
 
 

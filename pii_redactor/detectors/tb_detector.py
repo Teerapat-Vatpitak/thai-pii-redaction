@@ -2,6 +2,7 @@
 WangchanBERTa opt-in via AIGUARD_NER_ENGINE)."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 import uuid
@@ -10,6 +11,8 @@ from pythainlp import sent_tokenize
 from pythainlp.tag import NER
 
 from pii_redactor.models import Entity
+
+_LOG = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Label mapping: actual thainer labels -> PDPA data_type (None = skip)
@@ -233,6 +236,14 @@ def _ner_candidates(
         try:
             tagged: list[tuple[str, str]] = ner.tag(context_text)
         except Exception:
+            # Dropping a whole chunk is recall-negative (violates recall >
+            # precision). Never silence it — a repeatedly failing engine must
+            # be visible, not quietly eat ~500 chars of PII.
+            _LOG.warning(
+                "NER tagging failed on chunk chars %d-%d (%d chars); skipping "
+                "— PII in this chunk may be missed",
+                core_begin, core_end, len(context_text), exc_info=True,
+            )
             chunk_first = chunk_last + 1
             continue
 
