@@ -59,10 +59,12 @@ confirm the backend starts (health at `127.0.0.1:8000`), and `scoop uninstall ai
 
 ## Updating for a new release
 
-On each new tagged release, per artifact:
+On each new tagged release (after the release is published — the script reads
+the release's `SHA256SUMS` asset and `published_at` date):
 
-1. Download the installer and compute its SHA256:
-   `gh release download vX.Y.Z -R Teerapat-Vatpitak/thai-pii-redaction --pattern "*x64-setup.exe"`
-   then `certutil -hashfile <file> SHA256`.
-2. Bump `PackageVersion`/`version`, the `InstallerUrl`/`url`, and the hash in all four files.
-3. Re-validate (`winget validate`, and JSON-lint the Scoop file) before submitting.
+1. Run `python scripts/update_packaging.py vX.Y.Z` (no argument = `v` + the repo
+   `VERSION` file). It rewrites all four manifest files: version, `InstallerUrl`/`url`,
+   `InstallerSha256`/`hash`, and `ReleaseDate`. It fails loudly and writes nothing
+   if the release or the installer entry can't be found.
+2. Review the diff, then re-validate (`winget validate --manifest packaging/winget`,
+   and JSON-lint the Scoop file) before submitting.
