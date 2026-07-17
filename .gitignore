@@ -21,3 +21,4 @@ benchmark/reports/
 /*.jpeg
 /*.png
 /AI_Innovation_for_Future_Society.pdf
+node_modules/
