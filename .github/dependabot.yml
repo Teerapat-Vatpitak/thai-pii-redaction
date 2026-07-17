@@ -1,0 +1,9 @@
+# Keeps the SHA-pinned actions fresh (Horizon-2 #11): dependabot PRs bump the
+# pinned commit + version comment together. Python deps are NOT managed here --
+# regenerate the lockfiles by hand via scripts/lock_deps.py.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
