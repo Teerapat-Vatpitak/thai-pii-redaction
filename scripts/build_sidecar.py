@@ -78,7 +78,11 @@ def data_args() -> list[str]:
 
 
 def main() -> None:
-    subprocess.check_call([PY, "-m", "pip", "install", "--quiet", "pyinstaller"])
+    # Hash-pinned build tooling (Horizon-2 #11): same PyInstaller as CI/release.
+    subprocess.check_call([
+        PY, "-m", "pip", "install", "--quiet", "--require-hashes",
+        "-r", str(ROOT / "requirements-build.lock"),
+    ])
 
     cmd = [PY, "-m", "PyInstaller", "--noconfirm", "--onefile", "--name", "AIGuard",
            "--python-option", "X utf8=1"]

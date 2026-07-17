@@ -1,0 +1,4 @@
+# Build tooling for the packaged sidecar (scripts/build_sidecar.py).
+# Source of the PyInstaller floor; the exact pinned version + hashes live in
+# requirements-build.lock (regenerate with scripts/lock_deps.py).
+pyinstaller>=6.0
