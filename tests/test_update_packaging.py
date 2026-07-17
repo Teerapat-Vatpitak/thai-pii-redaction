@@ -117,3 +117,14 @@ def test_layout_drift_exits_without_writing(pkg_root):
     with pytest.raises(SystemExit):
         up.plan_writes(pkg_root, "9.9.9", SHA, DATE)
     assert _snapshot(pkg_root) == before
+
+
+def test_scoop_layout_drift_exits_without_writing(pkg_root):
+    scoop = pkg_root / "packaging" / "scoop" / "aiguard.json"
+    data = json.loads(scoop.read_text(encoding="utf-8"))
+    del data["architecture"]  # structural drift the script must refuse
+    scoop.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+    before = _snapshot(pkg_root)
+    with pytest.raises(SystemExit):
+        up.plan_writes(pkg_root, "9.9.9", SHA, DATE)
+    assert _snapshot(pkg_root) == before

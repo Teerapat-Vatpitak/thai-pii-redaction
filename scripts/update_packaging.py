@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -30,8 +31,11 @@ def installer_name(version: str) -> str:
 
 
 def fetch_text(url: str) -> str:
-    with urllib.request.urlopen(url) as resp:
-        return resp.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(url) as resp:
+            return resp.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        sys.exit(f"ERROR: could not fetch {url}: {e}")
 
 
 def fetch_sums(tag: str) -> str:

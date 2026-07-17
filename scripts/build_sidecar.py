@@ -79,6 +79,7 @@ def data_args() -> list[str]:
 
 def main() -> None:
     # Hash-pinned build tooling (Horizon-2 #11): same PyInstaller as CI/release.
+    # The lock is compiled for Python 3.13 (matching CI); build the exe on 3.13.
     subprocess.check_call([
         PY, "-m", "pip", "install", "--quiet", "--require-hashes",
         "-r", str(ROOT / "requirements-build.lock"),

@@ -148,6 +148,9 @@ jobs:
       - name: Generate SHA256SUMS
         run: |
           cd assets
+          # Drop any SHA256SUMS pulled back in by a re-run's download step, so
+          # the glob below never hashes (a stale copy of) the sums file itself.
+          rm -f SHA256SUMS
           sha256sum * > ../SHA256SUMS
           mv ../SHA256SUMS .
           cat SHA256SUMS
