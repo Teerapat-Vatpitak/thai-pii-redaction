@@ -28,11 +28,20 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
     """Replace pseudonyms with originals.
 
     Algorithm:
-    1. Build mapping: pseudonym → original (from vault._reverse)
-    2. Sort pseudonyms by LENGTH DESCENDING to avoid partial matches
-       (e.g., 'alice.100@example.com' before 'alice')
-    3. For each pseudonym: str.replace all occurrences in text
-    4. Return (restored_text, list_of_replaced_pseudonyms)
+    1. Build mapping: pseudonym → original (from vault._reverse).
+    2. Locate every pseudonym occurrence on the ORIGINAL (untouched) text,
+       longest pseudonym first so a shorter pseudonym cannot claim a slice of a
+       longer one; claimed ranges never overlap (same rule as
+       leak_guard._pseudonym_ranges).
+    3. Splice the originals in a single tail-first pass.
+    4. Return (restored_text, list_of_replaced_pseudonyms).
+
+    Positional replacement (not a progressive str.replace) is what keeps a
+    short pseudonym from corrupting an original already spliced in — a
+    `.replace` re-scans the growing text and would rewrite a pseudonym-looking
+    substring inside a restored value (see
+    test_reverse_map_pseudonym_substring_of_original). Longest-first alone does
+    not prevent that; only replacing on the untouched text does.
 
     Args:
         text: The text containing pseudonyms
@@ -48,15 +57,28 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
         if record is not None:
             pseudo_to_original[pseudonym] = record.original
 
-    # Sort by length descending (longest first)
-    sorted_pseudonyms = sorted(pseudo_to_original.keys(), key=len, reverse=True)
+    claimed: list[tuple[int, int, str]] = []
+
+    def _taken(start: int, end: int) -> bool:
+        return any(start < ce and end > cs for cs, ce, _ in claimed)
+
+    replaced: list[str] = []
+    for pseudonym in sorted(pseudo_to_original, key=len, reverse=True):
+        if not pseudonym:
+            continue
+        found = False
+        pos = 0
+        while (i := text.find(pseudonym, pos)) >= 0:
+            if not _taken(i, i + len(pseudonym)):
+                claimed.append((i, i + len(pseudonym), pseudonym))
+                found = True
+            pos = i + 1
+        if found:
+            replaced.append(pseudonym)
 
     restored = text
-    replaced = []
-    for pseudonym in sorted_pseudonyms:
-        if pseudonym in restored:
-            restored = restored.replace(pseudonym, pseudo_to_original[pseudonym])
-            replaced.append(pseudonym)
+    for cs, ce, pseudonym in sorted(claimed, key=lambda t: t[0], reverse=True):
+        restored = restored[:cs] + pseudo_to_original[pseudonym] + restored[ce:]
 
     return restored, replaced
 
@@ -95,8 +117,17 @@ def _post_reverse_validate(
             residue.append(pseudonym)
             flags.append(f"pseudonym_residue:{pseudonym[:8]}")
 
-    # 2. Completeness check
-    total_entities = len(entity_registry.entities)
+    # 2. Completeness check — count DISTINCT pseudonyms, not raw entities. The
+    # same person mentioned N times is N entities but one pseudonym
+    # (consistency), so counting entities false-flags every repeated value on a
+    # perfect restore. Derive the expected pseudonyms from the registry via the
+    # vault (registry entity_ids were written to the vault at anonymize time).
+    expected_pseudonyms: set[str] = set()
+    for e in entity_registry.entities:
+        rec = vault.get_by_entity_id(e.entity_id)
+        if rec is not None:
+            expected_pseudonyms.add(rec.pseudonym)
+    total_entities = len(expected_pseudonyms)
     replaced_count = len(replaced)
     if replaced_count < total_entities:
         flags.append(f"incomplete_reverse:{replaced_count}/{total_entities}")

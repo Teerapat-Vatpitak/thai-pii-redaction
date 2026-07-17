@@ -140,6 +140,20 @@ class TestValidateOutput:
         assert len(result.flags) > 0
         assert any("pseudonym_residue" in f for f in result.flags)
 
+    def test_validate_output_thai_ending_no_truncation(self):
+        """Thai has no sentence-final punctuation. Normal Thai text ending in a
+        consonant must NOT be flagged as truncated (it used to → halt → the CLI
+        export path raised ExportError on legitimate Thai output)."""
+        vault = _make_vault()
+        # >20 chars, ends in the Thai consonant 'บ' (U+0E1A)
+        rr = _make_reverse_result("สวัสดีครับ ยินดีต้อนรับทุกท่านเข้าสู่ระบบ")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        result = validate_output(rr, registry, vault)
+        truncation_flags = [f for f in result.flags if "truncation" in f]
+        assert truncation_flags == []
+        assert result.layer3_integrity_ok
+        assert not result.halt
+
 
 class TestAuditLogProcess:
     """Tests for write_process_log() function."""

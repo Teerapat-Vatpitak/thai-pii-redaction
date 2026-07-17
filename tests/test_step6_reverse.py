@@ -202,3 +202,75 @@ def test_audit_summary_lists_replaced_pseudonyms():
     resp = AIResponse(text="ส่งไปที่ [อีเมล_1]", request_id="r", latency=0.0)
     result = reverse_map(resp, EntityRegistry(entities=[], fp_count=0, tb_count=0), vault)
     assert result.audit_summary["replaced_pseudonyms"] == ["[อีเมล_1]"]
+
+
+def test_reverse_map_pseudonym_substring_of_original():
+    """A short pseudonym that is a substring of ANOTHER entity's restored
+    original must not corrupt that original. Global str.replace (even
+    longest-first) re-scans already-restored text; positional replacement does
+    not. Here 'abc' is a substring of the original 'contact abc123'."""
+    vault = SessionVault()
+    vault.write(
+        VaultRecord(
+            entity_id=str(uuid.uuid4()),
+            original="contact abc123",
+            pseudonym="xyzz",
+            type="FP",
+            data_type="NAME",
+            span=(0, 4),
+            timestamp=time.monotonic(),
+        )
+    )
+    vault.write(
+        VaultRecord(
+            entity_id=str(uuid.uuid4()),
+            original="REALB",
+            pseudonym="abc",
+            type="FP",
+            data_type="NAME",
+            span=(5, 8),
+            timestamp=time.monotonic(),
+        )
+    )
+    ai_response = _make_ai_response("xyzz then abc")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(ai_response, registry, vault)
+    # 'abc' inside the restored 'contact abc123' must survive intact
+    assert result.text == "contact abc123 then REALB"
+
+
+def test_reverse_map_repeated_pii_no_false_incomplete():
+    """Same person mentioned N times = N entities but ONE pseudonym. A full
+    restore must NOT raise incomplete_reverse (completeness counts distinct
+    pseudonyms, not raw entities)."""
+    vault = SessionVault()
+    eids = [str(uuid.uuid4()) for _ in range(3)]
+    for eid in eids:
+        vault.write(
+            VaultRecord(
+                entity_id=eid,
+                original="สมชาย",
+                pseudonym="[ชื่อ_1]",
+                type="TB",
+                data_type="NAME",
+                span=(0, 6),
+                timestamp=time.monotonic(),
+            )
+        )
+    entities = [
+        Entity(
+            entity_id=eid,
+            redact_type="TB",
+            data_type="NAME",
+            span=(0, 6),
+            score=0.85,
+            original_text="สมชาย",
+        )
+        for eid in eids
+    ]
+    registry = EntityRegistry(entities=entities, fp_count=0, tb_count=3)
+    ai_response = _make_ai_response("[ชื่อ_1] และ [ชื่อ_1] และ [ชื่อ_1] มาพบกัน")
+    result = reverse_map(ai_response, registry, vault)
+    assert "[ชื่อ_1]" not in result.text
+    incomplete = [f for f in result.flags if "incomplete_reverse" in f]
+    assert incomplete == []
