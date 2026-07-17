@@ -1,12 +1,20 @@
-# Build installers for Windows / macOS / Linux and attach them to a GitHub Release.
+# Build installers for Windows / macOS / Linux, attach them to a GitHub
+# Release, then hash + attest everything.
 #
-# STATUS: the macOS/Linux legs are UNTESTED (they need real GitHub-hosted runners,
-# which can't be exercised from a Windows dev box). The Windows sidecar build
-# (scripts/build_sidecar.py) and the Rust compile were verified locally; the first
-# real run of this workflow will shake out the mac/linux legs. Review the first
-# run's logs before relying on it.
+# STATUS: the macOS/Linux legs and the checksums-and-attest job are UNTESTED
+# until the next real tag (they need real GitHub-hosted runners + a real
+# draft release, which can't be exercised from a Windows dev box). The
+# Windows sidecar build (scripts/build_sidecar.py) and the Rust compile were
+# verified locally. Review the first tagged run's logs before relying on it.
 #
-# Trigger: push a tag like `v0.1.0`, or run manually (workflow_dispatch).
+# Verifiability (Horizon-2 #11): every build input is pinned (lockfile with
+# hashes, PyInstaller pin, actions by commit SHA), and every release asset is
+# covered by SHA256SUMS + GitHub build provenance (gh attestation verify).
+# This is origin + integrity verification, NOT bit-for-bit reproducibility.
+#
+# Trigger: push a tag like `v0.1.0`, or run manually (workflow_dispatch --
+# note the checksums job resolves the release by github.ref_name, so a
+# manual run from a branch will fail that job harmlessly).
 
 name: Release
 
@@ -27,7 +35,7 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Linux system deps (WebKitGTK for Tauri)
         if: matrix.os == 'ubuntu-latest'
@@ -36,12 +44,14 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
 
-      - name: Install Python deps (for the sidecar build)
-        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-web.txt
+      - name: Install Python deps (locked, incl. the PyInstaller pin)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Pre-download the offline NER model
         # build_sidecar.py bundles ~/pythainlp-data so NER works offline; importing
@@ -49,15 +59,17 @@ jobs:
         run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
+        with:
+          toolchain: stable
 
       - name: Cache cargo
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: desktop/src-tauri
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "lts/*"
 
@@ -69,7 +81,7 @@ jobs:
         run: npm install
 
       - name: Build the Tauri app and publish the Release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -78,6 +90,78 @@ jobs:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
           releaseName: "AI Guard ${{ github.ref_name }}"
-          releaseBody: "AI Guard desktop — installers for Windows / macOS / Linux. See the commit history for changes."
+          releaseBody: |
+            AI Guard desktop — installers for Windows / macOS / Linux.
+
+            **Windows:** the installer is unsigned by design (trust comes from
+            verifiability, not a paid certificate — see SECURITY.md). SmartScreen
+            will warn on first run: choose **More info → Run anyway**.
+
+            **Verify your download** — every asset is listed in `SHA256SUMS` and
+            carries GitHub build provenance (both attached by the
+            checksums-and-attest job a few minutes after the assets appear):
+
+            - Integrity, Windows: `certutil -hashfile <file> SHA256`, compare
+              against the matching line in `SHA256SUMS`
+            - Integrity, macOS/Linux: `sha256sum -c SHA256SUMS --ignore-missing`
+            - Provenance (proves GitHub Actions built the file from this repo at
+              this tag): `gh attestation verify <file> -R Teerapat-Vatpitak/thai-pii-redaction`
+
+            This proves origin and integrity; it is not a claim of bit-for-bit
+            reproducibility.
           releaseDraft: true
           prerelease: false
+
+  checksums-and-attest:
+    # Hash + attest what users will actually download: pull every asset back
+    # off the draft release, publish SHA256SUMS as another asset, and attach
+    # SLSA build provenance (verify with `gh attestation verify`).
+    name: checksums + attestation
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload SHA256SUMS to the release
+      id-token: write # sign the attestation (Sigstore)
+      attestations: write # store the attestation
+    steps:
+      - name: Download all release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir assets
+          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets; then
+            echo "direct download failed (draft edge case); resolving release id via API"
+            rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name==\"$TAG\") | .id" | head -1)
+            [ -n "$rid" ] || { echo "ERROR: no release found for tag $TAG"; exit 1; }
+            gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets" --paginate \
+              --jq '.[] | [.id, .name] | @tsv' |
+            while IFS=$'\t' read -r aid name; do
+              echo "downloading $name"
+              gh api -H "Accept: application/octet-stream" \
+                "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "assets/$name"
+            done
+          fi
+          ls -l assets
+          [ "$(ls -A assets)" ] || { echo "ERROR: zero assets downloaded for $TAG"; exit 1; }
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd assets
+          # Drop any SHA256SUMS pulled back in by a re-run's download step, so
+          # the glob below never hashes (a stale copy of) the sums file itself.
+          rm -f SHA256SUMS
+          sha256sum * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+          cat SHA256SUMS
+
+      - name: Upload SHA256SUMS to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" assets/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Attest build provenance for every asset
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: assets/*

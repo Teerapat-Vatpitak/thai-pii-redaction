@@ -40,6 +40,17 @@ The recommended way to run AI Guard is the desktop app: a native installer that 
 2. Run the installer and launch AI Guard. The backend is bundled and starts with the app — no Python, no separate install, works offline.
 3. The app is not code-signed. On first run, Windows SmartScreen may show an "unknown publisher" warning — click **More info → Run anyway** to continue.
 
+#### Verify your download (optional)
+
+Every release ships a `SHA256SUMS` file plus [GitHub build provenance](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations) for each asset. Two independent checks:
+
+- **Integrity** — the file wasn't corrupted or swapped in transit:
+  - Windows: `certutil -hashfile AI.Guard_<version>_x64-setup.exe SHA256`, then compare with the matching line in `SHA256SUMS`
+  - macOS/Linux: `sha256sum -c SHA256SUMS --ignore-missing`
+- **Provenance** — the file was built by GitHub Actions from this repository at the tagged commit (requires the [GitHub CLI](https://cli.github.com/)): `gh attestation verify AI.Guard_<version>_x64-setup.exe -R Teerapat-Vatpitak/thai-pii-redaction`
+
+These prove origin and integrity. They are **not** a claim of bit-for-bit reproducibility — rebuilding locally produces a functionally identical but not byte-identical binary (PyInstaller and NSIS embed timestamps). The build inputs are pinned instead: hash-locked Python dependencies (`requirements*.lock`), a pinned PyInstaller, and SHA-pinned CI actions.
+
 ### Option B · From source (developer alternative)
 
 Prerequisites: **Python 3.11+** and **git**.
