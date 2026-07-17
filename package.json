@@ -1,0 +1,12 @@
+{
+  "name": "aiguard-dev",
+  "private": true,
+  "description": "Dev-only JS test harness for the AI Guard extension (vitest+jsdom). Not shipped.",
+  "scripts": {
+    "test:js": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0",
+    "vitest": "^3.0.0"
+  }
+}

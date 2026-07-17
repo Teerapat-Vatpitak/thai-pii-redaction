@@ -231,15 +231,41 @@ window.AIGUARD_SITES = (function () {
     writeComposer: writeComposer,
   };
 
-  const HOST = location.hostname;
-  function has(s) {
-    return HOST.indexOf(s) !== -1;
+  function selectFor(hostname) {
+    function has(s) {
+      return hostname.indexOf(s) !== -1;
+    }
+    if (has("claude.ai")) return claude;
+    if (has("gemini.google.com")) return gemini;
+    if (has("grok.com")) return grok;
+    if (has("perplexity.ai")) return perplexity;
+    if (has("z.ai") || has("chatglm.cn") || has("bigmodel.cn")) return zai;
+    if (has("chatgpt.com") || has("openai.com")) return chatgpt;
+    return generic;
   }
-  if (has("claude.ai")) return claude;
-  if (has("gemini.google.com")) return gemini;
-  if (has("grok.com")) return grok;
-  if (has("perplexity.ai")) return perplexity;
-  if (has("z.ai") || has("chatglm.cn") || has("bigmodel.cn")) return zai;
-  if (has("chatgpt.com") || has("openai.com")) return chatgpt;
-  return generic;
+
+  // Test-only export shim (Node/vitest). Dead branch in the browser -- Chrome
+  // content scripts have no `module`, so this changes nothing at runtime.
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+      chatgpt: chatgpt,
+      claude: claude,
+      gemini: gemini,
+      grok: grok,
+      perplexity: perplexity,
+      zai: zai,
+      generic: generic,
+      selectFor: selectFor,
+      helpers: {
+        visible: visible,
+        isTextField: isTextField,
+        pickVisible: pickVisible,
+        genericComposer: genericComposer,
+        readComposer: readComposer,
+        writeComposer: writeComposer,
+      },
+    };
+  }
+
+  return selectFor(location.hostname);
 })();

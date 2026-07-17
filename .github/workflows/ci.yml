@@ -141,6 +141,18 @@ jobs:
             node --check "$f"
           done
 
+  js-tests:
+    name: js tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx vitest run
+
   windows-exe-smoke:
     # Build the PyInstaller sidecar and boot the shipped exe end-to-end: confirm
     # it serves /api/health + /api/sanitize (Thai NER actually loaded), then
