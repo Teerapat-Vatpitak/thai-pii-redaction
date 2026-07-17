@@ -131,6 +131,48 @@ def test_ai_guard_report_with_multiple_entities(tmp_path, capsys):
     assert "Total entities detected:" in captured.out
 
 
+def test_ai_guard_sanitize_prints_masked_not_original(tmp_path, capsys):
+    """Without --output, the 'Sanitized Output' section must show the MASKED
+    text, not the re-identified original (which equals the input under the
+    fake LLM). It used to print reverse_result.text — the un-redacted original."""
+    import ai_guard
+    infile = tmp_path / "input.txt"
+    infile.write_text("โทร 081-234-5678 นะครับ", encoding="utf-8")
+    args_ns = type('Args', (), {
+        'file': str(infile), 'output': None, 'fmt': 'txt',
+        'provider': 'fake', 'overwrite': False,
+    })()
+    ai_guard.cmd_sanitize(args_ns)
+    out = capsys.readouterr().out
+    assert "--- Sanitized Output ---" in out
+    # the real phone must NOT surface under the "Sanitized" header
+    assert "081-234-5678" not in out
+
+
+def test_ai_guard_report_dedupes_fp_tb_overlap(tmp_path, capsys, monkeypatch):
+    """report must not double-count a value matched by BOTH detectors (an ID or
+    phone the NER also tags). It used to sum len(fp)+len(tb) with no dedupe."""
+    import ai_guard
+    import pii_redactor.detectors.tb_detector as tbd
+
+    phone = "081-234-5678"
+
+    class FakeNER:
+        def tag(self, chunk):
+            # force a TB span over the phone → overlaps the FP PHONE hit
+            return [(phone, "B-PERSON")] if phone in chunk else []
+
+    monkeypatch.setitem(tbd._ner_cache, "thainer", FakeNER())
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
+
+    infile = tmp_path / "input.txt"
+    infile.write_text(f"เบอร์ {phone}", encoding="utf-8")
+    args_ns = type('Args', (), {'file': str(infile)})()
+    ai_guard.cmd_report(args_ns)
+    out = capsys.readouterr().out
+    assert "Total entities detected: 1" in out
+
+
 def test_ai_guard_report_no_pii(tmp_path, capsys):
     """report with clean text should show Low risk."""
     import ai_guard

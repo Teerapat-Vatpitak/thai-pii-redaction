@@ -5,7 +5,9 @@ import sys
 
 def main():
     print("AI Guard Demo — Thai PII Redaction Pipeline")
-    print("Paste text below (Ctrl+D to finish):")
+    # EOF differs by platform: Windows console = Ctrl+Z then Enter; Unix = Ctrl+D.
+    eof_hint = "Ctrl+Z then Enter" if sys.platform == "win32" else "Ctrl+D"
+    print(f"Paste text below ({eof_hint} to finish):")
     text = sys.stdin.read()
 
     if not text.strip():
