@@ -23,6 +23,21 @@
 
 ทั้งหมดเป็น finding ที่ owner ต้องตัดสินใจแก้ ไม่ใช่การอ้างว่าทำงานเสร็จแล้ว หลักฐานคือ code excerpt + repro ในเอกสารนี้
 
+## สถานะการปิด (อัปเดต 2026-07-20)
+
+Critical + High ปิดครบทั้ง 6 แล้ว commit `298f581` บน branch `audit-v2-findings` แก้แบบ TDD (red ก่อน green ทุกตัว) แล้วผ่าน workflow adversarial verification (6 skeptic agents) ซึ่งเจาะเจอ gap เพิ่ม 4 จุด (DET-2 ฟอร์มมีขีด, VAULT-1 Latin, EXT-1 side panel, DESK-1 empty masked) ปิดเพิ่มครบและ re-verify แล้ว suite เขียวทุกภาษา Python 504 / JS 36 / Rust 13
+
+| id | สถานะ | fix |
+|---|---|---|
+| DET-3 | FIXED | ลบ deskew ออกจาก OCR path (bbox อยู่ space เดียวกับ redaction) |
+| DET-1 | FIXED | landline regex 9 หลัก (BKK 2-3-4 + ต่างจังหวัด 3-3-3) |
+| DET-2 | FIXED | `_deduplicate` เป็น score-primary + plate `(?!\d)` ครอบฟอร์มมีขีด/เว้นวรรค |
+| VAULT-1 | FIXED | boundary guard: digit/Latin either-side, Thai both-sides |
+| EXT-1 | FIXED | reuse session_id บน `/api/sanitize` (content script + side panel) + fallback 404/400 |
+| DESK-1 | FIXED | interpret_* เช็ค status, mask fails-closed, empty masked = failure |
+
+Medium/Low ยังไม่ปิด (งานรอบถัดไป) DET-1 WEAKNESS เรื่อง dot/paren separator เป็น pre-existing limitation ของทุก phone pattern ไม่ใช่ regression ขยับเป็น low finding แยก
+
 ---
 
 ## Critical
