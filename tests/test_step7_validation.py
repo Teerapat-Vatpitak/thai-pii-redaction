@@ -283,6 +283,24 @@ class TestAuditLogSecurity:
         assert json.loads(lines[0])["layer"] == "layer1"
         assert json.loads(lines[1])["layer"] == "layer2"
 
+    def test_audit_log_path_rejects_traversal(self, tmp_path):
+        """A path-traversal session_id must not escape output_dir when it is
+        interpolated into the log filename."""
+        from pii_redactor.audit import _log_path
+
+        p = _log_path("../../etc/passwd", "process", str(tmp_path))
+        assert p.parent == Path(str(tmp_path))
+        assert ".." not in p.name
+        assert "/" not in p.name and "\\" not in p.name
+
+    def test_audit_log_path_keeps_uuid_intact(self, tmp_path):
+        """Sanitizing must not mangle normal uuid/hyphen session ids."""
+        from pii_redactor.audit import _log_path
+
+        sid = str(uuid.uuid4())
+        p = _log_path(sid, "process", str(tmp_path))
+        assert p.name == f"audit_{sid}_process.jsonl"
+
     def test_audit_security_log_no_pii(self, tmp_path):
         """Security log should never contain PII values."""
         session_id = str(uuid.uuid4())

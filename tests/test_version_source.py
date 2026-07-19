@@ -18,6 +18,7 @@ files (under tmp_path) so they never mutate the real working tree.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,21 @@ def test_fastapi_app_version_matches_VERSION_file():
     from app.server import app
 
     assert app.version == _version_file_contents()
+
+
+def test_server_fallback_literal_matches_version_file():
+    """The last-resort version literal in app/server.py sits OUTSIDE the
+    single-source system (bump_version/check_version do not touch it). Guard it
+    by reading the source as text — no fastapi import — so a bump that forgets
+    the literal fails even on the core-only (no-fastapi) CI job."""
+    src = (ROOT / "app" / "server.py").read_text(encoding="utf-8")
+    literals = re.findall(r'return\s+"(\d+\.\d+\.\d+)"', src)
+    assert literals, "no fallback version literal found in app/server.py"
+    for lit in literals:
+        assert lit == _version_file_contents(), (
+            f"app/server.py fallback literal {lit!r} != VERSION "
+            f"{_version_file_contents()!r} — bump it by hand at release"
+        )
 
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
