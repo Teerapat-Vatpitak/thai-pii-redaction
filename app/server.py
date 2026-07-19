@@ -261,7 +261,12 @@ def sanitize(request: SanitizeRequest):
     start = time.time()
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
-    mode = request.mode if request.mode in ("token", "surrogate") else None
+    if request.mode is not None and request.mode not in ("token", "surrogate"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid mode: expected 'token' or 'surrogate'",
+        )
+    mode = request.mode
     clean_text = clean(request.text).text
     try:
         out = SERVICE.sanitize(clean_text, mode=mode, session_id=request.session_id)
@@ -459,6 +464,11 @@ def _first_page_png(pdf_path: str) -> str:
     return base64.b64encode(png).decode("ascii")
 
 
+# Upload cap for /api/redact-pdf; enforced while streaming so an oversize
+# body is rejected before it is fully buffered in memory.
+_MAX_PDF_BYTES = 50 * 1024 * 1024
+
+
 @app.post("/api/redact-pdf")
 async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     """Redact PII in a text-layer or scanned PDF and return the redacted file + previews.
@@ -473,7 +483,17 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     if not pdf_file.filename or not pdf_file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
-    contents = await pdf_file.read()
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await pdf_file.read(64 * 1024):
+        size += len(chunk)
+        if size > _MAX_PDF_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"PDF exceeds size limit of {_MAX_PDF_BYTES} bytes",
+            )
+        chunks.append(chunk)
+    contents = b"".join(chunks)
     tmp_dir = Path(tempfile.mkdtemp(prefix="aiguard_redact_"))
     in_path = tmp_dir / "input.pdf"
     out_path = tmp_dir / "redacted.pdf"

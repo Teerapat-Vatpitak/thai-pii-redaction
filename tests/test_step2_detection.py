@@ -276,6 +276,13 @@ def test_scan_fn_thai_id_and_date_are_fp():
     assert by_type["DATE"].redact_type == "FP"
 
 
+def test_scan_fn_iso_date():
+    # fn_scanner's loose date fallback must also catch ISO year-first dates.
+    text = "logged 2024-06-29 ok"
+    result = scan_fn(text, [])
+    assert any(e.data_type == "DATE" and e.original_text == "2024-06-29" for e in result)
+
+
 def test_scan_fn_no_overlap_with_existing():
     import uuid as _uuid
     text = "date: 01/06/2024 and something"
@@ -306,6 +313,23 @@ def test_fp_bare_date_is_generic_date():
 def test_fp_birth_cue_date_is_dob():
     ents = detect_fp("ผมเกิดวันที่ 12/05/2530 ครับ")
     assert any(e.data_type == "DATE_OF_BIRTH" for e in ents)
+
+
+def test_fp_iso_date_generic():
+    # ISO year-first dates (yyyy-mm-dd) used to be missed entirely: the regex
+    # led with \d{1,2} and _date_sanity assumed day-first.
+    ents = detect_fp("บันทึกเมื่อวันที่ 2024-06-29 เวลาบ่าย")
+    dates = [e for e in ents if e.data_type in ("DATE", "DATE_OF_BIRTH")]
+    assert any(e.original_text == "2024-06-29" for e in dates)
+    assert all(e.data_type == "DATE" for e in dates)  # no birth cue
+
+
+def test_fp_iso_date_with_birth_cue_is_dob():
+    ents = detect_fp("ผมเกิดวันที่ 1990-01-15 ครับ")
+    assert any(
+        e.data_type == "DATE_OF_BIRTH" and e.original_text == "1990-01-15"
+        for e in ents
+    )
 
 
 def test_fp_bare_long_number_is_id_number():
@@ -381,6 +405,24 @@ def test_tb_date_with_birth_cue_upgrades_to_dob(monkeypatch):
         text, [("12 พฤษภาคม 2530", "B-DATE")], monkeypatch
     )
     assert any(e.data_type == "DATE_OF_BIRTH" for e in ents)
+
+
+def test_tb_ner_failure_is_logged_not_silent(monkeypatch, caplog):
+    """A NER engine that raises must not silently swallow a whole chunk of
+    text — the failure has to be logged so missed PII is observable."""
+    import logging
+    import pii_redactor.detectors.tb_detector as tbd
+
+    class BoomNER:
+        def tag(self, chunk):
+            raise RuntimeError("boom")
+
+    monkeypatch.setitem(tbd._ner_cache, "thainer", BoomNER())
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
+    with caplog.at_level(logging.WARNING, logger="pii_redactor.detectors.tb_detector"):
+        # must not raise — detection degrades, does not crash
+        tbd.detect_tb("วันนี้อากาศดีมากเลยครับ ไปเที่ยวกันเถอะ")
+    assert any("NER" in r.getMessage() for r in caplog.records)
 
 
 def test_tb_organization_is_kept_and_labeled(monkeypatch):

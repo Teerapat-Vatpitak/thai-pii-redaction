@@ -43,8 +43,11 @@ def cmd_sanitize(args):
         print(f"Output written: {result.export_result.output_path} "
               f"({result.export_result.byte_size} bytes)")
     else:
+        # The MASKED text (what you'd paste into an external AI), NOT
+        # reverse_result.text — that is the re-identified output, which under
+        # the fake provider is just the original PII echoed back.
         print("--- Sanitized Output ---")
-        print(result.reverse_result.text)
+        print(result.pseudonymized_text)
 
     if result.validation_result.flags:
         print(f"Warnings: {result.validation_result.flags}", file=sys.stderr)
@@ -57,6 +60,7 @@ def cmd_report(args):
     from pii_redactor.ingest.text_cleaner import clean
     from pii_redactor.detectors.fp_detector import detect_fp
     from pii_redactor.detectors.tb_detector import detect_tb
+    from pii_redactor.detectors.aggregate import dedupe_spans
 
     try:
         source_type = detect_source_type(args.file)
@@ -70,11 +74,16 @@ def cmd_report(args):
         print(f"Failed to read file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    fp_entities = detect_fp(text)
-    tb_entities = detect_tb(text)
+    # Resolve FP/TB span overlaps (FP wins, checksum-backed) before counting —
+    # the same central rule the pipeline/web path use. Summing raw len(fp)+
+    # len(tb) double-counts a value both detectors matched (e.g. an ID the NER
+    # also tags), inflating the total past the risk-level thresholds.
+    merged = dedupe_spans(detect_fp(text) + detect_tb(text))
+    fp_entities = [e for e in merged if e.redact_type == "FP"]
+    tb_entities = [e for e in merged if e.redact_type != "FP"]
 
     print(f"=== PII Risk Report: {args.file} ===")
-    print(f"Total entities detected: {len(fp_entities) + len(tb_entities)}")
+    print(f"Total entities detected: {len(merged)}")
     print(f"  Structured PII (FP): {len(fp_entities)}")
     print(f"  Name/Address/Date (TB): {len(tb_entities)}")
 
