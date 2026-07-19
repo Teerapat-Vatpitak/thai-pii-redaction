@@ -149,6 +149,29 @@ def test_reidentify_unknown_session_404():
     assert resp.status_code == 404
 
 
+def test_sanitize_rejects_invalid_mode():
+    """An unknown mode string must 400, not silently fall back to token."""
+    resp = _client().post("/api/sanitize", json={"text": "โทร 0812345678", "mode": "bogus"})
+    assert resp.status_code == 400
+
+
+def test_sanitize_accepts_valid_modes():
+    for mode in ("token", "surrogate"):
+        resp = _client().post("/api/sanitize", json={"text": "โทร 0812345678", "mode": mode})
+        assert resp.status_code == 200
+
+
+def test_redact_pdf_rejects_oversize_upload(monkeypatch):
+    """Uploads over the size cap must 413 before the whole body is buffered."""
+    monkeypatch.setattr(server, "_MAX_PDF_BYTES", 50)
+    big = b"%PDF-1.4\n" + b"0" * 200
+    resp = _client().post(
+        "/api/redact-pdf",
+        files={"pdf_file": ("big.pdf", big, "application/pdf")},
+    )
+    assert resp.status_code == 413
+
+
 def test_audit_log_omits_session_id(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
     rec = {"type": "process", "session_id": "secret-sid-123", "timestamp": 1,

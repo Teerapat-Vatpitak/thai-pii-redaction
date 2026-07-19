@@ -8,8 +8,14 @@ SECURITY-CRITICAL:
 """
 
 import json
+import re
 import time
 from pathlib import Path
+
+# Allowlist for characters permitted in the session_id part of a log filename;
+# anything else (path separators, dots, ...) is replaced so a hostile
+# session_id cannot traverse out of output_dir.
+_SESSION_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 def _log_path(session_id: str, log_type: str, output_dir: str) -> Path:
@@ -17,14 +23,15 @@ def _log_path(session_id: str, log_type: str, output_dir: str) -> Path:
     Construct the path for an audit log file.
 
     Args:
-        session_id: The session identifier
+        session_id: The session identifier (sanitized before use in the filename)
         log_type: Type of log ("process" or "security")
         output_dir: Directory to write logs to
 
     Returns:
         Path object for the audit log file
     """
-    return Path(output_dir) / f"audit_{session_id}_{log_type}.jsonl"
+    safe_id = _SESSION_ID_UNSAFE.sub("_", session_id)
+    return Path(output_dir) / f"audit_{safe_id}_{log_type}.jsonl"
 
 
 def write_process_log(

@@ -140,6 +140,20 @@ class TestValidateOutput:
         assert len(result.flags) > 0
         assert any("pseudonym_residue" in f for f in result.flags)
 
+    def test_validate_output_thai_ending_no_truncation(self):
+        """Thai has no sentence-final punctuation. Normal Thai text ending in a
+        consonant must NOT be flagged as truncated (it used to → halt → the CLI
+        export path raised ExportError on legitimate Thai output)."""
+        vault = _make_vault()
+        # >20 chars, ends in the Thai consonant 'บ' (U+0E1A)
+        rr = _make_reverse_result("สวัสดีครับ ยินดีต้อนรับทุกท่านเข้าสู่ระบบ")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        result = validate_output(rr, registry, vault)
+        truncation_flags = [f for f in result.flags if "truncation" in f]
+        assert truncation_flags == []
+        assert result.layer3_integrity_ok
+        assert not result.halt
+
 
 class TestAuditLogProcess:
     """Tests for write_process_log() function."""
@@ -268,6 +282,24 @@ class TestAuditLogSecurity:
         assert len(lines) == 2
         assert json.loads(lines[0])["layer"] == "layer1"
         assert json.loads(lines[1])["layer"] == "layer2"
+
+    def test_audit_log_path_rejects_traversal(self, tmp_path):
+        """A path-traversal session_id must not escape output_dir when it is
+        interpolated into the log filename."""
+        from pii_redactor.audit import _log_path
+
+        p = _log_path("../../etc/passwd", "process", str(tmp_path))
+        assert p.parent == Path(str(tmp_path))
+        assert ".." not in p.name
+        assert "/" not in p.name and "\\" not in p.name
+
+    def test_audit_log_path_keeps_uuid_intact(self, tmp_path):
+        """Sanitizing must not mangle normal uuid/hyphen session ids."""
+        from pii_redactor.audit import _log_path
+
+        sid = str(uuid.uuid4())
+        p = _log_path(sid, "process", str(tmp_path))
+        assert p.name == f"audit_{sid}_process.jsonl"
 
     def test_audit_security_log_no_pii(self, tmp_path):
         """Security log should never contain PII values."""

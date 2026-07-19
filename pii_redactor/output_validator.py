@@ -131,10 +131,16 @@ def _layer3_integrity(text: str) -> tuple[bool, list[str]]:
         flags.append(f"encoding_error:{e}")
         return False, flags
 
-    # Truncation heuristic: text must end with punctuation, space, or newline
-    # Only flag if text is substantial (>20 chars)
+    # Truncation heuristic: text must end with punctuation, space, newline, or
+    # a Thai character. Thai has no sentence-final punctuation convention, so a
+    # normal Thai sentence ends in a consonant/vowel — flagging that as
+    # truncation halted every legitimate Thai export (the ฯ + tone-mark
+    # allowances were an incomplete patch; the whole Thai block covers them).
+    # Only flag if text is substantial (>20 chars).
     if text and len(text) > 20:
-        if not text[-1] in ".!?ฯ\n ่้๊๋":
+        last = text[-1]
+        is_thai = "฀" <= last <= "๿"
+        if last not in ".!?ฯ\n " and not is_thai:
             flags.append("possible_truncation:no_terminal_punctuation")
 
     ok = len(flags) == 0

@@ -182,7 +182,10 @@ _RE_BANK_ACCOUNT_2 = re.compile(
     r"(?<!\d)(\d{7}[-\s]?\d{3})(?!\d)"
 )
 _RE_DATE = re.compile(
-    r"(?<!\d)(\d{1,2}[/\-]\d{1,2}[/\-](?:\d{4}|\d{2}))(?!\d)"
+    # day-first (dd/mm/yyyy or dd/mm/yy) OR ISO year-first (yyyy-mm-dd).
+    # The year-first alternative must come after so the day-first form still
+    # wins for short years; the digit-boundary lookarounds keep both anchored.
+    r"(?<!\d)(\d{1,2}[/\-]\d{1,2}[/\-](?:\d{4}|\d{2})|\d{4}[/\-]\d{1,2}[/\-]\d{1,2})(?!\d)"
 )
 _RE_VEHICLE_PLATE = re.compile(
     r"([ก-ฮ]{1,3}\s*\d{1,4})"
@@ -294,8 +297,12 @@ def detect_fp(text: str) -> list[Entity]:
         parts = re.split(r"[/\-]", raw)
         if len(parts) == 3:
             try:
-                day = int(parts[0])
-                month = int(parts[1])
+                # ISO year-first (yyyy-mm-dd) vs day-first (dd-mm-yyyy): a
+                # 4-digit leading field means the day/month are the last two.
+                if len(parts[0]) == 4:
+                    day, month = int(parts[2]), int(parts[1])
+                else:
+                    day, month = int(parts[0]), int(parts[1])
                 if _date_sanity(day, month):
                     dtype = (
                         "DATE_OF_BIRTH"
