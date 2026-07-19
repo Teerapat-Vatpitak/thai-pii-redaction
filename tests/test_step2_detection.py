@@ -47,6 +47,75 @@ def test_detect_fp_phone():
     assert len(phones) >= 1
 
 
+def test_detect_landline_9_digit_bangkok():
+    """DET-1: Thai landlines are 9 digits (02-XXX-XXXX). The old regex required
+    10, so every standard-format Bangkok landline was missed entirely."""
+    for text in ("โทร 02-123-4567 ครับ", "02-123-4567", "021234567"):
+        phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
+        assert phones, f"landline not detected in {text!r}"
+
+
+def test_detect_landline_9_digit_provincial():
+    """DET-1: provincial landlines are 0XX-XXX-XXX (3-3-3), also 9 digits."""
+    for text in ("074-123-456", "038-123-456"):
+        phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
+        assert phones, f"provincial landline not detected in {text!r}"
+
+
+def test_plate_regex_does_not_swallow_national_id():
+    """DET-2: a Thai-consonant abbreviation before a long number (e.g. 'ปชช
+    1101700230708') must not let the plate regex claim the leading digits and
+    starve the checksum-valid THAI_ID via dedup."""
+    ents = detect_fp("เลขบัตร ปชช 1101700230708 ของผม")
+    assert any(e.data_type == "THAI_ID" for e in ents), (
+        f"national ID lost to plate regex: {[(e.data_type, e.original_text) for e in ents]}"
+    )
+    assert not any(e.data_type == "VEHICLE_PLATE" for e in ents)
+
+
+def test_plate_regex_does_not_swallow_phone():
+    """DET-2: 'กทม 0812345678' must yield the full phone, not a truncated plate."""
+    ents = detect_fp("ติดต่อคุณ กทม 0812345678")
+    phones = [e for e in ents if e.data_type == "PHONE"]
+    assert phones and "0812345678" in phones[0].original_text
+
+
+def test_real_plate_still_detected():
+    """DET-2 guard: the boundary fix must not break genuine plate detection."""
+    ents = detect_fp("รถทะเบียน ขก 4471 จอดอยู่")
+    assert any(e.data_type == "VEHICLE_PLATE" for e in ents)
+
+
+def _covered(text: str, needle: str) -> bool:
+    """True if some detected entity span covers the whole needle occurrence."""
+    idx = text.index(needle)
+    for e in detect_fp(text):
+        if e.span[0] <= idx and e.span[1] >= idx + len(needle):
+            return True
+    return False
+
+
+def test_plate_regex_does_not_swallow_separated_numbers():
+    """DET-2 (separator variants): Thai IDs / phones / bank accounts / credit
+    cards are normally written WITH dash or space separators. A separator after
+    the plate's first digit group satisfies (?!\\d), so the plate can still claim
+    the leading group unless dedup keeps the higher-score checksum-backed number.
+    Every one of these must have its full number covered by a detection span."""
+    cases = [
+        ("เลขที่ ปชช 1-1017-00230-70-8", "1-1017-00230-70-8"),
+        ("ปชช 1-1017-00230-70-8", "1-1017-00230-70-8"),
+        ("กทม 081-234-5678", "081-234-5678"),
+        ("ติดต่อ กทม 081 234 5678", "081 234 5678"),
+        ("บช 123-4-56789-0", "123-4-56789-0"),
+        ("บช 4111-1111-1111-1111", "4111-1111-1111-1111"),
+    ]
+    for text, number in cases:
+        assert _covered(text, number), (
+            f"{number!r} not fully covered in {text!r}: "
+            f"{[(e.data_type, e.original_text) for e in detect_fp(text)]}"
+        )
+
+
 def test_detect_fp_sample_thai():
     from pathlib import Path
     text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")

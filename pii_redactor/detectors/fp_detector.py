@@ -73,8 +73,17 @@ def _make_entity(data_type: str, match: re.Match, text: str, score: float = 1.0)
 # ---------------------------------------------------------------------------
 
 def _deduplicate(entities: list[Entity]) -> list[Entity]:
-    """Remove overlapping spans; prefer higher score, then first occurrence."""
-    sorted_ents = sorted(entities, key=lambda e: (e.span[0], -e.score))
+    """Remove overlapping spans; prefer higher score, then first occurrence.
+
+    Score is the PRIMARY key (DET-2). The old code sorted by (start, -score),
+    i.e. earliest-start-wins, which contradicted this docstring and let a
+    low-score VEHICLE_PLATE ("ปชช 1", 0.9) that started before a checksum-valid
+    THAI_ID/PHONE/BANK/CREDIT_CARD (1.0) evict the real number via the greedy
+    keep — leaking it entirely. A separator after the plate's first digit group
+    (the normal way Thai IDs/phones are written) made this the common case, not
+    an edge one. Sorting score-first keeps the checksum-backed number; ties fall
+    back to earliest start so same-score ordering is unchanged."""
+    sorted_ents = sorted(entities, key=lambda e: (-e.score, e.span[0]))
     kept: list[Entity] = []
     for ent in sorted_ents:
         if (ent.span[1] - ent.span[0]) < 2:
@@ -165,8 +174,15 @@ _RE_EMAIL = re.compile(
 _RE_PHONE_MOBILE = re.compile(
     r"(?<!\d)(0[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)"
 )
+# Thai landlines are 9 digits (not 10). Two written shapes, both 9 digits:
+#   Bangkok    02-XXX-XXXX  (2-digit area, then 3+4)
+#   provincial 0XX-XXX-XXX  (3-digit area, then 3+3)
+# The old pattern demanded a third area digit before the first separator, so it
+# needed 10 digits and missed every standard landline (DET-1). Mobile numbers
+# (0[6-9], 10 digits) stay with _RE_PHONE_MOBILE; the [2-7] second digit here
+# never collides with them.
 _RE_PHONE_LANDLINE = re.compile(
-    r"(?<!\d)(0[2-5]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)"
+    r"(?<!\d)(0(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
 )
 # +66 form drops the national leading 0, so a Thai number carries 8 (landline)
 # or 9 (mobile) digits after +66 -- e.g. +66 81 234 5678 is 9. The old pattern
@@ -187,8 +203,15 @@ _RE_DATE = re.compile(
     # wins for short years; the digit-boundary lookarounds keep both anchored.
     r"(?<!\d)(\d{1,2}[/\-]\d{1,2}[/\-](?:\d{4}|\d{2})|\d{4}[/\-]\d{1,2}[/\-]\d{1,2})(?!\d)"
 )
+# The trailing (?!\d) is load-bearing (DET-2): without it, this pattern bit the
+# first 1-4 digits of a LONGER number after a Thai-consonant abbreviation
+# (e.g. "ปชช 1101...", "กทม 0812..."), and _deduplicate's earlier-start-wins
+# rule then dropped the overlapping checksum-valid THAI_ID/PHONE, leaking the
+# rest. A real plate never sits inside a longer digit run, so requiring a
+# non-digit right boundary costs no recall. No leading (?<!\d): new-format
+# plates carry a leading digit ("1กก 1234") we must still match.
 _RE_VEHICLE_PLATE = re.compile(
-    r"([ก-ฮ]{1,3}\s*\d{1,4})"
+    r"([ก-ฮ]{1,3}\s*\d{1,4})(?!\d)"
 )
 # Passport is alphanumeric, so it needs the same Thai-adjacency handling as the
 # numeric PII above: \b does NOT fire between a Thai letter and "A" (both are

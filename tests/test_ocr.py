@@ -191,13 +191,51 @@ def test_sharpen_preserves_shape():
     assert out.shape == img.shape
 
 
-def test_deskew_preserves_shape():
-    pytest.importorskip("cv2")
+def _install_fake_cv2(monkeypatch, calls):
+    """Inject a fake cv2 that records warpAffine (rotation) calls and forces a
+    non-trivial skew angle, so any rotation in the preprocessing path is
+    observable without the real OpenCV installed."""
+    import sys
+    import types
+
     np = pytest.importorskip("numpy")
+    fake = types.ModuleType("cv2")
+    fake.COLOR_RGB2GRAY = 7
+    fake.THRESH_BINARY_INV = 1
+    fake.THRESH_OTSU = 8
+    fake.INTER_CUBIC = 2
+    fake.BORDER_REPLICATE = 1
+    fake.cvtColor = lambda img, code: (img[:, :, 0] if img.ndim == 3 else img)
+    # thresh image with foreground so np.where(...) yields coords -> deskew proceeds
+    fake.threshold = lambda gray, a, b, flags: (0.0, np.ones_like(gray))
+    fake.minAreaRect = lambda coords: ((0.0, 0.0), (1.0, 1.0), 5.0)  # 5 deg skew
+    fake.getRotationMatrix2D = lambda center, angle, scale: np.eye(2, 3, dtype=float)
+    def _warp(img, matrix, size, **kw):
+        calls.append("warpAffine")
+        return img
+    fake.warpAffine = _warp
+    fake.fastNlMeansDenoisingColored = lambda img, *a, **k: img
+    fake.fastNlMeansDenoising = lambda img, *a, **k: img
+    fake.GaussianBlur = lambda img, ksize, sigma: img
+    fake.addWeighted = lambda a, wa, b, wb, g: a
+    monkeypatch.setitem(sys.modules, "cv2", fake)
+    return np
+
+
+def test_preprocess_does_not_rotate_coordinates(monkeypatch):
+    """DET-3: OCR bboxes are consumed by redactor.py against a render of the
+    ORIGINAL (unrotated) page, so preprocessing must NOT apply an affine
+    rotation -- a rotated image yields boxes in a different coordinate space and
+    the black redaction rectangles land off the actual PII."""
+    calls: list[str] = []
+    np = _install_fake_cv2(monkeypatch, calls)
     img = np.zeros((50, 50, 3), dtype=np.uint8)
     img[10:40, 10:40] = 255
-    out = ocr_processor._deskew(img)
-    assert out.shape == img.shape
+    ocr_processor.preprocess_image(img, level=0)
+    assert "warpAffine" not in calls, (
+        "preprocessing rotated the image; OCR bbox coordinates will not match "
+        "redactor.py's unrotated page render (DET-3)"
+    )
 
 
 def test_preprocess_image_level0_keeps_color_shape():
@@ -206,6 +244,12 @@ def test_preprocess_image_level0_keeps_color_shape():
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor.preprocess_image(img, level=0)
     assert out.shape == img.shape
+
+
+def test_deskew_removed():
+    """DET-3: deskew was removed from the module to keep OCR bbox coordinates in
+    the same (unrotated) space redactor.py renders and paints on."""
+    assert not hasattr(ocr_processor, "_deskew")
 
 
 def test_preprocess_image_level1_binarizes_to_grayscale():

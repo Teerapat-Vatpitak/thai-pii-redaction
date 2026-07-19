@@ -105,7 +105,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
       mode = mode === "surrogate" ? "surrogate" : "token";
-      const resp = await postJSON("/api/sanitize", { text: msg.text, mode });
+      // Reuse the tab's session so multi-turn token numbering stays consistent
+      // ([ชื่อ_1] keeps meaning the same person across turns). Without this,
+      // each Mask minted a fresh session and a later Restore mapped the token
+      // with the wrong vault -> wrong person's PII (EXT-1).
+      const priorSid = msg.session_id || (await loadSession(tabId));
+      let resp = await postJSON(
+        "/api/sanitize",
+        priorSid ? { text: msg.text, mode, session_id: priorSid } : { text: msg.text, mode }
+      );
+      // A stored session can be expired (404) or locked to a different mode
+      // (400) if the user switched token<->surrogate. Fall back to a fresh
+      // session so a Mask never silently fails on reuse.
+      if (priorSid && (resp.status === 404 || resp.status === 400)) {
+        resp = await postJSON("/api/sanitize", { text: msg.text, mode });
+      }
       if (resp.ok && resp.data && resp.data.session_id) {
         await storeSession(tabId, resp.data.session_id);
       }
