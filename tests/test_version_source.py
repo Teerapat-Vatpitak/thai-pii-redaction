@@ -86,7 +86,12 @@ def test_read_version_falls_back_when_file_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "__file__", str(missing_module_path))
     monkeypatch.delattr(sys, "_MEIPASS", raising=False)
 
-    assert server._read_version() == "2.2.0"
+    # REL-13: derive the expectation instead of hardcoding a third copy of the
+    # version. test_server_fallback_literal_matches_version_file already pins
+    # the literal to VERSION, so comparing against VERSION here keeps this test
+    # honest without making every release bump it by hand (it used to go red at
+    # exactly the release commit, for a non-bug).
+    assert server._read_version() == _version_file_contents()
 
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
@@ -192,7 +197,8 @@ def test_check_version_detects_drift_via_cargo_toml_regex(tmp_path):
     repo = _copy_repo_slice(tmp_path)
     cargo_toml = repo / "desktop" / "src-tauri" / "Cargo.toml"
     text = cargo_toml.read_text(encoding="utf-8")
-    drifted = text.replace('version = "2.2.0"', 'version = "1.2.3"', 1)
+    # REL-13: derive from VERSION rather than hardcoding the current release.
+    drifted = text.replace(f'version = "{_version_file_contents()}"', 'version = "1.2.3"', 1)
     assert drifted != text
     cargo_toml.write_text(drifted, encoding="utf-8")
 

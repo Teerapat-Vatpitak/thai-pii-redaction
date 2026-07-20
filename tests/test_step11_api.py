@@ -55,8 +55,15 @@ def test_cors_preflight_allows_extension(client):
 
 
 def test_health_version(client):
+    # REL-13: read the single source of truth rather than hardcoding another
+    # copy of the version that every release would have to hand-bump.
+    from pathlib import Path
+
+    expected = (Path(__file__).resolve().parent.parent / "VERSION").read_text(
+        encoding="utf-8"
+    ).strip()
     resp = client.get("/api/health")
-    assert resp.json()["version"] == "2.2.0"
+    assert resp.json()["version"] == expected
 
 
 def test_sanitize_returns_session_and_entities(client):
