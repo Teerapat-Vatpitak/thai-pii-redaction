@@ -5,9 +5,9 @@ v2.3.0. Written for whoever (or whatever) picks this up next.
 
 ## Where the project is
 
-- `main` = `4427104`, pushed and in sync. 247 tracked files. `VERSION` = 2.3.0.
+- `main` = `1f2fdbe`, pushed and in sync. 248 tracked files. `VERSION` = 2.3.0.
 - **v2.3.0 is published** — 11 assets, not a draft, provenance attested.
-- No open PRs. All Dependabot PRs (#42-#45) merged.
+- No open PRs, and `main` is now the **only** branch on the remote.
 - Python 535 pass / 6 skip · JS 36 pass · Rust 13 pass · ruff clean.
 
 ## What happened this session
@@ -38,6 +38,18 @@ pre-commit + `.editorconfig` adopted.
 
 **History rewritten.** Claude co-author trailers (14 commits) and a
 third-party PSU PDF purged. All SHAs changed.
+
+**Remote cleaned (after the above).** An audit of what GitHub actually serves —
+not what `git status` reports — found six merged-but-undeleted branches
+(`audit-fixes-tier1-6`, `audit-v2-findings`, `audit-v2-rel-gates`,
+`feat/api-boot-token`, `housekeeping-phase1`, `rel-12-pin-toolchains`), each
+still holding the 49 files the 289 → 247 cleanup had removed from `main`: the
+third-party PSU PDF, `docs/submission/`, `docs/superpowers/`, `.claude/`. All six
+were verified merged (PRs #37, #47-#50) and deleted. `.gitignore` gained the
+runtime-output rules it was missing (`*.jsonl` — `audit.py` defaults
+`output_dir` to `"."` and its logs carry pseudonyms per VAULT-4 — plus `out/`,
+`*.log`, `.env.*`, coverage). Seven references pointing at now-unpublished
+working docs were rewritten rather than resolved by publishing those docs.
 
 ## Things that bit us — do not relearn these
 
@@ -70,6 +82,18 @@ third-party PSU PDF purged. All SHAs changed.
    `.git-blame-ignore-revs` — and that SHA must be repointed if history is
    later rewritten, or the file silently stops working.
 
+6. **A clean working tree says nothing about what GitHub serves.** `git status`
+   and `git ls-files` answer only for the current branch's tree, and both
+   reported clean while six stale branches published every file the cleanup had
+   removed. Deleting a file from `main` does not unpublish it. The questions
+   that actually answer it are `git ls-remote --heads origin`,
+   `git diff --diff-filter=D --name-only origin/<branch> origin/main` (what does
+   this branch still carry that `main` dropped?) and
+   `git ls-remote origin 'refs/pull/*'`. Corollary: removing a file also does not
+   remove the references to it — the same cleanup left five ADR links, a
+   `CLAUDE.md` citation and a `demo_check.ps1` hint pointing at docs it had just
+   deleted, so every one of them 404'd for a public reader.
+
 ## Open work
 
 **Not blockers.** All tracked in the findings doc.
@@ -86,8 +110,11 @@ third-party PSU PDF purged. All SHAs changed.
   It could not be confirmed from PyThaiNLP's catalog and was therefore **not**
   written into NOTICE. The NER model's CC BY-4.0 attribution *was* verified and
   added.
-- **Old history is still reachable by SHA** through GitHub's 50 permanent
-  pull-request refs. Only GitHub Support running gc can remove it.
+- **Old history is still reachable by SHA** through GitHub's permanent
+  pull-request refs — verified: `refs/pull/48|49|50/head` still resolve to the
+  deleted branches' tips, so the PSU PDF is fetchable by anyone who knows a SHA.
+  Deleting the branches closed the browsable path (branch dropdown, `blob/<branch>/`
+  URLs, search indexing) but not this one. Only GitHub Support running gc can.
 - REL-2's model-pin check is silent on success, so logs cannot prove it ran.
 
 ## Conventions this repo now holds itself to
@@ -102,3 +129,7 @@ third-party PSU PDF purged. All SHAs changed.
   the release workflow header rather than glossed over.
 - Findings need an artifact. A claim with no reproducible evidence counts as
   not done.
+- What the remote serves is the deliverable, not the working tree. A merged
+  branch gets deleted, and a doc that fails the publication criteria in
+  `docs/decisions/README.md` gets de-linked rather than published to fix a
+  dangling reference.
