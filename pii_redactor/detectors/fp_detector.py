@@ -164,7 +164,7 @@ _RE_THAI_ID = re.compile(r"(?<!\d)(\d{1}[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\
 _RE_CREDIT_CARD = re.compile(r"(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)")
 _RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{4,30})\b")
 _RE_EMAIL = re.compile(r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b")
-_RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[-\s]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
+_RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[- ]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
 # Thai landlines are 9 digits (not 10). Two written shapes, both 9 digits:
 #   Bangkok    02-XXX-XXXX  (2-digit area, then 3+4)
 #   provincial 0XX-XXX-XXX  (3-digit area, then 3+3)
@@ -177,8 +177,14 @@ _RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[-\s]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!
 # rather than after the area code. Requiring adjacency there missed that whole
 # shape -- and detect_fp is what the pre-send leak guard runs, so those numbers
 # went out unmasked.
+# That trunk-prefix separator is [- ], NOT [-\s]: `\s` matches a newline, which
+# would let a lone '0' ending a table row fuse with the digits on the next row.
+# The interior separators keep [-\s] (a wrapped number is still one number), but
+# a leading zero has no such excuse -- and the blast radius is asymmetric, since
+# redactor._build_redact_set turns each whitespace-separated word of an entity
+# into a document-wide redaction fragment on a path that flattens to image.
 _RE_PHONE_LANDLINE = re.compile(
-    r"(?<!\d)(0[-\s]?(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
+    r"(?<!\d)(0[- ]?(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
 )
 # +66 form drops the national leading 0, so a Thai number carries 8 (landline)
 # or 9 (mobile) digits after +66 -- e.g. +66 81 234 5678 is 9. The old pattern

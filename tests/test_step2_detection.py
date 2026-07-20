@@ -82,6 +82,18 @@ def test_detect_mobile_with_separator_after_trunk_prefix():
         assert phones, f"mobile not detected in {text!r}"
 
 
+def test_trunk_prefix_separator_does_not_cross_a_line_break():
+    """The trunk-prefix separator must not be `\\s`, which matches a newline: a
+    lone '0' ending a table row would then fuse with the digits on the next row
+    into a bogus PHONE. That is not a harmless over-mask -- redactor's
+    _build_redact_set splits an entity on whitespace and registers every word as
+    a GLOBAL fragment, so a Buddhist year like 2565 becomes a document-wide
+    black-box target, and PDF redaction flattens to image (irreversible)."""
+    text = "รายการ  จำนวน\nส่วนลด  0\n2565 1234 บาท\n"
+    phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
+    assert not phones, f"line break swallowed into a phone span: {phones}"
+
+
 def test_plate_regex_does_not_swallow_national_id():
     """DET-2: a Thai-consonant abbreviation before a long number (e.g. 'ปชช
     1101700230708') must not let the plate regex claim the leading digits and
