@@ -125,3 +125,23 @@ def test_union_runs_both_engines_and_merges(monkeypatch):
     # Union keeps everything CRF alone found (superset; entities are disjoint so
     # no cross-engine overlap can drop a type).
     assert crf_types <= uni_types
+
+
+def test_tner_is_a_known_engine_but_never_the_default(monkeypatch):
+    """The proposal names TNER as a supplementary engine while also claiming
+    detection runs offline in-container. Both hold only if tner is opt-in."""
+    from pii_redactor.detectors import tb_detector
+
+    assert "tner" in tb_detector._ENGINE_CONFIG
+    monkeypatch.delenv("AIGUARD_NER_ENGINE", raising=False)
+    assert tb_detector._resolve_engine_name() == "thainer"
+
+
+def test_tner_without_credentials_fails_loudly(monkeypatch):
+    """Never silently fall back to the offline engine — a caller who asked for
+    TNER and got CRF would believe they had recall they do not have."""
+    from pii_redactor.detectors.tb_detector import NEREngineUnavailableError, _load_ner
+
+    monkeypatch.delenv("AIFORTHAI_API_KEY", raising=False)
+    with pytest.raises(NEREngineUnavailableError):
+        _load_ner("tner")
