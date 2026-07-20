@@ -1,0 +1,6 @@
+# Revisions that only reformat. Ignore them in blame:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub applies this file automatically.)
+
+# style: apply ruff format to the Python tree
+7bbeebecf01fe052aec02d8a07f9f15ffe7cd42b
