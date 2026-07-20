@@ -5,6 +5,9 @@ import pytest
 from pii_redactor.stateless import StatelessSanitizeResult, sanitize_stateless
 
 TEXT = "ผมชื่อ นายวิทยา สมบูรณ์ โทร 081-234-5678"
+# Two names so the person checked below does NOT hold the ordinal a fresh
+# vault would hand a lone name -- see the prior_mapping tests further down.
+TEXT_TWO_NAMES = "ผมชื่อ นายวิทยา สมบูรณ์ และเพื่อนชื่อ นางสาวมาลี ดีใจ โทร 081-234-5678"
 
 
 def test_returns_mapping_to_the_caller():
@@ -22,7 +25,7 @@ def test_no_original_pii_survives_in_the_output():
     assert "วิทยา" not in out.sanitized_text
 
 
-def test_identical_calls_are_independent_and_reproducible():
+def test_repeated_calls_with_the_same_input_are_reproducible():
     """Two calls with the same salt must not need shared state to agree."""
     a = sanitize_stateless(TEXT, mode="token", salt="s")
     b = sanitize_stateless(TEXT, mode="token", salt="s")
@@ -30,14 +33,44 @@ def test_identical_calls_are_independent_and_reproducible():
     assert a.mapping == b.mapping
 
 
-def test_prior_mapping_keeps_tokens_stable_across_turns():
-    """Multi-turn consistency without server state: the caller passes the map back."""
+def test_a_call_leaves_no_trace_for_the_next_call():
+    """Isolation -- distinct from reproducibility above.
+
+    Calling with identical text twice (the test above) would pass even if a
+    vault were retained across calls: call 2 would just reuse call 1's tokens
+    and produce an identical result either way. To actually detect retained
+    state, call 2 must use different text naming a different person: a lone
+    name with no shared history must still get ordinal 1, and call 1's
+    original must not surface anywhere in call 2's mapping.
+    """
     first = sanitize_stateless(TEXT, mode="token", salt="s")
+
+    second = sanitize_stateless("ผมชื่อ นายสมชาย ใจเย็น", mode="token", salt="s")
+
+    assert second.mapping == {"[ชื่อ_1]": "นายสมชาย ใจเย็น"}
+    assert not set(first.mapping.values()) & set(second.mapping.values())
+
+
+def test_prior_mapping_keeps_tokens_stable_across_turns():
+    """Multi-turn consistency without server state: the caller passes the map back.
+
+    Turn 1 names two people, so the person checked here holds `[ชื่อ_2]`, not
+    the `[ชื่อ_1]` a fresh vault would mint for a lone name in turn 2 -- a
+    single-name turn-1 fixture would make this pass even if prior_mapping
+    were silently dropped, since the fresh-vault ordinal and the stable
+    token would coincide.
+    """
+    name = "นายวิทยา สมบูรณ์"
+    first = sanitize_stateless(TEXT_TWO_NAMES, mode="token", salt="s")
+    token = next(p for p, original in first.mapping.items() if original == name)
+
     second = sanitize_stateless(
-        "แจ้ง นายวิทยา สมบูรณ์ อีกครั้ง", mode="token", salt="s", prior_mapping=first.mapping
+        f"แจ้ง {name} อีกครั้ง", mode="token", salt="s", prior_mapping=first.mapping
     )
-    reused = set(first.mapping) & set(second.mapping)
-    assert reused, "the same person must reuse the same token across turns"
+    assert second.mapping.get(token) == name, (
+        "the same person must reuse the same token across turns"
+    )
+    assert token in second.sanitized_text
 
 
 def test_prior_mapping_reuses_the_token_rather_than_minting_a_second_one():
@@ -45,10 +78,12 @@ def test_prior_mapping_reuses_the_token_rather_than_minting_a_second_one():
 
     A re-admitted pair must satisfy the anonymizer's reuse lookup, otherwise
     the same person is issued a fresh token every turn and the caller-held
-    mapping grows a second entry pointing at them.
+    mapping grows a second entry pointing at them. Turn 1 again uses the
+    two-name fixture (see above) so this person's token is the non-default
+    `[ชื่อ_2]`, not the ordinal a fresh vault would hand out on its own.
     """
     name = "นายวิทยา สมบูรณ์"
-    first = sanitize_stateless(TEXT, mode="token", salt="s")
+    first = sanitize_stateless(TEXT_TWO_NAMES, mode="token", salt="s")
     token = next(p for p, original in first.mapping.items() if original == name)
 
     second = sanitize_stateless(
