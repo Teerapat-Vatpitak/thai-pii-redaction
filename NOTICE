@@ -11,14 +11,27 @@ each under its own permissive license:
 - reportlab (BSD-3-Clause) — used to build PDF output.
 - pdfplumber (MIT) — used for text-layer word bounding boxes.
 - Pillow (HPND / MIT-CMU) — image drawing for redaction.
-- PyThaiNLP (Apache-2.0) — Thai tokenization and NER.
+- PyThaiNLP (Apache-2.0) — Thai tokenization and NER library code.
 - python-crfsuite (MIT) — CRF sequence labeling for the thainer NER engine.
+
+The packaged desktop build (AIGuard.exe) additionally bundles a trained model
+file, which is licensed separately from the PyThaiNLP library above and requires
+attribution:
+
+- Thai NER model `thai-ner-1-4.crfsuite` (Creative Commons Attribution 4.0
+  International, CC BY-4.0) — Copyright Wannaphong Phatthiyaphaibun.
+  Source: https://github.com/wannaphong/thai-ner/
+  License: https://creativecommons.org/licenses/by/4.0/
+  The file is redistributed unmodified; its SHA256 is pinned in
+  scripts/build_sidecar.py.
 
 Bundled fonts (self-hosted WOFF2 in desktop/src/fonts/ and extension/fonts/,
 used for the application UI):
 - IBM Plex Sans Thai Looped (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
 - IBM Plex Mono (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
   Source: https://github.com/IBM/plex
+  License text: licenses/OFL-1.1.txt (OFL-1.1 requires the license to travel
+  with the font files).
 
 Optional components (installed separately, not part of the core distribution):
 - sentence-transformers / torch — optional semantic Section-26 detector.

@@ -20,5 +20,19 @@ benchmark/reports/
 /*.jpg
 /*.jpeg
 /*.png
-/AI_Innovation_for_Future_Society.pdf
+# Third-party competition brief (PSU) — not ours to redistribute. Match anywhere,
+# not just at root: a copy under docs/reference/ escaped the old anchored rule.
+AI_Innovation_for_Future_Society.pdf
 node_modules/
+
+# Local Claude Code / agent workspace (machine-specific, not shipped)
+.claude/
+.superpowers/
+
+# Working notes kept locally: AI-agent task plans and superseded design docs,
+# and competition-submission artifacts from an event that has ended. Useful to
+# the maintainer, noise to a reader of a public repo.
+docs/superpowers/
+docs/submission/
+docs/demo/
+docs/reference/

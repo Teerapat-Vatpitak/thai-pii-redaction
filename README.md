@@ -2,146 +2,99 @@
   <img src="assets/logo.png" alt="AI Guard logo" width="140" />
 </p>
 
-# AI Guard — Thai PII Redaction
+<h1 align="center">AI Guard</h1>
+
+<p align="center">
+  Mask Thai personal data before sending it to an external AI, then restore the real values locally.
+</p>
 
 <p align="center">
   <a href="https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest"><img src="https://img.shields.io/github/v/release/Teerapat-Vatpitak/thai-pii-redaction?label=release" alt="Latest release" /></a>
+  <a href="https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/workflows/ci.yml"><img src="https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platforms" />
-  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
 </p>
-
-Mask Thai personal data (PII) before sending it to an external AI, then restore the real values locally. Everything runs on your machine — raw PII never leaves the device (PDPA-friendly).
-
-PSU Future Tech Challenge 2026 · AI Innovation for Future Society (Prototype)
 
 <p align="center">
   <img src="assets/demo-before-after.png" alt="AI Guard before and after: real Thai PII on the left, masked tokens on the right" width="760" />
 </p>
 
-## What it does
+Everything runs on your machine. Detection is regex + checksum (Thai national ID
+mod-11, phone, email, bank account) plus Thai NER from PyThaiNLP — no cloud
+service sees your data, and the token-to-original map never leaves the device.
 
-- **AI Guard** — on ChatGPT, Claude, Gemini, Grok, Perplexity, or GLM / Z.ai, replace PII with tokens (`[ชื่อ_1]`) or realistic fake data before sending, then restore the real values from the reply. (On any other page, the docked side panel does the same by paste.)
-- **True PDF redaction** — black out PII in a PDF (removed from the text layer), returns the redacted file + before/after preview.
-- **PDPA report** — risk score plus Section 26 sensitive-data flags (health, religion, …).
+## Features
 
-Detection runs locally: regex + checksum (Thai ID mod-11, phone, email, …) and Thai NER (PyThaiNLP). No cloud AI is used to detect.
+| | |
+|---|---|
+| **Mask & restore in the browser** | On ChatGPT, Claude, Gemini, Grok, Perplexity and GLM/Z.ai, replace PII with tokens (`[ชื่อ_1]`) or realistic fake data before sending, then restore the real values in the reply. A docked side panel does the same by paste on any other page. |
+| **True PDF redaction** | Black out PII at the bounding-box level and get the redacted file plus a before/after preview. |
+| **PDPA report** | Re-identification risk score and Section 26 sensitive-data flags (health, religion, and so on). |
 
-## Installation
+## Install
 
-The recommended way to run AI Guard is the desktop app: a native installer that bundles the backend, so there is no Python setup. A from-source / pip path is also available for developers.
+Download the installer for your platform from the
+[latest release](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest):
 
-### Option A · Desktop app installer (recommended)
+| Platform | File |
+|---|---|
+| Windows | `AI.Guard_<version>_x64-setup.exe` |
+| macOS (Apple Silicon) | `AI.Guard_<version>_aarch64.dmg` |
+| Linux | `.AppImage` or `.deb` |
 
-1. Download the installer for your platform from the [Releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest):
-   - **Windows** (tested, primary platform): `AI.Guard_<version>_x64-setup.exe`
-   - **macOS** (experimental — built in CI, not yet verified on real hardware): `AI.Guard_<version>_aarch64.dmg`
-   - **Linux** (experimental — built in CI, not yet verified on real hardware): `AI.Guard_<version>_amd64.deb` or `AI.Guard_<version>_amd64.AppImage`
-2. Run the installer and launch AI Guard. The backend is bundled and starts with the app — no Python, no separate install, works offline.
-3. The app is not code-signed. On first run, Windows SmartScreen may show an "unknown publisher" warning — click **More info → Run anyway** to continue.
+The installer bundles the backend, so no Python setup is required. It is
+**unsigned by design** — trust comes from verifiable builds rather than a paid
+certificate, so Windows SmartScreen warns on first run (**More info → Run
+anyway**). See [SECURITY.md](SECURITY.md).
 
-#### Verify your download (optional)
+To add the in-page browser bar, load `extension/` unpacked at
+`chrome://extensions` with Developer mode on, while the desktop app is running.
+Details in [extension/README.md](extension/README.md).
 
-Every release ships a `SHA256SUMS` file plus [GitHub build provenance](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations) for each asset. Two independent checks:
+Running from source instead: [docs/install-from-source.md](docs/install-from-source.md).
 
-- **Integrity** — the file wasn't corrupted or swapped in transit:
-  - Windows: `certutil -hashfile AI.Guard_<version>_x64-setup.exe SHA256`, then compare with the matching line in `SHA256SUMS`
-  - macOS/Linux: `sha256sum -c SHA256SUMS --ignore-missing`
-- **Provenance** — the file was built by GitHub Actions from this repository at the tagged commit (requires the [GitHub CLI](https://cli.github.com/)): `gh attestation verify AI.Guard_<version>_x64-setup.exe -R Teerapat-Vatpitak/thai-pii-redaction`
+## Verify your download
 
-These prove origin and integrity. They are **not** a claim of bit-for-bit reproducibility — rebuilding locally produces a functionally identical but not byte-identical binary (PyInstaller and NSIS embed timestamps). The build inputs are pinned instead: hash-locked Python dependencies (`requirements*.lock`), a pinned PyInstaller, SHA-pinned CI actions, a SHA256-pinned Thai NER model, and explicit pip/Rust/Node versions (no `latest`, `stable`, or `lts/*`). The one exception is apt packages, left unversioned because Ubuntu's archive drops superseded versions.
-
-### Option B · From source (developer alternative)
-
-Prerequisites: **Python 3.11+** and **git**.
+Every release asset is listed in `SHA256SUMS` and carries GitHub build
+provenance:
 
 ```bash
-git clone https://github.com/Teerapat-Vatpitak/thai-pii-redaction.git
-cd thai-pii-redaction
-```
-```powershell
-./run.ps1     # Windows (PowerShell)
-```
-```bash
-./run.sh      # Linux / macOS / git-bash
+# integrity
+sha256sum -c SHA256SUMS --ignore-missing      # macOS: shasum -a 256 -c
+# origin — proves GitHub Actions built this file from this repo at this tag
+gh attestation verify <file> -R Teerapat-Vatpitak/thai-pii-redaction
 ```
 
-The script creates a virtual environment and installs dependencies on first run (a few minutes). The first time Thai NER runs it downloads a ~2 MB model (needs internet once). This starts the same backend the desktop app bundles, at `http://localhost:8000` — useful for the browser extension UI below, or for hitting the API directly.
+Build inputs are pinned (hash-locked Python lockfiles, SHA-pinned CI actions, a
+SHA256-pinned Thai NER model, explicit pip/Rust/Node versions). This proves
+origin and integrity; it is not a claim of bit-for-bit reproducibility.
 
-**Verify either option:** open `http://localhost:8000/api/health` → you should see `{"status":"ok"}` with the current version.
-
-### Optional: browser extension (ChatGPT / Claude in-page UI)
-
-The extension talks to the same local backend, so it works with either install option above (desktop app or from-source).
-
-1. Open `chrome://extensions` in Chrome / Edge (any Chromium browser).
-2. Turn on **Developer mode** (top-right).
-3. Click **Load unpacked** and select the `extension/` folder from this repo (clone or download the repo to get it).
-4. Pin the **AI Guard** extension so its toolbar icon is handy — clicking it opens the docked **side panel**. The in-page bar activates on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `grok.com`, `perplexity.ai`, and `chat.z.ai` / `chatglm.cn`.
-
-See `extension/README.md` for details.
-
-**Using it:**
-
-1. Type a prompt containing PII into the chat box.
-2. Click **Mask PII** (the floating AI Guard bar) — your text becomes tokens or fake data.
-3. Send it with the site's normal Send button.
-4. When the AI replies, click **Restore PII** to see the real values.
-
-### Troubleshooting
-
-- **"Backend offline" in the extension** — the backend isn't running. Launch the desktop app, or start it via the `run` script (Option B).
-- **Port 8000 already in use** — close whatever is using it, or stop a previous backend instance.
-- **SmartScreen blocks the installer** — expected for an unsigned build; choose *More info → Run anyway*.
-- **Extension bar doesn't appear** — reload the ChatGPT/Claude tab after loading the extension.
-
-## Mask modes
+## Two masking modes
 
 | Mode | Output | Use when |
 |---|---|---|
-| `token` (default) | `[ชื่อ_1]`, `[โทรศัพท์_1]` | you want masking to be obvious |
-| `surrogate` | realistic fake data (valid checksums) | you want the AI to read it naturally |
+| `token` (default) | `[ชื่อ_1]`, `[เบอร์โทร_1]` | You want the AI to clearly see what was hidden. Restores exactly. |
+| `surrogate` | Realistic fake Thai values with valid formats | You want text that reads naturally to the AI. |
 
-Switch in the extension side panel.
+## Status and scope
 
-## Try the examples
+A working prototype, built for PSU Future Tech Challenge 2026 and maintained as
+open source since. It is a **safety net, not a guarantee**: detection favours
+recall over precision, but no automated tool catches every piece of personal
+data. Review anything sensitive before you send it. No accuracy figures are
+published until the benchmark work lands — see [ROADMAP.md](ROADMAP.md).
 
-In `examples/` (all PII is fabricated): three realistic Thai prompts and a sample Thai PDF. Explore the API at `http://localhost:8000/docs`, or:
+Not affiliated with, or endorsed by, any AI provider named above.
 
-```bash
-curl -X POST http://localhost:8000/api/sanitize \
-  -H "Content-Type: application/json" \
-  -d '{"text":"ผมชื่อสมชาย ใจดี โทร 081-234-5678","mode":"surrogate"}'
-```
+## Documentation
 
-## Optional: semantic sensitive detector
-
-Catches free-form Section 26 content keywords miss (e.g. "ป่วยเป็นเบาหวาน") via a MiniLM model:
-
-```
-pip install -r requirements-ml.txt   # large; the feature self-disables if absent
-```
-
-(Not included in the desktop app or the packaged builds.)
-
-## Privacy
-
-The token↔original vault is in memory only — never written to disk or sent over the network. The extension stores only a `session_id`. The external AI sees only masked text.
-
-## Tests
-
-```
-PYTHONUTF8=1 python -m pytest
-```
-
-## More
-
-Architecture and module map: [`CLAUDE.md`](CLAUDE.md).
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup, tests, conventions
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability (private reporting is enabled)
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [ROADMAP.md](ROADMAP.md) — what is planned and what is deliberately out of scope
+- [docs/decisions/](docs/decisions/) — design decisions and audit findings
 
 ## License
 
-Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). PDF handling uses the permissively licensed pypdfium2 / reportlab / pdfplumber (PyMuPDF/AGPL is no longer used).
-
-## Build the desktop app yourself
-
-See `desktop/README.md` and `packaging/README.md` for the Tauri build (bundles the backend via `desktop/build-sidecar.ps1`).
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE) for third-party
+attributions.

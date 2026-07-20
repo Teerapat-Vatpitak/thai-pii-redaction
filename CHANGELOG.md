@@ -17,7 +17,7 @@ log — see `git log` for full detail on any release.
 First post-competition release. Its headline is not a feature: a full-repo
 audit found — and this release closes — six ways PII could leak or be restored
 to the wrong person, several of which the product's own guarantees depended on.
-Findings and evidence: `docs/superpowers/specs/2026-07-19-audit-v2-findings.md`.
+Findings and evidence: `docs/decisions/2026-07-19-audit-v2-findings.md`.
 
 ### Added
 

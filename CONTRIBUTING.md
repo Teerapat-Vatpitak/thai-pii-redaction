@@ -98,7 +98,7 @@ a version string in any other file.
   doubt, a false positive (extra pseudonym) is much cheaper than a missed
   real PII leak. See "Design Invariants" in `CLAUDE.md`.
 - Keep PRs scoped to one logical change; large refactors should be discussed
-  first (open an issue, or check `ROADMAP.md` / `docs/superpowers/specs/` for
+  first (open an issue, or check `ROADMAP.md` / `docs/decisions/` for
   an existing design doc covering the area).
 
 ## Reporting a security issue

@@ -1,6 +1,6 @@
 """Confirm the product union mode delivers the recall the strategy ADR measured.
 
-The ADR (docs/superpowers/specs/2026-07-15-ner-engine-strategy-decision.md)
+The ADR (docs/decisions/2026-07-15-ner-engine-strategy-decision.md)
 recommended `union` from gold numbers: ADDRESS recall 1.000, NAME 0.643,
 OVERALL recall 0.852. This gates that the shipped detect_all + union path
 reproduces that recall-first win (floors sit just under the measured values so

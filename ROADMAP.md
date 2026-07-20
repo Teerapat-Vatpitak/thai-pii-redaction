@@ -6,9 +6,9 @@ competition (PSU Future Tech Challenge 2026) ended at the poster presentation;
 everything below is post-competition, solo-maintained OSS work.
 
 This is a summary. Full reasoning and the decision log live in
-[`docs/superpowers/specs/2026-07-17-roadmap-v2-design.md`](docs/superpowers/specs/2026-07-17-roadmap-v2-design.md),
+[`docs/decisions/2026-07-17-roadmap-v2-design.md`](docs/decisions/2026-07-17-roadmap-v2-design.md),
 which supersedes the ordering in the
-[original post-competition roadmap](docs/superpowers/specs/2026-07-10-post-competition-longterm-roadmap.md).
+[original post-competition roadmap](docs/decisions/2026-07-10-post-competition-longterm-roadmap.md).
 
 Ground rules (2026-07-10, still in force): engineering/quality is the main
 axis, not new product features; OSS solo; stay unsigned — trust comes from
@@ -25,7 +25,7 @@ Decisions locked 2026-07-17:
 - **Re-audit before the next tag.** The earlier "tier 1-6" audit left no
   findings artifact, so it did not count as done; a full re-audit was run and
   its findings live in
-  [`docs/superpowers/specs/2026-07-19-audit-v2-findings.md`](docs/superpowers/specs/2026-07-19-audit-v2-findings.md).
+  [`docs/decisions/2026-07-19-audit-v2-findings.md`](docs/decisions/2026-07-19-audit-v2-findings.md).
 
 ## Phase 1 — Close the next release
 

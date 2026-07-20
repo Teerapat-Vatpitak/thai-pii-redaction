@@ -2,7 +2,7 @@
    Canonical source. This file is copied byte-identical into extension/tokens.css;
    the two packages ship separately and cannot @import across each other, so keep
    them in sync. Font src paths are relative ("fonts/...") and resolve inside each
-   package. Spec: docs/superpowers/specs/2026-07-07-ui-redesign-aiguard-design.md */
+   package. Spec: docs/decisions/2026-07-07-ui-redesign-aiguard-design.md */
 
 @font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:400; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Regular.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:500; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Medium.woff2") format("woff2"); }
