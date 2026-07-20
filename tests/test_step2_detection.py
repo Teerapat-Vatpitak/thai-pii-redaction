@@ -64,6 +64,24 @@ def test_detect_landline_9_digit_provincial():
         assert phones, f"provincial landline not detected in {text!r}"
 
 
+def test_detect_landline_with_separator_after_trunk_prefix():
+    """DET-1 (follow-up): Thai organisations routinely write a Bangkok landline
+    as 0-2XXX-XXXX, splitting after the trunk prefix rather than after the '02'
+    area code. Both regexes required the digit after '0' to be adjacent, so this
+    shape was missed -- and the pre-send guard runs the same detect_fp, so the
+    number reached the external AI unmasked."""
+    for text in ("โทร 0-2123-4567 ครับ", "0-2123-4567", "0 2123 4567"):
+        phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
+        assert phones, f"landline not detected in {text!r}"
+
+
+def test_detect_mobile_with_separator_after_trunk_prefix():
+    """DET-1 (follow-up): the same split applies to mobiles (0-81-234-5678)."""
+    for text in ("0-81-234-5678", "0 81 234 5678"):
+        phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
+        assert phones, f"mobile not detected in {text!r}"
+
+
 def test_plate_regex_does_not_swallow_national_id():
     """DET-2: a Thai-consonant abbreviation before a long number (e.g. 'ปชช
     1101700230708') must not let the plate regex claim the leading digits and

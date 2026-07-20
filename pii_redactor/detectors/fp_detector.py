@@ -164,7 +164,7 @@ _RE_THAI_ID = re.compile(r"(?<!\d)(\d{1}[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\
 _RE_CREDIT_CARD = re.compile(r"(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)")
 _RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{4,30})\b")
 _RE_EMAIL = re.compile(r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b")
-_RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
+_RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[-\s]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
 # Thai landlines are 9 digits (not 10). Two written shapes, both 9 digits:
 #   Bangkok    02-XXX-XXXX  (2-digit area, then 3+4)
 #   provincial 0XX-XXX-XXX  (3-digit area, then 3+3)
@@ -172,8 +172,13 @@ _RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
 # needed 10 digits and missed every standard landline (DET-1). Mobile numbers
 # (0[6-9], 10 digits) stay with _RE_PHONE_MOBILE; the [2-7] second digit here
 # never collides with them.
+# The separator after the leading 0 is optional in both patterns because Thai
+# organisations also split after the trunk prefix (0-2123-4567, 0-81-234-5678)
+# rather than after the area code. Requiring adjacency there missed that whole
+# shape -- and detect_fp is what the pre-send leak guard runs, so those numbers
+# went out unmasked.
 _RE_PHONE_LANDLINE = re.compile(
-    r"(?<!\d)(0(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
+    r"(?<!\d)(0[-\s]?(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
 )
 # +66 form drops the national leading 0, so a Thai number carries 8 (landline)
 # or 9 (mobile) digits after +66 -- e.g. +66 81 234 5678 is 9. The old pattern
