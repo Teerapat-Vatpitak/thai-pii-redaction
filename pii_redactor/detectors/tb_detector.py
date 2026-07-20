@@ -77,6 +77,11 @@ class NEREngineUnavailableError(RuntimeError):
 _ENGINE_CONFIG: dict[str, dict[str, str | None]] = {
     "thainer": {"ner_engine": "thainer", "requires": None},
     "wangchanberta": {"ner_engine": "thainer-v2", "requires": "transformers"},
+    # AI for Thai platform TNER. Opt-in only: the proposal claims detection
+    # runs offline in-container, which stays true precisely because this is
+    # never the default. Needs AIFORTHAI_API_KEY; absent credentials raise
+    # rather than fall back, so nobody believes they have recall they do not.
+    "tner": {"ner_engine": "tner", "requires": "env:AIFORTHAI_API_KEY"},
 }
 
 # Lazy NER cache, keyed by AIGUARD_NER_ENGINE value (first use per engine loads
@@ -96,21 +101,43 @@ def _load_ner(name: str) -> NER:
         config = _ENGINE_CONFIG[name]
         requires = config["requires"]
         if requires is not None:
-            try:
-                __import__(requires)
-            except ImportError:
-                raise NEREngineUnavailableError(
-                    f"AIGUARD_NER_ENGINE={name!r} requires {requires!r}. "
-                    f"Run: pip install -r requirements-ml.txt"
-                ) from None
+            if requires.startswith("env:"):
+                env_var = requires[len("env:") :]
+                if not env_var:
+                    raise NEREngineUnavailableError(
+                        f"AIGUARD_NER_ENGINE={name!r} has a malformed requirement "
+                        f"{requires!r} (env: prefix with no variable name)"
+                    )
+                if not os.environ.get(env_var):
+                    raise NEREngineUnavailableError(
+                        f"AIGUARD_NER_ENGINE={name!r} requires the {env_var} "
+                        f"environment variable to be set."
+                    )
+            else:
+                try:
+                    __import__(requires)
+                except ImportError:
+                    raise NEREngineUnavailableError(
+                        f"AIGUARD_NER_ENGINE={name!r} requires {requires!r}. "
+                        f"Run: pip install -r requirements-ml.txt"
+                    ) from None
         _ner_cache[name] = NER(engine=config["ner_engine"])
     return _ner_cache[name]
 
 
+def _resolve_engine_name() -> str:
+    """The engine named by AIGUARD_NER_ENGINE, defaulting to the offline CRF.
+
+    The default is load-bearing: the AI for Thai proposal claims detection runs
+    offline in-container, which is only true while every network-backed engine
+    stays opt-in.
+    """
+    return os.environ.get("AIGUARD_NER_ENGINE", "thainer")
+
+
 def _get_ner() -> NER:
     """Select the single engine named by AIGUARD_NER_ENGINE (default thainer)."""
-    name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
-    return _load_ner(name)
+    return _load_ner(_resolve_engine_name())
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +346,7 @@ def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
         pos = idx + len(sent)
 
     # Engine selection: union runs both, everything else is a single engine.
-    name = os.environ.get("AIGUARD_NER_ENGINE", "thainer")
+    name = _resolve_engine_name()
     if name == "union":
         ners = [_load_ner("thainer"), _load_ner("wangchanberta")]
     else:
