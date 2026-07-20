@@ -50,6 +50,20 @@ DET-1 WEAKNESS เรื่อง dot/paren separator เป็น pre-existing 
 
 บทเรียนสำคัญ adversarial verification จับได้ว่า **ความพยายามแก้ REL-3 ครั้งแรกจะทำ release พังทุกครั้ง** เพราะการเพิ่ม `actions/checkout` ทำให้ `assets/` ที่ repo track อยู่ถูก materialize แล้ว `mkdir assets` fail ใต้ `bash -e` job ตายทั้ง job (ไม่มี SHA256SUMS ไม่มี attestation) ซึ่งพังหนักกว่า finding เดิม แก้เป็น `release-assets/` และมีเทสกัน dir ชนไว้แล้ว หมายเหตุ `mkdir -p` เป็น fix ที่ผิด เพราะจะทำให้ PNG ของ repo เองถูก hash และ attest ไปด้วย
 
+### Low: REL-12 ปิดแล้ว (commit `b41fc18`)
+
+ปิดก่อน tag เพราะเป็น finding เดียวที่ **เคยทำ CI พังจริงแล้ว** ไม่ใช่ความเสี่ยงเชิงทฤษฎี job `js-syntax` ที่ใช้ `node-version: "lts/*"` fail ด้วย `manifest.filter is not a function` ตอน setup-node ไป resolve LTS alias กับ GitHub API ช่วงที่ API ตอบ 503 ส่วน job `js-tests` ที่ pin เลข major ไว้แต่แรกไม่เคยเจอ path นั้นเลย
+
+ยืนยันแล้วว่า setup-node v7 **ไม่ได้แก้** เคสนี้ (โค้ด `resolveLtsAliasFromManifest` เหมือน v4.4.0 ทุกบรรทัด) การ pin เวอร์ชันคือ fix จริง
+
+| input | เดิม | ใหม่ |
+|---|---|---|
+| Node | `lts/*` | `22` (ตรงกับ job ที่ pin ไว้อยู่แล้ว) |
+| Rust | `toolchain: stable` | `1.97.0` |
+| pip | `install --upgrade pip` | `pip==26.1.2` |
+
+apt จงใจไม่ pin (archive ของ Ubuntu ลบเวอร์ชันเก่า pin แล้วจะพังตอน archive หมุน) และเขียนระบุข้อยกเว้นไว้ใน release.yml header, CLAUDE.md, README.md แทนการปล่อยให้ประโยค "every build input is pinned" อ้างเกินจริง มี `tests/test_workflow_pins.py` กันถอยหลัง พิสูจน์แล้วว่าจับ regression ได้จริงไม่ใช่ผ่านลอย ๆ
+
 สิ่งที่จงใจไม่ทำ ไม่ assert platform coverage ใน REL-3 เพราะการไล่ชื่อ bundle ต่อ platform ของ tauri-action สำหรับ pipeline ที่ไม่เคยรันจริง เสี่ยงทำให้ release แรก fail ผิด ๆ ซึ่งแย่กว่าช่องที่เหลือ (บันทึกไว้ใน docstring ของ script) ให้ revisit หลัง tag แรกรันจริง
 
 Medium/Low ที่เหลือยังไม่ปิด (งานรอบถัดไป)
