@@ -189,3 +189,27 @@ def test_soi_number_is_not_a_vehicle_plate():
         assert "VEHICLE_PLATE" not in _types(detect_fp(text)), text
     # The real cued plate is unaffected.
     assert "VEHICLE_PLATE" in _types(detect_fp("ทะเบียนรถขก 4471 จอด"))
+
+
+# --- Leak 5: loose IBAN length lower bound steals PASSPORT spans ------------
+# _RE_IBAN's total-length lower bound was 8 ([A-Z]{2}\d{2} + {4,30}), but the
+# shortest real IBAN in the world (Norway) is 15 characters; the longest is 34.
+# A 9-char Thai passport number ([A-Z]{2}\d{7}) satisfies the loose IBAN shape
+# AND can genuinely pass mod-97 by chance ("JM6590515" does), so it got
+# labelled IBAN even with an explicit passport cue right in front of it. The
+# benchmark corpus surfaced this and PASSPORT recall fell below the 0.99 floor
+# (tests/test_benchmark.py::test_ci_gate_crf_recall_floors).
+
+
+def test_passport_length_string_is_not_misdetected_as_iban():
+    text = "เลขที่หนังสือเดินทาง JM6590515"
+    ents = detect_fp(text)
+    assert "PASSPORT" in _types(ents), "cued passport-length string must stay PASSPORT"
+    assert "IBAN" not in _types(ents), "a 9-char string must never be labelled IBAN"
+
+
+def test_real_length_iban_is_still_detected():
+    # GB82WEST12345698765432: the standard UK test IBAN, 22 chars, mod-97 valid.
+    # Proves the length-bound tightening does not cost genuine IBAN recall.
+    ents = detect_fp("GB82WEST12345698765432")
+    assert "IBAN" in _types(ents), "a real, realistic-length IBAN must still be detected"

@@ -162,7 +162,12 @@ def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity
 # while allowing letter/Thai adjacency (recall > precision).
 _RE_THAI_ID = re.compile(r"(?<!\d)(\d{1}[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\d{1})(?!\d)")
 _RE_CREDIT_CARD = re.compile(r"(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)")
-_RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{4,30})\b")
+# Total length is bounded 15-34 to match real IBANs (shortest is Norway at 15,
+# longest is 34) -- the old {4,30} lower bound made the total minimum 8, which
+# let a 9-char passport-length string ([A-Z]{2}\d{7}) both match the shape AND
+# occasionally pass mod-97 by chance, stealing the span from PASSPORT even with
+# an explicit passport cue right in front of it. Do not loosen this again.
+_RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{11,30})\b")
 _RE_EMAIL = re.compile(r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b")
 _RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[- ]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
 # Thai landlines are 9 digits (not 10). Two written shapes, both 9 digits:
