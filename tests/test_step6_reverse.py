@@ -50,6 +50,72 @@ def test_reverse_map_basic():
     assert "fake@test.com" not in result.text
 
 
+def test_reverse_map_surrogate_not_spliced_into_longer_number():
+    """VAULT-1: a surrogate value that is a substring of a LONGER digit run in
+    the AI reply must not be spliced — that injects the real value mid-number."""
+    vault = _make_vault_with_mapping("0812345678", "0899999999", data_type="PHONE")
+    ai_response = _make_ai_response("อ้างอิงเลขที่ 08123456789012 ครับ")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(ai_response, registry, vault)
+    assert "0899999999" not in result.text
+    assert "08123456789012" in result.text
+
+
+def test_reverse_map_surrogate_not_spliced_into_thai_word():
+    """VAULT-1: a surrogate name that is a substring of a longer Thai word must
+    not be spliced (Thai has no word spaces, so this is common)."""
+    vault = _make_vault_with_mapping("วรรณ", "สมหญิง ใจดี", data_type="NAME")
+    ai_response = _make_ai_response("ผมชอบอ่านวรรณกรรมไทย")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(ai_response, registry, vault)
+    assert "สมหญิง" not in result.text
+    assert "วรรณกรรม" in result.text
+
+
+def test_reverse_map_surrogate_not_spliced_into_latin_token():
+    """VAULT-1 (Latin): Latin has word spaces, so a surrogate email/passport
+    glued to a longer Latin token on EITHER side is embedded and must not be
+    spliced — otherwise a real email/passport is injected mid-token silently."""
+    vault = _make_vault_with_mapping(
+        "bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL"
+    )
+    ai_response = _make_ai_response("prefixbob.99@test.co.th here")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(ai_response, registry, vault)
+    assert "nattapong@gmail.com" not in result.text
+
+    vault2 = _make_vault_with_mapping("AB1234567", "CD7654321", data_type="PASSPORT")
+    resp2 = _make_ai_response("refAB1234567end")
+    result2 = reverse_map(resp2, registry, vault2)
+    assert "CD7654321" not in result2.text
+
+
+def test_reverse_map_standalone_latin_surrogate_restored():
+    """VAULT-1 guard: a standalone (delimited) Latin surrogate still restores."""
+    vault = _make_vault_with_mapping(
+        "bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL"
+    )
+    resp = _make_ai_response("ส่งเมลไปที่ bob.99@test.co.th นะครับ")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(resp, registry, vault)
+    assert "nattapong@gmail.com" in result.text
+
+
+def test_reverse_map_standalone_surrogate_still_restored():
+    """VAULT-1 guard: the boundary check must still restore a standalone
+    surrogate that is not glued to same-class characters."""
+    vault = _make_vault_with_mapping("0812345678", "0899999999", data_type="PHONE")
+    ai_response = _make_ai_response("โทร 0812345678 ได้เลย")
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    result = reverse_map(ai_response, registry, vault)
+    assert "0899999999" in result.text
+
+    vault2 = _make_vault_with_mapping("วรรณ", "สมหญิง ใจดี", data_type="NAME")
+    resp2 = _make_ai_response("ติดต่อคุณ วรรณ ครับ")
+    result2 = reverse_map(resp2, registry, vault2)
+    assert "สมหญิง ใจดี" in result2.text
+
+
 def test_reverse_map_returns_reverse_result():
     """Test that reverse_map returns a ReverseResult with required attributes."""
     vault = _make_vault_with_mapping("0812345678", "0919876543", data_type="PHONE")
