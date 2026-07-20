@@ -84,7 +84,10 @@ async function doMask() {
   setMsg("กำลังปกปิด...");
   $("maskBtn").disabled = true;
   const mode = currentMode();
-  const r = await send({ type: "sanitize", text, mode });
+  // Reuse the panel's own session so multi-turn token numbering stays consistent
+  // (the panel's message has no tab, so background.js can't key reuse on tabId;
+  // we must pass session_id explicitly). EXT-1.
+  const r = await send({ type: "sanitize", text, mode, session_id: sessionId });
   $("maskBtn").disabled = false;
   if (!r || !r.ok) {
     setMsg(r && r.status === 0 ? "backend ยังไม่ทำงาน" : "ปกปิดไม่สำเร็จ", "err");

@@ -8,6 +8,45 @@ from pii_redactor.session_vault import SessionVault
 from pii_redactor.detectors.fp_detector import detect_fp
 
 
+def _char_class(c: str) -> str | None:
+    """Classify a char for the reverse-map boundary guard (VAULT-1).
+
+    A surrogate-mode pseudonym is a bare value (a fake phone / name), so a raw
+    substring match can land INSIDE a longer number or Thai word and splice the
+    real value mid-token. We only claim a match when neither edge is glued to a
+    character of the same class. Token-mode pseudonyms ([ชื่อ_1]) start/end with
+    brackets (class None), so they are never boundary-rejected.
+    """
+    if c.isdigit():  # covers Thai (๐-๙) and ASCII digits
+        return "digit"
+    if "ก" <= c <= "๎":  # Thai letters / vowels / tone marks (digits handled above)
+        return "thai"
+    if c.isascii() and c.isalpha():
+        return "latin"
+    return None
+
+
+def _boundary_ok(text: str, start: int, end: int, pseudonym: str) -> bool:
+    """Reject a match that is embedded in a longer token (VAULT-1).
+
+    Classes with word delimiters (digits, Latin) reject on EITHER side: a value
+    glued to a same-class char is inside a longer token (a longer number, or a
+    longer Latin run — e.g. a surrogate email spliced into "prefix<email>").
+    Thai is the exception: it has no word spaces, so a surrogate name legitimately
+    abuts a neighbouring word on ONE side (e.g. "ผมชื่อ<name>"); only Thai gluing
+    on BOTH sides means the name is truly embedded inside a longer word.
+    """
+    lc = _char_class(pseudonym[0])
+    rc = _char_class(pseudonym[-1])
+    left_glue = start > 0 and lc is not None and _char_class(text[start - 1]) == lc
+    right_glue = end < len(text) and rc is not None and _char_class(text[end]) == rc
+    if (left_glue and lc in ("digit", "latin")) or (right_glue and rc in ("digit", "latin")):
+        return False
+    if left_glue and right_glue:
+        return False
+    return True
+
+
 def _pre_reverse_validate(ai_response: AIResponse, vault: SessionVault) -> None:
     """Raise if vault is idle or response is empty.
 
@@ -69,8 +108,9 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
         found = False
         pos = 0
         while (i := text.find(pseudonym, pos)) >= 0:
-            if not _taken(i, i + len(pseudonym)):
-                claimed.append((i, i + len(pseudonym), pseudonym))
+            j = i + len(pseudonym)
+            if not _taken(i, j) and _boundary_ok(text, i, j, pseudonym):
+                claimed.append((i, j, pseudonym))
                 found = True
             pos = i + 1
         if found:

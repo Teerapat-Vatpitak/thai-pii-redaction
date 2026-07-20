@@ -82,31 +82,6 @@ def _render_page_to_array(page, dpi: int):
     return np.asarray(pil_image)
 
 
-def _deskew(image):
-    """Estimate and correct page skew via minAreaRect on the thresholded foreground."""
-    import cv2
-    import numpy as np
-
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if image.ndim == 3 else image
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    coords = np.column_stack(np.where(thresh > 0))
-    if coords.shape[0] == 0:
-        return image
-    angle = cv2.minAreaRect(coords)[-1]
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
-    if abs(angle) < 0.1:
-        return image
-    (h, w) = image.shape[:2]
-    center = (w // 2, h // 2)
-    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    return cv2.warpAffine(
-        image, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-    )
-
-
 def _denoise(image):
     """Remove scan noise while preserving character edges."""
     import cv2
@@ -127,12 +102,20 @@ def _sharpen(image):
 def preprocess_image(image, *, level: int = 0):
     """Preprocess a rendered page image before OCR.
 
-    level 0 (first attempt): deskew + denoise + sharpen.
+    level 0 (first attempt): denoise + sharpen.
     level >= 1 (retries): adds stronger binarization to help low-quality scans.
+
+    NOTE: no deskew here (DET-3). Rotating the page for OCR put the detected
+    bboxes in a rotated coordinate space, but redactor.py paints its black
+    boxes on a render of the ORIGINAL (unrotated) page -- so on any skewed scan
+    the redaction rectangles landed off the actual PII, leaving it visible. The
+    old angle logic was also written for OpenCV < 4.5's convention and could
+    over-rotate a near-straight page by ~90 deg under the pinned cv2 >= 4.9.
+    PaddleOCR's own text detector tolerates moderate skew; keeping the image
+    unrotated guarantees bbox coordinates match the redaction render.
     """
     import cv2
 
-    image = _deskew(image)
     image = _denoise(image)
     image = _sharpen(image)
     if level >= 1:
