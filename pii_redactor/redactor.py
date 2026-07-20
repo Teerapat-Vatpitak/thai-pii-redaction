@@ -15,6 +15,7 @@ from pathlib import Path
 import pypdfium2 as pdfium
 from PIL import Image, ImageDraw
 
+from pii_redactor.ingest.text_cleaner import clean_length_preserving
 from pii_redactor.models import EntityRegistry, WordBbox
 
 # Render scale (points -> pixels). Higher = crisper output but larger files.
@@ -112,7 +113,10 @@ def redact_pdf(
     Matching is heuristic: a WordBbox is redacted if its text is a substring
     of any entity's original_text, or if the entity's original_text contains
     the word text. This is suitable for prototypes; production would use
-    precise char-offset to bbox alignment.
+    precise char-offset to bbox alignment. Both sides are compared after
+    clean_length_preserving() (Thai digits -> Arabic digits, 1:1 so bbox
+    coordinates are untouched) because callers may detect entities on a
+    length-preserving-normalised text while word_bboxes still holds raw text.
 
     Args:
         input_pdf_path: Path to input PDF file
@@ -145,7 +149,17 @@ def redact_pdf(
             # instead of one tight rectangle per word.
             pt_boxes: list[tuple[float, float, float, float]] = []
             for wb in by_page.get(page_num, []):
-                word_text = wb.text.strip()
+                # redact_fragments holds entity text extracted from the
+                # length-preserving-normalised detection text (Thai digits ->
+                # Arabic digits, see app/server.py's redact-pdf handler), but
+                # wb.text is the raw word straight from the PDF and may still
+                # hold Thai numerals. Normalise this side too (without
+                # mutating wb -- it still drives the drawn rectangle's
+                # coordinates) so a Thai-numeral word can match its
+                # normalised fragment; the substitution is 1:1 so it never
+                # changes which characters are being compared, only their
+                # digit script.
+                word_text = clean_length_preserving(wb.text.strip())
                 should_redact = len(word_text) >= 2 and any(
                     word_text in frag or frag in word_text for frag in redact_fragments
                 )
