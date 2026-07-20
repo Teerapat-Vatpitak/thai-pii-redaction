@@ -56,7 +56,17 @@ npm run test:js
 
 # Tests (Rust — Tauri shell incl. sidecar kill-sequence tests)
 cd desktop/src-tauri; cargo test
+
+# Lint + format (same two commands CI runs; config in pyproject.toml)
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format .
 ```
+
+Tooling config lives in `pyproject.toml` (PEP 621 metadata + `[tool.pytest.ini_options]`
++ `[tool.ruff]`); there is no `pytest.ini` or `setup.py`. The ruff rule set is
+kept green on purpose so CI can enforce it — style-only rules sit in `ignore`
+with a comment marking them deferred, not endorsed. Formatting-only sweeps get
+their own commit and an entry in `.git-blame-ignore-revs`.
 
 JS harness note: `extension/sites.js` carries an additive CommonJS export shim
 (`module.exports` — dead code in Chrome) exposing `selectFor(hostname)` + every

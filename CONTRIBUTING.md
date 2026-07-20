@@ -53,6 +53,32 @@ at collection), Rust unit tests for the desktop shell, a JS syntax check, a
 version-drift check, and a Windows packaged-exe smoke test. All of these must
 pass before a PR merges.
 
+## Lint and formatting
+
+[ruff](https://docs.astral.sh/ruff/) handles both, configured in
+`pyproject.toml`. CI runs the same two commands, so a clean local run means a
+clean pipeline:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check .      # lint  (--fix to auto-fix)
+.\.venv\Scripts\python.exe -m ruff format .     # format (--check to verify only)
+```
+
+Optional but recommended — run both automatically before each commit:
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+The rule set is deliberately narrow and kept **green**: a linter that is
+permanently red is one nobody reads. Rules that only flag style are listed under
+`ignore` in `pyproject.toml` with a note that they are deferred rather than
+endorsed; tighten them one at a time in their own PR, never in a mixed one.
+
+Formatting-only sweeps go in their own commit and get added to
+`.git-blame-ignore-revs` so `git blame` keeps pointing at the change that
+actually matters.
+
 ## Repo layout (short version)
 
 Full architecture: [`CLAUDE.md`](CLAUDE.md). In brief:
