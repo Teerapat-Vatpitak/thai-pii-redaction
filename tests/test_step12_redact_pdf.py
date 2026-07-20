@@ -277,6 +277,96 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     assert addr_covering, "expected one rectangle covering the full address line with no gap"
 
 
+_SARABUN_FONT_CANDIDATES = [
+    r"C:\Windows\Fonts\sarabun-v17-latin_latin-ext_thai_vietnamese-regular.ttf",
+    "/usr/share/fonts/truetype/thai/Sarabun-Regular.ttf",
+]
+
+
+def _pdf_with_thai_numeral_phone(tmp_path) -> Path:
+    """A Sarabun-rendered PDF whose only PII is a phone number written in
+    THAI NUMERALS (e.g. ๐๘๑-๒๓๔-๕๖๗๘), the case this regression targets."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.pdfgen import canvas
+
+    font_path = next((f for f in _SARABUN_FONT_CANDIDATES if Path(f).exists()), None)
+    if font_path is None:
+        pytest.skip("Sarabun font not found on this machine")
+    pdfmetrics.registerFont(TTFont("Sarabun", font_path))
+
+    path = tmp_path / "thai_numeral_phone.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.setFont("Sarabun", 14)
+    # >= 50 chars so file_detector classifies this as pdf_text, not pdf_hybrid.
+    c.drawString(72, letter[1] - 72, "โปรดติดต่อกลับที่หมายเลขโทรศัพท์ ๐๘๑-๒๓๔-๕๖๗๘ ในเวลาราชการ")
+    c.save()
+    return path
+
+
+def test_redact_pdf_covers_thai_numeral_phone_number(client, tmp_path):
+    """
+    Regression test for the half-fix in 2aeb219: that commit made detection
+    run on a length-preserving normalisation of the extracted text (Thai
+    digits -> Arabic digits), so a Thai-numeral phone number is now detected.
+    But pii_redactor/redactor.py still matched WordBbox.text (raw PDF text,
+    still Thai digits) against redact_fragments (the normalised entity text,
+    Arabic digits) via plain substring comparison -- neither side is a
+    substring of the other, so nothing matched and no black box was drawn.
+
+    Asserting only `entity_count` (as the sibling tests in this file do) is
+    exactly what let that gap ship: detection succeeded while redaction
+    silently did nothing. This test instead renders the actual redacted PDF
+    and checks the pixels over the phone number's own word bbox are opaque
+    black, proving a rectangle was actually painted over it.
+    """
+    np = pytest.importorskip("numpy")
+    import pypdfium2 as pdfium
+
+    from pii_redactor.ingest.file_detector import detect_source_type
+    from pii_redactor.ingest.text_extractor import extract
+    from pii_redactor.redactor import RENDER_SCALE
+
+    pdf_path = _pdf_with_thai_numeral_phone(tmp_path)
+    pdf_bytes = pdf_path.read_bytes()
+
+    resp = client.post(
+        "/api/redact-pdf",
+        files={"pdf_file": ("thai_numeral_phone.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["entity_count"] >= 1  # detection side; already fixed by 2aeb219
+
+    # Independently locate the phone-number word's bbox via the same
+    # extraction the endpoint used internally -- raw text, Thai digits intact
+    # (this is NOT the redacted output; it re-reads the original input PDF).
+    source_type = detect_source_type(str(pdf_path))
+    _raw_text, word_bboxes, _meta = extract(str(pdf_path), source_type)
+    phone_words = [wb for wb in word_bboxes if "๐๘๑" in wb.text]
+    assert phone_words, "fixture bug: could not find the Thai-numeral phone word bbox"
+
+    redacted = base64.b64decode(data["redacted_pdf_b64"])
+    doc = pdfium.PdfDocument(io.BytesIO(redacted))
+    pil = doc[0].render(scale=RENDER_SCALE).to_pil().convert("L")
+    doc.close()
+    arr = np.array(pil)
+
+    for wb in phone_words:
+        x0 = int(wb.x * RENDER_SCALE)
+        y0 = int(wb.y * RENDER_SCALE)
+        x1 = int((wb.x + wb.width) * RENDER_SCALE)
+        y1 = int((wb.y + wb.height) * RENDER_SCALE)
+        region = arr[y0:y1, x0:x1]
+        assert region.size > 0
+        assert region.max() < 10, (
+            f"Thai-numeral phone word {wb.text!r} bbox not covered by a black "
+            f"rectangle (max pixel intensity {region.max()} in region "
+            f"y=[{y0}:{y1}] x=[{x0}:{x1}])"
+        )
+
+
 def test_redact_pdf_no_visible_ink_above_boxes(tmp_path):
     """
     Pixel-level regression test: renders the actual redacted PDF and checks
