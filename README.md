@@ -49,7 +49,7 @@ Every release ships a `SHA256SUMS` file plus [GitHub build provenance](https://d
   - macOS/Linux: `sha256sum -c SHA256SUMS --ignore-missing`
 - **Provenance** — the file was built by GitHub Actions from this repository at the tagged commit (requires the [GitHub CLI](https://cli.github.com/)): `gh attestation verify AI.Guard_<version>_x64-setup.exe -R Teerapat-Vatpitak/thai-pii-redaction`
 
-These prove origin and integrity. They are **not** a claim of bit-for-bit reproducibility — rebuilding locally produces a functionally identical but not byte-identical binary (PyInstaller and NSIS embed timestamps). The build inputs are pinned instead: hash-locked Python dependencies (`requirements*.lock`), a pinned PyInstaller, and SHA-pinned CI actions.
+These prove origin and integrity. They are **not** a claim of bit-for-bit reproducibility — rebuilding locally produces a functionally identical but not byte-identical binary (PyInstaller and NSIS embed timestamps). The build inputs are pinned instead: hash-locked Python dependencies (`requirements*.lock`), a pinned PyInstaller, SHA-pinned CI actions, a SHA256-pinned Thai NER model, and explicit pip/Rust/Node versions (no `latest`, `stable`, or `lts/*`). The one exception is apt packages, left unversioned because Ubuntu's archive drops superseded versions.
 
 ### Option B · From source (developer alternative)
 

@@ -7,11 +7,18 @@
 # Windows sidecar build (scripts/build_sidecar.py) and the Rust compile were
 # verified locally. Review the first tagged run's logs before relying on it.
 #
-# Verifiability (Horizon-2 #11): every build input is pinned (lockfile with
-# hashes, PyInstaller pin, NER model SHA256 pin in build_sidecar.py, actions by
-# commit SHA), and every release asset is covered by SHA256SUMS + GitHub build
-# provenance (gh attestation verify). This is origin + integrity verification,
-# NOT bit-for-bit reproducibility.
+# Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
+# hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
+# build_sidecar.py, actions by commit SHA, and (REL-12) pip, the Rust toolchain
+# and Node by explicit version rather than "latest"/"stable"/"lts/*". Every
+# release asset is covered by SHA256SUMS + GitHub build provenance
+# (gh attestation verify). This is origin + integrity verification, NOT
+# bit-for-bit reproducibility.
+#
+# ONE DELIBERATE EXCEPTION: the apt packages below are unversioned. Ubuntu's
+# archive drops superseded versions, so pinning them would break the build the
+# moment the archive rotates — worse than the drift it prevents. Named here
+# rather than quietly counted as "pinned".
 #
 # Two gates from the v2 audit guard the release itself:
 #   REL-1  the pushed tag must equal "v" + VERSION, checked before anything is
@@ -71,7 +78,7 @@ jobs:
 
       - name: Install Python deps (locked, incl. the PyInstaller pin)
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install pip==26.1.2
           python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Pre-download the offline NER model
@@ -82,7 +89,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
         with:
-          toolchain: stable
+          toolchain: "1.97.0"
 
       - name: Cache cargo
         uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -92,7 +99,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "lts/*"
+          node-version: "22"
 
       - name: Build + stage the sidecar (cross-platform, single source)
         run: python scripts/build_sidecar.py
