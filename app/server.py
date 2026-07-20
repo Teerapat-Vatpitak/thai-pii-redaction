@@ -337,7 +337,10 @@ def reidentify(request: ReidentifyRequest):
         step="api_reidentify",
         entity_count=out.replaced_count,
         validation_result="warn" if (out.leftover_tokens or out.warnings) else "pass",
-        flags=[f"leftover:{t}" for t in out.leftover_tokens],
+        # VAULT-4: never log the pseudonym itself. The signed AI for Thai
+        # proposal states the audit log holds only event type, counts and time,
+        # and /api/audit-log echoes `flags` verbatim to any local caller.
+        flags=([f"leftover_count:{len(out.leftover_tokens)}"] if out.leftover_tokens else []),
         latency_ms=(time.time() - start) * 1000,
         output_dir=_get_audit_log_dir(),
     )

@@ -1,5 +1,6 @@
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -218,3 +219,36 @@ def test_audit_log_read_is_bounded_by_max_files(tmp_path, monkeypatch):
     assert resp.json()["total_count"] == 3
     ts = [row["timestamp"] for row in resp.json()["logs"]]
     assert ts == [9, 8, 7]
+
+
+def test_reidentify_audit_log_never_records_the_pseudonym(tmp_path, monkeypatch):
+    """VAULT-4: the proposal signed to NECTEC states the audit log holds only
+    event type, counts and time. A leftover pseudonym must be counted, not
+    written, and must not reappear through /api/audit-log."""
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+
+    secret_token = "[ชื่อ_7]"
+    monkeypatch.setattr(
+        server.SERVICE,
+        "restore",
+        lambda session_id, text: SimpleNamespace(
+            restored_text=text,
+            replaced=[],
+            replaced_count=0,
+            leftover_tokens=[secret_token],
+            warnings=[],
+        ),
+    )
+
+    resp = _client().post(
+        "/api/reidentify", json={"session_id": "s1", "text": f"สวัสดี {secret_token}"}
+    )
+    assert resp.status_code == 200
+
+    on_disk = "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("audit_*_process.jsonl"))
+    assert on_disk, "no audit log was written"
+    assert secret_token not in on_disk, f"pseudonym written to disk: {on_disk}"
+    assert "leftover_count:1" in on_disk
+
+    served = _client().get("/api/audit-log").text
+    assert secret_token not in served
