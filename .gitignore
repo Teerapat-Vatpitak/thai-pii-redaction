@@ -36,3 +36,21 @@ docs/superpowers/
 docs/submission/
 docs/demo/
 docs/reference/
+
+# Runtime output of the tool itself. audit.py defaults output_dir to "." (the
+# repo root when run from here) and writes audit_<session>_<type>.jsonl, which
+# per audit finding VAULT-4 still contains pseudonyms; exporter.py / `ai_guard
+# --output` write the re-identified text, i.e. real PII. .dockerignore already
+# excluded these — this closes the same gap on the git side.
+*.jsonl
+out/
+*.log
+
+# .env alone does not match .env.local / .env.production, and AIGUARD_TOKEN is
+# a real secret in this project's threat model.
+.env.*
+!.env.example
+
+# `.coverage` alone misses the XML report and coverage.py's parallel-mode files.
+coverage.xml
+.coverage.*
