@@ -138,6 +138,49 @@ def _run_check(root: Path) -> subprocess.CompletedProcess:
     )
 
 
+def _run_check_with_tag(root: Path, tag: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [PY, str(root / "check_version.py"), "--root", str(root), "--expect-tag", tag],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_check_version_expect_tag_accepts_matching_tag(tmp_path):
+    """REL-1: release.yml must be able to assert the pushed tag matches VERSION."""
+    repo = _copy_repo_slice(tmp_path)
+    version = (repo / "VERSION").read_text(encoding="utf-8").strip()
+    result = _run_check_with_tag(repo, f"v{version}")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_check_version_expect_tag_rejects_mismatched_tag(tmp_path):
+    """REL-1: tagging v2.3.0 on a tree that still says 2.2.0 must fail the
+    release build BEFORE any installer is produced and published."""
+    repo = _copy_repo_slice(tmp_path)
+    result = _run_check_with_tag(repo, "v99.0.0")
+    assert result.returncode == 1
+    assert "99.0.0" in (result.stdout + result.stderr)
+
+
+def test_check_version_expect_tag_rejects_unprefixed_tag(tmp_path):
+    """A tag without the leading 'v' is not the release tag format."""
+    repo = _copy_repo_slice(tmp_path)
+    version = (repo / "VERSION").read_text(encoding="utf-8").strip()
+    result = _run_check_with_tag(repo, version)
+    assert result.returncode == 1
+
+
+def test_check_version_expect_tag_empty_string_is_not_a_silent_skip(tmp_path):
+    """A truthiness test on --expect-tag would let an empty tag skip the gate
+    entirely. Unreachable from release.yml today (the step's `if:` guarantees a
+    v-prefixed ref), but a caller passing an unset variable must fail loudly,
+    not publish unchecked."""
+    repo = _copy_repo_slice(tmp_path)
+    result = _run_check_with_tag(repo, "")
+    assert result.returncode == 1
+
+
 def test_check_version_passes_when_all_files_match(tmp_path):
     repo = _copy_repo_slice(tmp_path)
     result = _run_check(repo)
