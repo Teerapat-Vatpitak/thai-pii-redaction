@@ -12,6 +12,12 @@ import uuid
 
 from pii_redactor.models import VaultRecord
 
+# data_type stamped on records re-admitted through seed(). An exported mapping
+# is only {pseudonym: original} — the real data_type is not recoverable — so the
+# sentinel is treated as a wildcard by get_by_original(), which is the lookup
+# the anonymizer uses to decide "this person already has a pseudonym".
+SEEDED_DATA_TYPE = "SEEDED"
+
 
 class VaultTimeoutError(Exception):
     """Raised when vault is accessed after idle timeout."""
@@ -117,16 +123,66 @@ class SessionVault:
         Linear scan — vaults are per-session and small. Used by token-mode
         pseudonym reuse so the same original gets the same token across turns.
 
+        A seed()-ed record matches ANY requested data_type: an exported mapping
+        is only {pseudonym: original}, so the real data_type cannot be recovered
+        on re-admission, and a strict match would make the caller-held mapping
+        useless for reuse (the same person would be issued a second token every
+        turn). Exact data_type matches still take priority, so a real record
+        always wins over a seeded one.
+
         Raises:
             VaultTimeoutError: If vault has been idle past timeout threshold
         """
         self.check_idle()
         self._touch()
+        seeded_match: VaultRecord | None = None
         for record in self._table.values():
-            if record.original == original and (data_type is None or record.data_type == data_type):
+            if record.original != original:
+                continue
+            if data_type is None or record.data_type == data_type:
                 self._audit("read_by_original", record.entity_id)
                 return record
-        return None
+            if record.data_type == SEEDED_DATA_TYPE and seeded_match is None:
+                seeded_match = record
+        if seeded_match is not None:
+            self._audit("read_by_original", seeded_match.entity_id)
+        return seeded_match
+
+    def export_mapping(self) -> dict[str, str]:
+        """Return {pseudonym: original} for handing back to a stateless caller.
+
+        This is the whole point of the platform contract: the map leaves as a
+        value the caller owns instead of staying here.
+        """
+        out: dict[str, str] = {}
+        for pseudonym, entity_id in self._reverse.items():
+            record = self._table.get(entity_id)
+            if record is not None:
+                out[pseudonym] = record.original
+        return out
+
+    def seed(self, pseudonym: str, original: str) -> None:
+        """Re-admit a pair from a previous turn's exported mapping.
+
+        Goes through write() so the duplicate-pseudonym guard still applies —
+        a caller replaying a tampered mapping must not be able to point an
+        existing pseudonym at a different person. entity_id/span are
+        synthesised because an exported mapping does not carry them; data_type
+        is the SEEDED sentinel, which get_by_original() treats as a wildcard so
+        a re-admitted pair still satisfies the anonymizer's data_type-narrowed
+        reuse lookup.
+        """
+        self.write(
+            VaultRecord(
+                entity_id=f"seed:{pseudonym}",
+                original=original,
+                pseudonym=pseudonym,
+                type="FP",
+                data_type=SEEDED_DATA_TYPE,
+                span=(0, 0),
+                timestamp=time.monotonic(),
+            )
+        )
 
     def snapshot(self) -> dict:
         """Return a shallow copy of current state for rollback.

@@ -195,3 +195,89 @@ def test_get_by_original_respects_idle_timeout():
     vault._last_access = time.monotonic() - 10
     with pytest.raises(VaultTimeoutError):
         vault.get_by_original("x")
+
+
+# ========== export_mapping / seed (stateless platform contract) ==========
+
+
+def test_export_mapping_returns_pseudonym_to_original():
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="[ชื่อ_1]"))
+    vault.write(_make_record(original="0812345678", pseudonym="[โทรศัพท์_1]"))
+    assert vault.export_mapping() == {
+        "[ชื่อ_1]": "สมชาย ใจดี",
+        "[โทรศัพท์_1]": "0812345678",
+    }
+
+
+def test_export_mapping_is_empty_for_an_empty_vault():
+    assert SessionVault().export_mapping() == {}
+
+
+def test_export_mapping_skips_a_pseudonym_whose_record_is_gone():
+    """The reverse index is the iteration source; a dangling entry is dropped."""
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย", pseudonym="[ชื่อ_1]"))
+    vault._reverse["[ชื่อ_9]"] = "no-such-entity"
+    assert vault.export_mapping() == {"[ชื่อ_1]": "สมชาย"}
+
+
+def test_seed_readmits_a_pair_from_a_previous_turn():
+    vault = SessionVault()
+    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    record = vault.get_by_pseudonym("[ชื่อ_1]")
+    assert record is not None
+    assert record.original == "สมชาย ใจดี"
+
+
+def test_seed_round_trips_through_export_mapping():
+    vault = SessionVault()
+    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    assert vault.export_mapping() == {"[ชื่อ_1]": "สมชาย ใจดี"}
+
+
+def test_seed_is_idempotent_for_the_same_pair():
+    vault = SessionVault()
+    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    assert vault.export_mapping() == {"[ชื่อ_1]": "สมชาย ใจดี"}
+
+
+def test_seed_rejects_repointing_a_pseudonym_at_a_different_original():
+    """A tampered replayed mapping must not be able to swap who a token means."""
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="[ชื่อ_1]"))
+    with pytest.raises(ValueError):
+        vault.seed("[ชื่อ_1]", "สมหญิง ร้ายกาจ")
+    # the original owner is untouched
+    assert vault.get_by_pseudonym("[ชื่อ_1]").original == "สมชาย ใจดี"
+
+
+def test_seed_error_message_carries_no_pii():
+    vault = SessionVault()
+    vault.write(_make_record(original="สมชาย ใจดี", pseudonym="[ชื่อ_1]"))
+    with pytest.raises(ValueError) as exc:
+        vault.seed("[ชื่อ_1]", "สมหญิง ร้ายกาจ")
+    assert "สมชาย" not in str(exc.value)
+    assert "สมหญิง" not in str(exc.value)
+    assert "[ชื่อ_1]" not in str(exc.value)
+
+
+def test_seeded_record_is_reusable_by_get_by_original_regardless_of_data_type():
+    """An exported mapping carries no data_type, so a seeded pair must still
+    satisfy the anonymizer's data_type-narrowed reuse lookup — otherwise a
+    replayed mapping would silently mint a second token for the same person."""
+    vault = SessionVault()
+    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    found = vault.get_by_original("สมชาย ใจดี", data_type="NAME")
+    assert found is not None
+    assert found.pseudonym == "[ชื่อ_1]"
+
+
+def test_a_real_record_still_wins_over_a_seeded_one_for_its_own_data_type():
+    vault = SessionVault()
+    vault.seed("[ชื่อ_1]", "1234")
+    real = _make_record(original="1234", pseudonym="[โทรศัพท์_1]")
+    real.data_type = "PHONE"
+    vault.write(real)
+    assert vault.get_by_original("1234", data_type="PHONE") is real
