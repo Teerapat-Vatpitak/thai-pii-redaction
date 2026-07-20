@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 SCRIPT = ROOT / "scripts" / "check_release_assets.py"
@@ -91,19 +93,14 @@ def test_download_dir_does_not_collide_with_a_tracked_path():
     already tracks. `assets/` IS tracked (logos), and `mkdir assets` under the
     Actions default `bash -e` shell would abort the job — no SHA256SUMS, no
     attestation, on every release."""
-    import yaml
-
-    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8"))
-    steps = wf["jobs"]["checksums-and-attest"]["steps"]
-    body = "\n".join(s.get("run", "") for s in steps)
-    tracked_top_level = {
-        p.split("/")[0]
-        for p in subprocess.run(
-            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True
-        ).stdout.splitlines()
-        if "/" in p
-    }
-    mkdirs = re.findall(r"mkdir(?:\s+-\w+)*\s+(\S+)", body)
+    # Deliberately no PyYAML: this guard must also run in the core-only install
+    # job (requirements.txt has no yaml), so it scans the raw workflow text.
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    git = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True)
+    if git.returncode != 0:
+        pytest.skip("git not available to list tracked files")
+    tracked_top_level = {p.split("/")[0] for p in git.stdout.splitlines() if "/" in p}
+    mkdirs = re.findall(r"^\s*mkdir(?:\s+-\S+)*\s+(\S+)", text, re.MULTILINE)
     assert mkdirs, "expected the job to create a download directory"
     for d in mkdirs:
         assert d.strip('"') not in tracked_top_level, (
