@@ -1,4 +1,5 @@
 """Tests for the hand-authored Thai PII gold set (benchmark v2)."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -20,9 +21,9 @@ def test_parse_gold_strips_markup_and_aligns_spans():
     assert s.text == "เรียน สมชาย ใจดี ที่บัญชี 0612345678"
     for sp in s.spans:
         assert sp.end > sp.start
-    assert s.text[s.spans[0].start:s.spans[0].end] == "สมชาย ใจดี"
+    assert s.text[s.spans[0].start : s.spans[0].end] == "สมชาย ใจดี"
     assert s.spans[0].entity_type == "NAME"
-    assert s.text[s.spans[1].start:s.spans[1].end] == "0612345678"
+    assert s.text[s.spans[1].start : s.spans[1].end] == "0612345678"
     assert s.spans[1].entity_type == "BANK_ACCOUNT"
 
 
@@ -31,7 +32,7 @@ def test_every_gold_span_round_trips():
     for doc_id, slice_, annotated in GOLD_DOCS:
         s = parse_gold(doc_id, slice_, annotated)
         for sp in s.spans:
-            assert s.text[sp.start:sp.end], (doc_id, sp)
+            assert s.text[sp.start : sp.end], (doc_id, sp)
             assert "[[" not in s.text, doc_id
 
 
@@ -52,17 +53,16 @@ def test_name_no_cue_names_have_no_title_or_intro_cue():
         for sp in s.spans:
             if sp.entity_type != "NAME":
                 continue
-            before = s.text[max(0, sp.start - 8):sp.start]
+            before = s.text[max(0, sp.start - 8) : sp.start]
             assert not any(before.endswith(c) for c in _TITLE_CUES), (s.template_id, before)
-            assert not any(before.rstrip().endswith(c) for c in _INTRO_CUES), (s.template_id, before)
+            assert not any(before.rstrip().endswith(c) for c in _INTRO_CUES), (
+                s.template_id,
+                before,
+            )
 
 
 def test_bank_phone_slice_has_both_types():
-    types = {
-        sp.entity_type
-        for s in load_gold() if s.slice == "bank_phone"
-        for sp in s.spans
-    }
+    types = {sp.entity_type for s in load_gold() if s.slice == "bank_phone" for sp in s.spans}
     assert "BANK_ACCOUNT" in types
     assert "PHONE" in types
 

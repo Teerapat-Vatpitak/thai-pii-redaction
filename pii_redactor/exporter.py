@@ -52,14 +52,10 @@ def _check_pre_export(
     - output directory not writable
     """
     if validation_result.halt:
-        raise ExportError(
-            "Export blocked: validation_result.halt=True (layer3 integrity failure)"
-        )
+        raise ExportError("Export blocked: validation_result.halt=True (layer3 integrity failure)")
 
     if fmt not in {"txt", "pdf_text"}:
-        raise ExportError(
-            f"Unsupported format: {fmt!r}. Supported: txt, pdf_text"
-        )
+        raise ExportError(f"Unsupported format: {fmt!r}. Supported: txt, pdf_text")
 
     if output_path.exists() and not overwrite:
         raise ExportError(
@@ -168,13 +164,7 @@ def export(
 
     # Collect Layer 2 warnings (non-halting flags)
     if not validation_result.layer2_completeness_ok:
-        warnings.extend(
-            [
-                f
-                for f in validation_result.flags
-                if "incomplete" in f or "residue" in f
-            ]
-        )
+        warnings.extend([f for f in validation_result.flags if "incomplete" in f or "residue" in f])
 
     text = reverse_result.text
 

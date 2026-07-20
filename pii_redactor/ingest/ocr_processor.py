@@ -6,6 +6,7 @@ functions -- so importing this module is always safe even when the OCR
 stack isn't installed. Callers must check is_available() (or catch
 OCRUnavailableError) before relying on OCR extraction.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

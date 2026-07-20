@@ -1,4 +1,5 @@
 """Integration tests for the end-to-end pipeline (Step 9)."""
+
 import uuid
 from pathlib import Path
 
@@ -77,9 +78,7 @@ def test_pipeline_validation_result_is_validation_result():
     assert isinstance(result.validation_result, ValidationResult)
 
 
-@pytest.mark.parametrize(
-    "prompt_path", EXAMPLE_PROMPTS, ids=[p.stem for p in EXAMPLE_PROMPTS]
-)
+@pytest.mark.parametrize("prompt_path", EXAMPLE_PROMPTS, ids=[p.stem for p in EXAMPLE_PROMPTS])
 def test_pipeline_example_prompts_roundtrip(prompt_path):
     """The shipped example prompts must survive the full pipeline.
 
@@ -108,19 +107,29 @@ def test_pipeline_resolves_overlapping_fp_tb_spans(monkeypatch):
     phone_end = phone_start + len("081-234-5678")
 
     def fake_fp(t):
-        return [Entity(
-            entity_id=str(uuid.uuid4()), redact_type="FP", data_type="PHONE",
-            span=(phone_start, phone_end), score=1.0,
-            original_text=t[phone_start:phone_end],
-        )]
+        return [
+            Entity(
+                entity_id=str(uuid.uuid4()),
+                redact_type="FP",
+                data_type="PHONE",
+                span=(phone_start, phone_end),
+                score=1.0,
+                original_text=t[phone_start:phone_end],
+            )
+        ]
 
     def fake_tb(t):
         # sloppy NER span starting before and ending inside the phone
-        return [Entity(
-            entity_id=str(uuid.uuid4()), redact_type="TB", data_type="NAME",
-            span=(0, phone_start + 3), score=0.85,
-            original_text=t[0:phone_start + 3],
-        )]
+        return [
+            Entity(
+                entity_id=str(uuid.uuid4()),
+                redact_type="TB",
+                data_type="NAME",
+                span=(0, phone_start + 3),
+                score=0.85,
+                original_text=t[0 : phone_start + 3],
+            )
+        ]
 
     monkeypatch.setattr(fp_mod, "detect_fp", fake_fp)
     monkeypatch.setattr(tb_mod, "detect_tb", fake_tb)

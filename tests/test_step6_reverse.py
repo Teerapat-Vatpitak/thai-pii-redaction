@@ -78,9 +78,7 @@ def test_reverse_map_surrogate_not_spliced_into_latin_token():
     """VAULT-1 (Latin): Latin has word spaces, so a surrogate email/passport
     glued to a longer Latin token on EITHER side is embedded and must not be
     spliced — otherwise a real email/passport is injected mid-token silently."""
-    vault = _make_vault_with_mapping(
-        "bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL"
-    )
+    vault = _make_vault_with_mapping("bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL")
     ai_response = _make_ai_response("prefixbob.99@test.co.th here")
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     result = reverse_map(ai_response, registry, vault)
@@ -94,9 +92,7 @@ def test_reverse_map_surrogate_not_spliced_into_latin_token():
 
 def test_reverse_map_standalone_latin_surrogate_restored():
     """VAULT-1 guard: a standalone (delimited) Latin surrogate still restores."""
-    vault = _make_vault_with_mapping(
-        "bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL"
-    )
+    vault = _make_vault_with_mapping("bob.99@test.co.th", "nattapong@gmail.com", data_type="EMAIL")
     resp = _make_ai_response("ส่งเมลไปที่ bob.99@test.co.th นะครับ")
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     result = reverse_map(resp, registry, vault)
@@ -265,9 +261,17 @@ def test_audit_summary_lists_replaced_pseudonyms():
     from pii_redactor.session_vault import SessionVault
 
     vault = SessionVault()
-    vault.write(VaultRecord(entity_id=str(_u.uuid4()), original="a@b.co",
-                            pseudonym="[อีเมล_1]", type="FP", data_type="EMAIL",
-                            span=(0, 6), timestamp=_t.monotonic()))
+    vault.write(
+        VaultRecord(
+            entity_id=str(_u.uuid4()),
+            original="a@b.co",
+            pseudonym="[อีเมล_1]",
+            type="FP",
+            data_type="EMAIL",
+            span=(0, 6),
+            timestamp=_t.monotonic(),
+        )
+    )
     resp = AIResponse(text="ส่งไปที่ [อีเมล_1]", request_id="r", latency=0.0)
     result = reverse_map(resp, EntityRegistry(entities=[], fp_count=0, tb_count=0), vault)
     assert result.audit_summary["replaced_pseudonyms"] == ["[อีเมล_1]"]

@@ -32,6 +32,7 @@ Pure stdlib so it runs before any dependency install.
 Usage:
     python scripts/check_release_assets.py --dir release-assets --expect-version 2.3.0
 """
+
 from __future__ import annotations
 
 import argparse

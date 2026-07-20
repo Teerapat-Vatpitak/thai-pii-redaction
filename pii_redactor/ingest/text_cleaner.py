@@ -16,6 +16,7 @@ claim against the running code:
 Nothing consumed any of their outputs (only hasattr assertions in tests), so
 the work was computed and discarded on every request.
 """
+
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -23,8 +24,8 @@ from dataclasses import dataclass
 
 @dataclass
 class CleanResult:
-    text: str                               # the cleaned text
-    post_clean_warnings: list[str]          # any encoding issues found post-clean
+    text: str  # the cleaned text
+    post_clean_warnings: list[str]  # any encoding issues found post-clean
 
 
 # ---------------------------------------------------------------------------
@@ -32,14 +33,23 @@ class CleanResult:
 # ---------------------------------------------------------------------------
 
 THAI_DIGIT_MAP = {
-    '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4',
-    '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9',
+    "๐": "0",
+    "๑": "1",
+    "๒": "2",
+    "๓": "3",
+    "๔": "4",
+    "๕": "5",
+    "๖": "6",
+    "๗": "7",
+    "๘": "8",
+    "๙": "9",
 }
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def clean(
     text: str,
@@ -66,15 +76,15 @@ def clean(
     # ------------------------------------------------------------------
     # Stage 1: Whitespace normalization
     # ------------------------------------------------------------------
-    text = re.sub(r' {2,}', ' ', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    text = '\n'.join(line.rstrip() for line in text.split('\n'))
+    text = re.sub(r" {2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = text.strip()
 
     # ------------------------------------------------------------------
     # Stage 2: Unicode normalization
     # ------------------------------------------------------------------
-    text = unicodedata.normalize('NFC', text)
+    text = unicodedata.normalize("NFC", text)
 
     # ------------------------------------------------------------------
     # Stage 3: Character standardization (Thai shape variants)
@@ -84,16 +94,16 @@ def clean(
 
     # Remove zero-width chars: zero-width space (U+200B), ZWJ (U+200C),
     # ZWNJ (U+200D), BOM / zero-width no-break space (U+FEFF)
-    text = re.sub(r'[​‌‍﻿]', '', text)
+    text = re.sub(r"[​‌‍﻿]", "", text)
 
     # ------------------------------------------------------------------
     # Stage 4: Post-clean encoding check
     # ------------------------------------------------------------------
     post_warnings: list[str] = []
     try:
-        text.encode('utf-8')
+        text.encode("utf-8")
     except UnicodeEncodeError as e:
         post_warnings.append(f"Post-clean encoding issue: {e}")
-        text = text.encode('utf-8', errors='replace').decode('utf-8')
+        text = text.encode("utf-8", errors="replace").decode("utf-8")
 
     return CleanResult(text=text, post_clean_warnings=post_warnings)

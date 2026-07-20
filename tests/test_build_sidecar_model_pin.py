@@ -4,6 +4,7 @@ chain. build_sidecar.py must verify its SHA256 against a pin recorded in the
 repo, so a tampered upstream model cannot be bundled and then attested as
 "built from this repo at this tag".
 """
+
 from __future__ import annotations
 
 import hashlib

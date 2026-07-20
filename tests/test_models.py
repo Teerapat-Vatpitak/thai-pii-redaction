@@ -1,4 +1,5 @@
 """Tests for PII redaction data models."""
+
 import time
 from dataclasses import fields
 from uuid import uuid4
@@ -169,7 +170,14 @@ class TestEntity:
     def test_entity_fields_exist(self):
         """Test that all expected fields exist."""
         field_names = {f.name for f in fields(Entity)}
-        expected_fields = {"entity_id", "redact_type", "data_type", "span", "score", "original_text"}
+        expected_fields = {
+            "entity_id",
+            "redact_type",
+            "data_type",
+            "span",
+            "score",
+            "original_text",
+        }
         assert field_names == expected_fields
 
 
@@ -299,7 +307,15 @@ class TestVaultRecord:
     def test_vault_record_all_fields_required(self):
         """Test that all VaultRecord fields are defined."""
         field_names = {f.name for f in fields(VaultRecord)}
-        expected_fields = {"entity_id", "original", "pseudonym", "type", "data_type", "span", "timestamp"}
+        expected_fields = {
+            "entity_id",
+            "original",
+            "pseudonym",
+            "type",
+            "data_type",
+            "span",
+            "timestamp",
+        }
         assert field_names == expected_fields
 
     def test_vault_record_span_is_tuple(self):

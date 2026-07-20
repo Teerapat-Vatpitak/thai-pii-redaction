@@ -16,6 +16,7 @@ Output: `<dist-dir>/aiguard-extension-<VERSION>.zip` containing the contents
 of `extension/` (everything except README.md, which is developer-facing
 only and not part of the shipped extension).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,8 +57,7 @@ def build_zip(root: Path, dist_dir: Path | None = None) -> Path:
     zip_path = dist_dir / f"aiguard-extension-{expected}.zip"
 
     files = sorted(
-        p for p in extension_dir.rglob("*")
-        if p.is_file() and p.name not in EXCLUDED_NAMES
+        p for p in extension_dir.rglob("*") if p.is_file() and p.name not in EXCLUDED_NAMES
     )
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in files:

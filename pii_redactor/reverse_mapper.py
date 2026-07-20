@@ -215,9 +215,7 @@ def reverse_map(
     restored_text, replaced = _do_reverse(ai_response.text, vault)
 
     # Post-validate
-    flags, audit_summary = _post_reverse_validate(
-        restored_text, replaced, entity_registry, vault
-    )
+    flags, audit_summary = _post_reverse_validate(restored_text, replaced, entity_registry, vault)
     audit_summary["request_id"] = ai_response.request_id
 
     return ReverseResult(

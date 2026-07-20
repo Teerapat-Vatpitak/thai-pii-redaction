@@ -1,4 +1,5 @@
 """Stride-chunk NER windowing: ~1.2x chars tagged instead of ~7x, offsets exact."""
+
 import pii_redactor.detectors.tb_detector as tbd
 
 
@@ -60,7 +61,7 @@ def test_entity_near_chunk_boundary_found_once(monkeypatch):
     e = ents[0]
     start = text.index("สมชาย")
     assert e.span[0] <= start < e.span[1]
-    assert text[e.span[0]:e.span[1]] == e.original_text
+    assert text[e.span[0] : e.span[1]] == e.original_text
 
 
 def test_short_text_single_chunk(monkeypatch):

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Interactive demo: paste text, get sanitized output."""
+
 import sys
 
 
@@ -29,8 +30,10 @@ def main():
     print("\n--- Restored Output ---")
     print(result.reverse_result.text)
 
-    print(f"\nEntities: {len(result.entity_registry.entities)} "
-          f"(FP={result.entity_registry.fp_count}, TB={result.entity_registry.tb_count})")
+    print(
+        f"\nEntities: {len(result.entity_registry.entities)} "
+        f"(FP={result.entity_registry.fp_count}, TB={result.entity_registry.tb_count})"
+    )
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ Covers:
 All script tests run against a throwaway copy of just the version-bearing
 files (under tmp_path) so they never mutate the real working tree.
 """
+
 from __future__ import annotations
 
 import json
@@ -31,6 +32,7 @@ PY = sys.executable
 
 try:
     from fastapi.testclient import TestClient
+
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
@@ -43,6 +45,7 @@ def _version_file_contents() -> str:
 # ---------------------------------------------------------------------------
 # app/server.py runtime version
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
 def test_health_version_matches_VERSION_file():

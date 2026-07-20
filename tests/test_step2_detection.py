@@ -1,4 +1,5 @@
 """Tests for Step 2 FP detection: thai_id.py and fp_detector.py."""
+
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.thai_id import is_valid_thai_id
 from pii_redactor.models import Entity
@@ -6,6 +7,7 @@ from pii_redactor.models import Entity
 # ---------------------------------------------------------------------------
 # Thai ID tests
 # ---------------------------------------------------------------------------
+
 
 def test_thai_id_valid():
     # Build a valid ID programmatically: first 12 digits, compute check digit
@@ -19,8 +21,8 @@ def test_thai_id_valid():
 
 def test_thai_id_invalid():
     assert is_valid_thai_id("1101200012346") is False  # wrong check digit
-    assert is_valid_thai_id("123") is False             # too short
-    assert is_valid_thai_id("abcdefghijklm") is False   # non-digits
+    assert is_valid_thai_id("123") is False  # too short
+    assert is_valid_thai_id("abcdefghijklm") is False  # non-digits
 
 
 def test_thai_id_non_digit_returns_false():
@@ -30,6 +32,7 @@ def test_thai_id_non_digit_returns_false():
 # ---------------------------------------------------------------------------
 # FP detector tests
 # ---------------------------------------------------------------------------
+
 
 def test_detect_fp_email():
     text = "ติดต่อที่ wittaya.s@company.co.th หรือ test@gmail.com"
@@ -117,6 +120,7 @@ def test_plate_regex_does_not_swallow_separated_numbers():
 
 def test_detect_fp_sample_thai():
     from pathlib import Path
+
     text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
     entities = detect_fp(text)
     types = {e.data_type for e in entities}
@@ -251,6 +255,7 @@ def test_detect_tb_span_min_2():
 
 def test_detect_tb_sample_thai():
     from pathlib import Path
+
     text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
     result = detect_tb(text)
     assert isinstance(result, list)
@@ -281,17 +286,21 @@ def test_detect_tb_score():
 # FN scanner tests
 # ---------------------------------------------------------------------------
 
+
 def test_scan_fn_no_duplicates():
     import uuid as _uuid
+
     text = "email: test@example.com and 1234567890123"
-    existing = [Entity(
-        entity_id=str(_uuid.uuid4()),
-        redact_type="FP",
-        data_type="EMAIL",
-        span=(7, 23),
-        score=1.0,
-        original_text="test@example.com",
-    )]
+    existing = [
+        Entity(
+            entity_id=str(_uuid.uuid4()),
+            redact_type="FP",
+            data_type="EMAIL",
+            span=(7, 23),
+            score=1.0,
+            original_text="test@example.com",
+        )
+    ]
     new_ents = scan_fn(text, existing)
     for e in new_ents:
         assert not (e.span[0] < 23 and e.span[1] > 7)
@@ -353,15 +362,18 @@ def test_scan_fn_iso_date():
 
 def test_scan_fn_no_overlap_with_existing():
     import uuid as _uuid
+
     text = "date: 01/06/2024 and something"
-    existing = [Entity(
-        entity_id=str(_uuid.uuid4()),
-        redact_type="FP",
-        data_type="DATE_OF_BIRTH",
-        span=(6, 16),
-        score=1.0,
-        original_text="01/06/2024",
-    )]
+    existing = [
+        Entity(
+            entity_id=str(_uuid.uuid4()),
+            redact_type="FP",
+            data_type="DATE_OF_BIRTH",
+            span=(6, 16),
+            score=1.0,
+            original_text="01/06/2024",
+        )
+    ]
     new_ents = scan_fn(text, existing)
     for e in new_ents:
         # Should not overlap with (6, 16)
@@ -371,6 +383,7 @@ def test_scan_fn_no_overlap_with_existing():
 # ---------------------------------------------------------------------------
 # Honest labels: DATE vs DATE_OF_BIRTH, ID_NUMBER vs STUDENT_ID/PASSPORT
 # ---------------------------------------------------------------------------
+
 
 def test_fp_bare_date_is_generic_date():
     ents = detect_fp("นัดประชุมวันที่ 12/05/2569 ที่สำนักงานใหญ่")
@@ -394,10 +407,7 @@ def test_fp_iso_date_generic():
 
 def test_fp_iso_date_with_birth_cue_is_dob():
     ents = detect_fp("ผมเกิดวันที่ 1990-01-15 ครับ")
-    assert any(
-        e.data_type == "DATE_OF_BIRTH" and e.original_text == "1990-01-15"
-        for e in ents
-    )
+    assert any(e.data_type == "DATE_OF_BIRTH" and e.original_text == "1990-01-15" for e in ents)
 
 
 def test_fp_bare_long_number_is_id_number():
@@ -441,6 +451,7 @@ def test_fp_nothing_unmasked_by_relabel():
 # TB honest labels: LOCATION/DATE/ORGANIZATION with cue upgrades
 # ---------------------------------------------------------------------------
 
+
 def _fake_ner_detect(text, bio_tokens, monkeypatch):
     """Run detect_tb with a fake engine that returns fixed BIO tokens."""
     import pii_redactor.detectors.tb_detector as tbd
@@ -469,9 +480,7 @@ def test_tb_location_with_addr_cue_upgrades_to_address(monkeypatch):
 
 def test_tb_date_with_birth_cue_upgrades_to_dob(monkeypatch):
     text = "เกิดวันที่ 12 พฤษภาคม 2530 ที่กรุงเทพ"
-    ents = _fake_ner_detect(
-        text, [("12 พฤษภาคม 2530", "B-DATE")], monkeypatch
-    )
+    ents = _fake_ner_detect(text, [("12 พฤษภาคม 2530", "B-DATE")], monkeypatch)
     assert any(e.data_type == "DATE_OF_BIRTH" for e in ents)
 
 
@@ -512,7 +521,5 @@ def test_tb_pure_latin_org_is_rejected_by_thai_guard(monkeypatch):
 
 def test_tb_mixed_thai_latin_org_survives_thai_guard(monkeypatch):
     text = "ผมทำงานที่บริษัท เอบีซี จำกัด สาขาไทย"
-    ents = _fake_ner_detect(
-        text, [("บริษัท เอบีซี จำกัด", "B-ORGANIZATION")], monkeypatch
-    )
+    ents = _fake_ner_detect(text, [("บริษัท เอบีซี จำกัด", "B-ORGANIZATION")], monkeypatch)
     assert any(e.data_type == "ORGANIZATION" for e in ents)

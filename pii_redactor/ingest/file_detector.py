@@ -1,4 +1,5 @@
 """File type detection."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,9 +22,7 @@ def _page_is_image_only(page) -> bool:
     from pypdfium2 import raw as pdfium_raw
 
     try:
-        return any(
-            obj.type == pdfium_raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects()
-        )
+        return any(obj.type == pdfium_raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects())
     except Exception:
         return True
 

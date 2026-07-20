@@ -12,6 +12,7 @@ Bundles the base product (FastAPI + regex/checksum + Thai thainer-CRF NER +
 pdfplumber/pypdfium2/reportlab PDF). Heavy optional stacks (torch/transformers,
 paddleocr, scipy/pandas) are excluded so the binary stays small.
 """
+
 import hashlib
 import os
 import shutil
@@ -37,9 +38,7 @@ IS_WINDOWS = os.name == "nt"
 # db.json is deliberately NOT pinned: it is a per-machine catalog of installed
 # corpora, so its bytes legitimately differ between dev boxes and CI runners.
 PINNED_DATA_SHA256 = {
-    "thai-ner-1-4.crfsuite": (
-        "8c4f5b73434843d683442b42ddfaf2999a51d7c37579b27bac82c816c8a11e38"
-    ),
+    "thai-ner-1-4.crfsuite": ("8c4f5b73434843d683442b42ddfaf2999a51d7c37579b27bac82c816c8a11e38"),
     # Also network-fetched and also bundled; pinned opportunistically. A clean CI
     # runner may not have these (only the NER model is pre-downloaded), so they
     # are verified when present rather than required.
@@ -114,19 +113,35 @@ def verify_pinned_data(
                 "PINNED_DATA_SHA256 in scripts/build_sidecar.py deliberately."
             )
 
+
 COLLECT_ALL = ["pythainlp", "pycrfsuite", "pdfplumber", "pypdfium2", "reportlab"]
 
 # Excludes keep the binary small. torch/transformers/paddle/cv2 are optional ML/OCR
 # stacks; the pythainlp.* submodules are neural features the base engine never uses
 # (excluding them stops PyInstaller from dragging in scipy/pandas via fsspec).
 EXCLUDE = [
-    "torch", "sentence_transformers", "transformers",
-    "paddleocr", "paddlepaddle", "paddle", "cv2",
-    "pythainlp.word_vector", "pythainlp.corpus.wordnet", "pythainlp.translate",
-    "pythainlp.summarize", "pythainlp.parse", "pythainlp.generate", "pythainlp.chat",
-    "pythainlp.wangchanberta", "pythainlp.phayathaibert", "pythainlp.lm",
-    "pythainlp.wsd", "pythainlp.spell.wanchanberta_thai_grammarly", "pythainlp.ulmfit",
-    "scipy", "pandas",
+    "torch",
+    "sentence_transformers",
+    "transformers",
+    "paddleocr",
+    "paddlepaddle",
+    "paddle",
+    "cv2",
+    "pythainlp.word_vector",
+    "pythainlp.corpus.wordnet",
+    "pythainlp.translate",
+    "pythainlp.summarize",
+    "pythainlp.parse",
+    "pythainlp.generate",
+    "pythainlp.chat",
+    "pythainlp.wangchanberta",
+    "pythainlp.phayathaibert",
+    "pythainlp.lm",
+    "pythainlp.wsd",
+    "pythainlp.spell.wanchanberta_thai_grammarly",
+    "pythainlp.ulmfit",
+    "scipy",
+    "pandas",
 ]
 
 
@@ -157,7 +172,7 @@ def data_args() -> list[str]:
     if not (data_dir.is_dir() and crf.is_file() and db.is_file()):
         sys.exit(
             f"ERROR: PyThaiNLP NER model not found in {data_dir} (need db.json + "
-            "thai-ner-1-4.crfsuite). Run `python -c \"from pythainlp.tag import "
+            'thai-ner-1-4.crfsuite). Run `python -c "from pythainlp.tag import '
             "NER; NER(engine='thainer')\"` once to download it, then rebuild. "
             "Refusing to ship a NER-less binary."
         )
@@ -175,13 +190,30 @@ def data_args() -> list[str]:
 def main() -> None:
     # Hash-pinned build tooling (Horizon-2 #11): same PyInstaller as CI/release.
     # The lock is compiled for Python 3.13 (matching CI); build the exe on 3.13.
-    subprocess.check_call([
-        PY, "-m", "pip", "install", "--quiet", "--require-hashes",
-        "-r", str(ROOT / "requirements-build.lock"),
-    ])
+    subprocess.check_call(
+        [
+            PY,
+            "-m",
+            "pip",
+            "install",
+            "--quiet",
+            "--require-hashes",
+            "-r",
+            str(ROOT / "requirements-build.lock"),
+        ]
+    )
 
-    cmd = [PY, "-m", "PyInstaller", "--noconfirm", "--onefile", "--name", "AIGuard",
-           "--python-option", "X utf8=1"]
+    cmd = [
+        PY,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--onefile",
+        "--name",
+        "AIGuard",
+        "--python-option",
+        "X utf8=1",
+    ]
     for m in COLLECT_ALL:
         cmd += ["--collect-all", m]
     cmd += ["--collect-submodules", "uvicorn", "--hidden-import", "pycrfsuite"]
@@ -192,10 +224,15 @@ def main() -> None:
     cmd += ["--add-data", f"{ROOT / 'VERSION'}{os.pathsep}."]
     cmd += data_args()
     # Absolute paths so we never depend on / mutate the caller's working directory.
-    cmd += ["--distpath", str(ROOT / "dist"),
-            "--workpath", str(ROOT / "build"),
-            "--specpath", str(ROOT),
-            str(ROOT / "launcher.py")]
+    cmd += [
+        "--distpath",
+        str(ROOT / "dist"),
+        "--workpath",
+        str(ROOT / "build"),
+        "--specpath",
+        str(ROOT),
+        str(ROOT / "launcher.py"),
+    ]
     print("Running PyInstaller...")
     subprocess.check_call(cmd)
 

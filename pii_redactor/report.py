@@ -1,4 +1,5 @@
 """Report generation."""
+
 import re
 from dataclasses import dataclass
 
@@ -9,13 +10,13 @@ from pii_redactor.reid_risk import ReidRiskResult, assess_reid_risk
 
 @dataclass
 class PDPAReport:
-    direct_pii_count: int          # fp + tb entities
+    direct_pii_count: int  # fp + tb entities
     fp_count: int
     tb_count: int
-    section26_flags: list[str]     # sensitive categories found (not redacted, just flagged)
+    section26_flags: list[str]  # sensitive categories found (not redacted, just flagged)
     reid_risk: ReidRiskResult
-    overall_score: float           # combined 0-100
-    overall_grade: str             # A-F
+    overall_score: float  # combined 0-100
+    overall_grade: str  # A-F
     recommendations: list[str]
 
 
@@ -43,12 +44,14 @@ def scan_section26(text: str) -> list[dict]:
     for category, pattern in _SECTION26_KEYWORDS.items():
         m = pattern.search(text)
         if m:
-            hits.append({
-                "category": category,
-                "text": m.group(0),
-                "start": m.start(),
-                "end": m.end(),
-            })
+            hits.append(
+                {
+                    "category": category,
+                    "text": m.group(0),
+                    "start": m.start(),
+                    "end": m.end(),
+                }
+            )
     return hits
 
 
@@ -97,9 +100,13 @@ def generate_report(text: str) -> PDPAReport:
             "Explicit consent required under PDPA."
         )
     if reid.high_risk_combo:
-        recommendations.append("Remove quasi-identifier combinations to reduce re-identification risk.")
+        recommendations.append(
+            "Remove quasi-identifier combinations to reduce re-identification risk."
+        )
     if overall >= 60:
-        recommendations.append("Consider data minimization — only collect data necessary for the purpose.")
+        recommendations.append(
+            "Consider data minimization — only collect data necessary for the purpose."
+        )
 
     return PDPAReport(
         direct_pii_count=direct_pii_count,

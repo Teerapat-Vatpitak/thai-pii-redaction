@@ -1,4 +1,5 @@
 """Semantic Section-26 detector (MiniLM). Skipped without sentence-transformers."""
+
 import pytest
 
 pytest.importorskip("sentence_transformers")

@@ -4,6 +4,7 @@ Values reuse the existing generators (single source of truth for formats), so
 a synthetic THAI_ID passes the same mod-11 the detector checks, etc. Two slices:
 `core` (spread across entity types) and `hard_case` (known recall-leak shapes).
 """
+
 from __future__ import annotations
 
 import random
@@ -98,7 +99,12 @@ _CORE_TEMPLATES = [
     (
         "apply",
         "ผู้สมัคร {name} หนังสือเดินทาง {passport} ทะเบียนรถ {plate} รหัสนักศึกษา {sid}",
-        [("name", "NAME"), ("passport", "PASSPORT"), ("plate", "VEHICLE_PLATE"), ("sid", "STUDENT_ID")],
+        [
+            ("name", "NAME"),
+            ("passport", "PASSPORT"),
+            ("plate", "VEHICLE_PLATE"),
+            ("sid", "STUDENT_ID"),
+        ],
     ),
 ]
 
@@ -137,7 +143,7 @@ def _render(template, rng: random.Random, slice_: str) -> Sample:
             value = _sample_value(etype, rng)
         marker = "{" + key + "}"
         idx = text.index(marker)
-        text = text[:idx] + value + text[idx + len(marker):]
+        text = text[:idx] + value + text[idx + len(marker) :]
         spans.append(GoldSpan(idx, idx + len(value), etype))
     return Sample(text=text, spans=spans, template_id=tid, slice=slice_)
 

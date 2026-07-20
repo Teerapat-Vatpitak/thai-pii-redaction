@@ -1,4 +1,5 @@
 """Tests for the synthetic Thai PII recall benchmark."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -15,7 +16,7 @@ from pii_redactor.detectors.aggregate import detect_all
 # ── types ──────────────────────────────────────────────────────────────
 def test_goldspan_and_sample_construct():
     s = Sample(text="นายสมชาย", spans=[GoldSpan(0, 8, "NAME")], template_id="t0", slice="core")
-    assert s.text[s.spans[0].start:s.spans[0].end] == "นายสมชาย"
+    assert s.text[s.spans[0].start : s.spans[0].end] == "นายสมชาย"
     assert s.spans[0].entity_type == "NAME"
     assert s.slice == "core"
 
@@ -35,8 +36,12 @@ from pii_redactor.models import Entity
 
 def _ent(redact_type, data_type, span, score=1.0):
     return Entity(
-        entity_id="x", redact_type=redact_type, data_type=data_type,
-        span=span, score=score, original_text="v",
+        entity_id="x",
+        redact_type=redact_type,
+        data_type=data_type,
+        span=span,
+        score=score,
+        original_text="v",
     )
 
 
@@ -61,7 +66,7 @@ def test_corpus_spans_align_with_text():
     for s in build_corpus(seed=1, size=60):
         for sp in s.spans:
             assert sp.end > sp.start
-            assert s.text[sp.start:sp.end]
+            assert s.text[sp.start : sp.end]
             assert sp.entity_type in ENTITY_TYPES
 
 
@@ -135,8 +140,16 @@ def test_ci_gate_crf_recall_floors():
     r = run_benchmark(engine="crf", seed=42, size=200)
     bt = r["by_type"]
     # Structured PII with an unambiguous format: regex+checksum -> near-perfect.
-    for t in ["THAI_ID", "CREDIT_CARD", "PASSPORT", "EMAIL", "PHONE",
-              "STUDENT_ID", "VEHICLE_PLATE", "DATE_OF_BIRTH"]:
+    for t in [
+        "THAI_ID",
+        "CREDIT_CARD",
+        "PASSPORT",
+        "EMAIL",
+        "PHONE",
+        "STUDENT_ID",
+        "VEHICLE_PLATE",
+        "DATE_OF_BIRTH",
+    ]:
         assert bt[t]["recall"] >= 0.99, (t, bt[t])
     # VEHICLE_PLATE precision: half the synthetic addresses use a "ซอย N" soi
     # form, which the loose plate regex would flag as a plate. The locality

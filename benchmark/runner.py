@@ -1,4 +1,5 @@
 """Wire the corpus through the product's real detect_all() and score it."""
+
 from __future__ import annotations
 
 import os
@@ -19,9 +20,7 @@ def run_benchmark(
     # process actually takes effect and the benchmark never pollutes other tests.
     prev_env = os.environ.get("AIGUARD_NER_ENGINE")
     prev_ner = dict(tb_detector._ner_cache)
-    os.environ["AIGUARD_NER_ENGINE"] = (
-        "wangchanberta" if engine == "wangchanberta" else "thainer"
-    )
+    os.environ["AIGUARD_NER_ENGINE"] = "wangchanberta" if engine == "wangchanberta" else "thainer"
     tb_detector._ner_cache = {}
     try:
         samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
@@ -59,20 +58,14 @@ def render_table(report: dict) -> str:
         f"{'OVERALL':<16}{report['corpus']['entities']:>5}"
         f"{o['recall']:>9.3f}{o['precision']:>9.3f}{o['f2']:>9.3f}"
     )
-    lines.append(
-        f"coverage_recall={o['coverage_recall']:.3f} exact_recall={o['exact_recall']:.3f}"
-    )
+    lines.append(f"coverage_recall={o['coverage_recall']:.3f} exact_recall={o['exact_recall']:.3f}")
     for sl in sorted(report["by_slice"]):
         s = report["by_slice"][sl]
-        lines.append(
-            f"slice {sl:<10} recall={s['recall']:.3f} coverage={s['coverage_recall']:.3f}"
-        )
+        lines.append(f"slice {sl:<10} recall={s['recall']:.3f} coverage={s['coverage_recall']:.3f}")
     return "\n".join(lines)
 
 
-def run_strategy_comparison(
-    source: str = "synthetic", seed: int = 42, size: int = 200
-) -> dict:
+def run_strategy_comparison(source: str = "synthetic", seed: int = 42, size: int = 200) -> dict:
     """Score four NER strategies (crf, wcb, union, route) on one corpus.
 
     Runs each engine once over the corpus (resetting the process-global NER
@@ -137,7 +130,15 @@ def render_strategy_table(reports: dict) -> str:
             c = reports[s]["by_type"].get(t)
             row += f"{c['recall']:>10.3f}" if c else f"{'-':>10}"
         lines.append(row)
-    lines.append(f"{'OVERALL_R':<16}" + "".join(f"{reports[s]['overall']['recall']:>10.3f}" for s in order))
-    lines.append(f"{'OVERALL_P':<16}" + "".join(f"{reports[s]['overall']['precision']:>10.3f}" for s in order))
-    lines.append(f"{'coverage':<16}" + "".join(f"{reports[s]['overall']['coverage_recall']:>10.3f}" for s in order))
+    lines.append(
+        f"{'OVERALL_R':<16}" + "".join(f"{reports[s]['overall']['recall']:>10.3f}" for s in order)
+    )
+    lines.append(
+        f"{'OVERALL_P':<16}"
+        + "".join(f"{reports[s]['overall']['precision']:>10.3f}" for s in order)
+    )
+    lines.append(
+        f"{'coverage':<16}"
+        + "".join(f"{reports[s]['overall']['coverage_recall']:>10.3f}" for s in order)
+    )
     return "\n".join(lines)

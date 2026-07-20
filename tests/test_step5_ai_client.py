@@ -1,4 +1,5 @@
 """Tests for Step 5 AI client integration."""
+
 import time
 import uuid
 from abc import ABC
@@ -16,19 +17,23 @@ from pii_redactor.models import AIResponse, EntityRegistry, VaultRecord
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
-def _make_vault_with_record(original: str = "test@example.com", pseudonym: str = "fake@test.com") -> tuple:
+def _make_vault_with_record(
+    original: str = "test@example.com", pseudonym: str = "fake@test.com"
+) -> tuple:
     """Create a vault with a single test record."""
     vault = SessionVault()
     entity_id = str(uuid.uuid4())
-    vault.write(VaultRecord(
-        entity_id=entity_id,
-        original=original,
-        pseudonym=pseudonym,
-        type="FP",
-        data_type="EMAIL",
-        span=(0, len(original)),
-        timestamp=time.monotonic(),
-    ))
+    vault.write(
+        VaultRecord(
+            entity_id=entity_id,
+            original=original,
+            pseudonym=pseudonym,
+            type="FP",
+            data_type="EMAIL",
+            span=(0, len(original)),
+            timestamp=time.monotonic(),
+        )
+    )
     return vault, entity_id
 
 
@@ -106,15 +111,17 @@ def _vault_with(records: dict[str, tuple[str, str]]) -> SessionVault:
     """Vault from {data_type: (original, pseudonym)}."""
     vault = SessionVault()
     for data_type, (original, pseudonym) in records.items():
-        vault.write(VaultRecord(
-            entity_id=str(uuid.uuid4()),
-            original=original,
-            pseudonym=pseudonym,
-            type="TB" if data_type in ("NAME", "ADDRESS") else "FP",
-            data_type=data_type,
-            span=(0, len(original)),
-            timestamp=time.monotonic(),
-        ))
+        vault.write(
+            VaultRecord(
+                entity_id=str(uuid.uuid4()),
+                original=original,
+                pseudonym=pseudonym,
+                type="TB" if data_type in ("NAME", "ADDRESS") else "FP",
+                data_type=data_type,
+                span=(0, len(original)),
+                timestamp=time.monotonic(),
+            )
+        )
     return vault
 
 
@@ -123,11 +130,13 @@ def test_pre_send_allows_ner_span_swallowing_pseudonym():
     embedded pseudonym (e.g. 'หน่อยครับ\\nผมชื่อ บุญชัย'). That span is not an
     exact pseudonym match, but it is fully explained by pseudonym + ordinary
     words — the guard must not halt on it."""
-    vault = _vault_with({
-        "NAME": ("สมชาย ใจดี", "บุญชัย"),
-        "PHONE": ("081-234-5678", "098-625-9566"),
-        "EMAIL": ("somchai.j@example.co.th", "eve.2068@example.com"),
-    })
+    vault = _vault_with(
+        {
+            "NAME": ("สมชาย ใจดี", "บุญชัย"),
+            "PHONE": ("081-234-5678", "098-625-9566"),
+            "EMAIL": ("somchai.j@example.co.th", "eve.2068@example.com"),
+        }
+    )
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     pseudonymized = (
         "ช่วยร่างอีเมลแจ้งลาป่วยให้หน่อยครับ\n"
@@ -142,10 +151,12 @@ def test_pre_send_allows_ner_span_swallowing_pseudonym():
 def test_pre_send_allows_fragment_inside_pseudonym():
     """NER can also re-detect a FRAGMENT of a pseudonym (e.g. the district part
     of a fake address). A span lying inside a pseudonym occurrence is not a leak."""
-    vault = _vault_with({
-        "ADDRESS": ("99/1 เขตบางรัก", "412 เขตพระโขนง"),
-        "NAME": ("สมชาย ใจดี", "บุญชัย"),
-    })
+    vault = _vault_with(
+        {
+            "ADDRESS": ("99/1 เขตบางรัก", "412 เขตพระโขนง"),
+            "NAME": ("สมชาย ใจดี", "บุญชัย"),
+        }
+    )
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     pseudonymized = "ผมชื่อ บุญชัย อยู่บ้านเลขที่ 412 เขตพระโขนง มาหลายปีแล้วครับ"
     result = send_to_ai(pseudonymized, registry, vault, FakeLLMProvider())
@@ -158,13 +169,15 @@ def test_pre_send_allows_span_straddling_pseudonym_fragment():
     pseudonym '556 เขตสาทร' followed by a bank pseudonym). The remainder must
     be computed positionally — string-stripping whole pseudonyms leaves the
     fragment behind and re-flags it as ADDRESS."""
-    vault = _vault_with({
-        "NAME": ("วิชัย มั่งมี", "ชัยวัฒน์"),
-        "THAI_ID": ("3-1009-02845-17-2", "8079110812780"),
-        "ADDRESS": ("เลขที่บัญชี", "556 เขตสาทร"),
-        "BANK_ACCOUNT": ("123-4-56789-0", "3548205739"),
-        "PHONE": ("086-111-2233", "062-837-6229"),
-    })
+    vault = _vault_with(
+        {
+            "NAME": ("วิชัย มั่งมี", "ชัยวัฒน์"),
+            "THAI_ID": ("3-1009-02845-17-2", "8079110812780"),
+            "ADDRESS": ("เลขที่บัญชี", "556 เขตสาทร"),
+            "BANK_ACCOUNT": ("123-4-56789-0", "3548205739"),
+            "PHONE": ("086-111-2233", "062-837-6229"),
+        }
+    )
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     pseudonymized = (
         "ช่วยเขียนคำร้องเรียนถึงธนาคารให้หน่อย\n"
@@ -182,13 +195,15 @@ def test_pre_send_remainder_segments_scanned_separately():
     ' เลขบัตรประชาชน' — glued together the name-cue booster reads
     'เลขบัตรประชาชน' as a name after the cue. Each segment must be scanned
     on its own."""
-    vault = _vault_with({
-        "NAME": ("วิชัย มั่งมี", "พิทักษ์"),
-        "THAI_ID": ("3-1009-02845-17-2", "4504557656411"),
-        "ADDRESS": ("เลขที่บัญชี", "927 อำเภอบางพลี"),
-        "BANK_ACCOUNT": ("123-4-56789-0", "1444908633"),
-        "PHONE": ("086-111-2233", "060-428-3914"),
-    })
+    vault = _vault_with(
+        {
+            "NAME": ("วิชัย มั่งมี", "พิทักษ์"),
+            "THAI_ID": ("3-1009-02845-17-2", "4504557656411"),
+            "ADDRESS": ("เลขที่บัญชี", "927 อำเภอบางพลี"),
+            "BANK_ACCOUNT": ("123-4-56789-0", "1444908633"),
+            "PHONE": ("086-111-2233", "060-428-3914"),
+        }
+    )
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     pseudonymized = (
         "ช่วยเขียนคำร้องเรียนถึงธนาคารให้หน่อย\n"
@@ -215,15 +230,14 @@ def test_pre_send_blocks_leak_whose_cue_is_split_by_pseudonym():
 def test_pre_send_still_blocks_real_name_beside_pseudonyms():
     """A real (cue-detectable) name left in the outbound text must still halt
     the send even when pseudonyms are present elsewhere."""
-    vault = _vault_with({
-        "NAME": ("สมชาย ใจดี", "บุญชัย"),
-        "PHONE": ("081-234-5678", "098-625-9566"),
-    })
-    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
-    leaky = (
-        "ผมชื่อ บุญชัย เบอร์ 098-625-9566 "
-        "ส่วนหัวหน้าผมชื่อ วิชัย ทองแท้ ครับ"
+    vault = _vault_with(
+        {
+            "NAME": ("สมชาย ใจดี", "บุญชัย"),
+            "PHONE": ("081-234-5678", "098-625-9566"),
+        }
     )
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+    leaky = "ผมชื่อ บุญชัย เบอร์ 098-625-9566 ส่วนหัวหน้าผมชื่อ วิชัย ทองแท้ ครับ"
     with pytest.raises(PreSendValidationError):
         send_to_ai(leaky, registry, vault, FakeLLMProvider())
 

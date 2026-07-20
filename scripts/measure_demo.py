@@ -18,6 +18,7 @@ Thai sample text round-trips correctly:
 Exits non-zero (and prints a clear message) if the health check fails.
 This script assumes AI Guard is already up, it never spawns one.
 """
+
 from __future__ import annotations
 
 import sys
@@ -60,9 +61,7 @@ def main() -> None:
     with httpx.Client(base_url=BASE_URL, timeout=30.0) as client:
         # ── health ──────────────────────────────────────────────────────
         try:
-            health_resp, health_ms = _timed(
-                "GET  /api/health", lambda: client.get("/api/health")
-            )
+            health_resp, health_ms = _timed("GET  /api/health", lambda: client.get("/api/health"))
         except httpx.HTTPError as e:
             _fail(
                 "could not reach the backend at 127.0.0.1:8000 - launch the "
@@ -79,12 +78,12 @@ def main() -> None:
         # ── sanitize: token mode ────────────────────────────────────────
         sanitize_token_resp, sanitize_token_ms = _timed(
             "POST /api/sanitize (token)",
-            lambda: client.post(
-                "/api/sanitize", json={"text": sample_text, "mode": "token"}
-            ),
+            lambda: client.post("/api/sanitize", json={"text": sample_text, "mode": "token"}),
         )
         if sanitize_token_resp.status_code != 200:
-            _fail(f"/api/sanitize (token) returned HTTP {sanitize_token_resp.status_code}: {sanitize_token_resp.text}")
+            _fail(
+                f"/api/sanitize (token) returned HTTP {sanitize_token_resp.status_code}: {sanitize_token_resp.text}"
+            )
         sanitize_token = sanitize_token_resp.json()
         session_id = sanitize_token["session_id"]
         entity_count = len(sanitize_token["entities"])
@@ -92,12 +91,12 @@ def main() -> None:
         # ── sanitize: surrogate mode (same text, separate session) ─────
         sanitize_surrogate_resp, sanitize_surrogate_ms = _timed(
             "POST /api/sanitize (surrogate)",
-            lambda: client.post(
-                "/api/sanitize", json={"text": sample_text, "mode": "surrogate"}
-            ),
+            lambda: client.post("/api/sanitize", json={"text": sample_text, "mode": "surrogate"}),
         )
         if sanitize_surrogate_resp.status_code != 200:
-            _fail(f"/api/sanitize (surrogate) returned HTTP {sanitize_surrogate_resp.status_code}: {sanitize_surrogate_resp.text}")
+            _fail(
+                f"/api/sanitize (surrogate) returned HTTP {sanitize_surrogate_resp.status_code}: {sanitize_surrogate_resp.text}"
+            )
 
         # ── reidentify: round-trip the token-mode session ───────────────
         sanitized_text = sanitize_token["sanitized_text"]
@@ -109,7 +108,9 @@ def main() -> None:
             ),
         )
         if reidentify_resp.status_code != 200:
-            _fail(f"/api/reidentify returned HTTP {reidentify_resp.status_code}: {reidentify_resp.text}")
+            _fail(
+                f"/api/reidentify returned HTTP {reidentify_resp.status_code}: {reidentify_resp.text}"
+            )
         reidentify = reidentify_resp.json()
 
         # ── redact-pdf ───────────────────────────────────────────────────

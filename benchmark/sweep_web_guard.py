@@ -4,6 +4,7 @@ The service salts are random per session, so repeated runs sweep the same
 space the PR #33/#34 flake hunts covered. Any OutboundLeakError here is a
 guard false positive on the unified path.
 """
+
 import sys
 
 # Python auto-prepends this script's own directory (benchmark/) to sys.path.

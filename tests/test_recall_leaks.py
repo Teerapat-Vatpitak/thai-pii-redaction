@@ -4,6 +4,7 @@ Each case documents a real miss verified against the shipped detectors, so the
 fix can never silently regress. Recall > precision governs: a leaked national
 ID or phone number in a chat paste is the product's worst failure mode.
 """
+
 from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.detectors.fp_detector import detect_fp
 
@@ -35,14 +36,14 @@ def test_thai_id_glued_to_thai_script_is_detected():
     text = f"เลขบัตรประชาชน{VALID_THAI_ID}"
     ids = _find(detect_fp(text), "THAI_ID")
     assert ids, "checksum-valid Thai ID glued to Thai script must be detected"
-    assert text[ids[0].span[0]:ids[0].span[1]] == VALID_THAI_ID
+    assert text[ids[0].span[0] : ids[0].span[1]] == VALID_THAI_ID
 
 
 def test_mobile_phone_glued_to_thai_script_is_detected():
     text = "โทร0812345678"
     phones = _find(detect_fp(text), "PHONE")
     assert phones, "mobile number glued to Thai must be detected"
-    assert "0812345678" in text[phones[0].span[0]:phones[0].span[1]]
+    assert "0812345678" in text[phones[0].span[0] : phones[0].span[1]]
 
 
 def test_fn_scanner_catches_glued_13_digits():
@@ -60,8 +61,7 @@ def test_fn_scanner_catches_glued_13_digits():
 
 
 def test_plus66_spaced_mobile_is_detected():
-    assert "PHONE" in _types(detect_fp("+66 81 234 5678")), \
-        "+66 spaced mobile must be detected"
+    assert "PHONE" in _types(detect_fp("+66 81 234 5678")), "+66 spaced mobile must be detected"
 
 
 def test_plus66_compact_mobile_is_phone_not_student_id():
@@ -110,12 +110,17 @@ def _make_pdf(tmp_path, name, pages):
 def test_mixed_pdf_with_scanned_page_is_hybrid(tmp_path):
     from pii_redactor.ingest.file_detector import detect_source_type
 
-    path = _make_pdf(tmp_path, "mixed.pdf", [
-        ("text", "This is a full page of real selectable text content here."),
-        ("image",),
-    ])
-    assert detect_source_type(path) == "pdf_hybrid", \
+    path = _make_pdf(
+        tmp_path,
+        "mixed.pdf",
+        [
+            ("text", "This is a full page of real selectable text content here."),
+            ("image",),
+        ],
+    )
+    assert detect_source_type(path) == "pdf_hybrid", (
         "a scanned page alongside a text page must not be silently dropped"
+    )
 
 
 def test_fully_scanned_pdf_is_hybrid(tmp_path):
@@ -128,12 +133,17 @@ def test_fully_scanned_pdf_is_hybrid(tmp_path):
 def test_text_pdf_with_blank_page_is_not_forced_to_ocr(tmp_path):
     from pii_redactor.ingest.file_detector import detect_source_type
 
-    path = _make_pdf(tmp_path, "textblank.pdf", [
-        ("text", "This is a full page of real selectable text content here."),
-        ("blank",),
-    ])
-    assert detect_source_type(path) == "pdf_text", \
+    path = _make_pdf(
+        tmp_path,
+        "textblank.pdf",
+        [
+            ("text", "This is a full page of real selectable text content here."),
+            ("blank",),
+        ],
+    )
+    assert detect_source_type(path) == "pdf_text", (
         "a blank divider page has nothing to OCR and must stay pdf_text"
+    )
 
 
 # --- Leak 4: PASSPORT / VEHICLE_PLATE glued to Thai script -------------------
@@ -152,14 +162,14 @@ def test_passport_glued_to_thai_script_is_detected():
     text = "หนังสือเดินทางเลขที่AB1234567ออกโดยกรมการกงสุล"
     ps = _find(detect_fp(text), "PASSPORT")
     assert ps, "passport glued to Thai script must be detected"
-    assert "AB1234567" in text[ps[0].span[0]:ps[0].span[1]]
+    assert "AB1234567" in text[ps[0].span[0] : ps[0].span[1]]
 
 
 def test_vehicle_plate_glued_after_cue_is_detected():
     text = "ทะเบียนรถขก 4471จอดในลานจอด"
     plates = _find(detect_fp(text), "VEHICLE_PLATE")
     assert plates, "plate glued to a Thai cue word (ทะเบียนรถ) must be detected"
-    assert "4471" in text[plates[0].span[0]:plates[0].span[1]]
+    assert "4471" in text[plates[0].span[0] : plates[0].span[1]]
 
 
 def test_thai_glued_plate_without_cue_stays_rejected():

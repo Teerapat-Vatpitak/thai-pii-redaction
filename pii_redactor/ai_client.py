@@ -1,4 +1,5 @@
 """AI client integration with multiple provider support and validation."""
+
 from __future__ import annotations
 
 import logging
@@ -112,16 +113,13 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
     real_leaks = scan_outbound_leaks(text, vault)
     if real_leaks:
         raise PreSendValidationError(
-            f"PII detected in text before sending to AI: "
-            f"{[e.data_type for e in real_leaks]}"
+            f"PII detected in text before sending to AI: {[e.data_type for e in real_leaks]}"
         )
 
     # 2. Prompt size check (rough heuristic: len/4 ≈ tokens)
     estimated_tokens = len(text) // 4
     if estimated_tokens > 100_000:
-        raise PreSendValidationError(
-            f"Prompt too large: ~{estimated_tokens} tokens (max 100k)"
-        )
+        raise PreSendValidationError(f"Prompt too large: ~{estimated_tokens} tokens (max 100k)")
 
     # 3. Vault not cleared (passive check - design note, not a hard failure)
     # Empty vault is OK for first call (no entities yet)
@@ -130,7 +128,9 @@ def _validate_pre_send(text: str, vault: SessionVault) -> None:
     vault.check_idle()
 
 
-def _validate_response(response: str, entity_registry: EntityRegistry, vault: SessionVault) -> list[str]:
+def _validate_response(
+    response: str, entity_registry: EntityRegistry, vault: SessionVault
+) -> list[str]:
     """
     Validate AI response. Returns list of warning messages.
 
@@ -227,14 +227,14 @@ def send_to_ai(
                 raise
             last_error = e
             if attempt < max_retries - 1:
-                backoff = 2 ** attempt  # 1s, 2s, 4s
+                backoff = 2**attempt  # 1s, 2s, 4s
                 time.sleep(backoff)
             continue
 
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             last_error = e
             if attempt < max_retries - 1:
-                backoff = 2 ** attempt  # 1s, 2s, 4s
+                backoff = 2**attempt  # 1s, 2s, 4s
                 time.sleep(backoff)
             continue
 
@@ -245,6 +245,4 @@ def send_to_ai(
 
     # All retries exhausted - rollback
     vault.restore(snapshot)
-    raise RuntimeError(
-        f"AI provider failed after {max_retries} attempts: {last_error}"
-    )
+    raise RuntimeError(f"AI provider failed after {max_retries} attempts: {last_error}")

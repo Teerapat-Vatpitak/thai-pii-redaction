@@ -1,4 +1,5 @@
 """End-to-end pipeline orchestrator (Steps 1-8)."""
+
 from __future__ import annotations
 
 import secrets
@@ -83,6 +84,7 @@ def run_pipeline(
     if input_path is not None:
         from pii_redactor.ingest.file_detector import detect_source_type
         from pii_redactor.ingest.text_extractor import extract
+
         source_type = detect_source_type(input_path)
         raw_text, _bboxes, extract_meta = extract(input_path, source_type)
     else:
@@ -91,14 +93,14 @@ def run_pipeline(
         extract_meta = {}
 
     from pii_redactor.ingest.text_cleaner import clean
+
     clean_result = clean(raw_text)
     clean_text = clean_result.text
 
     # Quality check is informational; do not halt on low score
     from pii_redactor.ingest.quality_validator import validate as validate_quality
-    validate_quality(
-        clean_text, source_type, ocr_confidence=extract_meta.get("ocr_confidence")
-    )
+
+    validate_quality(clean_text, source_type, ocr_confidence=extract_meta.get("ocr_confidence"))
 
     # --- Step 2: Detection ---
     from pii_redactor.detectors.aggregate import dedupe_spans
@@ -120,17 +122,18 @@ def run_pipeline(
         entities=all_entities,
         fp_count=sum(1 for e in merged_entities if e.redact_type == "FP"),
         # fn hits keep counting toward tb_count (historical contract)
-        tb_count=sum(1 for e in merged_entities if e.redact_type != "FP")
-        + len(fn_entities),
+        tb_count=sum(1 for e in merged_entities if e.redact_type != "FP") + len(fn_entities),
     )
 
     # --- Step 3+4: Pseudonymization ---
     from pii_redactor.anonymizer.anonymizer import anonymize
+
     pseudo_doc = anonymize(clean_text, entity_registry, vault, salt=salt)
     pseudonymized_text = pseudo_doc.text
 
     # --- Step 5: Send to AI ---
     from pii_redactor.ai_client import send_to_ai
+
     ai_response = send_to_ai(
         pseudonymized_text,
         entity_registry,
@@ -141,16 +144,19 @@ def run_pipeline(
 
     # --- Step 6: Reverse mapping ---
     from pii_redactor.reverse_mapper import reverse_map
+
     reverse_result = reverse_map(ai_response, entity_registry, vault)
 
     # --- Step 7: Output validation ---
     from pii_redactor.output_validator import validate_output
+
     validation_result = validate_output(reverse_result, entity_registry, vault)
 
     # --- Step 8: Export (optional) ---
     export_result = None
     if output_path is not None:
         from pii_redactor.exporter import export
+
         export_result = export(
             reverse_result,
             validation_result,

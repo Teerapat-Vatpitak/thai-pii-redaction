@@ -64,7 +64,9 @@ def _build_redact_set(entity_registry: EntityRegistry) -> set[str]:
     return fragments
 
 
-def _merge_boxes(boxes: list[tuple[float, float, float, float]]) -> list[tuple[float, float, float, float]]:
+def _merge_boxes(
+    boxes: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float, float, float]]:
     """
     Merge nearby/overlapping (x0, y0, x1, y1) rectangles (PDF points) into
     covering rectangles, so redacted words that sit next to each other on the
@@ -148,12 +150,14 @@ def redact_pdf(
                     word_text in frag or frag in word_text for frag in redact_fragments
                 )
                 if should_redact:
-                    pt_boxes.append((
-                        wb.x - REDACT_PAD_PT,
-                        wb.y - REDACT_PAD_TOP_PT,
-                        wb.x + wb.width + REDACT_PAD_PT,
-                        wb.y + wb.height + REDACT_PAD_PT,
-                    ))
+                    pt_boxes.append(
+                        (
+                            wb.x - REDACT_PAD_PT,
+                            wb.y - REDACT_PAD_TOP_PT,
+                            wb.x + wb.width + REDACT_PAD_PT,
+                            wb.y + wb.height + REDACT_PAD_PT,
+                        )
+                    )
 
             for x0, y0, x1, y1 in _merge_boxes(pt_boxes):
                 draw.rectangle(

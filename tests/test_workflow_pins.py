@@ -17,6 +17,7 @@ instead of silently claimed as pinned.
 
 Pure stdlib (no PyYAML) so this runs in the core-only install job too.
 """
+
 from __future__ import annotations
 
 import re

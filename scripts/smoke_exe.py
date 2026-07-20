@@ -13,6 +13,7 @@ orphan-watchdog, which is a no-op on Windows because taskkill /T reaps the
 tree). This script is the Windows-side counterpart -- it boots the shipped
 binary end-to-end instead of the source app.
 """
+
 import glob
 import json
 import socket
@@ -31,9 +32,7 @@ STAGED_GLOB = str(ROOT / "desktop" / "src-tauri" / "binaries" / "aiguard-*")
 
 
 def find_sidecar():
-    matches = sorted(
-        m for m in glob.glob(STAGED_GLOB) if m.endswith(".exe")
-    )
+    matches = sorted(m for m in glob.glob(STAGED_GLOB) if m.endswith(".exe"))
     if matches:
         return matches[0]
     fallback = ROOT / "dist" / "AIGuard.exe"

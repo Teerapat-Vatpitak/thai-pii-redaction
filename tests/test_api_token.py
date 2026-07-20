@@ -8,12 +8,14 @@ proven by tests/test_api_hardening.py, which this file does not touch.
 These tests monkeypatch `server._BOOT_TOKEN` directly (no module reload) and
 follow the `_schedule_exit` monkeypatch pattern from test_api_hardening.py.
 """
+
 import pytest
 
 try:
     from fastapi.testclient import TestClient
 
     import app.server as server
+
     DEPS = True
 except ImportError:
     DEPS = False

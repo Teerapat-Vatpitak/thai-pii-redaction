@@ -1,4 +1,5 @@
 """Engine selection for tb_detector's NER (AIGUARD_NER_ENGINE env var)."""
+
 import builtins
 
 import pytest
@@ -99,6 +100,7 @@ def test_union_without_transformers_raises(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     from pii_redactor.detectors.tb_detector import detect_tb
+
     with pytest.raises(tb_detector.NEREngineUnavailableError, match="requirements-ml.txt"):
         detect_tb("นายสมชาย ใจดี อยู่กรุงเทพมหานคร")
 

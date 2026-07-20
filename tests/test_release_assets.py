@@ -7,6 +7,7 @@ scripts/check_release_assets.py is the gate: before hashing, assert every asset
 that carries a version in its filename carries THIS version, so assets left over
 from a different release can never be signed as part of this one.
 """
+
 from __future__ import annotations
 
 import importlib.util

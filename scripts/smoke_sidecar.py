@@ -7,6 +7,7 @@ PyInstaller bootloader parent (as Tauri does on unix) and assert the orphaned
 child exits and frees port 8000. Windows reaps the whole tree via `taskkill /T`,
 so this check is unix-only and refuses to run on win32.
 """
+
 import glob
 import json
 import os

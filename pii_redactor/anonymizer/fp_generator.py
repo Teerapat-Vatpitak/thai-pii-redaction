@@ -3,6 +3,7 @@
 Deterministic: same (data_type, original, salt) -> same pseudonym always.
 Uses seeded random: seed = int.from_bytes(SHA256(f"{salt}:{original}").digest()[:4], 'big')
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -41,8 +42,22 @@ def _gen_phone(rng: random.Random) -> str:
 def _gen_email(rng: random.Random) -> str:
     """Generate fake email: [name].[number]@example.com"""
     NAMES = [
-        "alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry",
-        "iris", "jack", "kate", "leo", "mary", "nora", "oscar", "paul",
+        "alice",
+        "bob",
+        "carol",
+        "dave",
+        "eve",
+        "frank",
+        "grace",
+        "henry",
+        "iris",
+        "jack",
+        "kate",
+        "leo",
+        "mary",
+        "nora",
+        "oscar",
+        "paul",
     ]
     DOMAINS = ["example.com", "test.co.th", "mail.example.org", "fake.ac.th"]
     name = rng.choice(NAMES)

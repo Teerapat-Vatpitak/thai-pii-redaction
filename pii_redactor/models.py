@@ -1,4 +1,5 @@
 """Data models for the PII redaction pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -24,7 +25,9 @@ class NormalizedDocumentModel:
     words: list[WordBbox]  # per-word bboxes (for PDF redaction in Step 8)
     language: str  # "th" | "en"
     source_type: str  # "text" | "pdf_text" | "pdf_hybrid"
-    metadata: dict = field(default_factory=dict)  # ocr_confidence, quality_score, warnings, human_review flag, etc.
+    metadata: dict = field(
+        default_factory=dict
+    )  # ocr_confidence, quality_score, warnings, human_review flag, etc.
 
 
 @dataclass
@@ -93,5 +96,7 @@ class ReverseResult:
     """Output of Step 6 (Reverse Mapping). Real data restored."""
 
     text: str  # response with real data restored
-    flags: list[str] = field(default_factory=list)  # warnings: "pseudonym_residue", "incomplete_reverse", etc.
+    flags: list[str] = field(
+        default_factory=list
+    )  # warnings: "pseudonym_residue", "incomplete_reverse", etc.
     audit_summary: dict = field(default_factory=dict)  # counts, timestamps for audit log

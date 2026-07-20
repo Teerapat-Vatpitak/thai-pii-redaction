@@ -1,30 +1,27 @@
 """Re-identification risk assessment."""
+
 import re
 from dataclasses import dataclass
 
 
 @dataclass
 class ReidRiskResult:
-    score: float          # 0.0 to 100.0
-    grade: str            # "A" | "B" | "C" | "D" | "F"
-    qi_found: list[str]   # quasi-identifiers detected (e.g. ["gender", "district", "date_of_birth"])
-    high_risk_combo: bool # True if {gender + district + (DOB|age)} combo found
-    warnings: list[str]   # human-readable warnings
+    score: float  # 0.0 to 100.0
+    grade: str  # "A" | "B" | "C" | "D" | "F"
+    qi_found: list[str]  # quasi-identifiers detected (e.g. ["gender", "district", "date_of_birth"])
+    high_risk_combo: bool  # True if {gender + district + (DOB|age)} combo found
+    warnings: list[str]  # human-readable warnings
 
 
 # Quasi-identifier detection patterns
 _QI_PATTERNS = {
     "gender": re.compile(r"(?:นาย|นาง(?:สาว)?|ด\.ช\.|ด\.ญ\.)\s*\w", re.UNICODE),
-    "date_of_birth": re.compile(
-        r"\b(?:\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}-\d{2}-\d{2})\b"
-    ),
+    "date_of_birth": re.compile(r"\b(?:\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}|\d{4}-\d{2}-\d{2})\b"),
     "age": re.compile(r"(?:อายุ\s*\d+\s*ปี|\d+\s*ขวบ)", re.UNICODE),
     "district": re.compile(r"(?:แขวง|ตำบล)\s*\w+", re.UNICODE),
     "province": re.compile(r"(?:จังหวัด|จ\.)\s*\w+", re.UNICODE),
     "occupation": re.compile(r"(?:อาชีพ|ทำงาน(?:เป็น)?|ประกอบอาชีพ)\s*\w+", re.UNICODE),
-    "religion": re.compile(
-        r"(?:ศาสนา|พุทธ|คริสต์|อิสลาม|ฮินดู|ซิกข์)", re.UNICODE
-    ),
+    "religion": re.compile(r"(?:ศาสนา|พุทธ|คริสต์|อิสลาม|ฮินดู|ซิกข์)", re.UNICODE),
 }
 
 
@@ -91,7 +88,9 @@ def assess_reid_risk(text: str) -> ReidRiskResult:
     if "religion" in qi_found:
         warnings.append("Religion mentioned — PDPA Section 26 sensitive category.")
     if score >= 60:
-        warnings.append(f"Re-identification risk score {score:.0f}/100 — consider removing quasi-identifiers.")
+        warnings.append(
+            f"Re-identification risk score {score:.0f}/100 — consider removing quasi-identifiers."
+        )
 
     return ReidRiskResult(
         score=score,

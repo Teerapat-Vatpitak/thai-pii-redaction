@@ -13,6 +13,7 @@ Usage:
     python scripts/update_packaging.py           # tag = v<contents of VERSION>
     python scripts/update_packaging.py v2.3.0    # explicit tag
 """
+
 from __future__ import annotations
 
 import json
@@ -72,9 +73,7 @@ def _sub_exactly(pattern: str, repl: str, text: str, name: str) -> str:
     return new_text
 
 
-def plan_writes(
-    root: Path, version: str, sha256: str, release_date: str
-) -> list[tuple[Path, str]]:
+def plan_writes(root: Path, version: str, sha256: str, release_date: str) -> list[tuple[Path, str]]:
     """Compute every rewrite up front; sys.exit (writing nothing) on mismatch."""
     winget = root / "packaging" / "winget"
     scoop_path = root / "packaging" / "scoop" / "aiguard.json"
@@ -98,7 +97,9 @@ def plan_writes(
     text = inst_path.read_text(encoding="utf-8")
     text = _sub_exactly(r"^PackageVersion: .+$", f"PackageVersion: {version}", text, inst_path.name)
     text = _sub_exactly(r"^ReleaseDate: .+$", f"ReleaseDate: {release_date}", text, inst_path.name)
-    text = _sub_exactly(r"^    DisplayVersion: .+$", f"    DisplayVersion: {version}", text, inst_path.name)
+    text = _sub_exactly(
+        r"^    DisplayVersion: .+$", f"    DisplayVersion: {version}", text, inst_path.name
+    )
     text = _sub_exactly(r"^    InstallerUrl: .+$", f"    InstallerUrl: {url}", text, inst_path.name)
     text = _sub_exactly(
         r"^    InstallerSha256: .+$",

@@ -14,6 +14,7 @@ Covers:
 
 Stdlib-only (no fastapi import) so this runs in the core-only CI job.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,6 +47,7 @@ def _manifest() -> dict:
 # ---------------------------------------------------------------------------
 # locale file structure
 # ---------------------------------------------------------------------------
+
 
 def test_th_messages_json_parses():
     data = _load_locale("th")
@@ -81,6 +83,7 @@ def test_every_message_entry_has_a_message_string():
 # CWS length limits
 # ---------------------------------------------------------------------------
 
+
 def test_appName_is_within_cws_45_char_limit_both_locales():
     for locale in ("th", "en"):
         name = _load_locale(locale)["appName"]["message"]
@@ -101,6 +104,7 @@ def test_appDesc_is_within_cws_132_char_limit_both_locales():
 # manifest wiring
 # ---------------------------------------------------------------------------
 
+
 def test_manifest_default_locale_is_th():
     assert _manifest().get("default_locale") == "th"
 
@@ -120,7 +124,7 @@ def test_manifest_msg_placeholders_resolve_in_both_locales():
     for field in ("name", "description"):
         placeholder = manifest[field]
         assert placeholder.startswith("__MSG_") and placeholder.endswith("__")
-        key = placeholder[len("__MSG_"):-len("__")]
+        key = placeholder[len("__MSG_") : -len("__")]
         for locale in ("th", "en"):
             assert key in _load_locale(locale), f"{locale} messages.json missing key {key!r}"
 
@@ -129,6 +133,7 @@ def test_manifest_msg_placeholders_resolve_in_both_locales():
 # scripts/package_extension.py
 # ---------------------------------------------------------------------------
 
+
 def _copy_repo_slice(tmp_path: Path) -> Path:
     """Copy just extension/ + VERSION + the packaging script into a scratch
     dir so tests never touch the real working tree or its real dist/."""
@@ -136,7 +141,9 @@ def _copy_repo_slice(tmp_path: Path) -> Path:
     shutil.copytree(EXTENSION_DIR, dest / "extension")
     shutil.copy2(ROOT / "VERSION", dest / "VERSION")
     (dest / "scripts").mkdir(parents=True)
-    shutil.copy2(ROOT / "scripts" / "package_extension.py", dest / "scripts" / "package_extension.py")
+    shutil.copy2(
+        ROOT / "scripts" / "package_extension.py", dest / "scripts" / "package_extension.py"
+    )
     return dest
 
 

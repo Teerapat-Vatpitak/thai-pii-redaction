@@ -5,6 +5,7 @@ requirements appears pinned (`name==`) in the lock, so a
 forgot-to-regenerate mistake fails fast. Hash correctness is enforced by
 pip --require-hashes in CI, not here.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -43,10 +44,7 @@ def _locked_names(lock_file: str) -> set[str]:
     if not path.is_file():
         pytest.fail(f"{lock_file} missing -- run: python scripts/lock_deps.py")
     text = path.read_text(encoding="utf-8")
-    return {
-        _norm(m.group(1))
-        for m in re.finditer(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==", text)
-    }
+    return {_norm(m.group(1)) for m in re.finditer(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==", text)}
 
 
 def test_requirements_lock_covers_core_and_web():
@@ -61,9 +59,9 @@ def test_requirements_lock_covers_core_and_web():
 
 def test_build_lock_covers_sources_and_pyinstaller():
     locked = _locked_names("requirements-build.lock")
-    missing = _source_names(
-        "requirements.txt", "requirements-web.txt", "requirements-build.txt"
-    ) - locked
+    missing = (
+        _source_names("requirements.txt", "requirements-web.txt", "requirements-build.txt") - locked
+    )
     assert not missing, (
         f"missing from requirements-build.lock: {sorted(missing)} -- "
         "regenerate with: python scripts/lock_deps.py"

@@ -12,6 +12,7 @@ Algorithm:
 5. Post-replace PII leak check via detect_fp -> raise PIILeakError if any found.
 6. Return PseudonymizedDocument.
 """
+
 from __future__ import annotations
 
 import time
@@ -42,9 +43,7 @@ def _get_context_with_blank(text: str, entity: Entity) -> str:
 def _generate_pseudonym(entity: Entity, text: str, salt: str, attempt: int = 0) -> str:
     """Generate appropriate pseudonym based on entity redact_type."""
     if entity.redact_type == "FP":
-        return generate_fp(
-            entity.data_type, entity.original_text, salt=salt, attempt=attempt
-        )
+        return generate_fp(entity.data_type, entity.original_text, salt=salt, attempt=attempt)
     else:
         context = _get_context_with_blank(text, entity)
         return generate_tb(
@@ -150,9 +149,7 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
     existing = vault.get_by_original(entity.original_text, data_type=entity.data_type)
     if existing is not None:
         return existing.pseudonym
-    distinct = {
-        r.original for r in vault._table.values() if r.data_type == entity.data_type
-    }
+    distinct = {r.original for r in vault._table.values() if r.data_type == entity.data_type}
     ordinal = len(distinct) + 1
     token = generate_token(entity.data_type, ordinal)
     # a bracket token colliding with source text is near-impossible; bump anyway
@@ -203,18 +200,18 @@ def anonymize(
             if mode == "token":
                 pseudonym = _next_token(entity, text, vault)
             else:
-                pseudonym = _generate_unique_pseudonym(
-                    entity, text, salt, vault, all_originals
+                pseudonym = _generate_unique_pseudonym(entity, text, salt, vault, all_originals)
+            vault.write(
+                VaultRecord(
+                    entity_id=entity.entity_id,
+                    original=entity.original_text,
+                    pseudonym=pseudonym,
+                    type=entity.redact_type,
+                    data_type=entity.data_type,
+                    span=entity.span,
+                    timestamp=time.monotonic(),
                 )
-            vault.write(VaultRecord(
-                entity_id=entity.entity_id,
-                original=entity.original_text,
-                pseudonym=pseudonym,
-                type=entity.redact_type,
-                data_type=entity.data_type,
-                span=entity.span,
-                timestamp=time.monotonic(),
-            ))
+            )
 
         start, end = entity.span
         pseudonymized = pseudonymized[:start] + pseudonym + pseudonymized[end:]
@@ -251,8 +248,7 @@ def anonymize(
     real_leaks = [e for e in leak_entities if e.original_text not in known_pseudonyms]
     if real_leaks:
         raise PIILeakError(
-            f"PII detected in pseudonymized output: "
-            f"{[e.data_type for e in real_leaks]}"
+            f"PII detected in pseudonymized output: {[e.data_type for e in real_leaks]}"
         )
 
     return PseudonymizedDocument(

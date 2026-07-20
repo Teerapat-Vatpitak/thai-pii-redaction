@@ -19,6 +19,7 @@ any installer is built and published. Without it, tagging v2.3.0 on a tree that
 still says 2.2.0 produced a v2.3.0 release carrying 2.2.0-named installers, and
 the packaging/updater URL templates (which assume tag == "v" + VERSION) broke.
 """
+
 from __future__ import annotations
 
 import argparse

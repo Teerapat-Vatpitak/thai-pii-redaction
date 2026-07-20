@@ -3,6 +3,7 @@
 Verifies the endpoint returns a redacted PDF whose text layer no longer
 contains the detected PII, plus before/after previews.
 """
+
 import base64
 import io
 from pathlib import Path
@@ -14,6 +15,7 @@ try:
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     DEPS = True
 except ImportError:
     DEPS = False
@@ -26,6 +28,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     return TestClient(app, base_url="http://localhost")
 
 
@@ -151,6 +154,7 @@ def test_redact_pdf_hybrid_without_ocr_deps_returns_503(client, tmp_path, monkey
 # into a single padded rectangle so no glyph fragment is exposed between them
 # (see pii_redactor/redactor.py REDACT_PAD_PT / REDACT_MERGE_GAP_PT). ---
 
+
 def test_merge_boxes_joins_adjacent_same_line_words():
     from pii_redactor.redactor import _merge_boxes
 
@@ -232,12 +236,14 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
             word_text in frag or frag in word_text for frag in fragments
         )
         if should_redact:
-            pt_boxes.append((
-                wb.x - REDACT_PAD_PT,
-                wb.y - REDACT_PAD_TOP_PT,
-                wb.x + wb.width + REDACT_PAD_PT,
-                wb.y + wb.height + REDACT_PAD_PT,
-            ))
+            pt_boxes.append(
+                (
+                    wb.x - REDACT_PAD_PT,
+                    wb.y - REDACT_PAD_TOP_PT,
+                    wb.x + wb.width + REDACT_PAD_PT,
+                    wb.y + wb.height + REDACT_PAD_PT,
+                )
+            )
     merged = _merge_boxes(pt_boxes)
 
     # "สมชาย" and "ใจดี" are two words of the same NAME entity/line, 3.4pt
@@ -245,10 +251,10 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     name_words = [wb for wb in page1_words if wb.text.strip() in ("สมชาย", "ใจดี")]
     assert len(name_words) == 2
     covering = [
-        (x0, y0, x1, y1) for x0, y0, x1, y1 in merged
+        (x0, y0, x1, y1)
+        for x0, y0, x1, y1 in merged
         if all(
-            x0 <= wb.x and y0 <= wb.y
-            and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
+            x0 <= wb.x and y0 <= wb.y and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
             for wb in name_words
         )
     ]
@@ -257,15 +263,14 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     # The three ADDRESS words on the same line must also merge into one box
     # spanning the full line, closing the gaps visible in the earlier bug.
     addr_words = [
-        wb for wb in page1_words
-        if wb.text.strip() in ("ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ")
+        wb for wb in page1_words if wb.text.strip() in ("ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ")
     ]
     assert len(addr_words) == 3
     addr_covering = [
-        (x0, y0, x1, y1) for x0, y0, x1, y1 in merged
+        (x0, y0, x1, y1)
+        for x0, y0, x1, y1 in merged
         if all(
-            x0 <= wb.x and y0 <= wb.y
-            and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
+            x0 <= wb.x and y0 <= wb.y and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
             for wb in addr_words
         )
     ]
@@ -309,9 +314,16 @@ def test_redact_pdf_no_visible_ink_above_boxes(tmp_path):
     arr = np.array(pil)
 
     redacted_words = [
-        wb for wb in word_bboxes
-        if wb.page == 1 and wb.text.strip() in (
-            "สมชาย", "ใจดี", "ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ",
+        wb
+        for wb in word_bboxes
+        if wb.page == 1
+        and wb.text.strip()
+        in (
+            "สมชาย",
+            "ใจดี",
+            "ถนนพหลโยธิน",
+            "แขวงจตุจักร",
+            "กรุงเทพฯ",
         )
     ]
     assert redacted_words

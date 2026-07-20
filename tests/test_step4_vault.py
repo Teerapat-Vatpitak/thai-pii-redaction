@@ -10,9 +10,7 @@ from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
 def _make_record(
-    entity_id: str = None,
-    original: str = "John",
-    pseudonym: str = "Alice"
+    entity_id: str = None, original: str = "John", pseudonym: str = "Alice"
 ) -> VaultRecord:
     """Helper to create a VaultRecord for testing."""
     return VaultRecord(
@@ -104,7 +102,7 @@ def test_vault_clear_overwrites_original():
     vault.write(record)
     vault.clear()
     # Original should be overwritten with null bytes
-    assert record.original == '\x00' * len("RealSecret")
+    assert record.original == "\x00" * len("RealSecret")
 
 
 def test_vault_idle_timeout():

@@ -8,6 +8,7 @@ paddleocr required.
 Tier 2 (pytest.importorskip("cv2")): exercises the real preprocessing
 functions against synthetic images.
 """
+
 import builtins
 
 import pytest
@@ -204,14 +205,16 @@ def _install_fake_cv2(monkeypatch, calls):
     fake.THRESH_OTSU = 8
     fake.INTER_CUBIC = 2
     fake.BORDER_REPLICATE = 1
-    fake.cvtColor = lambda img, code: (img[:, :, 0] if img.ndim == 3 else img)
+    fake.cvtColor = lambda img, code: img[:, :, 0] if img.ndim == 3 else img
     # thresh image with foreground so np.where(...) yields coords -> deskew proceeds
     fake.threshold = lambda gray, a, b, flags: (0.0, np.ones_like(gray))
     fake.minAreaRect = lambda coords: ((0.0, 0.0), (1.0, 1.0), 5.0)  # 5 deg skew
     fake.getRotationMatrix2D = lambda center, angle, scale: np.eye(2, 3, dtype=float)
+
     def _warp(img, matrix, size, **kw):
         calls.append("warpAffine")
         return img
+
     fake.warpAffine = _warp
     fake.fastNlMeansDenoisingColored = lambda img, *a, **k: img
     fake.fastNlMeansDenoising = lambda img, *a, **k: img

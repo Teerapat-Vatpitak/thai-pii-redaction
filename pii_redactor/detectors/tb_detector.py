@@ -1,5 +1,6 @@
 """Text-based (TB) PII detector using PyThaiNLP NER (thainer CRF by default;
 WangchanBERTa opt-in via AIGUARD_NER_ENGINE)."""
+
 from __future__ import annotations
 
 import logging
@@ -21,8 +22,8 @@ _LOG = logging.getLogger(__name__)
 LABEL_MAP: dict[str, str | None] = {
     "PERSON": "NAME",
     "ORGANIZATION": "ORGANIZATION",  # quasi-identifier (employer/hospital)
-    "LOCATION": "LOCATION",          # upgraded to ADDRESS by cue (below)
-    "DATE": "DATE",                  # upgraded to DATE_OF_BIRTH by cue (below)
+    "LOCATION": "LOCATION",  # upgraded to ADDRESS by cue (below)
+    "DATE": "DATE",  # upgraded to DATE_OF_BIRTH by cue (below)
     "TIME": None,
     "MONEY": None,
     "PERCENT": None,
@@ -40,9 +41,7 @@ LABEL_MAP: dict[str, str | None] = {
 # The ADDRESS check includes the span ITSELF because address cues (เขต/ตำบล/
 # ซอย/ถนน) usually sit inside the address text; the DOB check looks only at
 # the preceding context.
-_ADDR_CUE_RE = re.compile(
-    r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่|เลขที่|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด"
-)
+_ADDR_CUE_RE = re.compile(r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่|เลขที่|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด")
 _TB_BIRTH_CUE_RE = re.compile(r"เกิด")
 _TB_CUE_WINDOW = 30
 
@@ -57,11 +56,11 @@ _THAI_CHAR_RE = re.compile(r"[฀-๿]")
 
 def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
     if data_type == "LOCATION":
-        ctx = text[max(0, start - _TB_CUE_WINDOW):end]
+        ctx = text[max(0, start - _TB_CUE_WINDOW) : end]
         if _ADDR_CUE_RE.search(ctx):
             return "ADDRESS"
     elif data_type == "DATE":
-        ctx = text[max(0, start - _TB_CUE_WINDOW):start]
+        ctx = text[max(0, start - _TB_CUE_WINDOW) : start]
         if _TB_BIRTH_CUE_RE.search(ctx):
             return "DATE_OF_BIRTH"
     return data_type
@@ -91,8 +90,7 @@ def _load_ner(name: str) -> NER:
     and NEREngineUnavailableError if the engine's dependency is missing."""
     if name not in _ENGINE_CONFIG:
         raise ValueError(
-            f"Unknown AIGUARD_NER_ENGINE={name!r}; "
-            f"supported: {sorted(_ENGINE_CONFIG)} (or 'union')"
+            f"Unknown AIGUARD_NER_ENGINE={name!r}; supported: {sorted(_ENGINE_CONFIG)} (or 'union')"
         )
     if name not in _ner_cache:
         config = _ENGINE_CONFIG[name]
@@ -119,6 +117,7 @@ def _get_ner() -> NER:
 # BIO tag decoding
 # ---------------------------------------------------------------------------
 
+
 def _bio_to_spans(tokens: list[tuple[str, str]], text: str) -> list[tuple[str, int, int, str]]:
     """
     Convert BIO-tagged token list to entity spans with character offsets.
@@ -140,7 +139,9 @@ def _bio_to_spans(tokens: list[tuple[str, str]], text: str) -> list[tuple[str, i
             # Save previous entity
             if current_label and current_chars:
                 ent_text = "".join(current_chars)
-                spans.append((ent_text, current_start, current_start + len(ent_text), current_label))
+                spans.append(
+                    (ent_text, current_start, current_start + len(ent_text), current_label)
+                )
             current_label = tag[2:]
             current_start = idx
             current_chars = [word]
@@ -150,7 +151,9 @@ def _bio_to_spans(tokens: list[tuple[str, str]], text: str) -> list[tuple[str, i
             # O tag or label mismatch — close current entity
             if current_label and current_chars:
                 ent_text = "".join(current_chars)
-                spans.append((ent_text, current_start, current_start + len(ent_text), current_label))
+                spans.append(
+                    (ent_text, current_start, current_start + len(ent_text), current_label)
+                )
             current_label = None
             current_start = None
             current_chars = []
@@ -169,6 +172,7 @@ def _bio_to_spans(tokens: list[tuple[str, str]], text: str) -> list[tuple[str, i
 # Deduplication (copied from fp_detector to avoid circular import)
 # ---------------------------------------------------------------------------
 
+
 def _deduplicate(entities: list[Entity]) -> list[Entity]:
     """Remove overlapping spans; prefer higher score, then first occurrence."""
     sorted_ents = sorted(entities, key=lambda e: (e.span[0], -e.score))
@@ -176,10 +180,7 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
     for ent in sorted_ents:
         if (ent.span[1] - ent.span[0]) < 2:
             continue
-        overlaps = any(
-            not (ent.span[1] <= k.span[0] or ent.span[0] >= k.span[1])
-            for k in kept
-        )
+        overlaps = any(not (ent.span[1] <= k.span[0] or ent.span[0] >= k.span[1]) for k in kept)
         if not overlaps:
             kept.append(ent)
     return sorted(kept, key=lambda e: e.span[0])
@@ -242,7 +243,10 @@ def _ner_candidates(
             _LOG.warning(
                 "NER tagging failed on chunk chars %d-%d (%d chars); skipping "
                 "— PII in this chunk may be missed",
-                core_begin, core_end, len(context_text), exc_info=True,
+                core_begin,
+                core_end,
+                len(context_text),
+                exc_info=True,
             )
             chunk_first = chunk_last + 1
             continue
@@ -262,14 +266,16 @@ def _ner_candidates(
                 if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
                     continue
                 data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
-                candidates.append(Entity(
-                    entity_id=str(uuid.uuid4()),
-                    redact_type="TB",
-                    data_type=data_type,
-                    span=(orig_start, orig_end),
-                    score=0.85,
-                    original_text=text[orig_start:orig_end],
-                ))
+                candidates.append(
+                    Entity(
+                        entity_id=str(uuid.uuid4()),
+                        redact_type="TB",
+                        data_type=data_type,
+                        span=(orig_start, orig_end),
+                        score=0.85,
+                        original_text=text[orig_start:orig_end],
+                    )
+                )
 
         chunk_first = chunk_last + 1
 
@@ -279,6 +285,7 @@ def _ner_candidates(
 # ---------------------------------------------------------------------------
 # Main detector
 # ---------------------------------------------------------------------------
+
 
 def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
     """
@@ -325,6 +332,7 @@ def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
     # Recall booster: title/label-cued names the NER missed or clipped
     # (engine-independent, added once).
     from pii_redactor.detectors.name_context import detect_name_context
+
     candidates.extend(detect_name_context(text))
 
     # Deduplication

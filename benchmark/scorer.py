@@ -7,6 +7,7 @@ Three views on the same predictions:
 
 F2 (beta=2) is the headline: recall > precision.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict

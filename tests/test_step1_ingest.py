@@ -1,4 +1,5 @@
 """Tests for Step 1 ingest: file_detector and text_extractor."""
+
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from pii_redactor.models import WordBbox
 # ---------------------------------------------------------------------------
 # file_detector tests
 # ---------------------------------------------------------------------------
+
 
 def test_detect_text_file():
     # tests/sample_thai.txt exists from Task 1
@@ -37,6 +39,7 @@ def test_validate_encoding_invalid_raises():
 # text_extractor tests
 # ---------------------------------------------------------------------------
 
+
 def test_extract_text_file():
     text, bboxes, meta = extract("tests/sample_thai.txt", "text")
     assert "วิทยา" in text
@@ -60,6 +63,7 @@ def test_extract_hybrid_without_ocr_deps_raises(monkeypatch):
 # ---------------------------------------------------------------------------
 # PDF helpers and tests
 # ---------------------------------------------------------------------------
+
 
 def _make_test_pdf(text: str, tmp_path) -> Path:
     """Create a minimal text-layer PDF for testing."""
@@ -183,7 +187,7 @@ from pii_redactor.ingest.text_cleaner import CleanResult, clean
 def test_clean_whitespace_normalization():
     text = "Hello   World\n\n\n\nParagraph"
     result = clean(text)
-    assert "   " not in result.text    # no triple spaces
+    assert "   " not in result.text  # no triple spaces
     assert "\n\n\n" not in result.text  # no triple newlines
     assert isinstance(result, CleanResult)
 
@@ -191,16 +195,17 @@ def test_clean_whitespace_normalization():
 def test_clean_unicode_normalization():
     # NFC normalization: combine base + combining char into precomposed
     import unicodedata
+
     # Thai text should remain valid after NFC
     text = "สวัสดี"
     result = clean(text)
-    assert unicodedata.is_normalized('NFC', result.text)
+    assert unicodedata.is_normalized("NFC", result.text)
 
 
 def test_clean_removes_zero_width():
     text = "Hello​World"  # zero-width space between
     result = clean(text)
-    assert '​' not in result.text
+    assert "​" not in result.text
 
 
 def test_clean_thai_digits():
@@ -212,8 +217,8 @@ def test_clean_thai_digits():
 
 def test_clean_returns_clean_result():
     result = clean("test text")
-    assert hasattr(result, 'text')
-    assert hasattr(result, 'post_clean_warnings')
+    assert hasattr(result, "text")
+    assert hasattr(result, "post_clean_warnings")
 
 
 def test_clean_dropped_the_dead_stage_outputs():
@@ -222,7 +227,7 @@ def test_clean_dropped_the_dead_stage_outputs():
     containing B or Z, stage 6's interactive branch was unreachable (no caller
     passes interactive=True) — and nothing consumed any of their outputs."""
     result = clean("test text")
-    for dead in ('skipped_sentence_review', 'ocr_error_flags', 'broken_sentence_candidates'):
+    for dead in ("skipped_sentence_review", "ocr_error_flags", "broken_sentence_candidates"):
         assert not hasattr(result, dead), f"{dead} should have been removed with its stage"
 
 
@@ -253,6 +258,7 @@ def test_clean_empty_text():
 
 def test_clean_sample_thai():
     from pathlib import Path
+
     text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
     result = clean(text, interactive=False)
     assert "วิทยา" in result.text
@@ -276,6 +282,7 @@ def test_validate_returns_quality_result():
 def test_validate_good_thai_text_scores_high():
     # The sample Thai text should score well
     from pathlib import Path
+
     text = Path("tests/sample_thai.txt").read_text(encoding="utf-8")
     result = validate(text, "text")
     assert result.quality_score >= 60  # At least grade B

@@ -4,6 +4,7 @@ Exercises the same API the extension and CLI use: token + surrogate sanitize,
 re-identify round-trip, analyze, and real PDF redaction. The example files in
 examples/ double as the test corpus and as try-it-yourself material for users.
 """
+
 import base64
 import io
 from pathlib import Path
@@ -15,6 +16,7 @@ try:
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     DEPS = True
 except ImportError:
     DEPS = False
@@ -30,6 +32,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     return TestClient(app, base_url="http://localhost")
 
 
@@ -91,16 +94,17 @@ def test_multi_turn_mask_restore_round_trip(client):
     t1 = client.post("/api/sanitize", json={"text": "ผมชื่อ สมชาย ใจดี เบอร์ 081-234-5678"}).json()
     t2 = client.post(
         "/api/sanitize",
-        json={"text": "ย้ำเบอร์ 081-234-5678 และอีเมล somchai@example.com",
-              "session_id": t1["session_id"]},
+        json={
+            "text": "ย้ำเบอร์ 081-234-5678 และอีเมล somchai@example.com",
+            "session_id": t1["session_id"],
+        },
     ).json()
     assert t2["session_id"] == t1["session_id"]
     tok1 = next(e["token"] for e in t1["entities"] if e["data_type"] == "PHONE")
     tok2 = next(e["token"] for e in t2["entities"] if e["data_type"] == "PHONE")
     assert tok1 == tok2
     reply = t1["sanitized_text"] + "\n" + t2["sanitized_text"]
-    r = client.post("/api/reidentify",
-                    json={"session_id": t1["session_id"], "text": reply}).json()
+    r = client.post("/api/reidentify", json={"session_id": t1["session_id"], "text": reply}).json()
     assert "081-234-5678" in r["restored_text"]
     assert "somchai@example.com" in r["restored_text"]
     assert "สมชาย ใจดี" in r["restored_text"]
@@ -108,9 +112,10 @@ def test_multi_turn_mask_restore_round_trip(client):
 
 def test_sanitize_mode_conflict_400(client):
     s = client.post("/api/sanitize", json={"text": "เบอร์ 081-234-5678"}).json()
-    resp = client.post("/api/sanitize",
-                       json={"text": "อีกข้อความ", "mode": "surrogate",
-                             "session_id": s["session_id"]})
+    resp = client.post(
+        "/api/sanitize",
+        json={"text": "อีกข้อความ", "mode": "surrogate", "session_id": s["session_id"]},
+    )
     assert resp.status_code == 400
 
 
@@ -127,6 +132,7 @@ def test_business_doc_surrogates_stay_plausible(client):
     types = {e["data_type"] for e in s["entities"]}
     assert "ID_NUMBER" in types and "DATE" in types
     assert "PASSPORT" not in types and "DATE_OF_BIRTH" not in types
-    r = client.post("/api/reidentify",
-                    json={"session_id": s["session_id"], "text": s["sanitized_text"]}).json()
+    r = client.post(
+        "/api/reidentify", json={"session_id": s["session_id"], "text": s["sanitized_text"]}
+    ).json()
     assert "12345678" in r["restored_text"] and "12/05/2569" in r["restored_text"]

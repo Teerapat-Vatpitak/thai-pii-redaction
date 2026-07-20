@@ -4,6 +4,7 @@ detect_all() is the exact ensemble /api/sanitize runs: format-preserving +
 text-based + false-negative scan, then overlap dedup. Keeping it in one place
 means the benchmark measures precisely what the product ships.
 """
+
 from __future__ import annotations
 
 from pii_redactor.detectors.fn_scanner import scan_fn
@@ -21,16 +22,14 @@ def dedupe_spans(entities: list[Entity]) -> list[Entity]:
     because the NER span happened to start earlier. Within each tier, prefer the
     earlier start, then the longer span.
     """
+
     def _key(e: Entity):
         return (e.span[0], -(e.span[1] - e.span[0]))
 
     kept: list[Entity] = []
 
     def _overlaps(e: Entity) -> bool:
-        return any(
-            not (e.span[1] <= k.span[0] or e.span[0] >= k.span[1])
-            for k in kept
-        )
+        return any(not (e.span[1] <= k.span[0] or e.span[0] >= k.span[1]) for k in kept)
 
     fp = sorted((e for e in entities if e.redact_type == "FP"), key=_key)
     tb = sorted((e for e in entities if e.redact_type != "FP"), key=_key)

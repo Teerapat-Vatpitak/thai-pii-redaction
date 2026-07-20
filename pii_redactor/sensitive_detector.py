@@ -10,6 +10,7 @@ hallucination risk. Optional — requires sentence-transformers
 (requirements-ml.txt). Callers degrade gracefully (empty list) when the model
 or its dependency is unavailable, so the base product runs without it.
 """
+
 from __future__ import annotations
 
 _MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -66,6 +67,7 @@ def is_available() -> bool:
     """True if the embedding dependency is importable."""
     try:
         import sentence_transformers  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -78,9 +80,7 @@ def _load():
 
         _model = SentenceTransformer(_MODEL_NAME)
         _proto_emb = {
-            cat: _model.encode(
-                phrases, convert_to_numpy=True, normalize_embeddings=True
-            )
+            cat: _model.encode(phrases, convert_to_numpy=True, normalize_embeddings=True)
             for cat, phrases in _PROTOTYPES.items()
         }
     return _model, _proto_emb

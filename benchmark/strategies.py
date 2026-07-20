@@ -4,6 +4,7 @@ Given one sample's CRF and WangchanBERTa entity lists, compose the `union` and
 `route` strategy predictions. Model-free so the merge logic is unit-testable
 without loading any NER model.
 """
+
 from __future__ import annotations
 
 from pii_redactor.detectors.aggregate import dedupe_spans

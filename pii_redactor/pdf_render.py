@@ -2,6 +2,7 @@
 
 Permissively licensed: pypdfium2 (Apache/BSD).
 """
+
 from __future__ import annotations
 
 from io import BytesIO

@@ -8,6 +8,7 @@ the gate is not flaky). Exact per-sample span equality with the benchmark's
 union_entities oracle is NOT asserted -- the false-negative scan and dedup
 nesting differ slightly between the two paths; recall is what the ADR promised.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -26,10 +27,7 @@ from pii_redactor.detectors.aggregate import detect_all
 def test_product_union_reproduces_adr_recall_on_gold(monkeypatch):
     monkeypatch.setenv("AIGUARD_NER_ENGINE", "union")
     samples = load_gold()
-    preds = [
-        [(e.span[0], e.span[1], e.data_type) for e in detect_all(s.text)]
-        for s in samples
-    ]
+    preds = [[(e.span[0], e.span[1], e.data_type) for e in detect_all(s.text)] for s in samples]
     rep = score(samples, preds)
     assert rep["by_type"]["ADDRESS"]["recall"] >= 0.99, rep["by_type"]["ADDRESS"]
     assert rep["by_type"]["NAME"]["recall"] >= 0.60, rep["by_type"]["NAME"]

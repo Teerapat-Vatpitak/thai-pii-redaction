@@ -30,9 +30,7 @@ def _make_vault(original: str = "safe text", pseudonym: str = "SAFE_PSEUDO") -> 
     return vault
 
 
-def _make_reverse_result(
-    text: str, flags=None, summary=None
-) -> ReverseResult:
+def _make_reverse_result(text: str, flags=None, summary=None) -> ReverseResult:
     """Helper to create a ReverseResult."""
     return ReverseResult(
         text=text,
@@ -356,9 +354,7 @@ class TestAuditIntegration:
             latency_ms=1.0,
             output_dir=str(tmp_path),
         )
-        content = (tmp_path / f"audit_{session_id}_process.jsonl").read_text(
-            encoding="utf-8"
-        )
+        content = (tmp_path / f"audit_{session_id}_process.jsonl").read_text(encoding="utf-8")
         entry = json.loads(content.strip())
         assert "ข้อมูล" in entry["step"]
         assert "ไทย" in entry["flags"][0]

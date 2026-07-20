@@ -15,6 +15,7 @@ from pii_redactor.models import VaultRecord
 
 class VaultTimeoutError(Exception):
     """Raised when vault is accessed after idle timeout."""
+
     pass
 
 
@@ -36,12 +37,12 @@ class SessionVault:
         Args:
             idle_timeout_s: Idle timeout in seconds (default 30 minutes)
         """
-        self._table: dict[str, VaultRecord] = {}      # entity_id → VaultRecord
-        self._reverse: dict[str, str] = {}            # pseudonym → entity_id
+        self._table: dict[str, VaultRecord] = {}  # entity_id → VaultRecord
+        self._reverse: dict[str, str] = {}  # pseudonym → entity_id
         self._last_access: float = time.monotonic()
         self._idle_timeout_s = idle_timeout_s
         self.session_id: str = str(uuid.uuid4())
-        self._audit_entries: list[dict] = []           # local audit log
+        self._audit_entries: list[dict] = []  # local audit log
 
     def write(self, record: VaultRecord) -> None:
         """Store a vault record. Updates both _table and _reverse.
@@ -61,8 +62,7 @@ class SessionVault:
             if existing_owner is not None and existing_owner.original != record.original:
                 # SECURITY: no pseudonym/original in the message (audit-safe)
                 raise ValueError(
-                    f"pseudonym collision: entity {record.entity_id[:8]} "
-                    f"vs {existing_owner_id[:8]}"
+                    f"pseudonym collision: entity {record.entity_id[:8]} vs {existing_owner_id[:8]}"
                 )
         # Clean up stale reverse mapping if entity_id already exists with a different pseudonym
         if record.entity_id in self._table:
@@ -123,9 +123,7 @@ class SessionVault:
         self.check_idle()
         self._touch()
         for record in self._table.values():
-            if record.original == original and (
-                data_type is None or record.data_type == data_type
-            ):
+            if record.original == original and (data_type is None or record.data_type == data_type):
                 self._audit("read_by_original", record.entity_id)
                 return record
         return None
@@ -158,7 +156,7 @@ class SessionVault:
         before releasing the reference from our dicts.
         """
         for record in self._table.values():
-            record.original = '\x00' * len(record.original)
+            record.original = "\x00" * len(record.original)
         self._table.clear()
         self._reverse.clear()
         self._audit("clear", "all")
@@ -178,9 +176,7 @@ class SessionVault:
             VaultTimeoutError: If vault idle timeout has been exceeded
         """
         if self.is_idle():
-            raise VaultTimeoutError(
-                f"Session vault idle timeout after {self._idle_timeout_s}s"
-            )
+            raise VaultTimeoutError(f"Session vault idle timeout after {self._idle_timeout_s}s")
 
     def audit_log(self) -> list[dict]:
         """Return a copy of the audit log entries.
@@ -205,9 +201,11 @@ class SessionVault:
             action: The action being audited (e.g., "write", "read_by_id", "clear")
             entity_id: The entity ID involved (or special value like "all" or "snapshot")
         """
-        self._audit_entries.append({
-            "action": action,
-            "entity_id": entity_id,
-            "timestamp": time.monotonic(),
-            "session_id": self.session_id,
-        })
+        self._audit_entries.append(
+            {
+                "action": action,
+                "entity_id": entity_id,
+                "timestamp": time.monotonic(),
+                "session_id": self.session_id,
+            }
+        )

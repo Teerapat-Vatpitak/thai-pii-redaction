@@ -5,6 +5,7 @@ Covers the v2 token-mode contract:
 - /api/reidentify -> restore tokens via stored session map
 - /api/analyze   -> full PDPA report (score, grade, reid, breakdown, recs)
 """
+
 import pytest
 
 # Skip entire module if fastapi not installed
@@ -12,6 +13,7 @@ try:
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     FASTAPI_AVAILABLE = True
 except ImportError:
     FASTAPI_AVAILABLE = False
@@ -27,6 +29,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from app.server import app
+
     return TestClient(app, base_url="http://localhost")
 
 
@@ -61,9 +64,9 @@ def test_health_version(client):
     # copy of the version that every release would have to hand-bump.
     from pathlib import Path
 
-    expected = (Path(__file__).resolve().parent.parent / "VERSION").read_text(
-        encoding="utf-8"
-    ).strip()
+    expected = (
+        (Path(__file__).resolve().parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+    )
     resp = client.get("/api/health")
     assert resp.json()["version"] == expected
 
@@ -101,10 +104,13 @@ def test_sanitize_section26_flagged(client):
 def test_reidentify_round_trip(client):
     """Sanitize then restore the same tokens via the session map."""
     s = client.post("/api/sanitize", json={"text": "โทร 081-234-5678 ได้เลย"}).json()
-    r = client.post("/api/reidentify", json={
-        "session_id": s["session_id"],
-        "text": s["sanitized_text"],
-    })
+    r = client.post(
+        "/api/reidentify",
+        json={
+            "session_id": s["session_id"],
+            "text": s["sanitized_text"],
+        },
+    )
     assert r.status_code == 200
     data = r.json()
     assert "081-234-5678" in data["restored_text"]
@@ -121,9 +127,18 @@ def test_analyze_returns_report_shape(client):
     resp = client.post("/api/analyze", json={"text": "โทร 081-234-5678 นะ"})
     assert resp.status_code == 200
     data = resp.json()
-    for key in ("overall_score", "overall_grade", "risk_label",
-                "direct_pii_count", "fp_count", "tb_count",
-                "section26", "reid", "breakdown", "recommendations"):
+    for key in (
+        "overall_score",
+        "overall_grade",
+        "risk_label",
+        "direct_pii_count",
+        "fp_count",
+        "tb_count",
+        "section26",
+        "reid",
+        "breakdown",
+        "recommendations",
+    ):
         assert key in data
     assert data["direct_pii_count"] >= 1
 
@@ -174,9 +189,7 @@ def test_sanitize_surrogate_mode_round_trip(client):
     assert "081-234-5678" not in san
     assert "somchai@example.com" not in san
     # round-trip restore returns the originals exactly
-    r = client.post(
-        "/api/reidentify", json={"session_id": s["session_id"], "text": san}
-    ).json()
+    r = client.post("/api/reidentify", json={"session_id": s["session_id"], "text": san}).json()
     assert "081-234-5678" in r["restored_text"]
     assert "somchai@example.com" in r["restored_text"]
     assert r["leftover_tokens"] == []
@@ -184,9 +197,7 @@ def test_sanitize_surrogate_mode_round_trip(client):
 
 def test_sanitize_token_mode_unchanged(client):
     """Token mode still emits bracket tokens (default behavior)."""
-    s = client.post(
-        "/api/sanitize", json={"text": "โทร 081-234-5678", "mode": "token"}
-    ).json()
+    s = client.post("/api/sanitize", json={"text": "โทร 081-234-5678", "mode": "token"}).json()
     assert "[" in s["sanitized_text"]
     assert "081-234-5678" not in s["sanitized_text"]
 
@@ -202,6 +213,7 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
     monkeypatch.setattr(server, "_schedule_exit", fake_schedule_exit)
 
     from fastapi.testclient import TestClient
+
     client = TestClient(server.app, base_url="http://localhost")
     resp = client.post("/api/shutdown", headers={"X-AIGuard-Local": "1"})
 
@@ -212,16 +224,21 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
 
 def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
     import app.server as server
+
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
 
     from fastapi.testclient import TestClient
+
     client = TestClient(server.app, base_url="http://localhost")
-    resp = client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย ใจดี เบอร์ 0812345678", "mode": "token"})
+    resp = client.post(
+        "/api/sanitize", json={"text": "ผมชื่อสมชาย ใจดี เบอร์ 0812345678", "mode": "token"}
+    )
     assert resp.status_code == 200
 
     logs = list(tmp_path.glob("audit_*_process.jsonl"))
     assert len(logs) == 1
     import json
+
     rec = json.loads(logs[0].read_text(encoding="utf-8").splitlines()[0])
     assert rec["type"] == "process"
     assert rec["step"] == "api_sanitize"
@@ -232,8 +249,10 @@ def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
 
 def test_audit_log_endpoint_returns_safe_records(tmp_path, monkeypatch):
     import app.server as server
+
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
     from fastapi.testclient import TestClient
+
     client = TestClient(server.app, base_url="http://localhost")
     client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย เบอร์ 0812345678", "mode": "token"})
 

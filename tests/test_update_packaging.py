@@ -4,6 +4,7 @@ Runs against a throwaway copy of packaging/ under tmp_path (same convention
 as test_version_source.py) and never touches the network -- only the pure
 functions (parse_hash, plan_writes) are exercised.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -71,9 +72,7 @@ def test_rewrites_all_four_files(pkg_root):
         "Teerapat-Vatpitak.AIGuard.locale.en-US.yaml",
     ):
         assert "PackageVersion: 9.9.9" in (winget / fname).read_text(encoding="utf-8")
-    inst = (winget / "Teerapat-Vatpitak.AIGuard.installer.yaml").read_text(
-        encoding="utf-8"
-    )
+    inst = (winget / "Teerapat-Vatpitak.AIGuard.installer.yaml").read_text(encoding="utf-8")
     assert "PackageVersion: 9.9.9" in inst
     assert "DisplayVersion: 9.9.9" in inst
     assert f"ReleaseDate: {DATE}" in inst
@@ -86,9 +85,7 @@ def test_rewrites_all_four_files(pkg_root):
         (pkg_root / "packaging" / "scoop" / "aiguard.json").read_text(encoding="utf-8")
     )
     assert scoop["version"] == "9.9.9"
-    assert scoop["architecture"]["64bit"]["url"].endswith(
-        "AI.Guard_9.9.9_x64-setup.exe#/dl.7z"
-    )
+    assert scoop["architecture"]["64bit"]["url"].endswith("AI.Guard_9.9.9_x64-setup.exe#/dl.7z")
     assert scoop["architecture"]["64bit"]["hash"] == SHA
 
 

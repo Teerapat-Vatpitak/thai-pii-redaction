@@ -1,4 +1,5 @@
 """Tests for NER-engine strategy merges (benchmark comparison)."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -12,8 +13,14 @@ from pii_redactor.models import Entity
 
 
 def _ent(dtype, span, redact="TB", score=0.85):
-    return Entity(entity_id="x", redact_type=redact, data_type=dtype,
-                  span=span, score=score, original_text="v")
+    return Entity(
+        entity_id="x",
+        redact_type=redact,
+        data_type=dtype,
+        span=span,
+        score=score,
+        original_text="v",
+    )
 
 
 def test_union_superset_on_disjoint_spans():
@@ -26,13 +33,13 @@ def test_union_superset_on_disjoint_spans():
 
 
 def test_route_takes_address_from_wcb_and_name_from_crf():
-    crf = [_ent("NAME", (0, 8)), _ent("ADDRESS", (9, 15))]   # CRF's weak address
-    wcb = [_ent("ADDRESS", (9, 25))]                          # WCB's better address
+    crf = [_ent("NAME", (0, 8)), _ent("ADDRESS", (9, 15))]  # CRF's weak address
+    wcb = [_ent("ADDRESS", (9, 25))]  # WCB's better address
     out = route_entities(crf, wcb)
     names = [e for e in out if e.data_type == "NAME"]
     addrs = [e for e in out if e.data_type == "ADDRESS"]
-    assert names and names[0].span == (0, 8)     # NAME kept from CRF
-    assert addrs and addrs[0].span == (9, 25)    # ADDRESS from WCB, not CRF's (9,15)
+    assert names and names[0].span == (0, 8)  # NAME kept from CRF
+    assert addrs and addrs[0].span == (9, 25)  # ADDRESS from WCB, not CRF's (9,15)
 
 
 @pytest.mark.skipif(
@@ -54,8 +61,11 @@ def test_render_strategy_table_has_all_strategy_columns():
         return {
             "by_type": {"NAME": {"recall": 0.5, "precision": 1.0}},
             "overall": {"recall": 0.5, "precision": 1.0, "coverage_recall": 0.6},
-            "seed": 42, "size": 10, "source": "gold",
+            "seed": 42,
+            "size": 10,
+            "source": "gold",
         }
+
     reports = {k: _rep() for k in ["crf", "wcb", "union", "route"]}
     out = render_strategy_table(reports)
     for col in ["crf_R", "wcb_R", "union_R", "route_R"]:

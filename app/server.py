@@ -10,6 +10,7 @@ by session_id). It is never written to disk and never sent over the network
 — consistent with the "vault never leaves the device" invariant for a local
 deployment.
 """
+
 from __future__ import annotations
 
 import base64
@@ -135,6 +136,7 @@ def _schedule_exit() -> None:
     bundled sidecar gracefully. A short delay lets the 200 response reach the
     caller before the interpreter exits.
     """
+
     def _die() -> None:
         time.sleep(0.3)
         os._exit(0)
@@ -191,7 +193,7 @@ SERVICE = SessionService(cap=_SESSION_CAP, ttl_s=_SESSION_TTL_S, now_fn=lambda: 
 # ── request models ─────────────────────────────────────────────────────
 class SanitizeRequest(BaseModel):
     text: str
-    mode: str | None = None      # "token" (default) | "surrogate"; None inherits session mode
+    mode: str | None = None  # "token" (default) | "surrogate"; None inherits session mode
     session_id: str | None = None  # reuse an existing session for multi-turn consistency
 
 
@@ -237,13 +239,21 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
                         continue
                     safe = {"type": r.get("type"), "timestamp": r.get("timestamp")}
                     if r.get("type") == "process":
-                        safe.update(step=r.get("step"), entity_count=r.get("entity_count"),
-                                    validation_result=r.get("validation_result"),
-                                    latency_ms=r.get("latency_ms"), flags=r.get("flags", []))
+                        safe.update(
+                            step=r.get("step"),
+                            entity_count=r.get("entity_count"),
+                            validation_result=r.get("validation_result"),
+                            latency_ms=r.get("latency_ms"),
+                            flags=r.get("flags", []),
+                        )
                     elif r.get("type") == "security":
-                        safe.update(layer=r.get("layer"), pii_scan_result=r.get("pii_scan_result"),
-                                    retry_count=r.get("retry_count"), error_type=r.get("error_type"),
-                                    rollback_occurred=r.get("rollback_occurred"))
+                        safe.update(
+                            layer=r.get("layer"),
+                            pii_scan_result=r.get("pii_scan_result"),
+                            retry_count=r.get("retry_count"),
+                            error_type=r.get("error_type"),
+                            rollback_occurred=r.get("rollback_occurred"),
+                        )
                     records.append(safe)
         except OSError:
             continue
@@ -251,8 +261,13 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
             break
     records.sort(key=lambda r: r.get("timestamp") or 0, reverse=True)
     total = len(records)
-    return {"status": "ok", "total_count": total, "limit": limit, "offset": offset,
-            "logs": records[offset:offset + limit]}
+    return {
+        "status": "ok",
+        "total_count": total,
+        "limit": limit,
+        "offset": offset,
+        "logs": records[offset : offset + limit],
+    }
 
 
 @app.post("/api/sanitize")
@@ -349,11 +364,15 @@ def delete_session(
 
 def _risk_label(score: float) -> str:
     return (
-        "Very Low Risk" if score <= 20 else
-        "Low Risk" if score <= 40 else
-        "Medium Risk" if score <= 60 else
-        "High Risk" if score <= 80 else
-        "Very High Risk"
+        "Very Low Risk"
+        if score <= 20
+        else "Low Risk"
+        if score <= 40
+        else "Medium Risk"
+        if score <= 60
+        else "High Risk"
+        if score <= 80
+        else "Very High Risk"
     )
 
 
@@ -396,36 +415,46 @@ def analyze(request: AnalyzeRequest):
     # structured recommendations with severity levels
     recs = []
     if report.direct_pii_count > 0:
-        recs.append({
-            "level": "high",
-            "title": f"Remove or pseudonymize {report.direct_pii_count} direct PII entities",
-            "desc": "ใช้ AI Guard เพื่อปกปิดข้อมูลทั้งหมดก่อนส่งให้ AI ภายนอก",
-        })
+        recs.append(
+            {
+                "level": "high",
+                "title": f"Remove or pseudonymize {report.direct_pii_count} direct PII entities",
+                "desc": "ใช้ AI Guard เพื่อปกปิดข้อมูลทั้งหมดก่อนส่งให้ AI ภายนอก",
+            }
+        )
     if section26:
         cats = ", ".join(s["category"] for s in section26)
-        recs.append({
-            "level": "high",
-            "title": f"Section 26 sensitive data found ({cats})",
-            "desc": "ต้องได้รับความยินยอมโดยชัดแจ้งจากเจ้าของข้อมูลก่อนประมวลผล ตาม PDPA มาตรา 26",
-        })
+        recs.append(
+            {
+                "level": "high",
+                "title": f"Section 26 sensitive data found ({cats})",
+                "desc": "ต้องได้รับความยินยอมโดยชัดแจ้งจากเจ้าของข้อมูลก่อนประมวลผล ตาม PDPA มาตรา 26",
+            }
+        )
     if reid.high_risk_combo:
-        recs.append({
-            "level": "medium",
-            "title": "Remove quasi-identifier combinations to reduce re-identification risk",
-            "desc": "การรวม gender + district + age สามารถระบุตัวบุคคลได้แม้ไม่มี PII โดยตรง",
-        })
+        recs.append(
+            {
+                "level": "medium",
+                "title": "Remove quasi-identifier combinations to reduce re-identification risk",
+                "desc": "การรวม gender + district + age สามารถระบุตัวบุคคลได้แม้ไม่มี PII โดยตรง",
+            }
+        )
     if report.overall_score >= 60:
-        recs.append({
-            "level": "info",
-            "title": "Consider data minimization",
-            "desc": "เก็บเฉพาะข้อมูลที่จำเป็นตามวัตถุประสงค์ที่กำหนด ตาม PDPA มาตรา 22",
-        })
+        recs.append(
+            {
+                "level": "info",
+                "title": "Consider data minimization",
+                "desc": "เก็บเฉพาะข้อมูลที่จำเป็นตามวัตถุประสงค์ที่กำหนด ตาม PDPA มาตรา 22",
+            }
+        )
     if not recs:
-        recs.append({
-            "level": "info",
-            "title": "No significant PDPA risk detected",
-            "desc": "ไม่พบข้อมูลส่วนบุคคลที่มีความเสี่ยงสูงในข้อความนี้",
-        })
+        recs.append(
+            {
+                "level": "info",
+                "title": "No significant PDPA risk detected",
+                "desc": "ไม่พบข้อมูลส่วนบุคคลที่มีความเสี่ยงสูงในข้อความนี้",
+            }
+        )
 
     write_process_log(
         session_id=str(uuid.uuid4()),

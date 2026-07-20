@@ -11,6 +11,7 @@ job with no `pip install`.
 separately by `read_version_file()` / the callers -- it is not itself in
 `targets()`.
 """
+
 from __future__ import annotations
 
 import json
@@ -64,9 +65,7 @@ def _cargo_toml_set(path: Path, new_version: str) -> None:
 # Cargo.lock entry for the `desktop` package specifically -- Cargo.lock lists
 # dozens of `[[package]]` blocks (one per crate dependency); only the
 # `name = "desktop"` block's version tracks the product version.
-_CARGO_LOCK_DESKTOP_RE = re.compile(
-    r'(\[\[package\]\]\nname = "desktop"\nversion = ")([^"]+)(")'
-)
+_CARGO_LOCK_DESKTOP_RE = re.compile(r'(\[\[package\]\]\nname = "desktop"\nversion = ")([^"]+)(")')
 
 
 def _cargo_lock_get(path: Path) -> str | None:

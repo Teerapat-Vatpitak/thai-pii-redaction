@@ -1,4 +1,5 @@
 """SessionService — the single core brain behind /api/sanitize and /api/reidentify."""
+
 import pytest
 
 from pii_redactor.session_service import (
@@ -45,9 +46,9 @@ def test_ttl_expiry_and_reset_on_access():
     svc, clock = _svc(ttl_s=100)
     sid, _ = svc._get_or_create(None, None)
     clock["t"] += 90
-    svc._get_or_create(sid, None)          # access resets the idle timer
+    svc._get_or_create(sid, None)  # access resets the idle timer
     clock["t"] += 90
-    svc._get_or_create(sid, None)          # still alive
+    svc._get_or_create(sid, None)  # still alive
     clock["t"] += 101
     with pytest.raises(SessionExpiredError):
         svc._get_or_create(sid, None)
@@ -62,10 +63,19 @@ def test_cap_evicts_oldest_and_clears_vault():
     import time as _time
 
     from pii_redactor.models import VaultRecord
-    s1.vault.write(VaultRecord(entity_id="e1", original="ลับมาก",
-                               pseudonym="[ชื่อ_1]", type="TB", data_type="NAME",
-                               span=(0, 5), timestamp=_time.monotonic()))
-    svc._get_or_create(None, None)         # third session evicts sid1
+
+    s1.vault.write(
+        VaultRecord(
+            entity_id="e1",
+            original="ลับมาก",
+            pseudonym="[ชื่อ_1]",
+            type="TB",
+            data_type="NAME",
+            span=(0, 5),
+            timestamp=_time.monotonic(),
+        )
+    )
+    svc._get_or_create(None, None)  # third session evicts sid1
     assert svc.session_count == 2
     with pytest.raises(SessionExpiredError):
         svc._get_or_create(sid1, None)
@@ -125,8 +135,7 @@ def test_sanitize_surrogate_mode_no_brackets():
 def test_sanitize_multi_turn_same_token():
     svc, _ = _svc()
     o1 = svc.sanitize("เบอร์ผม 081-234-5678")
-    o2 = svc.sanitize("ย้ำ เบอร์ 081-234-5678 กับอีเมล a@b.co",
-                      session_id=o1.session_id)
+    o2 = svc.sanitize("ย้ำ เบอร์ 081-234-5678 กับอีเมล a@b.co", session_id=o1.session_id)
     assert o2.session_id == o1.session_id
     tok1 = next(e["token"] for e in o1.entities if e["data_type"] == "PHONE")
     tok2 = next(e["token"] for e in o2.entities if e["data_type"] == "PHONE")
@@ -145,12 +154,22 @@ def test_sanitize_registry_accumulates_across_turns():
 def test_sanitize_raises_outbound_leak_when_fp_survives(monkeypatch):
     """If a checksum-valid FP value somehow survives anonymization, refuse."""
     import pii_redactor.session_service as svc_mod
+
     svc, _ = _svc()
 
     def fake_scan(text, vault):
         from pii_redactor.models import Entity
-        return [Entity(entity_id="x", redact_type="FP", data_type="THAI_ID",
-                       span=(0, 13), score=1.0, original_text="1101700230708")]
+
+        return [
+            Entity(
+                entity_id="x",
+                redact_type="FP",
+                data_type="THAI_ID",
+                span=(0, 13),
+                score=1.0,
+                original_text="1101700230708",
+            )
+        ]
 
     monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fake_scan)
     with pytest.raises(OutboundLeakError) as exc:
@@ -161,12 +180,22 @@ def test_sanitize_raises_outbound_leak_when_fp_survives(monkeypatch):
 
 def test_sanitize_tb_leak_becomes_warning(monkeypatch):
     import pii_redactor.session_service as svc_mod
+
     svc, _ = _svc()
 
     def fake_scan(text, vault):
         from pii_redactor.models import Entity
-        return [Entity(entity_id="x", redact_type="TB", data_type="NAME",
-                       span=(0, 5), score=0.85, original_text="สมชาย")]
+
+        return [
+            Entity(
+                entity_id="x",
+                redact_type="TB",
+                data_type="NAME",
+                span=(0, 5),
+                score=0.85,
+                original_text="สมชาย",
+            )
+        ]
 
     monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fake_scan)
     out = svc.sanitize("ข้อความ 081-234-5678")
@@ -268,8 +297,11 @@ def test_surrogate_same_original_consistent_across_turns():
     o1 = svc.sanitize("นาย สมชาย ใจดี มาติดต่อ", mode="surrogate")
     o2 = svc.sanitize("สมชาย ใจดี โทรมาอีกครั้ง", session_id=o1.session_id)
     _, session = svc._get_or_create(o1.session_id, None)
-    name_records = [r for r in session.vault._table.values() if r.data_type == "NAME"
-                    and r.original == "สมชาย ใจดี"]
+    name_records = [
+        r
+        for r in session.vault._table.values()
+        if r.data_type == "NAME" and r.original == "สมชาย ใจดี"
+    ]
     assert len({r.pseudonym for r in name_records}) <= 1
 
 

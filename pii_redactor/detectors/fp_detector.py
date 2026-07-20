@@ -1,4 +1,5 @@
 """Format-preserving (FP) PII detector using regex + checksum validation."""
+
 from __future__ import annotations
 
 import re
@@ -10,6 +11,7 @@ from pii_redactor.models import Entity
 # ---------------------------------------------------------------------------
 # Checksum helpers
 # ---------------------------------------------------------------------------
+
 
 def _luhn_check(digits: str) -> bool:
     """Return True if digits pass the Luhn algorithm."""
@@ -55,6 +57,7 @@ def _date_sanity(day: int, month: int) -> bool:
 # Entity factory
 # ---------------------------------------------------------------------------
 
+
 def _make_entity(data_type: str, match: re.Match, text: str, score: float = 1.0) -> Entity:
     start, end = match.start(1), match.end(1)
     return Entity(
@@ -70,6 +73,7 @@ def _make_entity(data_type: str, match: re.Match, text: str, score: float = 1.0)
 # ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
+
 
 def _deduplicate(entities: list[Entity]) -> list[Entity]:
     """Remove overlapping spans; prefer higher score, then first occurrence.
@@ -87,10 +91,7 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
     for ent in sorted_ents:
         if (ent.span[1] - ent.span[0]) < 2:
             continue
-        overlaps = any(
-            not (ent.span[1] <= k.span[0] or ent.span[0] >= k.span[1])
-            for k in kept
-        )
+        overlaps = any(not (ent.span[1] <= k.span[0] or ent.span[0] >= k.span[1]) for k in kept)
         if not overlaps:
             kept.append(ent)
     return sorted(kept, key=lambda e: e.span[0])
@@ -99,6 +100,7 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
 # ---------------------------------------------------------------------------
 # BANK vs PHONE context disambiguation
 # ---------------------------------------------------------------------------
+
 
 def _rightmost_cue(pattern: re.Pattern, ctx: str) -> int:
     """End offset of the cue nearest the number (rightmost match in ctx), or -1."""
@@ -126,7 +128,7 @@ def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity
     for span, types in types_by_span.items():
         if "PHONE" not in types or "BANK_ACCOUNT" not in types:
             continue
-        ctx = text[max(0, span[0] - _CUE_WINDOW):span[0]]
+        ctx = text[max(0, span[0] - _CUE_WINDOW) : span[0]]
         bank = _rightmost_cue(_BANK_CUE_RE, ctx)
         phone = _rightmost_cue(_PHONE_CUE_RE, ctx)
         if bank < 0 and phone < 0:
@@ -158,21 +160,11 @@ def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity
 # "เลขบัตรประชาชน1101700230708") slipped past every \b-anchored pattern. The
 # digit-boundary lookarounds still reject a value embedded in a longer number
 # while allowing letter/Thai adjacency (recall > precision).
-_RE_THAI_ID = re.compile(
-    r"(?<!\d)(\d{1}[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\d{1})(?!\d)"
-)
-_RE_CREDIT_CARD = re.compile(
-    r"(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)"
-)
-_RE_IBAN = re.compile(
-    r"\b([A-Z]{2}\d{2}[A-Z0-9]{4,30})\b"
-)
-_RE_EMAIL = re.compile(
-    r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b"
-)
-_RE_PHONE_MOBILE = re.compile(
-    r"(?<!\d)(0[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)"
-)
+_RE_THAI_ID = re.compile(r"(?<!\d)(\d{1}[-\s]?\d{4}[-\s]?\d{5}[-\s]?\d{2}[-\s]?\d{1})(?!\d)")
+_RE_CREDIT_CARD = re.compile(r"(?<!\d)(\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4})(?!\d)")
+_RE_IBAN = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{4,30})\b")
+_RE_EMAIL = re.compile(r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b")
+_RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\d)")
 # Thai landlines are 9 digits (not 10). Two written shapes, both 9 digits:
 #   Bangkok    02-XXX-XXXX  (2-digit area, then 3+4)
 #   provincial 0XX-XXX-XXX  (3-digit area, then 3+3)
@@ -187,15 +179,9 @@ _RE_PHONE_LANDLINE = re.compile(
 # or 9 (mobile) digits after +66 -- e.g. +66 81 234 5678 is 9. The old pattern
 # only matched 8, missing every mobile and leaking it to the STUDENT_ID
 # catch-all. Allow an optional single separator between any two digits.
-_RE_PHONE_INTL = re.compile(
-    r"(?<![a-zA-Z0-9_])(\+66[-\s]?\d(?:[-\s]?\d){7,8})(?!\d)"
-)
-_RE_BANK_ACCOUNT_1 = re.compile(
-    r"(?<!\d)(\d{3}[-\s]?\d{1}[-\s]?\d{5}[-\s]?\d{1})(?!\d)"
-)
-_RE_BANK_ACCOUNT_2 = re.compile(
-    r"(?<!\d)(\d{7}[-\s]?\d{3})(?!\d)"
-)
+_RE_PHONE_INTL = re.compile(r"(?<![a-zA-Z0-9_])(\+66[-\s]?\d(?:[-\s]?\d){7,8})(?!\d)")
+_RE_BANK_ACCOUNT_1 = re.compile(r"(?<!\d)(\d{3}[-\s]?\d{1}[-\s]?\d{5}[-\s]?\d{1})(?!\d)")
+_RE_BANK_ACCOUNT_2 = re.compile(r"(?<!\d)(\d{7}[-\s]?\d{3})(?!\d)")
 _RE_DATE = re.compile(
     # day-first (dd/mm/yyyy or dd/mm/yy) OR ISO year-first (yyyy-mm-dd).
     # The year-first alternative must come after so the day-first form still
@@ -209,24 +195,16 @@ _RE_DATE = re.compile(
 # rest. A real plate never sits inside a longer digit run, so requiring a
 # non-digit right boundary costs no recall. No leading (?<!\d): new-format
 # plates carry a leading digit ("1กก 1234") we must still match.
-_RE_VEHICLE_PLATE = re.compile(
-    r"([ก-ฮ]{1,3}\s*\d{1,4})(?!\d)"
-)
+_RE_VEHICLE_PLATE = re.compile(r"([ก-ฮ]{1,3}\s*\d{1,4})(?!\d)")
 # Passport is alphanumeric, so it needs the same Thai-adjacency handling as the
 # numeric PII above: \b does NOT fire between a Thai letter and "A" (both are
 # word characters in Unicode regex), so a passport glued to Thai text (e.g.
 # "หนังสือเดินทางเลขที่AB1234567") slipped past. Alnum-boundary lookarounds still
 # reject a value embedded in a longer alphanumeric run while allowing Thai/space
 # adjacency.
-_RE_PASSPORT_TH = re.compile(
-    r"(?<![A-Za-z0-9_])([A-Z]{2}\d{7})(?![A-Za-z0-9_])"
-)
-_RE_PASSPORT = re.compile(
-    r"(?<![A-Za-z0-9_])([A-Z]{1,2}\d{6,9})(?![A-Za-z0-9_])"
-)
-_RE_STUDENT_ID = re.compile(
-    r"(?<!\d)(\d{8,12})(?!\d)"
-)
+_RE_PASSPORT_TH = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{2}\d{7})(?![A-Za-z0-9_])")
+_RE_PASSPORT = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{1,2}\d{6,9})(?![A-Za-z0-9_])")
+_RE_STUDENT_ID = re.compile(r"(?<!\d)(\d{8,12})(?!\d)")
 
 _SEP_RE = re.compile(r"[-\s]")
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
@@ -248,7 +226,9 @@ _PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือ�
 
 
 def _cue_before(cue_re: re.Pattern, text: str, start: int) -> bool:
-    return bool(cue_re.search(text[max(0, start - _CUE_WINDOW):start]))
+    return bool(cue_re.search(text[max(0, start - _CUE_WINDOW) : start]))
+
+
 # A vehicle plate glued to Thai text (e.g. "ทะเบียนรถขก 4471") is normally
 # suppressed by the mid-word guard below, which rejects any plate preceded by a
 # Thai char. A plate cue in the ~15 chars before the match marks a real plate
@@ -270,6 +250,7 @@ _CUE_WINDOW = 30
 # ---------------------------------------------------------------------------
 # Main detector
 # ---------------------------------------------------------------------------
+
 
 def detect_fp(text: str) -> list[Entity]:
     """
@@ -327,9 +308,7 @@ def detect_fp(text: str) -> list[Entity]:
                     day, month = int(parts[0]), int(parts[1])
                 if _date_sanity(day, month):
                     dtype = (
-                        "DATE_OF_BIRTH"
-                        if _cue_before(_BIRTH_CUE_RE, text, m.start(1))
-                        else "DATE"
+                        "DATE_OF_BIRTH" if _cue_before(_BIRTH_CUE_RE, text, m.start(1)) else "DATE"
                     )
                     candidates.append(_make_entity(dtype, m, text, score=1.0))
             except ValueError:
@@ -345,7 +324,7 @@ def detect_fp(text: str) -> list[Entity]:
         if lead and lead.group() in _PLATE_STOPWORDS:
             continue
         if start > 0 and _THAI_CHAR_RE.match(text[start - 1]):
-            if not _PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW):start]):
+            if not _PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW) : start]):
                 continue
         candidates.append(_make_entity("VEHICLE_PLATE", m, text, score=0.9))
 
@@ -362,11 +341,7 @@ def detect_fp(text: str) -> list[Entity]:
     # 10. STUDENT_ID only with a student cue; bare 8-12 digit runs are masked
     # as the honest generic ID_NUMBER (low priority; dedup handles overlap).
     for m in _RE_STUDENT_ID.finditer(text):
-        dtype = (
-            "STUDENT_ID"
-            if _cue_before(_STUDENT_CUE_RE, text, m.start(1))
-            else "ID_NUMBER"
-        )
+        dtype = "STUDENT_ID" if _cue_before(_STUDENT_CUE_RE, text, m.start(1)) else "ID_NUMBER"
         candidates.append(_make_entity(dtype, m, text, score=0.8))
 
     candidates = _disambiguate_bank_phone(text, candidates)

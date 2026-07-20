@@ -5,6 +5,7 @@ occurrences cannot account for. Fuzzy NER spans around embedded pseudonyms
 are excused via position-based overlap + per-segment remainder scans + a
 cue-preserving name_context re-check (see PR #33/#34 history).
 """
+
 from __future__ import annotations
 
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -35,9 +36,7 @@ def _pseudonym_ranges(text: str, pseudonyms: list[str]) -> list[tuple[int, int]]
     return claimed
 
 
-def _cue_leak_in_window(
-    text: str, start: int, end: int, ranges: list[tuple[int, int]]
-) -> bool:
+def _cue_leak_in_window(text: str, start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
     """
     Cue-preserving re-check for a TB span straddling pseudonym occurrences.
 
@@ -96,7 +95,7 @@ def scan_outbound_leaks(text: str, vault: SessionVault) -> list[Entity]:
                 pos = start
                 for cs, ce in sorted(overlapping):
                     if cs > pos:
-                        segments.append(text[pos:min(cs, end)])
+                        segments.append(text[pos : min(cs, end)])
                     pos = max(pos, ce)
                 if pos < end:
                     segments.append(text[pos:end])
@@ -104,9 +103,7 @@ def scan_outbound_leaks(text: str, vault: SessionVault) -> list[Entity]:
                     not seg.strip() or (not detect_fp(seg) and not detect_tb(seg))
                     for seg in segments
                 )
-                if segments_clean and not _cue_leak_in_window(
-                    text, start, end, ranges
-                ):
+                if segments_clean and not _cue_leak_in_window(text, start, end, ranges):
                     continue
         real_leaks.append(entity)
     return real_leaks

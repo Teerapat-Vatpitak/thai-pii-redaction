@@ -1,4 +1,5 @@
 """False-negative (FN) second pass scanner using lightweight regex patterns."""
+
 from __future__ import annotations
 
 import re
@@ -28,7 +29,12 @@ _FN_PATTERNS: list[tuple[re.Pattern[str], str, str, float]] = [
     # label is the only defensible one here (see fp_detector.py's cue-gated
     # DATE/DATE_OF_BIRTH split for the primary pass).
     # day-first (dd-mm-yyyy) OR ISO year-first (yyyy-mm-dd).
-    (re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})(?!\d)"), "DATE", "FP", 0.6),
+    (
+        re.compile(r"(?<!\d)(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})(?!\d)"),
+        "DATE",
+        "FP",
+        0.6,
+    ),
 ]
 
 
@@ -48,19 +54,18 @@ def scan_fn(text: str, existing_entities: list[Entity]) -> list[Entity]:
             if end - start < 2:
                 continue
             # Skip if this span overlaps with any existing entity
-            overlaps = any(
-                not (end <= es[0] or start >= es[1])
-                for es in existing_spans
-            )
+            overlaps = any(not (end <= es[0] or start >= es[1]) for es in existing_spans)
             if not overlaps:
-                new_entities.append(Entity(
-                    entity_id=str(uuid.uuid4()),
-                    redact_type=redact_type,
-                    data_type=data_type,
-                    span=(start, end),
-                    score=score,
-                    original_text=text[start:end],
-                ))
+                new_entities.append(
+                    Entity(
+                        entity_id=str(uuid.uuid4()),
+                        redact_type=redact_type,
+                        data_type=data_type,
+                        span=(start, end),
+                        score=score,
+                        original_text=text[start:end],
+                    )
+                )
                 existing_spans.add((start, end))
 
     return sorted(new_entities, key=lambda e: e.span[0])

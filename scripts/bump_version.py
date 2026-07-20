@@ -17,6 +17,7 @@ Usage:
     python scripts/bump_version.py 2.3.0
     python scripts/bump_version.py 2.3.0 --root <path>   # used by tests
 """
+
 from __future__ import annotations
 
 import argparse

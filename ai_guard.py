@@ -1,4 +1,5 @@
 """AI Guard — Thai PII redaction pipeline CLI (PSU FTC 2026)."""
+
 import argparse
 import sys
 
@@ -15,6 +16,7 @@ def cmd_sanitize(args):
         provider = OllamaProvider()
     elif args.provider == "claude":
         from pii_redactor.ai_client import ClaudeProvider
+
         provider = ClaudeProvider()
     else:
         print(f"Unknown provider: {args.provider}", file=sys.stderr)
@@ -36,12 +38,16 @@ def cmd_sanitize(args):
         sys.exit(1)
 
     print(f"Session: {result.session_id}")
-    print(f"Entities detected: {len(result.entity_registry.entities)} "
-          f"(FP={result.entity_registry.fp_count}, TB={result.entity_registry.tb_count})")
+    print(
+        f"Entities detected: {len(result.entity_registry.entities)} "
+        f"(FP={result.entity_registry.fp_count}, TB={result.entity_registry.tb_count})"
+    )
 
     if result.export_result:
-        print(f"Output written: {result.export_result.output_path} "
-              f"({result.export_result.byte_size} bytes)")
+        print(
+            f"Output written: {result.export_result.output_path} "
+            f"({result.export_result.byte_size} bytes)"
+        )
     else:
         # The MASKED text (what you'd paste into an external AI), NOT
         # reverse_result.text — that is the re-identified output, which under

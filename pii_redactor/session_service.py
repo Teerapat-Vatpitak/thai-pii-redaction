@@ -7,6 +7,7 @@ Owns session lifecycle plus the sanitize/restore flows.
 SECURITY: sessions live in memory only; dropping/evicting a session always
 null-byte-clears its vault first.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -66,7 +67,7 @@ class SanitizeOutcome:
 @dataclass
 class RestoreOutcome:
     restored_text: str
-    replaced: list[dict]        # {"token": pseudonym, "original": original} — v2 shape
+    replaced: list[dict]  # {"token": pseudonym, "original": original} — v2 shape
     replaced_count: int
     leftover_tokens: list[str]
     warnings: list[str]
@@ -99,9 +100,7 @@ class SessionService:
     def session_count(self) -> int:
         return len(self._sessions)
 
-    def _get_or_create(
-        self, session_id: str | None, mode: str | None
-    ) -> tuple[str, _Session]:
+    def _get_or_create(self, session_id: str | None, mode: str | None) -> tuple[str, _Session]:
         if session_id is not None:
             session = self._sessions.get(session_id)
             if session is None or self._now() - session.last_access > self._ttl_s:
@@ -109,9 +108,7 @@ class SessionService:
                     self.drop(session_id)
                 raise SessionExpiredError("Session not found or expired")
             if mode is not None and mode != session.mode:
-                raise ModeMismatchError(
-                    f"session mode is '{session.mode}', got '{mode}'"
-                )
+                raise ModeMismatchError(f"session mode is '{session.mode}', got '{mode}'")
             session.last_access = self._now()
             return session_id, session
 
@@ -163,8 +160,11 @@ class SessionService:
             )
             try:
                 pseudo = anonymize(
-                    text, registry, session.vault,
-                    salt=session.salt, mode=session.mode,
+                    text,
+                    registry,
+                    session.vault,
+                    salt=session.salt,
+                    mode=session.mode,
                 )
             except (PIILeakError, ValueError) as e:
                 # mask failed — never return the text
@@ -178,18 +178,21 @@ class SessionService:
             # only register this turn once the guard has cleared the output
             session.entities.extend(turn_entities)
             warnings.extend(
-                f"possible_tb_leak:{e.data_type}"
-                for e in leaks if e.redact_type != "FP"
+                f"possible_tb_leak:{e.data_type}" for e in leaks if e.redact_type != "FP"
             )
 
             out_entities = []
             for e in turn_entities:
                 record = session.vault.get_by_entity_id(e.entity_id)
-                out_entities.append({
-                    "start": e.span[0], "end": e.span[1],
-                    "data_type": e.data_type, "redact_type": e.redact_type,
-                    "token": record.pseudonym if record else "",
-                })
+                out_entities.append(
+                    {
+                        "start": e.span[0],
+                        "end": e.span[1],
+                        "data_type": e.data_type,
+                        "redact_type": e.redact_type,
+                        "token": record.pseudonym if record else "",
+                    }
+                )
             type_counts: dict[str, int] = {}
             for e in out_entities:
                 type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
@@ -211,8 +214,11 @@ class SessionService:
         sid, session = self._get_or_create(session_id, None)
         if not text or not text.strip():
             return RestoreOutcome(
-                restored_text=text, replaced=[], replaced_count=0,
-                leftover_tokens=[], warnings=[],
+                restored_text=text,
+                replaced=[],
+                replaced_count=0,
+                leftover_tokens=[],
+                warnings=[],
             )
         try:
             registry = EntityRegistry(
@@ -223,32 +229,26 @@ class SessionService:
             response = AIResponse(text=text, request_id=sid, latency=0.0)
             reverse_result = reverse_map(response, registry, session.vault)
 
-            warnings = [
-                f for f in reverse_result.flags
-                if not f.startswith(_NOISY_PREFIXES)
-            ]
+            warnings = [f for f in reverse_result.flags if not f.startswith(_NOISY_PREFIXES)]
             try:
                 validation = validate_output(reverse_result, registry, session.vault)
                 warnings.extend(
-                    f for f in validation.flags
+                    f
+                    for f in validation.flags
                     if f not in warnings and not f.startswith(_NOISY_PREFIXES)
                 )
             except OutputPIILeakError:
                 # inbound direction: the AI fabricated PII-looking data — warn only
                 warnings.append("ai_generated_pii")
 
-            replaced_pseudonyms = reverse_result.audit_summary.get(
-                "replaced_pseudonyms", []
-            )
+            replaced_pseudonyms = reverse_result.audit_summary.get("replaced_pseudonyms", [])
             replaced = []
             for pseudonym in replaced_pseudonyms:
                 record = session.vault.get_by_pseudonym(pseudonym)
                 if record is not None:
                     replaced.append({"token": pseudonym, "original": record.original})
 
-            leftover = [
-                p for p in session.vault._reverse if p in reverse_result.text
-            ]
+            leftover = [p for p in session.vault._reverse if p in reverse_result.text]
             return RestoreOutcome(
                 restored_text=reverse_result.text,
                 replaced=replaced,

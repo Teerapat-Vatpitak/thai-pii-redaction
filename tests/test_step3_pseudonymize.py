@@ -1,4 +1,5 @@
 """Tests for Step 3: pseudonymization (fp_generator, tb_generator, anonymizer)."""
+
 import uuid
 
 import pytest
@@ -16,8 +17,10 @@ SALT = "test-salt-abc123"
 # fp_generator tests
 # ---------------------------------------------------------------------------
 
+
 def test_generate_fp_thai_id():
     from pii_redactor.detectors.thai_id import is_valid_thai_id
+
     result = generate_fp("THAI_ID", "1101200012345", salt=SALT)
     assert len(result.replace("-", "").replace(" ", "")) == 13
     assert is_valid_thai_id(result.replace("-", "").replace(" ", ""))
@@ -49,6 +52,7 @@ def test_generate_fp_phone():
 
 def test_generate_fp_credit_card_luhn():
     from pii_redactor.detectors.fp_detector import _luhn_check
+
     result = generate_fp("CREDIT_CARD", "4532015112830366", salt=SALT)
     digits = result.replace("-", "").replace(" ", "")
     assert len(digits) == 16
@@ -58,6 +62,7 @@ def test_generate_fp_credit_card_luhn():
 # ---------------------------------------------------------------------------
 # tb_generator tests
 # ---------------------------------------------------------------------------
+
 
 def test_generate_tb_name():
     result = generate_tb("NAME", "นาย ___ ทำงาน", salt=SALT, original="สมชาย")
@@ -80,6 +85,7 @@ def test_generate_tb_address():
 # ---------------------------------------------------------------------------
 # anonymizer tests
 # ---------------------------------------------------------------------------
+
 
 def _make_entity(
     data_type: str,
@@ -156,6 +162,7 @@ def test_anonymize_returns_pseudonymized_document():
 # collision-safe pseudonym tests (roadmap Horizon-1 #4)
 # ---------------------------------------------------------------------------
 
+
 def test_generate_tb_attempt_rerolls_seed():
     """attempt > 0 must vary the seed so a collision can be re-rolled;
     attempt=0 must keep the historical deterministic value."""
@@ -167,18 +174,15 @@ def test_generate_tb_attempt_rerolls_seed():
     }
     assert rerolls - {base}, "re-roll attempts never produced a different pseudonym"
     # deterministic per attempt
-    assert (
-        generate_tb("NAME", "context ___", salt=SALT, original="สมชาย", attempt=3)
-        == generate_tb("NAME", "context ___", salt=SALT, original="สมชาย", attempt=3)
-    )
+    assert generate_tb(
+        "NAME", "context ___", salt=SALT, original="สมชาย", attempt=3
+    ) == generate_tb("NAME", "context ___", salt=SALT, original="สมชาย", attempt=3)
 
 
 def test_generate_fp_attempt_rerolls_seed():
     base = generate_fp("PHONE", "081-234-5678", salt=SALT)
     assert generate_fp("PHONE", "081-234-5678", salt=SALT, attempt=0) == base
-    rerolls = {
-        generate_fp("PHONE", "081-234-5678", salt=SALT, attempt=n) for n in range(1, 6)
-    }
+    rerolls = {generate_fp("PHONE", "081-234-5678", salt=SALT, attempt=n) for n in range(1, 6)}
     assert rerolls - {base}
 
 
@@ -189,14 +193,18 @@ def test_anonymize_rerolls_on_pseudonym_collision(monkeypatch):
 
     def fake_generate_tb(data_type, context, *, salt, original, attempt=0):
         if attempt == 0:
-            return "ชนกัน"          # everyone collides on the first attempt
+            return "ชนกัน"  # everyone collides on the first attempt
         return f"คนละคน{attempt}-{original}"
 
     monkeypatch.setattr(anon_mod, "generate_tb", fake_generate_tb)
 
     text = "ผู้ร้องคือ สมชาย ใจดี และผู้ถูกร้องคือ วิชัย ทองแท้"
-    e1 = _make_entity("NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB")
-    e2 = _make_entity("NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB")
+    e1 = _make_entity(
+        "NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB"
+    )
+    e2 = _make_entity(
+        "NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB"
+    )
     registry = EntityRegistry(entities=[e1, e2], fp_count=0, tb_count=2)
     vault = SessionVault()
     anonymize(text, registry, vault, salt=SALT)
@@ -220,8 +228,12 @@ def test_anonymize_suffix_fallback_when_generator_exhausted(monkeypatch):
     monkeypatch.setattr(anon_mod, "generate_tb", stubborn_generate_tb)
 
     text = "ผู้ร้องคือ สมชาย ใจดี และผู้ถูกร้องคือ วิชัย ทองแท้"
-    e1 = _make_entity("NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB")
-    e2 = _make_entity("NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB")
+    e1 = _make_entity(
+        "NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB"
+    )
+    e2 = _make_entity(
+        "NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB"
+    )
     registry = EntityRegistry(entities=[e1, e2], fp_count=0, tb_count=2)
     vault = SessionVault()
     anonymize(text, registry, vault, salt=SALT)
@@ -240,7 +252,7 @@ def test_anonymize_fp_collision_rerolls_never_suffixes(monkeypatch):
 
     def fake_generate_fp(data_type, original, *, salt, attempt=0):
         if attempt == 0:
-            return "099-999-9999"          # everyone collides on attempt 0
+            return "099-999-9999"  # everyone collides on attempt 0
         return f"099-999-{9000 + attempt}"  # unique per attempt
 
     monkeypatch.setattr(anon_mod, "generate_fp", fake_generate_fp)
@@ -283,13 +295,17 @@ def test_anonymize_suffix_never_embeds_another_persons_real_value(monkeypatch):
     import pii_redactor.anonymizer.anonymizer as anon_mod
 
     def evil_generate_tb(data_type, context, *, salt, original, attempt=0):
-        return "สมชาย ใจดี"   # always collides with person A's real name
+        return "สมชาย ใจดี"  # always collides with person A's real name
 
     monkeypatch.setattr(anon_mod, "generate_tb", evil_generate_tb)
 
     text = "ผู้ร้องคือ สมชาย ใจดี และผู้ถูกร้องคือ วิชัย ทองแท้"
-    e1 = _make_entity("NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB")
-    e2 = _make_entity("NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB")
+    e1 = _make_entity(
+        "NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB"
+    )
+    e2 = _make_entity(
+        "NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB"
+    )
     registry = EntityRegistry(entities=[e1, e2], fp_count=0, tb_count=2)
     vault = SessionVault()
     with pytest.raises(ValueError):
@@ -317,14 +333,18 @@ def test_anonymize_avoids_pseudonym_equal_to_other_original(monkeypatch):
 
     def unlucky_generate_tb(data_type, context, *, salt, original, attempt=0):
         if original == "วิชัย ทองแท้" and attempt == 0:
-            return "สมชาย ใจดี"    # fake for B happens to equal A's real name
+            return "สมชาย ใจดี"  # fake for B happens to equal A's real name
         return f"ปลอม{attempt}-{original}"
 
     monkeypatch.setattr(anon_mod, "generate_tb", unlucky_generate_tb)
 
     text = "ผู้ร้องคือ สมชาย ใจดี และผู้ถูกร้องคือ วิชัย ทองแท้"
-    e1 = _make_entity("NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB")
-    e2 = _make_entity("NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB")
+    e1 = _make_entity(
+        "NAME", text, text.index("สมชาย"), text.index("สมชาย") + len("สมชาย ใจดี"), redact_type="TB"
+    )
+    e2 = _make_entity(
+        "NAME", text, text.index("วิชัย"), text.index("วิชัย") + len("วิชัย ทองแท้"), redact_type="TB"
+    )
     registry = EntityRegistry(entities=[e1, e2], fp_count=0, tb_count=2)
     vault = SessionVault()
     anonymize(text, registry, vault, salt=SALT)
@@ -361,19 +381,23 @@ def test_anonymize_fn_scanner_entities_get_realistic_fake_values():
 # token_generator tests
 # ---------------------------------------------------------------------------
 
+
 def test_generate_token_known_type():
     from pii_redactor.anonymizer.token_generator import generate_token
+
     assert generate_token("NAME", 1) == "[ชื่อ_1]"
     assert generate_token("PHONE", 3) == "[โทรศัพท์_3]"
 
 
 def test_generate_token_unknown_type_falls_back_to_type_name():
     from pii_redactor.anonymizer.token_generator import generate_token
+
     assert generate_token("MYSTERY", 2) == "[MYSTERY_2]"
 
 
 def test_token_label_map_matches_v2_contract():
     from pii_redactor.anonymizer.token_generator import TOKEN_LABEL
+
     assert TOKEN_LABEL["THAI_ID"] == "บัตรประชาชน"
     assert TOKEN_LABEL["BANK_ACCOUNT"] == "บัญชีธนาคาร"
     assert len(TOKEN_LABEL) == 17
@@ -385,11 +409,12 @@ def test_token_label_map_matches_v2_contract():
 # anonymize(mode="token") tests
 # ---------------------------------------------------------------------------
 
+
 def test_anonymize_token_mode_brackets_and_counters():
     text = "email a@b.co and c@d.co and a@b.co"
-    e1 = _make_entity("EMAIL", text, 6, 12)     # a@b.co
-    e2 = _make_entity("EMAIL", text, 17, 23)    # c@d.co
-    e3 = _make_entity("EMAIL", text, 28, 34)    # a@b.co again
+    e1 = _make_entity("EMAIL", text, 6, 12)  # a@b.co
+    e2 = _make_entity("EMAIL", text, 17, 23)  # c@d.co
+    e3 = _make_entity("EMAIL", text, 28, 34)  # a@b.co again
     registry = EntityRegistry(entities=[e1, e2, e3], fp_count=3, tb_count=0)
     vault = SessionVault()
     result = anonymize(text, registry, vault, salt=SALT, mode="token")
@@ -409,12 +434,14 @@ def test_anonymize_token_mode_ordinal_continues_across_calls():
     vault = SessionVault()
     t1 = "email a@b.co"
     e1 = _make_entity("EMAIL", t1, 6, 12)
-    anonymize(t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0),
-              vault, salt=SALT, mode="token")
+    anonymize(
+        t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
+    )
     t2 = "email x@y.co"
     e2 = _make_entity("EMAIL", t2, 6, 12)
-    r2 = anonymize(t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0),
-                   vault, salt=SALT, mode="token")
+    r2 = anonymize(
+        t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
+    )
     assert "[อีเมล_2]" in r2.text
 
 
@@ -422,12 +449,14 @@ def test_anonymize_token_mode_same_original_across_calls_reuses_token():
     vault = SessionVault()
     t1 = "email a@b.co"
     e1 = _make_entity("EMAIL", t1, 6, 12)
-    r1 = anonymize(t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0),
-                   vault, salt=SALT, mode="token")
+    r1 = anonymize(
+        t1, EntityRegistry(entities=[e1], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
+    )
     t2 = "again a@b.co"
     e2 = _make_entity("EMAIL", t2, 6, 12)
-    r2 = anonymize(t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0),
-                   vault, salt=SALT, mode="token")
+    r2 = anonymize(
+        t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
+    )
     assert "[อีเมล_1]" in r1.text and "[อีเมล_1]" in r2.text
 
 
@@ -443,7 +472,7 @@ def test_anonymize_default_mode_is_surrogate():
 
 def test_generate_tb_new_types():
     loc = generate_tb("LOCATION", "ไปเที่ยว ___", salt=SALT, original="เชียงใหม่")
-    assert loc and not loc[0].isdigit()          # a place name, no house number
+    assert loc and not loc[0].isdigit()  # a place name, no house number
     org = generate_tb("ORGANIZATION", "ทำงานที่ ___", salt=SALT, original="ธนาคารกสิกรไทย")
     assert org and "[REDACTED" not in org
     date = generate_tb("DATE", "ประชุมวันที่ ___", salt=SALT, original="12 มกราคม 2560")

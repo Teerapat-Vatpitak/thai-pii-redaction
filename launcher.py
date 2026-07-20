@@ -4,6 +4,7 @@ Starts the local API on http://127.0.0.1:8000 and opens the docs page. Closing
 the console window stops the server. This is the base product (regex + Thai
 NER); the optional MiniLM sensitive detector is not bundled in the .exe.
 """
+
 import os
 import secrets
 import shutil

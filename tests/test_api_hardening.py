@@ -7,6 +7,7 @@ try:
     from fastapi.testclient import TestClient
 
     import app.server as server
+
     DEPS = True
 except ImportError:
     DEPS = False
@@ -38,7 +39,9 @@ def test_cors_allows_tauri_http_origin():
     assert resp.headers.get("access-control-allow-origin") == "http://tauri.localhost"
 
 
-@pytest.mark.parametrize("origin", ["https://chatgpt.com", "https://evil.example", "http://localhost:5173"])
+@pytest.mark.parametrize(
+    "origin", ["https://chatgpt.com", "https://evil.example", "http://localhost:5173"]
+)
 def test_cors_blocks_web_origin_read(origin):
     resp = _client().get("/api/health", headers={"Origin": origin})
     assert resp.headers.get("access-control-allow-origin") != origin
@@ -123,9 +126,19 @@ def test_session_idle_timer_resets_on_access(monkeypatch):
     s = client.post("/api/sanitize", json={"text": "โทร 0812345678"}).json()
     sid = s["session_id"]
     clock["t"] += server._SESSION_TTL_S - 10
-    assert client.post("/api/reidentify", json={"session_id": sid, "text": s["sanitized_text"]}).status_code == 200
+    assert (
+        client.post(
+            "/api/reidentify", json={"session_id": sid, "text": s["sanitized_text"]}
+        ).status_code
+        == 200
+    )
     clock["t"] += server._SESSION_TTL_S - 10
-    assert client.post("/api/reidentify", json={"session_id": sid, "text": s["sanitized_text"]}).status_code == 200
+    assert (
+        client.post(
+            "/api/reidentify", json={"session_id": sid, "text": s["sanitized_text"]}
+        ).status_code
+        == 200
+    )
 
 
 def test_delete_session_clears_reidentify():
@@ -175,8 +188,13 @@ def test_redact_pdf_rejects_oversize_upload(monkeypatch):
 
 def test_audit_log_omits_session_id(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
-    rec = {"type": "process", "session_id": "secret-sid-123", "timestamp": 1,
-           "step": "api_sanitize", "entity_count": 1}
+    rec = {
+        "type": "process",
+        "session_id": "secret-sid-123",
+        "timestamp": 1,
+        "step": "api_sanitize",
+        "entity_count": 1,
+    }
     (tmp_path / "audit_1_process.jsonl").write_text(json.dumps(rec) + "\n", encoding="utf-8")
     resp = _client().get("/api/audit-log")
     assert resp.status_code == 200
@@ -190,8 +208,10 @@ def test_audit_log_read_is_bounded_by_max_files(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_AUDIT_MAX_FILES", 3)
     for i in range(10):
         p = tmp_path / f"audit_{i}_process.jsonl"
-        p.write_text(json.dumps({"type": "process", "timestamp": i, "step": "s", "entity_count": 0}) + "\n",
-                     encoding="utf-8")
+        p.write_text(
+            json.dumps({"type": "process", "timestamp": i, "step": "s", "entity_count": 0}) + "\n",
+            encoding="utf-8",
+        )
         os.utime(p, (float(i), float(i)))
     resp = _client().get("/api/audit-log?limit=100")
     assert resp.status_code == 200
