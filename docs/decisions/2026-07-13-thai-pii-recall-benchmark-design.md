@@ -1,8 +1,8 @@
 # Thai PII recall benchmark — design (v1 synthetic)
 
 - วันที่ 2026-07-13
-- บริบท design doc เลือก tech stack (`2026-07-13-production-tech-stack-selection-design.md`) สรุปว่าสิ่งที่ต้องสร้างก่อนสิ่งเดียวเพื่อ de-risk ทุกการตัดสินใจคือ benchmark วัด recall PII ภาษาไทย เพราะตอนนี้ไม่มีตัวเลข recall PII ไทยจริงมา gate เอกสารนี้คือ spec ของ benchmark รอบแรก (v1 synthetic-only)
-- เอกสารที่เกี่ยวข้อง [production tech-stack selection](2026-07-13-production-tech-stack-selection-design.md), [rust rewrite architecture](2026-07-10-rust-rewrite-architecture-design.md) (จอง crate ชื่อ `benchmark` ไว้แล้ว), [post-competition roadmap](2026-07-10-post-competition-longterm-roadmap.md)
+- บริบท design doc เลือก tech stack (working doc ไม่ได้เผยแพร่) สรุปว่าสิ่งที่ต้องสร้างก่อนสิ่งเดียวเพื่อ de-risk ทุกการตัดสินใจคือ benchmark วัด recall PII ภาษาไทย เพราะตอนนี้ไม่มีตัวเลข recall PII ไทยจริงมา gate เอกสารนี้คือ spec ของ benchmark รอบแรก (v1 synthetic-only)
+- เอกสารที่เกี่ยวข้อง production tech-stack selection design และ rust rewrite architecture design (จอง crate ชื่อ `benchmark` ไว้แล้ว) ทั้งสองเป็น working doc ที่เก็บไว้ในเครื่อง ไม่ได้เผยแพร่ตามเกณฑ์ใน [README](README.md), [post-competition roadmap](2026-07-10-post-competition-longterm-roadmap.md)
 - สถานะ อนุมัติดีไซน์แล้ว รอ review spec ก่อนเขียน plan
 - ขอบเขต v1 synthetic-only วัด detector ที่ product ใช้จริง gold set เอกสารจริงเป็น follow-up คนละ spec
 

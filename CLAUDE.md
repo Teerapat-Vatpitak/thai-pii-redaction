@@ -97,7 +97,12 @@ CORS allows only extension/Tauri origins (strict allowlist, see above). The brow
 token → original map lives in the backend's in-memory `SessionService` sessions
 (`pii_redactor/session_service.py`, one `SessionVault` per session).
 
-### Pipeline (Step 1-8 per design doc `step1-7_*.pdf`; the file name undercounts — the doc itself documents 8 steps)
+### Pipeline (Step 1-8)
+
+The steps below are the authoritative description. They came from a `step1-7_*.pdf`
+design doc that is deliberately not in the repo (it is gitignored — a working
+document, and its file name undercounts: the doc itself documents 8 steps). Do not
+go looking for it in a fresh clone.
 
 **Step 1 - Ingest & Validate**
 

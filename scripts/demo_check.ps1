@@ -112,7 +112,7 @@ if (Test-Path $sampleText) {
 if (Test-Path $samplePdf) {
     Write-Check -Name 'Demo PDF' -Passed $true -Detail $samplePdf
 } else {
-    Write-Check -Name 'Demo PDF' -Passed $false -Detail "missing: $samplePdf (see docs/demo/booth-checklist.md for a fallback path)"
+    Write-Check -Name 'Demo PDF' -Passed $false -Detail "missing: $samplePdf (regenerate it with: python examples/make_sample_pdf.py)"
 }
 
 # ── Summary ──────────────────────────────────────────────────────────────

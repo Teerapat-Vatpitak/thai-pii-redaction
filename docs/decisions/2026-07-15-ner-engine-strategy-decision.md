@@ -7,7 +7,7 @@
 
 ## บริบท
 
-เอกสารที่เกี่ยวข้อง [NER engine strategy comparison design](2026-07-15-ner-engine-strategy-comparison-design.md), [gold v2 benchmark design](2026-07-14-thai-pii-recall-benchmark-gold-v2-design.md), [production tech-stack selection design](2026-07-13-production-tech-stack-selection-design.md)
+เอกสารที่เกี่ยวข้อง NER engine strategy comparison design, gold v2 benchmark design และ production tech-stack selection design ทั้งสามเป็น working doc ที่เก็บไว้ในเครื่อง ไม่ได้เผยแพร่ตามเกณฑ์ใน [README](README.md) ข้อสรุปที่ใช้ตัดสินใจถูกยกมาไว้ในเอกสารนี้แล้ว
 
 stack-selection doc (2026-07-13) แนะนำเปลี่ยน NER หลักเป็น WangchanBERTa (thainer-v2) เป็น primary อ้างตัวเลข ThaiNER PERSON recall 0.79 ไป 0.95 (LOCATION 0.68 ไป 0.88) เป็นหลักฐานว่า transformer เหนือ CRF ชัดเจนสำหรับ product ที่ recall สำคัญกว่า precision
 
