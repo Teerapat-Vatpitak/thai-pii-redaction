@@ -135,6 +135,29 @@ def test_run_benchmark_crf_high_fp_recall():
     assert "PHONE" in render_table(r)
 
 
+def test_gen_phone_covers_thai_written_formats():
+    """The corpus must contain the shapes Thai people actually write, or the
+    CI gate cannot see detector work on them. Trunk-prefix splits and landlines
+    were absent entirely."""
+    import random
+
+    from pii_redactor.anonymizer.fp_generator import _gen_phone
+
+    seen = {_gen_phone(random.Random(seed)) for seed in range(400)}
+
+    assert any(s.startswith("0-") for s in seen), "no trunk-prefix split form"
+    assert any(s.startswith("02") for s in seen), "no Bangkok landline"
+    assert any("-" not in s and " " not in s for s in seen), "no bare-digit form"
+    assert any(" " in s for s in seen), "no space-separated form"
+
+
+def test_ci_gate_crf_phone_precision_floor():
+    """PHONE had a recall floor but no precision floor, so a change that
+    doubled false positives passed CI green."""
+    r = run_benchmark(engine="crf", seed=42, size=200)
+    assert r["by_type"]["PHONE"]["precision"] >= 0.95, r["by_type"]["PHONE"]
+
+
 # ── CI gate: CRF recall floors (calibrated from the seed=42 size=200 run) ──
 def test_ci_gate_crf_recall_floors():
     r = run_benchmark(engine="crf", seed=42, size=200)

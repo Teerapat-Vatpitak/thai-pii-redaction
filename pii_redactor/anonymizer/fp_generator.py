@@ -32,11 +32,33 @@ def _gen_thai_id(rng: random.Random) -> str:
 
 
 def _gen_phone(rng: random.Random) -> str:
-    """Generate Thai mobile: 0[6-9]X-XXX-XXXX."""
-    prefix = rng.choice(["06", "07", "08", "09"])
-    mid = rng.randint(0, 9)
-    rest = "".join(str(rng.randint(0, 9)) for _ in range(7))
-    return f"{prefix}{mid}-{rest[:3]}-{rest[3:]}"
+    """Generate a Thai phone number in one of the written forms people use.
+
+    The benchmark corpus draws PHONE values from here, so every shape the
+    detector is expected to catch must be reachable — mobile and landline,
+    and the trunk-prefix split (0-2123-4567) that Thai organisations print on
+    letterheads. A single canonical form here made the CI gate blind to a real
+    detection leak (DET-1 follow-up).
+    """
+    if rng.random() < 0.35:
+        # Bangkok landline, 9 digits: 02-XXX-XXXX
+        rest = "".join(str(rng.randint(0, 9)) for _ in range(7))
+        head, body, tail = "02", rest[:3], rest[3:]
+    else:
+        # Mobile, 10 digits: 0[6-9]X-XXX-XXXX
+        rest = "".join(str(rng.randint(0, 9)) for _ in range(7))
+        head = rng.choice(["06", "07", "08", "09"]) + str(rng.randint(0, 9))
+        body, tail = rest[:3], rest[3:]
+
+    style = rng.choice(["dash", "space", "bare", "trunk"])
+    if style == "dash":
+        return f"{head}-{body}-{tail}"
+    if style == "space":
+        return f"{head} {body} {tail}"
+    if style == "bare":
+        return f"{head}{body}{tail}"
+    # trunk-prefix split: leading 0 separated from the rest
+    return f"0-{head[1:]}{body}-{tail}"
 
 
 def _gen_email(rng: random.Random) -> str:
