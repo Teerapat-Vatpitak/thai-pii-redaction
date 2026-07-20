@@ -3,8 +3,6 @@ import time
 from dataclasses import fields
 from uuid import uuid4
 
-import pytest
-
 from pii_redactor.models import (
     AIResponse,
     Entity,

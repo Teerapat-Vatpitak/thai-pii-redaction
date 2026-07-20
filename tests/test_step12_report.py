@@ -1,6 +1,5 @@
-import pytest
-from pii_redactor.reid_risk import assess_reid_risk, ReidRiskResult
-from pii_redactor.report import generate_report, PDPAReport
+from pii_redactor.reid_risk import ReidRiskResult, assess_reid_risk
+from pii_redactor.report import PDPAReport, generate_report
 
 
 def test_reid_risk_no_qi():

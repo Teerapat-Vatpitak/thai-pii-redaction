@@ -81,7 +81,8 @@ def run_strategy_comparison(
     """
     from pii_redactor.detectors import tb_detector
     from pii_redactor.detectors.aggregate import detect_all
-    from .strategies import union_entities, route_entities
+
+    from .strategies import route_entities, union_entities
 
     samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
 

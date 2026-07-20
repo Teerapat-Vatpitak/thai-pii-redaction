@@ -5,11 +5,11 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
-from pii_redactor.models import EntityRegistry, AIResponse, ReverseResult
-from pii_redactor.output_validator import ValidationResult
-from pii_redactor.exporter import ExportResult
-from pii_redactor.session_vault import SessionVault
 from pii_redactor.ai_client import AIProvider, FakeLLMProvider
+from pii_redactor.exporter import ExportResult
+from pii_redactor.models import AIResponse, EntityRegistry, ReverseResult
+from pii_redactor.output_validator import ValidationResult
+from pii_redactor.session_vault import SessionVault
 
 
 @dataclass
@@ -101,10 +101,10 @@ def run_pipeline(
     )
 
     # --- Step 2: Detection ---
+    from pii_redactor.detectors.aggregate import dedupe_spans
+    from pii_redactor.detectors.fn_scanner import scan_fn
     from pii_redactor.detectors.fp_detector import detect_fp
     from pii_redactor.detectors.tb_detector import detect_tb
-    from pii_redactor.detectors.fn_scanner import scan_fn
-    from pii_redactor.detectors.aggregate import dedupe_spans
 
     fp_entities = detect_fp(clean_text)
     tb_entities = detect_tb(clean_text)

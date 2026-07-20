@@ -15,7 +15,6 @@ import pytest
 from pii_redactor.ingest import ocr_processor
 from pii_redactor.models import WordBbox
 
-
 # --- Tier 1: is_available() -------------------------------------------------
 
 

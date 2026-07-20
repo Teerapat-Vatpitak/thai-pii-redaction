@@ -3,9 +3,9 @@
 Restores original PII from pseudonymized AI response using the vault's reverse index.
 """
 
+from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.models import AIResponse, EntityRegistry, ReverseResult
 from pii_redactor.session_vault import SessionVault
-from pii_redactor.detectors.fp_detector import detect_fp
 
 
 def _char_class(c: str) -> str | None:

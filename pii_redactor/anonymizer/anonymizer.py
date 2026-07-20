@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import time
 
-from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, VaultRecord
-from pii_redactor.session_vault import SessionVault
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.anonymizer.token_generator import generate_token
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, VaultRecord
+from pii_redactor.session_vault import SessionVault
 
 
 class PIILeakError(Exception):

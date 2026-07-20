@@ -13,6 +13,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient
+
     from app.server import app
     DEPS = True
 except ImportError:
@@ -27,6 +28,7 @@ PROMPTS = sorted((EXAMPLES / "prompts").glob("*.txt"))
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
+
     from app.server import app
     return TestClient(app, base_url="http://localhost")
 

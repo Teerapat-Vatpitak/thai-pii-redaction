@@ -88,6 +88,7 @@ def main():
         # Reap this backend if the Tauri sidecar (our parent) is force-killed.
         threading.Thread(target=_watch_parent_and_exit, daemon=True).start()
     import uvicorn
+
     from app.server import app
 
     print("AI Guard backend")

@@ -7,7 +7,6 @@ from pii_redactor.ingest.file_detector import detect_source_type, validate_encod
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import WordBbox
 
-
 # ---------------------------------------------------------------------------
 # file_detector tests
 # ---------------------------------------------------------------------------
@@ -24,7 +23,7 @@ def test_detect_non_pdf_md():
 
 
 def test_validate_encoding_utf8():
-    thai_bytes = "สวัสดี".encode("utf-8")
+    thai_bytes = "สวัสดี".encode()
     result = validate_encoding(thai_bytes)
     assert "สวัสดี" in result
 
@@ -178,7 +177,7 @@ def test_extract_pdf_hybrid_human_review_propagates(tmp_path, monkeypatch):
 # text_cleaner tests (Task 4)
 # ---------------------------------------------------------------------------
 
-from pii_redactor.ingest.text_cleaner import clean, CleanResult
+from pii_redactor.ingest.text_cleaner import CleanResult, clean
 
 
 def test_clean_whitespace_normalization():
@@ -264,7 +263,7 @@ def test_clean_sample_thai():
 # quality_validator tests (Task 5)
 # ---------------------------------------------------------------------------
 
-from pii_redactor.ingest.quality_validator import validate, QualityResult
+from pii_redactor.ingest.quality_validator import QualityResult, validate
 
 
 def test_validate_returns_quality_result():

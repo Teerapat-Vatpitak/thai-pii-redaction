@@ -1,8 +1,7 @@
 """Tests for Step 2 FP detection: thai_id.py and fp_detector.py."""
-from pii_redactor.detectors.thai_id import is_valid_thai_id
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.detectors.thai_id import is_valid_thai_id
 from pii_redactor.models import Entity
-
 
 # ---------------------------------------------------------------------------
 # Thai ID tests
@@ -215,8 +214,8 @@ def test_detect_fp_intl_phone():
 # TB detector tests
 # ---------------------------------------------------------------------------
 
-from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.detectors.fn_scanner import scan_fn
+from pii_redactor.detectors.tb_detector import detect_tb
 
 
 def test_detect_tb_returns_list():
@@ -480,6 +479,7 @@ def test_tb_ner_failure_is_logged_not_silent(monkeypatch, caplog):
     """A NER engine that raises must not silently swallow a whole chunk of
     text — the failure has to be logged so missed PII is observable."""
     import logging
+
     import pii_redactor.detectors.tb_detector as tbd
 
     class BoomNER:

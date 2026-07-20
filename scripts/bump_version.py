@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _version_targets import targets  # noqa: E402
+from _version_targets import targets
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 

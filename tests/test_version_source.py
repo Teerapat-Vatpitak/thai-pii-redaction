@@ -291,7 +291,7 @@ def test_bump_version_never_targets_packaging_dir():
     # packaging/ (winget/scoop manifests) carries release-specific hashes that
     # must be regenerated at release time -- bump_version must never write there.
     sys.path.insert(0, str(ROOT / "scripts"))
-    from _version_targets import targets  # noqa: PLC0415
+    from _version_targets import targets
 
     tracked_paths = [str(rel_path) for rel_path, *_ in targets(ROOT)]
     assert not any(p.startswith("packaging") for p in tracked_paths)

@@ -26,11 +26,11 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, Header, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -39,10 +39,9 @@ from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
 from pii_redactor.ingest.text_cleaner import clean
 from pii_redactor.ingest.text_extractor import extract
-from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.models import EntityRegistry
+from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.report import generate_report, scan_section26
-from pii_redactor.reid_risk import assess_reid_risk
 
 
 def _read_version() -> str:
@@ -179,7 +178,7 @@ def _now() -> float:
 
 # The single core brain. now_fn is late-bound through the module global so
 # tests that monkeypatch app.server._now keep working.
-from pii_redactor.session_service import (  # noqa: E402
+from pii_redactor.session_service import (
     ModeMismatchError,
     OutboundLeakError,
     SessionExpiredError,
@@ -227,7 +226,7 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
     records = []
     for path in paths[:_AUDIT_MAX_FILES]:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:

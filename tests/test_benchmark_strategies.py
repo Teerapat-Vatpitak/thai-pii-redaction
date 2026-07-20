@@ -5,10 +5,10 @@ import importlib.util
 
 import pytest
 
-from pii_redactor.models import Entity
-from benchmark.strategies import union_entities, route_entities
-from benchmark.runner import run_strategy_comparison, render_strategy_table
 from benchmark.gold import load_gold
+from benchmark.runner import render_strategy_table, run_strategy_comparison
+from benchmark.strategies import route_entities, union_entities
+from pii_redactor.models import Entity
 
 
 def _ent(dtype, span, redact="TB", score=0.85):

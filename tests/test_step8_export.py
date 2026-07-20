@@ -1,10 +1,11 @@
 """Tests for Step 8 exporter module."""
 
-import pytest
 from pathlib import Path
 
-from pii_redactor.exporter import export, ExportResult, ExportError
-from pii_redactor.models import ReverseResult, EntityRegistry
+import pytest
+
+from pii_redactor.exporter import ExportError, ExportResult, export
+from pii_redactor.models import ReverseResult
 from pii_redactor.output_validator import ValidationResult
 
 

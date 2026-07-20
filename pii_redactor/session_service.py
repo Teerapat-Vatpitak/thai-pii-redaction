@@ -12,8 +12,8 @@ from __future__ import annotations
 import secrets
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
 from pii_redactor.detectors.aggregate import detect_all

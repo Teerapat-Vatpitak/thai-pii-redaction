@@ -12,6 +12,7 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient
+
     from app.server import app
     DEPS = True
 except ImportError:
@@ -23,6 +24,7 @@ pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
+
     from app.server import app
     return TestClient(app, base_url="http://localhost")
 
@@ -203,7 +205,12 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     from pii_redactor.ingest.file_detector import detect_source_type
     from pii_redactor.ingest.text_extractor import extract
     from pii_redactor.models import EntityRegistry
-    from pii_redactor.redactor import REDACT_PAD_PT, REDACT_PAD_TOP_PT, _build_redact_set, _merge_boxes
+    from pii_redactor.redactor import (
+        REDACT_PAD_PT,
+        REDACT_PAD_TOP_PT,
+        _build_redact_set,
+        _merge_boxes,
+    )
 
     sample = Path(__file__).resolve().parents[1] / "examples" / "sample_document.pdf"
     if not sample.exists():

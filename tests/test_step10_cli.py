@@ -1,8 +1,6 @@
 """Tests for CLI: ai_guard.py and demo_cli.py."""
-import sys
+
 import pytest
-from io import StringIO
-from pathlib import Path
 
 
 def test_ai_guard_sanitize_nonexistent_file(tmp_path, capsys):
@@ -79,8 +77,8 @@ def test_ai_guard_report_real_file(tmp_path, capsys):
 
 def test_ai_guard_argparse_help():
     """Parser should include both subcommands."""
+
     import ai_guard
-    import argparse
     # Verify the module has the required functions
     assert hasattr(ai_guard, 'main')
     assert hasattr(ai_guard, 'cmd_sanitize')

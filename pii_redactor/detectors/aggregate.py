@@ -6,10 +6,10 @@ means the benchmark measures precisely what the product ships.
 """
 from __future__ import annotations
 
-from pii_redactor.models import Entity
+from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
-from pii_redactor.detectors.fn_scanner import scan_fn
+from pii_redactor.models import Entity
 
 
 def dedupe_spans(entities: list[Entity]) -> list[Entity]:

@@ -4,9 +4,8 @@ Each case documents a real miss verified against the shipped detectors, so the
 fix can never silently regress. Recall > precision governs: a leaked national
 ID or phone number in a chat paste is the product's worst failure mode.
 """
-from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.fn_scanner import scan_fn
-
+from pii_redactor.detectors.fp_detector import detect_fp
 
 # A checksum-valid Thai national ID (mod-11). Standalone detection works today;
 # the leak was that gluing it to Thai script hid it from every detector.

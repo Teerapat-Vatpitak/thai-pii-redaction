@@ -5,7 +5,7 @@ import importlib.util
 
 import pytest
 
-from benchmark.gold import parse_gold, load_gold, GOLD_DOCS, GOLD_SLICES
+from benchmark.gold import GOLD_DOCS, GOLD_SLICES, load_gold, parse_gold
 from benchmark.runner import run_benchmark
 from pii_redactor.detectors.fp_detector import detect_fp
 
@@ -37,7 +37,7 @@ def test_every_gold_span_round_trips():
 
 # ── coverage / slice integrity ─────────────────────────────────────────
 def test_all_slices_present_and_nonempty():
-    by_slice = {sl: 0 for sl in GOLD_SLICES}
+    by_slice = dict.fromkeys(GOLD_SLICES, 0)
     for s in load_gold():
         assert s.slice in GOLD_SLICES, s.slice
         by_slice[s.slice] += 1

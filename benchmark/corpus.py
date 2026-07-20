@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import random
 
-from .types import GoldSpan, Sample
 from pii_redactor.anonymizer import fp_generator as fg
 from pii_redactor.anonymizer.tb_generator import (
-    MALE_NAMES,
-    FEMALE_NAMES,
-    SURNAMES,
     DISTRICTS,
+    FEMALE_NAMES,
+    MALE_NAMES,
+    SURNAMES,
 )
+
+from .types import GoldSpan, Sample
 
 ENTITY_TYPES = [
     "THAI_ID",

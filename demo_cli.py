@@ -14,8 +14,8 @@ def main():
         print("No input provided.", file=sys.stderr)
         sys.exit(1)
 
-    from pii_redactor.pipeline import run_pipeline
     from pii_redactor.ai_client import FakeLLMProvider
+    from pii_redactor.pipeline import run_pipeline
 
     try:
         result = run_pipeline(text=text, provider=FakeLLMProvider())

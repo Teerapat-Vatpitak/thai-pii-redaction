@@ -2,15 +2,17 @@
 
 import time
 import uuid
+
 import pytest
-from pii_redactor.reverse_mapper import reverse_map
+
 from pii_redactor.models import (
     AIResponse,
-    EntityRegistry,
     Entity,
-    VaultRecord,
+    EntityRegistry,
     ReverseResult,
+    VaultRecord,
 )
+from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
@@ -257,6 +259,7 @@ def test_audit_summary_lists_replaced_pseudonyms():
     """Additive key used by SessionService to build the v2 replaced[] pairs."""
     import time as _t
     import uuid as _u
+
     from pii_redactor.models import AIResponse, EntityRegistry, VaultRecord
     from pii_redactor.reverse_mapper import reverse_map
     from pii_redactor.session_vault import SessionVault

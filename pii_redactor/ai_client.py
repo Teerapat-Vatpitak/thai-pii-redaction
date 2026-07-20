@@ -11,7 +11,7 @@ import httpx
 
 from pii_redactor.leak_guard import scan_outbound_leaks
 from pii_redactor.models import AIResponse, EntityRegistry
-from pii_redactor.session_vault import SessionVault, VaultTimeoutError
+from pii_redactor.session_vault import SessionVault
 
 logger = logging.getLogger(__name__)
 

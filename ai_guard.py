@@ -5,8 +5,8 @@ import sys
 
 def cmd_sanitize(args):
     """Run full pipeline on a file."""
-    from pii_redactor.pipeline import run_pipeline
     from pii_redactor.ai_client import FakeLLMProvider, OllamaProvider
+    from pii_redactor.pipeline import run_pipeline
 
     # Select provider
     if args.provider == "fake" or args.provider is None:
@@ -55,12 +55,12 @@ def cmd_sanitize(args):
 
 def cmd_report(args):
     """Generate a PII risk report for a file (no redaction)."""
-    from pii_redactor.ingest.file_detector import detect_source_type
-    from pii_redactor.ingest.text_extractor import extract
-    from pii_redactor.ingest.text_cleaner import clean
+    from pii_redactor.detectors.aggregate import dedupe_spans
     from pii_redactor.detectors.fp_detector import detect_fp
     from pii_redactor.detectors.tb_detector import detect_tb
-    from pii_redactor.detectors.aggregate import dedupe_spans
+    from pii_redactor.ingest.file_detector import detect_source_type
+    from pii_redactor.ingest.text_cleaner import clean
+    from pii_redactor.ingest.text_extractor import extract
 
     try:
         source_type = detect_source_type(args.file)

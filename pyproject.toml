@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiguard"
+description = "Thai PII detection and redaction — mask personal data before it reaches an external AI, restore it locally"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+authors = [{ name = "Teerapat Vatpitak" }]
+keywords = ["pii", "redaction", "thai", "pdpa", "privacy", "ner", "anonymization"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Natural Language :: Thai",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Text Processing :: Linguistic",
+]
+# The version is read from the VERSION file, which stays the single source of
+# truth (scripts/bump_version.py writes it; scripts/check_version.py gates drift).
+dynamic = ["version", "dependencies", "optional-dependencies"]
+
+[project.urls]
+Homepage = "https://github.com/Teerapat-Vatpitak/thai-pii-redaction"
+Changelog = "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/issues"
+Security = "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/SECURITY.md"
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+dependencies = { file = "requirements.txt" }
+optional-dependencies.web = { file = "requirements-web.txt" }
+optional-dependencies.ml = { file = "requirements-ml.txt" }
+optional-dependencies.ocr = { file = "requirements-ocr.txt" }
+
+[tool.setuptools]
+# Explicit over auto-discovery: the repo root also holds tests/, scripts/,
+# benchmark/ and examples/, which are not part of the installable package.
+packages = ["pii_redactor", "pii_redactor.detectors", "pii_redactor.anonymizer", "pii_redactor.ingest", "app"]
+
+# ---------------------------------------------------------------------------
+# pytest (moved here from pytest.ini so tool config lives in one file)
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+# ---------------------------------------------------------------------------
+# ruff — lint + format. Rules are deliberately modest: this is an existing
+# codebase, so the set is what catches real defects without a mass reformat.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [".venv", "desktop/src-tauri/target", "docs", "examples"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes — undefined names, unused imports
+  "W",    # pycodestyle warnings
+  "I",    # import sorting
+  "UP",   # pyupgrade — modern syntax for the target version
+  "B",    # bugbear — likely bugs
+  "C4",   # comprehension simplifications
+  "RUF",  # ruff-specific
+]
+ignore = [
+  "E501",    # line length is enforced by the formatter, not the linter
+  "B008",    # FastAPI's Depends()/File() in defaults is the framework idiom
+  "RUF001",  # ambiguous unicode: unavoidable and intentional in Thai source text
+  "RUF002",
+  "RUF003",
+  # --- deferred, not endorsed -------------------------------------------
+  # These flag style rather than defects, and enabling them today would mean
+  # touching dozens of call sites in one unreviewable sweep. The rule set is
+  # meant to stay green so CI can enforce it; tighten these one at a time.
+  "B904",    # raise ... from err inside except
+  "B905",    # zip(strict=): changes runtime behaviour, needs per-site thought
+  "B007",    # unused loop control variable
+  "RUF005",  # list concatenation vs unpacking
+  "RUF007",  # zip() vs itertools.pairwise
+  "RUF013",  # implicit Optional
+  "RUF059",  # unused unpacked variable
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately import inside functions and mid-file (next to the test that
+# needs it), probe optional deps with a bare try/import, and keep intermediate
+# values around for readability.
+"tests/**" = ["B011", "E402", "F401", "F841", "RUF043"]
+# The web layer imports SessionService after the module globals it closes over
+# are defined, so tests can monkeypatch them; that is deliberate, not sloppy.
+"app/server.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"

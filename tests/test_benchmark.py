@@ -5,10 +5,10 @@ import importlib.util
 
 import pytest
 
-from benchmark.types import GoldSpan, Sample
-from benchmark.corpus import build_corpus, ENTITY_TYPES
+from benchmark.corpus import ENTITY_TYPES, build_corpus
+from benchmark.runner import render_table, run_benchmark
 from benchmark.scorer import score
-from benchmark.runner import run_benchmark, render_table
+from benchmark.types import GoldSpan, Sample
 from pii_redactor.detectors.aggregate import detect_all
 
 
@@ -29,8 +29,8 @@ def test_detect_all_finds_thai_id_and_dedupes():
 
 
 # ── dedupe_spans: FP wins over TB on overlap ───────────────────────────
-from pii_redactor.models import Entity
 from pii_redactor.detectors.aggregate import dedupe_spans
+from pii_redactor.models import Entity
 
 
 def _ent(redact_type, data_type, span, score=1.0):

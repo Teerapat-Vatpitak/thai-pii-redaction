@@ -1,18 +1,18 @@
 """Tests for Step 5 AI client integration."""
-import pytest
 import time
 import uuid
 from abc import ABC
 
 import httpx
+import pytest
 
 from pii_redactor.ai_client import (
-    FakeLLMProvider,
-    send_to_ai,
-    PreSendValidationError,
     AIProvider,
+    FakeLLMProvider,
+    PreSendValidationError,
+    send_to_ai,
 )
-from pii_redactor.models import EntityRegistry, AIResponse, Entity, VaultRecord
+from pii_redactor.models import AIResponse, EntityRegistry, VaultRecord
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 

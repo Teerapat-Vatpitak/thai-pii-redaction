@@ -3,9 +3,9 @@ import uuid
 
 import pytest
 
+from pii_redactor.anonymizer.anonymizer import anonymize
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
-from pii_redactor.anonymizer.anonymizer import anonymize, PIILeakError
 from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument
 from pii_redactor.session_vault import SessionVault
 

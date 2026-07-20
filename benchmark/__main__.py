@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from .runner import run_benchmark, render_table, run_strategy_comparison, render_strategy_table
+from .runner import render_strategy_table, render_table, run_benchmark, run_strategy_comparison
 
 
 def main(argv=None) -> int:

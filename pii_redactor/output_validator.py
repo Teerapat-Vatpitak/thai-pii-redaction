@@ -8,9 +8,9 @@ Security design:
 
 from dataclasses import dataclass
 
-from pii_redactor.models import ReverseResult, EntityRegistry
-from pii_redactor.session_vault import SessionVault
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.models import EntityRegistry, ReverseResult
+from pii_redactor.session_vault import SessionVault
 
 
 @dataclass

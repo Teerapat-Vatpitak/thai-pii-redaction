@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
-Getter = Callable[[Path], Optional[str]]
+Getter = Callable[[Path], str | None]
 Setter = Callable[[Path, str], None]
 
 
@@ -26,7 +26,7 @@ def read_version_file(root: Path) -> str:
     return (root / "VERSION").read_text(encoding="utf-8").strip()
 
 
-def _json_get(path: Path) -> Optional[str]:
+def _json_get(path: Path) -> str | None:
     # utf-8-sig: tolerate a BOM some Windows editors prepend; plain utf-8
     # files read identically.
     data = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -49,7 +49,7 @@ def _json_set(path: Path, new_version: str) -> None:
 _CARGO_TOML_VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
 
 
-def _cargo_toml_get(path: Path) -> Optional[str]:
+def _cargo_toml_get(path: Path) -> str | None:
     match = _CARGO_TOML_VERSION_RE.search(path.read_text(encoding="utf-8"))
     return match.group(2) if match else None
 
@@ -69,7 +69,7 @@ _CARGO_LOCK_DESKTOP_RE = re.compile(
 )
 
 
-def _cargo_lock_get(path: Path) -> Optional[str]:
+def _cargo_lock_get(path: Path) -> str | None:
     match = _CARGO_LOCK_DESKTOP_RE.search(path.read_text(encoding="utf-8"))
     return match.group(2) if match else None
 

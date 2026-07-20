@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _version_targets import read_version_file, targets  # noqa: E402
+from _version_targets import read_version_file, targets
 
 
 def check(root: Path) -> list[str]:

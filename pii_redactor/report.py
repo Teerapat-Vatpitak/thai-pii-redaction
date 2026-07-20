@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
-from pii_redactor.reid_risk import assess_reid_risk, ReidRiskResult
+from pii_redactor.reid_risk import ReidRiskResult, assess_reid_risk
 
 
 @dataclass

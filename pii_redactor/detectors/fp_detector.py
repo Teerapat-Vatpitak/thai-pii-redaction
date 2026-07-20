@@ -4,9 +4,8 @@ from __future__ import annotations
 import re
 import uuid
 
-from pii_redactor.models import Entity
 from pii_redactor.detectors.thai_id import is_valid_thai_id
-
+from pii_redactor.models import Entity
 
 # ---------------------------------------------------------------------------
 # Checksum helpers

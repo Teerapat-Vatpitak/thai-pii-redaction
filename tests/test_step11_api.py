@@ -10,6 +10,7 @@ import pytest
 # Skip entire module if fastapi not installed
 try:
     from fastapi.testclient import TestClient
+
     from app.server import app
     FASTAPI_AVAILABLE = True
 except ImportError:
@@ -24,6 +25,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
+
     from app.server import app
     return TestClient(app, base_url="http://localhost")
 

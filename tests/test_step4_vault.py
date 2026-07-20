@@ -5,8 +5,8 @@ import uuid
 
 import pytest
 
-from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 from pii_redactor.models import VaultRecord
+from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
 def _make_record(

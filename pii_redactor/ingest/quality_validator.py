@@ -1,4 +1,5 @@
 """Input quality validation."""
+
 from dataclasses import dataclass
 
 OCR_CONFIDENCE_THRESHOLD = 0.7
@@ -6,12 +7,12 @@ OCR_CONFIDENCE_THRESHOLD = 0.7
 
 @dataclass
 class QualityResult:
-    quality_score: float            # 0.0 to 100.0
-    grade: str                      # "A" (80+), "B" (60-79), "C" (40-59), "D" (20-39), "F" (<20)
-    warnings: list[str]             # human-readable warning messages
-    pattern_ok: bool                # Pattern validation passed
-    structure_ok: bool              # Structure validation passed
-    ocr_confidence_ok: bool         # OCR confidence ok (True if not pdf_hybrid)
+    quality_score: float  # 0.0 to 100.0
+    grade: str  # "A" (80+), "B" (60-79), "C" (40-59), "D" (20-39), "F" (<20)
+    warnings: list[str]  # human-readable warning messages
+    pattern_ok: bool  # Pattern validation passed
+    structure_ok: bool  # Structure validation passed
+    ocr_confidence_ok: bool  # OCR confidence ok (True if not pdf_hybrid)
 
 
 def _pattern_validation(text: str, min_thai_ratio: float) -> tuple[bool, list[str]]:
@@ -22,7 +23,7 @@ def _pattern_validation(text: str, min_thai_ratio: float) -> tuple[bool, list[st
         return False, ["Text is empty"]
 
     # Count Thai characters (Unicode range U+0E00-U+0E7F)
-    thai_chars = sum(1 for c in text if '฀' <= c <= '๿')
+    thai_chars = sum(1 for c in text if "฀" <= c <= "๿")
     total_non_space = sum(1 for c in text if not c.isspace())
 
     if total_non_space == 0:
@@ -35,7 +36,7 @@ def _pattern_validation(text: str, min_thai_ratio: float) -> tuple[bool, list[st
         )
 
     # Check for garbled text (high proportion of replacement characters)
-    replacement_count = text.count('?') + text.count('�')
+    replacement_count = text.count("?") + text.count("�")
     if replacement_count / max(total_non_space, 1) > 0.05:
         warnings.append(f"High replacement character ratio: {replacement_count} found")
 
@@ -47,28 +48,25 @@ def _structure_validation(text: str) -> tuple[bool, list[str]]:
     """Returns (ok, warnings)"""
     warnings = []
 
-    lines = [l for l in text.split('\n') if l.strip()]
+    lines = [line for line in text.split("\n") if line.strip()]
 
     if len(lines) == 0:
         return False, ["No non-empty lines found"]
 
-    avg_line_len = sum(len(l) for l in lines) / len(lines)
+    avg_line_len = sum(len(line) for line in lines) / len(lines)
     if avg_line_len < 3:
         warnings.append(f"Very short average line length: {avg_line_len:.1f} chars")
 
-    single_char_lines = sum(1 for l in lines if len(l.strip()) == 1)
+    single_char_lines = sum(1 for line in lines if len(line.strip()) == 1)
     if len(lines) > 5 and single_char_lines / len(lines) > 0.3:
-        warnings.append(
-            f"High single-character line ratio: {single_char_lines}/{len(lines)}"
-        )
+        warnings.append(f"High single-character line ratio: {single_char_lines}/{len(lines)}")
 
     ok = len(warnings) == 0
     return ok, warnings
 
 
 def _ocr_confidence_validation(
-    source_type: str,
-    ocr_confidence: float | None
+    source_type: str, ocr_confidence: float | None
 ) -> tuple[bool, list[str]]:
     """Returns (ok, warnings)"""
     if source_type != "pdf_hybrid":
@@ -80,16 +78,16 @@ def _ocr_confidence_validation(
     warnings = []
     if ocr_confidence < OCR_CONFIDENCE_THRESHOLD:
         warnings.append(
-            f"Low OCR confidence: {ocr_confidence:.1%} "
-            f"(threshold: {OCR_CONFIDENCE_THRESHOLD:.0%})"
+            f"Low OCR confidence: {ocr_confidence:.1%} (threshold: {OCR_CONFIDENCE_THRESHOLD:.0%})"
         )
 
     ok = ocr_confidence >= OCR_CONFIDENCE_THRESHOLD
     return ok, warnings
 
 
-def _compute_score(pattern_ok: bool, structure_ok: bool, ocr_ok: bool,
-                   all_warnings: list[str]) -> tuple[float, str]:
+def _compute_score(
+    pattern_ok: bool, structure_ok: bool, ocr_ok: bool, all_warnings: list[str]
+) -> tuple[float, str]:
     """Returns (score, grade)"""
     score = 100.0
 

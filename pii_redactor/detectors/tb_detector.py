@@ -82,7 +82,7 @@ _ENGINE_CONFIG: dict[str, dict[str, str | None]] = {
 
 # Lazy NER cache, keyed by AIGUARD_NER_ENGINE value (first use per engine loads
 # the model). A dict rather than a single slot so `union` can hold both engines.
-_ner_cache: dict[str, "NER"] = {}
+_ner_cache: dict[str, NER] = {}
 
 
 def _load_ner(name: str) -> NER:

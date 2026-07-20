@@ -37,7 +37,7 @@ for rel in FILES:
             try:
                 out = svc.sanitize(text, mode=mode)
                 svc.restore(out.session_id, out.sanitized_text)
-            except OutboundLeakError as e:
+            except OutboundLeakError:
                 fail += 1
         failures += fail
         print(f"{rel} [{mode}]: {fail}/{RUNS} guard failures")

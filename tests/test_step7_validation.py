@@ -3,12 +3,13 @@
 import json
 import time
 import uuid
-import pytest
 from pathlib import Path
 
-from pii_redactor.output_validator import validate_output, ValidationResult, PIILeakError
+import pytest
+
 from pii_redactor.audit import write_process_log, write_security_log
-from pii_redactor.models import ReverseResult, EntityRegistry, VaultRecord
+from pii_redactor.models import EntityRegistry, ReverseResult, VaultRecord
+from pii_redactor.output_validator import PIILeakError, ValidationResult, validate_output
 from pii_redactor.session_vault import SessionVault
 
 

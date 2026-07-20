@@ -59,8 +59,9 @@ def test_cap_evicts_oldest_and_clears_vault():
     clock["t"] += 1
     sid2, _ = svc._get_or_create(None, None)
     clock["t"] += 1
-    from pii_redactor.models import VaultRecord
     import time as _time
+
+    from pii_redactor.models import VaultRecord
     s1.vault.write(VaultRecord(entity_id="e1", original="ลับมาก",
                                pseudonym="[ชื่อ_1]", type="TB", data_type="NAME",
                                span=(0, 5), timestamp=_time.monotonic()))

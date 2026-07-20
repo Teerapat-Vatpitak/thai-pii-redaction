@@ -15,7 +15,6 @@ binary end-to-end instead of the source app.
 """
 import glob
 import json
-import os
 import socket
 import subprocess
 import sys
