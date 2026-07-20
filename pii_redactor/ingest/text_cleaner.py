@@ -51,6 +51,21 @@ THAI_DIGIT_MAP = {
 # ---------------------------------------------------------------------------
 
 
+def clean_length_preserving(text: str) -> str:
+    """Apply only the normalisations that cannot move a character offset.
+
+    Callers that hold character-indexed side data — the redact-pdf path holds
+    word bboxes keyed by position — cannot use clean(), because whitespace
+    collapsing, NFC and zero-width stripping all shift offsets and the black
+    boxes would land in the wrong place. Thai-to-Arabic digit substitution is
+    1:1, so it is safe here, and without it a Thai-numeral phone number is
+    never detected and never redacted.
+    """
+    for thai, ascii_ch in THAI_DIGIT_MAP.items():
+        text = text.replace(thai, ascii_ch)
+    return text
+
+
 def clean(
     text: str,
     *,
