@@ -16,8 +16,6 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
-from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.leak_guard import scan_outbound_leaks
 from pii_redactor.models import AIResponse, Entity, EntityRegistry
 from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
@@ -25,6 +23,7 @@ from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
 from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
+from pii_redactor.stateless import StatelessLeakError, sanitize_into_vault
 
 
 class SessionExpiredError(Exception):
@@ -152,59 +151,32 @@ class SessionService:
         sid, session = self._get_or_create(session_id, mode)
 
         try:
-            turn_entities = detect_all(text)
-            registry = EntityRegistry(
-                entities=turn_entities,
-                fp_count=sum(1 for e in turn_entities if e.redact_type == "FP"),
-                tb_count=sum(1 for e in turn_entities if e.redact_type == "TB"),
-            )
             try:
-                pseudo = anonymize(
+                # Same body the platform's stateless entry point runs; the only
+                # difference is that the vault handed over here is the session's
+                # and outlives the call. scan_outbound_leaks is passed
+                # explicitly so this module's reference is the one used.
+                core = sanitize_into_vault(
                     text,
-                    registry,
                     session.vault,
-                    salt=session.salt,
                     mode=session.mode,
+                    salt=session.salt,
+                    scan_leaks=scan_outbound_leaks,
                 )
-            except (PIILeakError, ValueError) as e:
-                # mask failed — never return the text
-                raise OutboundLeakError(["ANONYMIZE_FAILED"]) from e
+            except StatelessLeakError as e:
+                raise OutboundLeakError(e.leak_types) from e
 
-            warnings: list[str] = []
-            leaks = scan_outbound_leaks(pseudo.text, session.vault)
-            fp_leaks = [e for e in leaks if e.redact_type == "FP"]
-            if fp_leaks:
-                raise OutboundLeakError(sorted({e.data_type for e in fp_leaks}))
             # only register this turn once the guard has cleared the output
-            session.entities.extend(turn_entities)
-            warnings.extend(
-                f"possible_tb_leak:{e.data_type}" for e in leaks if e.redact_type != "FP"
-            )
-
-            out_entities = []
-            for e in turn_entities:
-                record = session.vault.get_by_entity_id(e.entity_id)
-                out_entities.append(
-                    {
-                        "start": e.span[0],
-                        "end": e.span[1],
-                        "data_type": e.data_type,
-                        "redact_type": e.redact_type,
-                        "token": record.pseudonym if record else "",
-                    }
-                )
-            type_counts: dict[str, int] = {}
-            for e in out_entities:
-                type_counts[e["data_type"]] = type_counts.get(e["data_type"], 0) + 1
+            session.entities.extend(core.detected)
 
             return SanitizeOutcome(
                 session_id=sid,
                 original_text=text,
-                sanitized_text=pseudo.text,
-                entities=out_entities,
-                entity_type_counts=type_counts,
+                sanitized_text=core.sanitized_text,
+                entities=core.entities,
+                entity_type_counts=core.entity_type_counts,
                 section26=scan_section26(text),
-                warnings=warnings,
+                warnings=core.warnings,
             )
         except VaultTimeoutError:
             self.drop(sid)
