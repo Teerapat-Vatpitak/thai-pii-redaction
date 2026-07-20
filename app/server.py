@@ -38,7 +38,7 @@ from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
-from pii_redactor.ingest.text_cleaner import clean
+from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import EntityRegistry
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
@@ -504,9 +504,14 @@ _MAX_PDF_BYTES = 50 * 1024 * 1024
 async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     """Redact PII in a text-layer or scanned PDF and return the redacted file + previews.
 
-    Detection runs on the RAW extracted text (not cleaned) so entity text
-    aligns with the word bboxes used to draw the black boxes — the text
-    cleaner would shift char offsets. Scanned/image PDFs are routed through
+    Detection runs on a length-preserving normalisation of the raw extracted
+    text (clean_length_preserving — Thai-to-Arabic digit substitution only),
+    not the full clean(), so entity text still aligns with the word bboxes
+    used to draw the black boxes: clean()'s whitespace collapsing, NFC and
+    zero-width stripping all shift char offsets, which would misalign the
+    boxes. The digit substitution is 1:1 in character count, so it's safe here
+    — without it a Thai-numeral phone number (e.g. ๐๘๑-๒๓๔-๕๖๗๘) is never
+    detected and never blacked out. Scanned/image PDFs are routed through
     OCR (pii_redactor.ingest.ocr_processor) page by page; if the OCR
     dependencies (requirements-ocr.txt) aren't installed, this returns 503.
     """
@@ -538,8 +543,9 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Could not read PDF: {e}")
 
-        fp = detect_fp(raw_text)
-        tb = detect_tb(raw_text)
+        detect_text = clean_length_preserving(raw_text)
+        fp = detect_fp(detect_text)
+        tb = detect_tb(detect_text)
         entities = fp + tb
         registry = EntityRegistry(entities=entities, fp_count=len(fp), tb_count=len(tb))
 

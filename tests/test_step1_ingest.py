@@ -323,3 +323,30 @@ def test_validate_pdf_hybrid_low_confidence():
 def test_validate_pdf_hybrid_good_confidence():
     result = validate("some thai text", "pdf_hybrid", ocr_confidence=0.9)
     assert result.ocr_confidence_ok
+
+
+# ---------------------------------------------------------------------------
+# text_cleaner: clean_length_preserving
+# ---------------------------------------------------------------------------
+
+
+def test_clean_length_preserving_converts_thai_digits_without_moving_offsets():
+    """The redact-pdf path needs Thai numerals converted but offsets intact,
+    because word bboxes are indexed by character position."""
+    from pii_redactor.ingest.text_cleaner import clean_length_preserving
+
+    raw = "โทร ๐๘๑-๒๓๔-๕๖๗๘  ครับ​"
+    out = clean_length_preserving(raw)
+
+    assert len(out) == len(raw), "offsets moved; bboxes would misalign"
+    assert "081-234-5678" in out
+    assert "  " in out, "whitespace must NOT be collapsed on this tier"
+    assert "​" in out, "zero-width must NOT be stripped on this tier"
+
+
+def test_thai_numeral_phone_is_detected_after_length_preserving_clean():
+    from pii_redactor.detectors.fp_detector import detect_fp
+    from pii_redactor.ingest.text_cleaner import clean_length_preserving
+
+    cleaned = clean_length_preserving("ติดต่อ ๐๘๑-๒๓๔-๕๖๗๘")
+    assert [e for e in detect_fp(cleaned) if e.data_type == "PHONE"]
