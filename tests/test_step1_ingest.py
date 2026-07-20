@@ -214,18 +214,37 @@ def test_clean_thai_digits():
 def test_clean_returns_clean_result():
     result = clean("test text")
     assert hasattr(result, 'text')
-    assert hasattr(result, 'skipped_sentence_review')
-    assert hasattr(result, 'ocr_error_flags')
-    assert hasattr(result, 'broken_sentence_candidates')
     assert hasattr(result, 'post_clean_warnings')
 
 
-def test_clean_non_interactive_skips_review():
-    # Text with a potential broken sentence
-    text = "This is a long sentence that continues\nnext line starts here"
-    result = clean(text, interactive=False)
-    # Should not hang, should complete immediately
-    assert isinstance(result.text, str)
+def test_clean_dropped_the_dead_stage_outputs():
+    """Stages 4/5/6 were removed (kill-list, verified): stage 4 never changed
+    real text yet loaded the whole Thai dictionary, stage 5 flagged every word
+    containing B or Z, stage 6's interactive branch was unreachable (no caller
+    passes interactive=True) — and nothing consumed any of their outputs."""
+    result = clean("test text")
+    for dead in ('skipped_sentence_review', 'ocr_error_flags', 'broken_sentence_candidates'):
+        assert not hasattr(result, dead), f"{dead} should have been removed with its stage"
+
+
+def test_clean_does_not_depend_on_the_thai_tokenizer(monkeypatch):
+    """Stage 4 tokenized every input through PyThaiNLP just to rejoin it
+    unchanged. Cleaning must no longer touch the tokenizer at all."""
+    import pythainlp
+
+    def _boom(*a, **k):
+        raise AssertionError("clean() must not tokenize (stage 4 is gone)")
+
+    monkeypatch.setattr(pythainlp, "word_tokenize", _boom)
+    result = clean("ผมชื่อสมชาย ใจดี เบอร์ 081-234-5678")
+    assert "สมชาย" in result.text
+
+
+def test_clean_preserves_text_it_used_to_rewrite():
+    """Regression: the removed merge step could concatenate adjacent Thai
+    tokens. Cleaning now only normalizes — Thai content passes through."""
+    text = "ผู้ป่วยมีอาการปวดศีรษะ และได้รับการวินิจฉัยว่าเป็นไมเกรน"
+    assert clean(text).text == text
 
 
 def test_clean_empty_text():

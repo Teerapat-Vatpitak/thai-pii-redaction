@@ -1,5 +1,15 @@
 # Rust rewrite architecture — AI Guard backend
 
+> **SUPERSEDED (2026-07-17) — ไม่ใช่แผนปัจจุบัน อย่าใช้เอกสารนี้ตัดสินใจ**
+>
+> Rust rewrite ถูก **ฆ่าถาวร** ตาม decision ข้อ 2 ใน
+> [roadmap v2](2026-07-17-roadmap-v2-design.md) เหตุผล: ผ่านไปหนึ่งสัปดาห์ยังไม่มีโค้ดจริงสักบรรทัด,
+> fork ทาง NER engine (candle) มีความเสี่ยงที่เอกสาร 13 ก.ค. ชี้ไว้ชัด, และแกนใหม่คือปล่อยของถึงมือผู้ใช้
+> ไม่ใช่เปลี่ยนฐานภาษา อนาคตของ detection คือ optimize บน Python stack เดิม (Python + ONNX Runtime)
+>
+> เอกสารนี้เก็บไว้เป็นบันทึกการตัดสินใจเท่านั้น plan ที่คู่กันคือ
+> `../plans/2026-07-10-aiguard-core-detection.md` ซึ่ง superseded เช่นกัน
+
 - วันที่: 2026-07-10 22:29 +07:00
 - บริบท: หลังจบการประกวด PSU FTC 2026 ผู้ใช้ตัดสินใจ rewrite backend จาก Python เป็น Rust ทั้งหมด เอกสารนี้ล็อกสถาปัตยกรรมปลายทาง ลำดับการ migrate และ spec ของ sub-project แรก
 - เอกสารที่เกี่ยวข้อง: [post-competition long-term roadmap](2026-07-10-post-competition-longterm-roadmap.md) (แผนเดิม), การสแกน deep-scan 2026-07-10 (ยืนยัน bug/หนี้ด้วยการรันโค้ดจริง)

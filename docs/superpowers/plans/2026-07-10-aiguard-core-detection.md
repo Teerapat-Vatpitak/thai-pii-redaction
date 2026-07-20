@@ -1,5 +1,13 @@
 # aiguard-core Detection Implementation Plan (Part 1 of aiguard-core)
 
+> **SUPERSEDED (2026-07-17) — อย่า execute plan นี้**
+>
+> Rust rewrite ถูกฆ่าถาวรตาม decision ข้อ 2 ใน
+> [roadmap v2](../specs/2026-07-17-roadmap-v2-design.md) ไม่มีการ migrate ภาษาอีกต่อไป
+> ไม่มีโค้ดจาก plan นี้ถูกเขียนจริง (ยืนยันแล้วว่าไม่มี `crates/` ใน repo)
+> spec ที่คู่กันคือ [rust-rewrite-architecture-design](../specs/2026-07-10-rust-rewrite-architecture-design.md)
+> ซึ่ง superseded เช่นกัน เก็บไว้เป็นบันทึกการตัดสินใจเท่านั้น
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the `aiguard-core` Rust crate's detection foundation — workspace, core types, checksum/offset helpers, all format-preserving (FP) PII detectors with the scan's recall leaks fixed by construction, and the `NerEngine` trait plus a stub — as a self-contained, exhaustively tested library.
