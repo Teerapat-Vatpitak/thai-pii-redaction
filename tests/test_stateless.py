@@ -94,9 +94,37 @@ def test_prior_mapping_reuses_the_token_rather_than_minting_a_second_one():
 
 
 def test_prior_mapping_reuses_the_surrogate_across_turns():
+    """Forces a real pin, not a vacuous one.
+
+    Surrogates are a pure function of (salt, original, attempt) --
+    tb_generator._seeded_rng takes no vault/call-order input (see
+    tb_generator.py:171-179). So whenever turn 1's value came from attempt=0,
+    a from-scratch regeneration in turn 2 reproduces it exactly, with or
+    without prior_mapping -- a test built on an attempt=0 fixture would pass
+    either way.
+
+    To make prior_mapping load-bearing, turn 1's surrogate must NOT come from
+    attempt=0. `bait` is the attempt=0 draw for `name` under salt "s" and
+    TEXT (verified by running _generate_pseudonym directly); seeding it in
+    the vault under an unrelated decoy original makes
+    _generate_unique_pseudonym's owner check reject attempt 0.  Attempt 1
+    ("วิทยา") is rejected too, but for a different reason: it is a literal
+    substring of "นายวิทยา" already present in TEXT, so the source-text
+    check rejects it. The real surrogate only settles at attempt 2. A fresh
+    regeneration with no decoy in the vault has nothing to collide with, so
+    it lands back on the plain attempt=0 value -- a different string, which
+    is exactly what `assert surrogate != bait` below would also catch if the
+    fixture's premise ever stopped holding.
+    """
     name = "นายวิทยา สมบูรณ์"
-    first = sanitize_stateless(TEXT, mode="surrogate", salt="s")
+    bait = "อนุชา"
+    decoy_original = "คนอื่น ไม่เกี่ยว"
+
+    first = sanitize_stateless(
+        TEXT, mode="surrogate", salt="s", prior_mapping={bait: decoy_original}
+    )
     surrogate = next(p for p, original in first.mapping.items() if original == name)
+    assert surrogate != bait, "fixture must force a reroll -- otherwise this test is vacuous"
 
     second = sanitize_stateless(
         f"แจ้ง {name} อีกครั้ง", mode="surrogate", salt="s", prior_mapping=first.mapping
