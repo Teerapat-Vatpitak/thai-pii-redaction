@@ -95,18 +95,17 @@ File type detection routes to one of three sub-paths:
 
 - **Plain text**: input validation (language, size, Thai support) → encoding validation (all text normalized to UTF-8)
 - **Text-layer PDF**: check if openable → extract text via pdfplumber/pypdfium2 → store word bboxes `(page, x, y, width, height)` for later PDF redaction
-- **Hybrid/scanned PDF** (`pii_redactor/ingest/ocr_processor.py`): **per-page**, not whole-document — a page with a real text layer is extracted directly (same path as Text-layer PDF); an image-only page goes through PaddleOCR with image pre-processing (deskew, denoise, unsharp-mask sharpen) → confidence check; retries up to 3 times (escalating DPI/binarization) while confidence < 70%, then sets a `human_review` flag → produces the same `(page, x, y, width, height)` bboxes as the other paths. Optional dependency (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed. `text_extractor.extract()` returns `(text, word_bboxes, meta)` for every source type — `meta` carries `ocr_confidence`/`human_review`/`pages_ocred`/`pages_text_layer`/`warnings` (empty dict for `text`/`pdf_text`).
+- **Hybrid/scanned PDF** (`pii_redactor/ingest/ocr_processor.py`): **per-page**, not whole-document — a page with a real text layer is extracted directly (same path as Text-layer PDF); an image-only page goes through PaddleOCR with image pre-processing (denoise, unsharp-mask sharpen — deliberately no deskew, see DET-3: rotating the page put the OCR bboxes in a different coordinate space from the unrotated page `redactor.py` paints on, so black boxes missed the PII on skewed scans) → confidence check; retries up to 3 times (escalating DPI/binarization) while confidence < 70%, then sets a `human_review` flag → produces the same `(page, x, y, width, height)` bboxes as the other paths. Optional dependency (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed. `text_extractor.extract()` returns `(text, word_bboxes, meta)` for every source type — `meta` carries `ocr_confidence`/`human_review`/`pages_ocred`/`pages_text_layer`/`warnings` (empty dict for `text`/`pdf_text`).
 
 All paths converge at language detection (Thai primary, English minimum).
 
-**Text Cleaning Pipeline** (runs after ingest):
+**Text Cleaning Pipeline** (runs after ingest) — 4 stages, returning `CleanResult(text, post_clean_warnings)`:
 1. Whitespace normalization (collapse repeats, remove blank lines)
 2. Unicode normalization (decompose → canonical form)
 3. Character standardization (Thai digits → Arabic digits, strip zero-width characters)
-4. Broken word recovery (PyThaiNLP dictionary)
-5. OCR error detection (flag likely OCR substitutions: `2→Z`, `0→O`, `8→B`)
-6. Broken sentence detection: algorithm identifies candidates only, does not auto-fix; pauses pipeline for user review (shows candidates, waits for confirm); on timeout or skip → use original text + log as skipped
-7. Post-clean encoding check
+4. Post-clean encoding check
+
+The original design had three more stages (broken-word recovery, OCR-error flagging, broken-sentence review). They were removed after the v2 audit verified the kill-list claim against running code: stage 4 tokenized every input through PyThaiNLP and rejoined it unchanged (0/4 representative Thai samples altered) while loading the whole Thai word set; stage 5 flagged every word containing B or Z (`Bob`, `Building`, `ZIP`); stage 6's interactive branch was unreachable because no caller passes `interactive=True`. Nothing consumed their outputs. `clean()` still accepts `interactive`/`review_timeout_s` and ignores them, so existing call sites and the CLI flag keep working.
 
 **Data Quality Validation** (before PII detection):
 - Pattern validation, structure validation, OCR confidence validation, quality scoring
@@ -191,7 +190,7 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/audit.py` | Step 7: disk JSONL process/security logs (step/counts/flags/latency; no PII) — distinct from `SessionVault`'s own internal `{entity_id, action, timestamp}` log |
 | `pii_redactor/exporter.py` | Step 8: writes final `.txt`/`.pdf_text` output |
 | `pii_redactor/models.py` | Shared dataclasses (`Entity`, `EntityRegistry`, `WordBbox`, `VaultRecord`, `AIResponse`, `ReverseResult`, ...) |
-| `pii_redactor/ingest/ocr_processor.py` | Step 1 (hybrid/scanned PDFs): per-page PaddleOCR extraction, deskew/denoise/sharpen preprocessing, retry x3 → `human_review` flag. Optional (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed |
+| `pii_redactor/ingest/ocr_processor.py` | Step 1 (hybrid/scanned PDFs): per-page PaddleOCR extraction, denoise/sharpen preprocessing (no deskew — bbox coordinate integrity, DET-3), retry x3 → `human_review` flag. Optional (`requirements-ocr.txt`); raises `OCRUnavailableError` if not installed |
 | `pii_redactor/session_service.py` | Single brain behind the web API: session lifecycle + sanitize/restore over core components |
 | `pii_redactor/leak_guard.py` | Shared outbound leak scan used by `ai_client` pre-send guard and `SessionService` |
 

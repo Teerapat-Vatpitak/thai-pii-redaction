@@ -2,61 +2,86 @@
 
 AI Guard's north star: **maximum adoption of a local-first Thai PII protection
 tool** — no cloud, no telemetry, vault never leaves the device. The
-competition (PSU Future Tech Challenge 2026) ended at the v2.2.0 poster
-presentation; everything below is post-competition, solo-maintained OSS work.
+competition (PSU Future Tech Challenge 2026) ended at the poster presentation;
+everything below is post-competition, solo-maintained OSS work.
 
-This is a summary. Full reasoning, decision log, and risk analysis:
-[`docs/superpowers/specs/2026-07-10-post-competition-longterm-roadmap.md`](docs/superpowers/specs/2026-07-10-post-competition-longterm-roadmap.md).
+This is a summary. Full reasoning and the decision log live in
+[`docs/superpowers/specs/2026-07-17-roadmap-v2-design.md`](docs/superpowers/specs/2026-07-17-roadmap-v2-design.md),
+which supersedes the ordering in the
+[original post-competition roadmap](docs/superpowers/specs/2026-07-10-post-competition-longterm-roadmap.md).
 
-Ground rules locked 2026-07-10: engineering/quality is the main axis for the
-next 3-12 months (not new product features); OSS solo (no PSU/DIIS
-partnership dependency); stay unsigned (no code-signing cert — trust comes
-from reproducible/verifiable builds instead).
+Ground rules (2026-07-10, still in force): engineering/quality is the main
+axis, not new product features; OSS solo; stay unsigned — trust comes from
+verifiable builds, not a paid certificate.
 
-## Horizon 1 — Now (0-1 month): close gaps before promoting
+Decisions locked 2026-07-17:
 
-Public Apache-2.0 repo, so close what a security blogger would write about
-first.
+- **GitHub is the only distribution channel this round.** Releases + README.
+  No Chrome Web Store, winget/scoop, or PyPI submission until there is a
+  signal to justify it.
+- **The Rust rewrite is dead, permanently.** No language migration. Detection
+  improves on the existing Python stack (Python + ONNX Runtime). Both Rust
+  design docs are marked superseded.
+- **Re-audit before the next tag.** The earlier "tier 1-6" audit left no
+  findings artifact, so it did not count as done; a full re-audit was run and
+  its findings live in
+  [`docs/superpowers/specs/2026-07-19-audit-v2-findings.md`](docs/superpowers/specs/2026-07-19-audit-v2-findings.md).
 
-| # | Item | Status |
-|---|---|---|
-| 1 | Fix the 3 confirmed recall leaks (Thai-glued PII, `+66` mobiles, per-page PDF routing) | Done |
-| 2 | Harden the localhost API (boot token, Host-header check, session TTL) | Mostly done — CORS is a strict allowlist, `TrustedHostMiddleware`, `/api/shutdown` requires a header, sessions have a TTL. **Still open:** a random boot token on general mutating endpoints |
-| 3 | Real CI test gate (pytest win+ubuntu, core-only install, cargo test, JS syntax, packaged-exe smoke) | Done |
-| 4 | Collision-safe pseudonyms + cross-detector span merge | Done |
-| 5 | Single-source version + OSS front door (this doc, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `VERSION` + bump/check scripts) | Done |
-| 6 | Chrome Web Store submission (privacy policy, listing assets, `_locales`) | Not started |
-| 7 | Poster-day momentum (launch posts, measured booth latency) | Not started |
+## Phase 1 — Close the next release
 
-## Horizon 2 — Next (1-3 months): unify + measure
+The first post-competition release: clean, audited, and proving a release
+pipeline that has never run on a real tag.
 
-| # | Item | Status |
-|---|---|---|
-| 8 | Unify web + CLI onto one core (`SessionService`) | Done |
-| 9 | Thai PII benchmark corpus + CI recall gate | Partial — synthetic v1 + gold v2 corpora and a 4-way NER strategy comparison exist; no CI recall gate yet |
-| 10 | Restructure TB detection (non-overlapping windowing, stop over-mapping DATE/LOCATION) | Not started |
-| 11 | Reproducible, verifiable (but unsigned) Windows build | Not started |
-| 12 | Publish a Presidio bridge as a PyPI plugin | Not started — kill-listed until a one-page decision doc is written and benchmark work lands |
-| 13 | JS/Rust test harness + selector-drift telemetry | Not started |
+| Item | Status |
+|---|---|
+| Core correctness + detection fixes from the first audit pass | Done |
+| Full-repo re-audit with a permanent findings artifact | Done |
+| Close every critical/high finding | Done — see the findings doc's status table |
+| Release-pipeline gates (tag matches `VERSION`; NER model hash pinned; asset set verified before hashing/attesting) | Done |
+| Housekeeping (regenerate this file, drop the dead text-cleaner stages, mark the Rust specs superseded, clear the Dependabot action bumps) | In progress |
+| Tag the release and review the first real run of `release.yml` | Not started |
+| Owner action: enable GitHub private vulnerability reporting | Not started |
 
-## Horizon 3 — Later (3-12 months): moat + sustainability
+The remaining medium/low audit findings are tracked in the findings doc and
+are not release blockers.
 
-Fine-tuned Thai PII NER model on HuggingFace, Chrome native messaging (drop
-fixed-port localhost HTTP), offset-accurate redaction + OCR bake-off
-(PaddleOCR vs. Tesseract vs. EasyOCR vs. Typhoon OCR), an on-prem PDPA
-deployment tier, publishing the benchmark dataset as a community standard,
-and Chrome Web Store + Edge publication once the stack above is unified and
-hardened.
+## Phase 2 — Safety net + front door
+
+Every change after this has a measurement behind it, and a newcomer can
+install without asking.
+
+| Item | Status |
+|---|---|
+| CI recall gate over the benchmark corpora (per-entity-type floors) | Not started — corpora and the NER strategy ADR already exist |
+| Playwright live-DOM checks + selector-drift badge for the extension | Not started — the vitest/cargo harness core is done |
+| README install-from-Releases in three steps, real screenshots, a real `desktop/README.md` | Not started |
+
+## Phase 3 — Detection quality on Python
+
+| Item | Status |
+|---|---|
+| ONNX Runtime as an opt-in NER engine, measured against the recall gate | Not started |
+| Fine-tune a Thai PII NER model and publish it to HuggingFace | Not started — prerequisites (benchmark, windowing) are done |
+| Publish the benchmark dataset as a community standard | Not started |
+
+## Backlog — no date, waiting for a real signal
+
+Chrome Web Store and Edge submission; winget/scoop submission; PyPI publish;
+technical blog posts; Chrome native messaging with a token-gated data plane;
+a Presidio bridge (still gated on a one-page decision doc); an OCR bake-off;
+an on-prem PDPA tier; dark theme for the desktop app and side panel; and the
+documented CLI gaps (`run_pipeline()` does not call `audit.py` and drops PDF
+word bboxes).
 
 ## Explicitly out of scope (kill-list)
 
 No cloud/SaaS-hosted version. No mobile app. No multi-tenant/Redis session
 store before a real pilot org asks for one. No WangchanBERTa as the *default*
 NER engine until its windowing cost is fixed and benchmarked. No public
-accuracy/F1 claims before benchmark v1 ships. No hand-written volatile
-numbers (test counts, version strings, platform lists) in prose — those live
-in machine-readable files (`VERSION`, CI output) and get cited from there,
-not typed by hand.
+accuracy/F1 claims before the benchmark ships. No language migration. No
+hand-written volatile numbers (test counts, version strings, platform lists)
+in prose — those live in machine-readable files (`VERSION`, CI output) and get
+cited from there, not typed by hand.
 
-See the linked design doc's "Kill-list" section for the full list and
+See the linked design docs' kill-list sections for the full list and
 reasoning.
