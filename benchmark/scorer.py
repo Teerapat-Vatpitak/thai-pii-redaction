@@ -28,6 +28,7 @@ def _prf(tp: int, fp: int, fn: int) -> dict:
 def _score_group(samples, predictions):
     by_type = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
     cov_covered = cov_total = exact_hit = gold_total = 0
+    pred_char_total = pred_char_on_gold = 0
 
     for sample, preds in zip(samples, predictions):
         preds_by_type = defaultdict(list)
@@ -57,6 +58,24 @@ def _score_group(samples, predictions):
             by_type[etype]["fp"] += len(plist) - len(matched_p)
 
         all_pred = [(p[0], p[1]) for p in preds]
+
+        # Character-level precision, the counterpart of coverage_recall.
+        # Entity-level precision matches one-to-one, so a detector that splits
+        # a span gold labels as one piece is scored as if the extra pieces were
+        # wrong -- 44 of 45 ADDRESS "false positives" on this corpus were that,
+        # not real errors. Counting characters asks the question that actually
+        # matters instead: of what we masked, how much was really PII.
+        # Predicted ranges are unioned first so overlapping predictions are not
+        # counted twice.
+        gold_chars = set()
+        for g in sample.spans:
+            gold_chars.update(range(g.start, g.end))
+        pred_chars = set()
+        for ps, pe in all_pred:
+            pred_chars.update(range(ps, pe))
+        pred_char_total += len(pred_chars)
+        pred_char_on_gold += len(pred_chars & gold_chars)
+
         for g in sample.spans:
             gold_total += 1
             glen = g.end - g.start
@@ -77,6 +96,9 @@ def _score_group(samples, predictions):
     fn = sum(c["fn"] for c in by_type.values())
     overall = {"tp": tp, "fp": fp, "fn": fn, **_prf(tp, fp, fn)}
     overall["coverage_recall"] = cov_covered / cov_total if cov_total else 0.0
+    # No prediction means no wrongly-masked character, so 1.0 rather than 0.0:
+    # this measures the quality of what was masked, and nothing was.
+    overall["coverage_precision"] = pred_char_on_gold / pred_char_total if pred_char_total else 1.0
     overall["exact_recall"] = exact_hit / gold_total if gold_total else 0.0
     return by_type, overall
 
