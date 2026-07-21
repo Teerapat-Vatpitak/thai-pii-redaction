@@ -238,7 +238,13 @@ _RE_MOO = re.compile(r"(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(
 # ones (it masked "กรุงเทพมหานคร") but misses the rest, and a sub-district plus
 # a postal code narrows a person to a few streets. Structure again, not a
 # gazetteer: whatever follows the administrative label is the value.
-_RE_ADMIN_AREA = re.compile(r"(?:แขวง|ตำบล|ต\.|อำเภอ|อ\.|เขต|จังหวัด|จ\.)\s*([ก-๛]{2,})")
+# The negative lookbehind is load-bearing: without it อำเภอ matched inside
+# นายอำเภอ (a job title, not an address), producing an FP ADDRESS span that
+# dedupe_spans then used to evict the TB NAME span the CRF had correctly found
+# -- so adding an address detector made a NAME leak. Same for เขต in ผู้อำนวยการเขต.
+_RE_ADMIN_AREA = re.compile(
+    r"(?:แขวง|ตำบล|ต\.|(?<!นาย)(?<!ปลัด)(?<!รอง)(?<!ท่าน)(?:อำเภอ|เขต)|อ\.|จังหวัด|จ\.)\s*([ก-๛]{2,})"
+)
 # A bare 5-digit run is far too common to mask on sight (quantities, years in
 # tables, reference numbers), so the postal code is only claimed when an address
 # cue sits close in front of it.
