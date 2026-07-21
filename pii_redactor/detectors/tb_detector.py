@@ -121,7 +121,15 @@ def _load_ner(name: str) -> NER:
                         f"AIGUARD_NER_ENGINE={name!r} requires {requires!r}. "
                         f"Run: pip install -r requirements-ml.txt"
                     ) from None
-        _ner_cache[name] = NER(engine=config["ner_engine"])
+        if name == "tner":
+            # Not a PyThaiNLP engine: TNER is an HTTP service, so NER(engine=
+            # "tner") raised a raw library error and the registered slot did
+            # nothing. TnerEngine exposes the same .tag() contract instead.
+            from pii_redactor.detectors.tner_client import TnerEngine
+
+            _ner_cache[name] = TnerEngine(api_key=os.environ.get("AIFORTHAI_API_KEY", ""))
+        else:
+            _ner_cache[name] = NER(engine=config["ner_engine"])
     return _ner_cache[name]
 
 

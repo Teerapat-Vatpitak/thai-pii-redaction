@@ -2,7 +2,11 @@
 
 import pytest
 
-from pii_redactor.stateless import StatelessSanitizeResult, sanitize_stateless
+from pii_redactor.stateless import (
+    StatelessSanitizeResult,
+    restore_stateless,
+    sanitize_stateless,
+)
 
 TEXT = "ผมชื่อ นายวิทยา สมบูรณ์ โทร 081-234-5678"
 # Two names so the person checked below does NOT hold the ordinal a fresh
@@ -151,3 +155,36 @@ def test_a_prior_mapping_token_owned_by_someone_else_is_not_handed_out_again():
 def test_unknown_mode_is_rejected():
     with pytest.raises(ValueError):
         sanitize_stateless(TEXT, mode="nonsense", salt="s")
+
+
+def test_restore_closes_the_round_trip_without_server_state():
+    """The other half of the platform contract, and the half that was missing.
+
+    The pitch is mask -> model -> restore. Shipping only the mask half means a
+    platform consumer cannot complete the loop, so the sanitize call is a
+    dead end for them. Restore takes the caller's own mapping, exactly like
+    sanitize hands it out, and holds nothing afterwards.
+    """
+    out = sanitize_stateless(TEXT, mode="token", salt="s")
+    assert out.sanitized_text != TEXT
+
+    back = restore_stateless(out.sanitized_text, mapping=out.mapping)
+
+    assert back.restored_text == TEXT
+    assert back.replaced_count == len(out.mapping)
+    assert not back.leftover_pseudonyms
+
+
+def test_restore_reports_pseudonyms_it_could_not_account_for():
+    """A model reply may drop or mangle a token; the caller has to learn that.
+
+    Silence here would let a half-restored answer look complete, which is the
+    same failure class as reporting a residual leak as clean on the way out.
+    """
+    out = sanitize_stateless(TEXT, mode="token", salt="s")
+    reply_missing_a_token = "ตอบกลับโดยไม่มี token ใด ๆ เลย"
+
+    back = restore_stateless(reply_missing_a_token, mapping=out.mapping)
+
+    assert back.replaced_count == 0
+    assert back.warnings, "a reply that used none of the tokens must not look complete"
