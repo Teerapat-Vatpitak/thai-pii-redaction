@@ -28,27 +28,42 @@ _HIDDEN_CHARS = re.compile(
     "]"
 )
 
-# role_hijack needs BOTH a role-grab phrase ("you are now", "จากนี้ไปคุณคือ", ...)
-# AND a jailbreak/no-limits marker nearby — either alone is common in innocent
-# text ("you are now connected...", "pretend to be a customer..."). The two
-# fragments below are combined (in either order, within a short window) so a
-# marker built into the phrase itself ("act as DAN") still fires in one shot.
-_ROLE_PHRASE = (
-    r"(?:you are now|act as|pretend to be|from now on you are"
-    r"|ignore your (?:role|persona)|จากนี้ไปคุณคือ|สวมบทเป็น|คุณคือระบบ)"
+# role_hijack needs the jailbreak/no-limits marker to be the ADJACENT object
+# of the role-grab verb, not just floating somewhere nearby in the sentence —
+# a bare "developer mode" or "dan" elsewhere (e.g. a person actually named
+# Dan, or an unrelated mention of developer mode) must not fire just because
+# a role verb also happens to appear in the same message. Each alternative
+# below binds verb and marker directly together, so "act as a mediator ...
+# Dan is on vacation" does not match: the marker never follows "act as".
+_ROLE_MARKER_EN = r"(?:dan|unrestricted|unfiltered|jailbroken|evil)"
+_ROLE_HIJACK_EN = (
+    rf"\bact as (?:an? )?{_ROLE_MARKER_EN}\b"
+    rf"|\byou are now (?:(?:an? )?{_ROLE_MARKER_EN}|in (?:dan|developer) mode)\b"
+    rf"|\bpretend (?:to be|you are) (?:an? )?{_ROLE_MARKER_EN}\b"
+    rf"|\bfrom now on,? you are (?:an? )?{_ROLE_MARKER_EN}\b"
+    rf"|\bignore your (?:role|persona|guidelines|restrictions)\b"
 )
-_JAILBREAK_MARKER = (
-    r"(?:unrestricted|unfiltered|jailbroken|no restrictions?|\bdan\b|developer mode"
-    r"|no rules|ไม่มีข้อจำกัด|ไม่มีขีดจำกัด|ปลดล็อก|ทำได้ทุกอย่าง)"
+_ROLE_HIJACK_TH = (
+    r"คุณคือ.{0,20}(?:ไม่มีข้อจำกัด|ไม่มีขีดจำกัด)"
+    r"|สวมบทเป็น.{0,20}(?:ไม่มีข้อจำกัด|ไม่มีขีดจำกัด|ปลดล็อก|ทำได้ทุกอย่าง|dan)"
 )
 
-# exfiltration needs an action verb governing a system/vault target — a bare
-# mention of "system prompt" in ordinary text ("update the system prompt
-# config file") is not an attack; "output the system prompt" is.
-_EXFIL_VERB_EN = r"(?:reveal|print|output|repeat|leak|dump|show)"
-_EXFIL_TARGET_EN = r"(?:(?:system|hidden)\s+)?(?:prompt|instruction|rule|message)"
-_EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก)"
-_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|(?:ค่า|ข้อมูล)จริงทั้งหมด|prompt|คำสั่งระบบ)"
+# exfiltration needs BOTH a broad reveal-family verb AND a QUALIFIED target
+# (system/hidden/your + prompt|instruction|message|directive), within a short
+# window — either alone is common in innocent text: "show the message you got
+# from the vendor" has the verb but an unqualified target; "update the system
+# prompt config file" has the qualified target but no reveal-family verb.
+# "system prompt" itself carries "system" as its own qualifier, which is why
+# "the system prompt" / "the hidden instruction" match without needing "your".
+_EXFIL_VERB_EN = (
+    r"\b(?:reveal|print|output|repeat|leak|dump|show|tell|give|share|disclose"
+    r"|what(?:'s|\s+is)|write\s+out)\b"
+)
+_EXFIL_TARGET_EN = (
+    r"\b(?:your|system|hidden)(?:\s+\w+){0,2}\s+(?:prompt|instructions?|message|directive)\b"
+)
+_EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก|ขอดู|ขอ)"
+_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|(?:ค่า|ข้อมูล)จริงทั้งหมด|คำสั่งระบบ)"
 
 # Rule table: (category, severity, compiled pattern, rationale).
 # Patterns are intentionally readable — this file IS the spec of what layer 1
@@ -70,18 +85,18 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
         "role_hijack",
         "medium",
         re.compile(
-            rf"{_ROLE_PHRASE}.{{0,60}}{_JAILBREAK_MARKER}"
-            rf"|{_JAILBREAK_MARKER}.{{0,60}}{_ROLE_PHRASE}",
+            rf"{_ROLE_HIJACK_EN}|{_ROLE_HIJACK_TH}",
             re.IGNORECASE,
         ),
-        "ข้อความพยายามเปลี่ยนบทบาทพร้อมปลดข้อจำกัดของผู้ช่วย (role grab + jailbreak marker)",
+        "ข้อความพยายามเปลี่ยนบทบาทโดยมี marker ปลดข้อจำกัด (DAN/unrestricted/...) "
+        "เป็นวัตถุที่ตามหลังคำสั่งเปลี่ยนบทบาททันที ไม่ใช่แค่คำที่ลอยอยู่ใกล้ ๆ ในประโยค",
     ),
     (
         "exfiltration",
         "high",
         re.compile(
-            rf"{_EXFIL_VERB_EN}\s+(?:your\s+|the\s+)?{_EXFIL_TARGET_EN}"
-            rf"|{_EXFIL_VERB_TH}{_EXFIL_TARGET_TH}",
+            rf"{_EXFIL_VERB_EN}.{{0,40}}{_EXFIL_TARGET_EN}"
+            rf"|{_EXFIL_VERB_TH}.{{0,40}}{_EXFIL_TARGET_TH}",
             re.IGNORECASE,
         ),
         "ข้อความพยายามสั่งให้แสดง/พิมพ์ system prompt หรือข้อมูลภายใน (verb + target)",
