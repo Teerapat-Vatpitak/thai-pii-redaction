@@ -46,6 +46,7 @@ from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
+from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
@@ -255,6 +256,10 @@ class RoundtripRequest(BaseModel):
     provider: str = "fake"  # "fake" | "pathumma" | "ollama" | "claude"
 
 
+class GuardRequest(BaseModel):
+    text: str
+
+
 # ── endpoints ──────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
@@ -352,6 +357,8 @@ def sanitize(request: SanitizeRequest):
             detail={"error": "pii_leak_risk", "types": e.leak_types},
         )
 
+    guard_findings = to_wire(scan_injection(request.text))
+
     write_process_log(
         session_id=out.session_id,
         step="api_sanitize",
@@ -369,6 +376,7 @@ def sanitize(request: SanitizeRequest):
         "entity_type_counts": out.entity_type_counts,
         "section26": out.section26,
         "warnings": out.warnings,
+        "guard": guard_findings,
     }
 
 
@@ -661,6 +669,8 @@ def roundtrip(request: RoundtripRequest):
 
     restored = restore_stateless(ai_text, mapping=masked.mapping)
 
+    guard_findings = to_wire(scan_injection(request.text))
+
     write_process_log(
         session_id="roundtrip",
         step="api_roundtrip",
@@ -683,7 +693,21 @@ def roundtrip(request: RoundtripRequest):
         "entity_type_counts": masked.entity_type_counts,
         "provider_used": request.provider,
         "warnings": masked.warnings + restored.warnings,
+        "guard": guard_findings,
     }
+
+
+@app.post("/api/guard")
+def guard(request: GuardRequest):
+    """Rule-based prompt-injection scan (honest first layer — warns, blocks nothing).
+
+    See pii_redactor/guard/injection.py: matches known injection shapes in
+    Thai/English; not airtight, structured for a later classifier layer.
+    """
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    findings = to_wire(scan_injection(request.text))
+    return {"guard": findings, "flagged": bool(findings)}
 
 
 def _first_page_png(pdf_path: str) -> str:
