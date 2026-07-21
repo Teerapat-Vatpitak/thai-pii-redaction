@@ -60,3 +60,43 @@ class TestDetect:
         before = len(server.SERVICE._sessions)
         client.post("/api/detect", json={"text": THAI_TEXT})
         assert len(server.SERVICE._sessions) == before
+
+
+class TestRoundtrip:
+    def test_roundtrip_fake_provider_restores_original(self, client):
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "fake"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["provider_used"] == "fake"
+        # fake = identity LLM: masked text comes back, restore puts PII back
+        assert "1101700230708" not in body["sanitized_text"]
+        assert "1101700230708" not in body["ai_response_masked"]
+        assert "สมชาย" in body["restored_text"]
+        assert body["entities"], "expected entities"
+
+    def test_roundtrip_default_provider_is_fake(self, client):
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT})
+        assert resp.status_code == 200
+        assert resp.json()["provider_used"] == "fake"
+
+    def test_roundtrip_unknown_provider_400(self, client):
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "gpt9"})
+        assert resp.status_code == 400
+
+    def test_roundtrip_pathumma_without_key_503(self, client, monkeypatch):
+        monkeypatch.delenv("AIFORTHAI_API_KEY", raising=False)
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "pathumma"})
+        assert resp.status_code == 503
+
+    def test_roundtrip_empty_text_400(self, client):
+        assert client.post("/api/roundtrip", json={"text": ""}).status_code == 400
+
+    def test_roundtrip_no_mapping_left_serverside(self, client):
+        import app.server as server
+
+        before = len(server.SERVICE._sessions)
+        client.post("/api/roundtrip", json={"text": THAI_TEXT})
+        assert len(server.SERVICE._sessions) == before

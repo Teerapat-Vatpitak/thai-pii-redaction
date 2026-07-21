@@ -27,12 +27,20 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from pii_redactor.ai_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    ClaudeProvider,
+    FakeLLMProvider,
+    OllamaProvider,
+    PathummaProvider,
+)
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -44,6 +52,11 @@ from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import EntityRegistry
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.report import generate_report, scan_section26
+from pii_redactor.stateless import (
+    StatelessLeakError,
+    restore_stateless,
+    sanitize_stateless,
+)
 
 
 def _read_version() -> str:
@@ -209,6 +222,12 @@ class AnalyzeRequest(BaseModel):
 
 class DetectRequest(BaseModel):
     text: str
+
+
+class RoundtripRequest(BaseModel):
+    text: str
+    mode: str = "token"  # "token" | "surrogate"
+    provider: str = "fake"  # "fake" | "pathumma" | "ollama" | "claude"
 
 
 # ── endpoints ──────────────────────────────────────────────────────────
@@ -518,6 +537,79 @@ def detect(request: DetectRequest):
     for e in out:
         counts[e["data_type"]] = counts.get(e["data_type"], 0) + 1
     return {"entities": out, "entity_type_counts": counts}
+
+
+_PROVIDER_FACTORIES = {
+    "fake": FakeLLMProvider,
+    "pathumma": PathummaProvider,
+    "ollama": OllamaProvider,
+    "claude": ClaudeProvider,
+}
+
+
+@app.post("/api/roundtrip")
+def roundtrip(request: RoundtripRequest):
+    """mask -> LLM -> restore in one request, on the stateless core.
+
+    The mapping lives only inside this request; nothing is stored server-side
+    (the platform contract). `fake` is the identity provider so the demo can
+    always run offline.
+    """
+    start = time.time()
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    if request.mode not in ("token", "surrogate"):
+        raise HTTPException(status_code=400, detail="Invalid mode: expected 'token' or 'surrogate'")
+    factory = _PROVIDER_FACTORIES.get(request.provider)
+    if factory is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider: expected one of {sorted(_PROVIDER_FACTORIES)}",
+        )
+    try:
+        provider = factory()
+    except ValueError as e:
+        # provider knows its own missing-credential story (e.g. AIFORTHAI_API_KEY)
+        raise HTTPException(status_code=503, detail=str(e))
+
+    clean_text = clean(request.text).text
+    try:
+        masked = sanitize_stateless(clean_text, mode=request.mode, salt=uuid.uuid4().hex)
+    except StatelessLeakError as e:
+        raise HTTPException(
+            status_code=422, detail={"error": "pii_leak_risk", "types": e.leak_types}
+        )
+
+    try:
+        ai_text = provider.complete(DEFAULT_SYSTEM_PROMPT, masked.sanitized_text)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {type(e).__name__}")
+
+    restored = restore_stateless(ai_text, mapping=masked.mapping)
+
+    write_process_log(
+        session_id="roundtrip",
+        step="api_roundtrip",
+        entity_count=len(masked.entities),
+        validation_result="warn" if (masked.warnings or restored.warnings) else "pass",
+        flags=[f"provider:{request.provider}"]
+        + (
+            [f"leftover_count:{len(restored.leftover_pseudonyms)}"]
+            if restored.leftover_pseudonyms
+            else []
+        ),
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
+    return {
+        "sanitized_text": masked.sanitized_text,
+        "ai_response_masked": ai_text,
+        "restored_text": restored.restored_text,
+        "entities": masked.entities,
+        "entity_type_counts": masked.entity_type_counts,
+        "provider_used": request.provider,
+        "warnings": masked.warnings + restored.warnings,
+    }
 
 
 def _first_page_png(pdf_path: str) -> str:
