@@ -32,14 +32,27 @@ def run(
     while not stop.is_set():
         if max_jobs is not None and processed >= max_jobs:
             break
-        job = transport.poll()
+        try:
+            job = transport.poll()
+        except Exception as e:  # defense in depth — a transport bug must not kill the worker
+            logger.warning("poll raised %s", type(e).__name__)
+            job = None
         if job is None:
             if max_jobs is not None:
                 break  # bounded runs never sleep-wait
             stop.wait(idle_sleep_s)
             continue
         start = time.time()
-        result = handler(job)
+        try:
+            result = handler(job)
+        except Exception as e:  # handle_job promises not to raise; a substituted handler might
+            logger.error("handler raised %s", type(e).__name__)
+            result = {
+                "job_id": str(job.get("job_id", "")) if isinstance(job, dict) else "",
+                "operation": str(job.get("operation", "")) if isinstance(job, dict) else "",
+                "status": "error",
+                "error": {"type": "handler_crashed", "message": type(e).__name__},
+            }
         try:
             transport.submit(result)
         except Exception as e:  # keep the loop alive

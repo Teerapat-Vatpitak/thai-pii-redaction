@@ -85,3 +85,44 @@ def test_http_transport_error_returns_none_not_crash(monkeypatch):
     monkeypatch.setattr(httpx, "get", fake_get)
     t = HttpPollTransport(poll_url="https://q.example/next", result_url="https://q.example/r")
     assert t.poll() is None
+
+
+def test_poll_raising_does_not_kill_loop():
+    class BoomTransport:
+        def __init__(self):
+            self.results = []
+
+        def poll(self):
+            raise RuntimeError("transport bug")
+
+        def submit(self, result):
+            self.results.append(result)
+
+    t = BoomTransport()
+    assert run(t, max_jobs=1) == 0  # survived the raise, processed nothing
+
+
+def test_crashing_custom_handler_submits_error_result():
+    t = InMemoryTransport([{"job_id": "x", "operation": "detect", "payload": {"text": THAI_TEXT}}])
+
+    def bad_handler(job):
+        raise RuntimeError("boom")
+
+    assert run(t, handler=bad_handler, max_jobs=1) == 1
+    assert t.results[0]["status"] == "error"
+    assert t.results[0]["error"]["type"] == "handler_crashed"
+
+
+def test_poll_non_200_logs_status_but_not_body(monkeypatch, caplog):
+    import logging
+
+    def fake_get(url, **kwargs):
+        request = httpx.Request("GET", url)
+        return httpx.Response(401, json={"detail": "bad key"}, request=request)
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    t = HttpPollTransport(poll_url="https://q.example/next", result_url="https://q.example/r")
+    with caplog.at_level(logging.WARNING):
+        assert t.poll() is None
+    assert "401" in caplog.text
+    assert "bad key" not in caplog.text

@@ -75,6 +75,8 @@ class HttpPollTransport:
             logger.warning("poll failed: %s", type(e).__name__)
             return None
         if resp.status_code != 200:
+            if resp.status_code != 204:  # 204 = normal empty queue, stays quiet
+                logger.warning("poll returned HTTP %s", resp.status_code)
             return None
         try:
             job = resp.json()
