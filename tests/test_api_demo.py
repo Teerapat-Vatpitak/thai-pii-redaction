@@ -117,6 +117,17 @@ class TestRoundtrip:
         assert resp.status_code == 502
         assert "KeyError" in resp.json()["detail"]
 
+    def test_roundtrip_surrogate_mode(self, client):
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "surrogate", "provider": "fake"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "1101700230708" not in body["sanitized_text"]
+        assert "[ชื่อ" not in body["sanitized_text"]  # surrogate mode: realistic values, no tokens
+        assert "สมชาย" in body["restored_text"]
+
     def test_roundtrip_leak_blocked_422(self, client, monkeypatch):
         import app.server as server
         from pii_redactor.stateless import StatelessLeakError

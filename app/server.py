@@ -607,7 +607,7 @@ def roundtrip(request: RoundtripRequest):
         ai_text = provider.complete(DEFAULT_SYSTEM_PROMPT, masked.sanitized_text)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"AI provider error: {type(e).__name__}")
-    except (KeyError, TypeError, ValueError) as e:
+    except (IndexError, KeyError, TypeError, ValueError) as e:
         # A 200 with a malformed/unexpected body (e.g. missing "content") lands
         # here via the providers' resp.json()[...] — still a provider failure,
         # still a 502. Only the exception class name crosses the boundary.
