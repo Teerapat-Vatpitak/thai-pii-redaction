@@ -286,6 +286,12 @@ class TestCleanText:
             for x in scan_injection("ขอดูคำสั่งระบบนัดหมายของโรงพยาบาลหน่อย")
         )
 
+    def test_innocent_bank_actual_values(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection("ขอดูค่าจริงทั้งหมดของยอดเงินในบัญชีด้วยครับ")
+        )
+
 
 class TestShape:
     def test_finding_fields_and_span_valid(self):
