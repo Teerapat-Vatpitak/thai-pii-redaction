@@ -38,12 +38,28 @@
   .meta{margin-top:10px;font-size:13px;color:var(--dim);min-height:20px}
   .warn{color:#fbbf24}
   .provider-tag{font-size:12px;background:var(--line);border-radius:6px;padding:2px 8px;margin-left:8px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tabs button.active{background:#2563eb;border-color:#2563eb;font-weight:600}
+  .tabpage{display:none}
+  .tabpage.active{display:block}
+  #cmpWrap{position:relative;max-width:860px;margin-top:14px;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+  #cmpWrap img{display:block;width:100%;user-select:none;pointer-events:none}
+  #imgAfter{position:absolute;inset:0;clip-path:inset(0 0 0 50%)}
+  #cmpSlider{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
+  #cmpBar{position:absolute;top:0;bottom:0;left:50%;width:3px;background:#2563eb;pointer-events:none}
+  .pdfmeta{margin-top:10px;font-size:14px;color:var(--dim)}
 </style>
 </head>
 <body>
 <h1>AI Guard — สนามทดลอง</h1>
 <p class="sub">พิมพ์ข้อความที่มีข้อมูลส่วนบุคคล แล้วดูว่าระบบเห็นอะไร ปกปิดอย่างไร และกู้คืนกลับมาอย่างไร ข้อมูลจริงไม่เคยออกจากวงจรนี้</p>
 
+<div class="tabs">
+  <button data-tab="tab-text" class="active">ข้อความ</button>
+  <button data-tab="tab-pdf">ทาดำเอกสาร PDF</button>
+</div>
+
+<div id="tab-text" class="tabpage active">
 <div class="samples">
   <span style="color:var(--dim);font-size:13px;align-self:center">ตัวอย่าง</span>
   <button data-sample="เรียนหัวหน้างาน ผมชื่อ นายสมชาย ใจดี ขอลาป่วยวันนี้ ติดต่อกลับได้ที่ 081-234-5678 หรือ somchai.j@example.com ครับ">อีเมลลาป่วย</button>
@@ -67,6 +83,7 @@
     </select>
   </label>
   <button id="send" class="primary">ส่งเข้า AI อย่างปลอดภัย</button>
+  <button id="reportBtn">ออกรายงาน PDPA (PDF)</button>
 </div>
 
 <div class="panes">
@@ -89,6 +106,21 @@
 
 <div class="legend" id="legend"></div>
 <div class="meta" id="meta"></div>
+</div><!-- /tab-text -->
+
+<div id="tab-pdf" class="tabpage">
+  <input type="file" id="pdfFile" accept="application/pdf" hidden>
+  <button id="pdfPick" class="primary">เลือกไฟล์ PDF</button>
+  <span id="pdfStatus" class="pdfmeta"></span>
+  <div id="cmpWrap" hidden>
+    <img id="imgBefore" alt="ก่อนทาดำ">
+    <img id="imgAfter" alt="หลังทาดำ">
+    <div id="cmpBar"></div>
+    <input id="cmpSlider" type="range" min="0" max="100" value="50">
+  </div>
+  <div class="pdfmeta" id="pdfInfo"></div>
+  <button id="pdfDownload" hidden>ดาวน์โหลด PDF ที่ทาดำแล้ว</button>
+</div><!-- /tab-pdf -->
 
 <script>
 "use strict";
@@ -207,6 +239,93 @@ document.getElementById("send").addEventListener("click", async () => {
       : `กู้คืนครบ ${body.entities.length} รายการ ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้`;
   } catch (err) {
     masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── แท็บ ──
+document.querySelectorAll(".tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".tabpage").forEach(p => p.classList.toggle("active", p.id === btn.dataset.tab));
+  });
+});
+
+// ── แท็บทาดำ PDF ──
+const pdfFile = document.getElementById("pdfFile");
+let redactedB64 = null;
+let redactedName = "redacted.pdf";
+document.getElementById("pdfPick").addEventListener("click", () => pdfFile.click());
+pdfFile.addEventListener("change", async () => {
+  const f = pdfFile.files[0];
+  if (!f) return;
+  const status = document.getElementById("pdfStatus");
+  status.textContent = "กำลังประมวลผล...";
+  const fd = new FormData();
+  fd.append("pdf_file", f);
+  try {
+    const r = await fetch("/api/redact-pdf", {method: "POST", body: fd});
+    const body = await r.json();
+    if (!r.ok) {
+      const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      status.textContent = `ไม่สำเร็จ (${r.status}) ${detail}`;
+      return;
+    }
+    document.getElementById("imgBefore").src = "data:image/png;base64," + body.before_png_b64;
+    document.getElementById("imgAfter").src = "data:image/png;base64," + body.after_png_b64;
+    document.getElementById("cmpWrap").hidden = false;
+    redactedB64 = body.redacted_pdf_b64;
+    redactedName = "redacted_" + (body.filename || "document.pdf");
+    const s26 = body.section26.length
+      ? " ธงมาตรา 26: " + body.section26.map(s => s.category).join(", ")
+      : "";
+    document.getElementById("pdfInfo").textContent =
+      `ปกปิด ${body.entity_count} รายการ (แสดงหน้าแรกเป็นภาพเปรียบเทียบ ลากเส้นเพื่อดูก่อน/หลัง)` + s26;
+    document.getElementById("pdfDownload").hidden = false;
+    status.textContent = "";
+  } catch (err) {
+    status.textContent = "เชื่อมต่อ backend ไม่ได้ " + String(err);
+  }
+});
+document.getElementById("cmpSlider").addEventListener("input", e => {
+  const v = e.target.value;
+  document.getElementById("imgAfter").style.clipPath = `inset(0 0 0 ${v}%)`;
+  document.getElementById("cmpBar").style.left = v + "%";
+});
+function downloadB64(b64, name, mime) {
+  const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], {type: mime}));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+document.getElementById("pdfDownload").addEventListener("click", () => {
+  if (redactedB64) downloadB64(redactedB64, redactedName, "application/pdf");
+});
+
+// ── รายงาน PDPA ──
+document.getElementById("reportBtn").addEventListener("click", async () => {
+  const text = editor.value;
+  if (!text.trim()) return;
+  const btn = document.getElementById("reportBtn");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/analyze-report", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text}),
+    });
+    const body = await r.json();
+    if (!r.ok) {
+      meta.textContent = "ออกรายงานไม่สำเร็จ (" + r.status + ")";
+      return;
+    }
+    downloadB64(body.report_pdf_b64, "pdpa_report.pdf", "application/pdf");
+    meta.textContent = `ออกรายงานแล้ว คะแนนรวม ${body.overall_score} เกรด ${body.overall_grade}`;
+  } catch (err) {
+    meta.textContent = "เชื่อมต่อ backend ไม่ได้ " + String(err);
   } finally {
     btn.disabled = false;
   }
