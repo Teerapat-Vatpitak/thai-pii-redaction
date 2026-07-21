@@ -6,7 +6,11 @@ asks, hidden characters, anomalous payloads) in Thai and English. It does NOT
 catch paraphrase, heavy obfuscation, or novel attacks — the interface returns
 structured findings precisely so a learned classifier can be added as a second
 layer later without changing callers. Framed honestly everywhere: warn by
-default, never claim to be airtight.
+default, never claim to be airtight. Exfiltration targets require an
+unambiguous system/hidden/internal referent by design — bare possessives like
+"your rules"/"your instructions" are deliberately NOT matched (precision over
+recall on an irreducibly ambiguous case), and that gap is recorded, not
+hidden, in the test suite's bypass corpus.
 
 Separate from leak_guard.py (outbound PII) and the PII detectors — prompt
 injection is a different problem and lives in its own module.
@@ -41,29 +45,40 @@ _ROLE_HIJACK_EN = (
     rf"|\byou are now (?:(?:an? )?{_ROLE_MARKER_EN}|in (?:dan|developer) mode)\b"
     rf"|\bpretend (?:to be|you are) (?:an? )?{_ROLE_MARKER_EN}\b"
     rf"|\bfrom now on,? you are (?:an? )?{_ROLE_MARKER_EN}\b"
-    rf"|\bignore your (?:role|persona|guidelines|restrictions)\b"
+    rf"|\bignore your (?:role|persona)\b"
 )
 _ROLE_HIJACK_TH = (
     r"คุณคือ.{0,20}(?:ไม่มีข้อจำกัด|ไม่มีขีดจำกัด)"
     r"|สวมบทเป็น.{0,20}(?:ไม่มีข้อจำกัด|ไม่มีขีดจำกัด|ปลดล็อก|ทำได้ทุกอย่าง|dan)"
 )
 
-# exfiltration needs BOTH a broad reveal-family verb AND a QUALIFIED target
-# (system/hidden/your + prompt|instruction|message|directive), within a short
-# window — either alone is common in innocent text: "show the message you got
-# from the vendor" has the verb but an unqualified target; "update the system
-# prompt config file" has the qualified target but no reveal-family verb.
-# "system prompt" itself carries "system" as its own qualifier, which is why
-# "the system prompt" / "the hidden instruction" match without needing "your".
+# exfiltration needs BOTH a broad reveal-family verb AND a QUALIFIED target,
+# within a short window — either alone is common in innocent text: "show the
+# message you got from the vendor" has the verb but an unqualified target;
+# "update the system prompt config file" has the qualified target but no
+# reveal-family verb.
+#
+# Bare possessive "your" is NOT a qualifier — it cannot distinguish "your
+# system prompt" (attack) from "your instructions for the assignment"
+# (innocent). Three rounds of narrowing individual words ("message", "rule",
+# "directive", ...) kept reopening the same false-positive class through a
+# different noun, because the ambiguity lives in "your", not in the noun that
+# follows it. Fix pass 3 removes "your" from the target entirely: the ONLY
+# qualifiers are system/hidden/internal — an unambiguous system referent.
+# "system prompt" is covered by this same pattern (system + prompt), so no
+# separate literal-phrase branch is needed. This is a deliberate
+# precision-over-recall choice: bare "your rules"/"your instructions" no
+# longer fire and that gap is recorded (not hidden) in the bypass corpus.
 _EXFIL_VERB_EN = (
     r"\b(?:reveal|print|output|repeat|leak|dump|show|tell|give|share|disclose"
     r"|what(?:'s|\s+is)|write\s+out)\b"
 )
 _EXFIL_TARGET_EN = (
-    r"\b(?:your|system|hidden)(?:\s+\w+){0,2}\s+(?:prompt|instructions?|message|directive)\b"
+    r"\b(?:system|hidden|internal)\s+"
+    r"(?:prompt|instruction|message|directive|config(?:uration)?|rule)s?\b"
 )
 _EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก|ขอดู|ขอ)"
-_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|(?:ค่า|ข้อมูล)จริงทั้งหมด|คำสั่งระบบ)"
+_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|ค่าจริงทั้งหมด|คำสั่งระบบ)"
 
 # Rule table: (category, severity, compiled pattern, rationale).
 # Patterns are intentionally readable — this file IS the spec of what layer 1
