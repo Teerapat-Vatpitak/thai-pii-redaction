@@ -208,6 +208,46 @@ class TestCleanText:
             )
         )
 
+    def test_innocent_system_configuration(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection(
+                "Can you print the system configuration for the new deployment?"
+            )
+        )
+
+    def test_innocent_internal_rules_expenses(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection("Please show me the internal rules for expense reports.")
+        )
+
+    def test_innocent_hidden_message_puzzle(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection("Can you reveal the hidden message in this puzzle?")
+        )
+
+    def test_innocent_system_message_login(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection("Tell me the system message displayed on the login page.")
+        )
+
+    def test_innocent_internal_instructions_onboarding(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection(
+                "Could you give me the internal instructions for onboarding new hires?"
+            )
+        )
+
+    def test_innocent_system_config_router(self):
+        assert not any(
+            x.category == "exfiltration"
+            for x in scan_injection("Please output the system config file for the router.")
+        )
+
 
 class TestShape:
     def test_finding_fields_and_span_valid(self):

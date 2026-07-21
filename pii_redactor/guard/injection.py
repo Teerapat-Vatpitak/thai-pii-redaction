@@ -74,8 +74,8 @@ _EXFIL_VERB_EN = (
     r"|what(?:'s|\s+is)|write\s+out)\b"
 )
 _EXFIL_TARGET_EN = (
-    r"\b(?:system|hidden|internal)\s+"
-    r"(?:prompt|instruction|message|directive|config(?:uration)?|rule)s?\b"
+    r"\b(?:system|hidden)\s+"
+    r"(?:prompt|instruction)s?\b"
 )
 _EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก|ขอดู|ขอ)"
 _EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|ค่าจริงทั้งหมด|คำสั่งระบบ)"
