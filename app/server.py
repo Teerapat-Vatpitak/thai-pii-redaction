@@ -426,13 +426,12 @@ def _risk_label(score: float) -> str:
     )
 
 
-@app.post("/api/analyze")
-def analyze(request: AnalyzeRequest):
-    start = time.time()
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
-    text = clean(request.text).text
+def _analyze_text(text: str) -> dict:
+    """Assemble the full PDPA analysis for already-cleaned text.
 
+    Shared by /api/analyze (JSON) and /api/analyze-report (PDF) so the two
+    can never drift. Returns the exact response dict /api/analyze serves.
+    """
     report = generate_report(text)
     reid = report.reid_risk
 
@@ -506,15 +505,6 @@ def analyze(request: AnalyzeRequest):
             }
         )
 
-    write_process_log(
-        session_id=str(uuid.uuid4()),
-        step="api_analyze",
-        entity_count=report.direct_pii_count,
-        validation_result="pass",
-        flags=[],
-        latency_ms=(time.time() - start) * 1000,
-        output_dir=_get_audit_log_dir(),
-    )
     return {
         "overall_score": report.overall_score,
         "overall_grade": report.overall_grade,
@@ -532,6 +522,25 @@ def analyze(request: AnalyzeRequest):
         "breakdown": breakdown,
         "recommendations": recs,
     }
+
+
+@app.post("/api/analyze")
+def analyze(request: AnalyzeRequest):
+    start = time.time()
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    text = clean(request.text).text
+    result = _analyze_text(text)
+    write_process_log(
+        session_id=str(uuid.uuid4()),
+        step="api_analyze",
+        entity_count=result["direct_pii_count"],
+        validation_result="pass",
+        flags=[],
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
+    return result
 
 
 @app.post("/api/detect")
