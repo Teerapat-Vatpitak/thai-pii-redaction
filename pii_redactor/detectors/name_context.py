@@ -35,12 +35,16 @@ _TITLES = {
 # "ชื่อ" is only a name cue right after a first-person pronoun.
 _PRONOUNS = {"ผม", "ดิฉัน", "ฉัน", "หนู", "กระผม", "ข้าพเจ้า"}
 # Cues that introduce a name with no "ชื่อ" in between. Thai official letters
-# open with "ข้าพเจ้า <name>" and case files use "ผู้ร้อง/ผู้ยื่นคำร้อง <name>",
-# so the name arrives directly after the cue -- the pronoun+ชื่อ rule above
-# never fires on them, which is how "ข้าพเจ้า วิชัย ประสงค์ดี" went out intact.
-# Kept deliberately narrow: these words are followed by a person name in
-# practically every document that uses them, unlike a bare "ผม".
-_DIRECT_NAME_CUES = {"ข้าพเจ้า", "ผู้ร้อง", "ผู้ร้องเรียน", "ผู้ยื่นคำร้อง", "ผู้เสียหาย"}
+# open with "ข้าพเจ้า <name>", so the name arrives directly after the cue --
+# the pronoun+ชื่อ rule above never fires on them, which is how
+# "ข้าพเจ้า วิชัย ประสงค์ดี" went out intact.
+#
+# ONLY tokens newmm actually keeps whole belong here. ผู้ร้อง / ผู้ร้องเรียน /
+# ผู้ยื่นคำร้อง were in this set and were dead code: newmm splits them into
+# ['ผู้', 'ร้อง'] etc., and the loop below compares whole tokens, so they never
+# matched once. Verified with word_tokenize before trimming the set. Adding a
+# cue here without checking that is how a fix ships doing nothing.
+_DIRECT_NAME_CUES = {"ข้าพเจ้า", "ผู้เสียหาย"}
 # Compound self-introductions newmm may keep as one token.
 _INTRO_COMPOUND = {"ผมชื่อ", "ดิฉันชื่อ", "ฉันชื่อ", "หนูชื่อ", "ลงชื่อ"}
 
@@ -115,7 +119,19 @@ def detect_name_context(text: str) -> list[Entity]:
     ents: list[Entity] = []
     for idx, (tok, _s, _e) in enumerate(spans):
         is_title = tok in _TITLES
-        is_cue = is_title or tok in _INTRO_COMPOUND or tok in _DIRECT_NAME_CUES
+        is_direct = tok in _DIRECT_NAME_CUES
+        if is_direct:
+            # A direct cue only introduces a NAME when a space follows it. Thai
+            # runs words together, so "ข้าพเจ้าขอแสดงความนับถือ" (the standard
+            # closing of an official letter) and "ข้าพเจ้ามีเลขบัตรประชาชน" tokenize
+            # with the cue glued to the next word -- and the group collector
+            # happily took "ขอแสดงความนับถือ" as a person's name and vaulted it.
+            # Every verified false positive lacks the space; every real name
+            # ("ข้าพเจ้า วิชัย ประสงค์ดี") has it.
+            nxt = spans[idx + 1][0] if idx + 1 < n else ""
+            if nxt.strip() != "":
+                continue
+        is_cue = is_title or tok in _INTRO_COMPOUND or is_direct
         if not is_cue and tok == "ชื่อ":
             # cue only if the previous non-space token is a first-person pronoun
             j = idx - 1
