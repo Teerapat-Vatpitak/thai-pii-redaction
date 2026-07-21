@@ -155,3 +155,33 @@ class TestDemoGate:
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
         assert "AI Guard" in resp.text
+
+
+class TestAnalyzeReport:
+    def test_returns_valid_pdf_b64(self, client):
+        resp = client.post("/api/analyze-report", json={"text": THAI_TEXT})
+        assert resp.status_code == 200
+        body = resp.json()
+        import base64
+
+        pdf = base64.b64decode(body["report_pdf_b64"])
+        assert pdf[:5] == b"%PDF-"
+        assert isinstance(body["overall_score"], (int, float))
+        assert body["overall_grade"]
+
+    def test_report_pdf_is_pii_free_end_to_end(self, client):
+        import base64
+        import io
+
+        import pdfplumber
+
+        resp = client.post("/api/analyze-report", json={"text": THAI_TEXT})
+        pdf = base64.b64decode(resp.json()["report_pdf_b64"])
+        with pdfplumber.open(io.BytesIO(pdf)) as doc:
+            text = "\n".join(page.extract_text() or "" for page in doc.pages)
+        assert "สมชาย" not in text
+        assert "1101700230708" not in text
+        assert "081-234-5678" not in text and "0812345678" not in text
+
+    def test_empty_text_400(self, client):
+        assert client.post("/api/analyze-report", json={"text": " "}).status_code == 400
