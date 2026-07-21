@@ -34,6 +34,13 @@ _TITLES = {
 }
 # "ชื่อ" is only a name cue right after a first-person pronoun.
 _PRONOUNS = {"ผม", "ดิฉัน", "ฉัน", "หนู", "กระผม", "ข้าพเจ้า"}
+# Cues that introduce a name with no "ชื่อ" in between. Thai official letters
+# open with "ข้าพเจ้า <name>" and case files use "ผู้ร้อง/ผู้ยื่นคำร้อง <name>",
+# so the name arrives directly after the cue -- the pronoun+ชื่อ rule above
+# never fires on them, which is how "ข้าพเจ้า วิชัย ประสงค์ดี" went out intact.
+# Kept deliberately narrow: these words are followed by a person name in
+# practically every document that uses them, unlike a bare "ผม".
+_DIRECT_NAME_CUES = {"ข้าพเจ้า", "ผู้ร้อง", "ผู้ร้องเรียน", "ผู้ยื่นคำร้อง", "ผู้เสียหาย"}
 # Compound self-introductions newmm may keep as one token.
 _INTRO_COMPOUND = {"ผมชื่อ", "ดิฉันชื่อ", "ฉันชื่อ", "หนูชื่อ", "ลงชื่อ"}
 
@@ -108,7 +115,7 @@ def detect_name_context(text: str) -> list[Entity]:
     ents: list[Entity] = []
     for idx, (tok, _s, _e) in enumerate(spans):
         is_title = tok in _TITLES
-        is_cue = is_title or tok in _INTRO_COMPOUND
+        is_cue = is_title or tok in _INTRO_COMPOUND or tok in _DIRECT_NAME_CUES
         if not is_cue and tok == "ชื่อ":
             # cue only if the previous non-space token is a first-person pronoun
             j = idx - 1

@@ -13,6 +13,8 @@ TOKEN_LABEL: dict[str, str] = {
     "PHONE": "โทรศัพท์",
     "EMAIL": "อีเมล",
     "ADDRESS": "ที่อยู่",
+    "POSTAL_CODE": "รหัสไปรษณีย์",
+    "MEDICAL_ID": "เลขเวชระเบียน",
     "BANK_ACCOUNT": "บัญชีธนาคาร",
     "CREDIT_CARD": "บัตรเครดิต",
     "DATE_OF_BIRTH": "วันเกิด",

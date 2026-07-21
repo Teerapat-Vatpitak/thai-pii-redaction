@@ -400,9 +400,14 @@ def test_token_label_map_matches_v2_contract():
 
     assert TOKEN_LABEL["THAI_ID"] == "บัตรประชาชน"
     assert TOKEN_LABEL["BANK_ACCOUNT"] == "บัญชีธนาคาร"
-    assert len(TOKEN_LABEL) == 17
+    assert len(TOKEN_LABEL) == 19
     assert TOKEN_LABEL["ORGANIZATION"] == "องค์กร"
     assert TOKEN_LABEL["ID_NUMBER"] == "รหัสอ้างอิง"
+    # Added with the Thai address/health detectors: a postal code and a
+    # hospital number are neither ADDRESS nor a generic reference number, and
+    # the label map is what the caller sees, so it has to name them honestly.
+    assert TOKEN_LABEL["POSTAL_CODE"] == "รหัสไปรษณีย์"
+    assert TOKEN_LABEL["MEDICAL_ID"] == "เลขเวชระเบียน"
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
 from pii_redactor.anonymizer.token_generator import generate_token
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.leak_guard import pseudonym_ranges
 from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, VaultRecord
 from pii_redactor.session_vault import SessionVault
 
@@ -244,8 +245,21 @@ def anonymize(
         if rec is not None:
             known_pseudonyms.add(rec.pseudonym)
 
+    # Whole-string exclusion is not enough once the detectors read address
+    # STRUCTURE: a generated fake address carries its own "ซอย"/"แขวง" labels,
+    # so the address detectors re-detect a FRAGMENT of a pseudonym we just
+    # wrote ("สุขสันต์ 9" out of a longer fake address). That fragment is not
+    # in known_pseudonyms and used to raise PIILeakError on our own output.
+    # Same fix leak_guard already applies: excuse a span only when pseudonym
+    # occurrences positionally account for it.
+    ranges = pseudonym_ranges(pseudonymized, [p for p in known_pseudonyms if p])
     leak_entities = detect_fp(pseudonymized)
-    real_leaks = [e for e in leak_entities if e.original_text not in known_pseudonyms]
+    real_leaks = [
+        e
+        for e in leak_entities
+        if e.original_text not in known_pseudonyms
+        and not any(cs <= e.span[0] and e.span[1] <= ce for cs, ce in ranges)
+    ]
     if real_leaks:
         raise PIILeakError(
             f"PII detected in pseudonymized output: {[e.data_type for e in real_leaks]}"

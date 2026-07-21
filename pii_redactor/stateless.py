@@ -14,17 +14,27 @@ stateless platform deployment from the stateful local one.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
 from pii_redactor.detectors.aggregate import detect_all
-from pii_redactor.leak_guard import scan_outbound_leaks
-from pii_redactor.models import Entity, EntityRegistry
+from pii_redactor.leak_guard import scan_outbound_leaks, scan_residual_signals
+from pii_redactor.models import AIResponse, Entity, EntityRegistry
 from pii_redactor.report import scan_section26
+from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.session_vault import SessionVault
 
 _VALID_MODES = ("token", "surrogate")
+
+
+@dataclass
+class StatelessRestoreResult:
+    restored_text: str
+    replaced_count: int
+    leftover_pseudonyms: list[str]
+    warnings: list[str]
 
 
 @dataclass
@@ -63,6 +73,7 @@ def sanitize_into_vault(
     mode: str,
     salt: str,
     scan_leaks: Callable[[str, SessionVault], list[Entity]] = scan_outbound_leaks,
+    block_tb_leaks: bool = False,
 ) -> SanitizeCore:
     """Detect, mask and leak-guard `text` using the vault the caller supplies.
 
@@ -95,7 +106,16 @@ def sanitize_into_vault(
     fp_leaks = [e for e in leaks if e.redact_type == "FP"]
     if fp_leaks:
         raise StatelessLeakError(sorted({e.data_type for e in fp_leaks}))
-    warnings = [f"possible_tb_leak:{e.data_type}" for e in leaks if e.redact_type != "FP"]
+    tb_leaks = [e for e in leaks if e.redact_type != "FP"]
+    if tb_leaks and block_tb_leaks:
+        # Platform path: the caller is a stranger and the text goes straight on
+        # to a model, so a warning string nobody parses is not a control. NAME
+        # and ADDRESS are exactly what detection misses most, which makes this
+        # the most likely disclosure route on a hosted deployment -- it has to
+        # halt. The local path keeps warning: the vault stays on the user's own
+        # machine and a human is looking at the result.
+        raise StatelessLeakError(sorted({e.data_type for e in tb_leaks}))
+    warnings = [f"possible_tb_leak:{e.data_type}" for e in tb_leaks]
 
     out_entities = []
     for e in detected:
@@ -122,6 +142,66 @@ def sanitize_into_vault(
     )
 
 
+def restore_stateless(text: str, *, mapping: dict[str, str]) -> StatelessRestoreResult:
+    """Put the originals back using the mapping the caller kept. Retains nothing.
+
+    The mirror of `sanitize_stateless`, and the half the platform contract was
+    missing: a consumer that can mask but not restore cannot complete the
+    round trip the service promises, so the masking call is a dead end for
+    them.
+
+    The mapping is a stranger's input on the platform path, so it is loaded
+    into a throwaway vault through the same `seed()` guard as prior_mapping --
+    a replayed mapping cannot make one pseudonym mean two people, and
+    `trusted_pseudonyms()` keeps these re-admitted pairs from being treated as
+    this process's own work.
+    """
+    if not isinstance(mapping, dict):
+        raise ValueError("mapping must be a {pseudonym: original} dict")
+
+    vault = SessionVault()
+    try:
+        for pseudonym, original in mapping.items():
+            vault.seed(pseudonym, original)
+        result = reverse_map(
+            AIResponse(text=text, request_id=str(uuid.uuid4()), latency=0.0),
+            EntityRegistry(entities=[], fp_count=0, tb_count=0),
+            vault,
+        )
+        restored = result.text
+        flags = list(result.flags)
+    finally:
+        # The originals were handed in by the caller and copied into the
+        # result; clearing only scrubs this throwaway vault. Runs on error
+        # paths too, so a failed restore leaves nothing behind either.
+        vault.clear()
+
+    # Counted here rather than taken from the audit summary: the caller's
+    # question is "how much of MY mapping was applied", which is a property of
+    # the mapping and the text, not of the vault's bookkeeping.
+    #
+    # Two different failures, deliberately kept apart. A pseudonym still
+    # present AFTER the restore was not substituted (a defect on our side). A
+    # pseudonym that never appeared in the reply at all means the model
+    # dropped or rewrote it (a defect in the answer). Counting "absent from
+    # the output" as success would score both as a clean restore.
+    present = [p for p in mapping if p and p in text]
+    leftover = sorted(p for p in present if p in restored)
+    replaced = len(present) - len(leftover)
+    unused = [p for p in mapping if p and p not in text]
+    if unused:
+        flags.append(f"unused_pseudonyms:{len(unused)}")
+    if leftover:
+        flags.append(f"pseudonym_not_substituted:{len(leftover)}")
+
+    return StatelessRestoreResult(
+        restored_text=restored,
+        replaced_count=replaced,
+        leftover_pseudonyms=leftover,
+        warnings=flags,
+    )
+
+
 def sanitize_stateless(
     text: str,
     *,
@@ -143,8 +223,19 @@ def sanitize_stateless(
             for pseudonym, original in prior_mapping.items():
                 vault.seed(pseudonym, original)
 
-        core = sanitize_into_vault(text, vault, mode=mode, salt=salt)
+        # Pass this module's own reference explicitly. The default argument is
+        # bound at import time, so relying on it would silently ignore any
+        # substitution made here -- which is the seam the docstring promises.
+        core = sanitize_into_vault(
+            text,
+            vault,
+            mode=mode,
+            salt=salt,
+            scan_leaks=scan_outbound_leaks,
+            block_tb_leaks=True,
+        )
         mapping = vault.export_mapping()
+        residual = scan_residual_signals(core.sanitized_text, vault)
     finally:
         # The map has already been copied out as plain strings; clearing only
         # scrubs this throwaway vault. Runs on the error paths too, so a failed
@@ -157,5 +248,5 @@ def sanitize_stateless(
         entities=core.entities,
         entity_type_counts=core.entity_type_counts,
         section26=scan_section26(text),
-        warnings=core.warnings,
+        warnings=core.warnings + residual,
     )
