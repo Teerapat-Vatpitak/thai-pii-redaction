@@ -1,13 +1,46 @@
+# Keep the build context small and the image free of things a hosted API has no
+# use for. Before this, `desktop/src-tauri/target` alone was 5.1 GB of Rust
+# build artifacts being shipped to the daemon on every build, and COPY . . put
+# them in the image.
+
+# Build artifacts and environments
 .venv
+node_modules
+desktop/src-tauri/target
+dist
+build
 __pycache__
 *.pyc
 *.pyo
 .pytest_cache
+.ruff_cache
+
+# Storefronts that do not run in the container. The image serves the API; the
+# browser extension and the Tauri shell are installed on the user's machine.
+desktop
+extension
+
+# Development and release material
 .git
+.github
+.claude
 .superpowers
+docs
+packaging
+scripts
+tests
+benchmark
+examples
+assets
+*.md
+!README.md
+
+# Runtime output and secrets
 *.jsonl
 audit_*.jsonl
+logs
 .env
+.env.*
 *.key
 *.pem
 *.log
