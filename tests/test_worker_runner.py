@@ -126,3 +126,24 @@ def test_poll_non_200_logs_status_but_not_body(monkeypatch, caplog):
         assert t.poll() is None
     assert "401" in caplog.text
     assert "bad key" not in caplog.text
+
+
+def test_submit_raising_does_not_kill_loop():
+    class SubmitBoomTransport:
+        def __init__(self, jobs):
+            self._jobs = list(jobs)
+
+        def poll(self):
+            return self._jobs.pop(0) if self._jobs else None
+
+        def submit(self, result):
+            raise RuntimeError("result endpoint down")
+
+    t = SubmitBoomTransport(
+        [
+            {"job_id": "s1", "operation": "detect", "payload": {"text": THAI_TEXT}},
+            {"job_id": "s2", "operation": "detect", "payload": {"text": THAI_TEXT}},
+        ]
+    )
+    # both jobs processed despite every submit raising — the loop never dies
+    assert run(t, max_jobs=2) == 2
