@@ -34,6 +34,7 @@ from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from pii_redactor.audit import write_process_log
+from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.ingest.file_detector import detect_source_type
@@ -203,6 +204,10 @@ class ReidentifyRequest(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
+    text: str
+
+
+class DetectRequest(BaseModel):
     text: str
 
 
@@ -485,6 +490,34 @@ def analyze(request: AnalyzeRequest):
         "breakdown": breakdown,
         "recommendations": recs,
     }
+
+
+@app.post("/api/detect")
+def detect(request: DetectRequest):
+    """Detection only — no session, no vault, no persistence.
+
+    Exists for the demo playground's live-highlight loop: /api/sanitize mints a
+    session per call, which a keystroke-frequency caller would flood. Offsets
+    must stay aligned with the caller's text, so this uses
+    clean_length_preserving (same contract as the redact-pdf path), never
+    clean().
+    """
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    entities = detect_all(clean_length_preserving(request.text))
+    out = [
+        {
+            "start": e.span[0],
+            "end": e.span[1],
+            "data_type": e.data_type,
+            "redact_type": e.redact_type,
+        }
+        for e in entities
+    ]
+    counts: dict[str, int] = {}
+    for e in out:
+        counts[e["data_type"]] = counts.get(e["data_type"], 0) + 1
+    return {"entities": out, "entity_type_counts": counts}
 
 
 def _first_page_png(pdf_path: str) -> str:

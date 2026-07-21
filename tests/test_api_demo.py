@@ -1,0 +1,62 @@
+"""Tests for the demo-facing endpoints (feature A: playground).
+
+/api/detect    — detection-only, no session, offsets align with input text
+/api/roundtrip — stateless mask -> LLM -> restore in one request
+/demo          — gated behind AIGUARD_DEMO=1
+"""
+
+import pytest
+
+try:
+    from fastapi.testclient import TestClient
+
+    from app.server import app
+
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
+
+THAI_TEXT = "ผมชื่อ นายสมชาย ใจดี เลขบัตรประชาชน 1101700230708 โทร 081-234-5678"
+
+
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+
+    from app.server import app
+
+    return TestClient(app, base_url="http://localhost")
+
+
+class TestDetect:
+    def test_detect_returns_entities_with_aligned_spans(self, client):
+        resp = client.post("/api/detect", json={"text": THAI_TEXT})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["entities"], "expected at least one entity"
+        for ent in body["entities"]:
+            assert set(ent) == {"start", "end", "data_type", "redact_type"}
+            assert 0 <= ent["start"] < ent["end"] <= len(THAI_TEXT)
+        types = {e["data_type"] for e in body["entities"]}
+        assert "THAI_ID" in types
+        assert body["entity_type_counts"]["THAI_ID"] >= 1
+
+    def test_detect_spans_survive_thai_digits(self, client):
+        # clean_length_preserving swaps Thai digits in place — offsets must not move
+        text = "โทร ๐๘๑-๒๓๔-๕๖๗๘ ครับ"
+        resp = client.post("/api/detect", json={"text": text})
+        assert resp.status_code == 200
+        for ent in resp.json()["entities"]:
+            assert ent["end"] <= len(text)
+
+    def test_detect_empty_text_400(self, client):
+        assert client.post("/api/detect", json={"text": "  "}).status_code == 400
+
+    def test_detect_creates_no_session(self, client):
+        import app.server as server
+
+        before = len(server.SERVICE._sessions)
+        client.post("/api/detect", json={"text": THAI_TEXT})
+        assert len(server.SERVICE._sessions) == before
