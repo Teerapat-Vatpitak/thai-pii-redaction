@@ -28,6 +28,28 @@ _HIDDEN_CHARS = re.compile(
     "]"
 )
 
+# role_hijack needs BOTH a role-grab phrase ("you are now", "จากนี้ไปคุณคือ", ...)
+# AND a jailbreak/no-limits marker nearby — either alone is common in innocent
+# text ("you are now connected...", "pretend to be a customer..."). The two
+# fragments below are combined (in either order, within a short window) so a
+# marker built into the phrase itself ("act as DAN") still fires in one shot.
+_ROLE_PHRASE = (
+    r"(?:you are now|act as|pretend to be|from now on you are"
+    r"|ignore your (?:role|persona)|จากนี้ไปคุณคือ|สวมบทเป็น|คุณคือระบบ)"
+)
+_JAILBREAK_MARKER = (
+    r"(?:unrestricted|unfiltered|jailbroken|no restrictions?|\bdan\b|developer mode"
+    r"|no rules|ไม่มีข้อจำกัด|ไม่มีขีดจำกัด|ปลดล็อก|ทำได้ทุกอย่าง)"
+)
+
+# exfiltration needs an action verb governing a system/vault target — a bare
+# mention of "system prompt" in ordinary text ("update the system prompt
+# config file") is not an attack; "output the system prompt" is.
+_EXFIL_VERB_EN = r"(?:reveal|print|output|repeat|leak|dump|show)"
+_EXFIL_TARGET_EN = r"(?:(?:system|hidden)\s+)?(?:prompt|instruction|rule|message)"
+_EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก)"
+_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|(?:ค่า|ข้อมูล)จริงทั้งหมด|prompt|คำสั่งระบบ)"
+
 # Rule table: (category, severity, compiled pattern, rationale).
 # Patterns are intentionally readable — this file IS the spec of what layer 1
 # covers, and the reviewer/judge should be able to read the ceiling off it.
@@ -48,23 +70,21 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
         "role_hijack",
         "medium",
         re.compile(
-            r"คุณคือระบบที่ไม่มีข้อจำกัด|จากนี้ไปคุณคือ|สวมบทเป็น"
-            r"|you are now|act as (?:dan|an? unrestricted)|pretend to be"
-            r"|from now on you are|ignore your (?:role|persona)",
+            rf"{_ROLE_PHRASE}.{{0,60}}{_JAILBREAK_MARKER}"
+            rf"|{_JAILBREAK_MARKER}.{{0,60}}{_ROLE_PHRASE}",
             re.IGNORECASE,
         ),
-        "ข้อความพยายามเปลี่ยนบทบาทหรือปลดข้อจำกัดของผู้ช่วย",
+        "ข้อความพยายามเปลี่ยนบทบาทพร้อมปลดข้อจำกัดของผู้ช่วย (role grab + jailbreak marker)",
     ),
     (
         "exfiltration",
         "high",
         re.compile(
-            r"system prompt|reveal (?:your |the )?(?:prompt|instruction|rule)"
-            r"|ตารางจับคู่โทเคน|แสดง(?:ค่า|ข้อมูล)จริงทั้งหมด|เปิดเผย(?:prompt|คำสั่งระบบ)"
-            r"|print (?:your |the )?(?:system|hidden) (?:prompt|message)",
+            rf"{_EXFIL_VERB_EN}\s+(?:your\s+|the\s+)?{_EXFIL_TARGET_EN}"
+            rf"|{_EXFIL_VERB_TH}{_EXFIL_TARGET_TH}",
             re.IGNORECASE,
         ),
-        "ข้อความพยายามดึง system prompt หรือข้อมูลภายในออกมา",
+        "ข้อความพยายามสั่งให้แสดง/พิมพ์ system prompt หรือข้อมูลภายใน (verb + target)",
     ),
 ]
 

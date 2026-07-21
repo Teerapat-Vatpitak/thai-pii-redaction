@@ -60,6 +60,26 @@ class TestCleanText:
         f = scan_injection("ระบบนัดหมายของโรงพยาบาลใช้งานยากมาก")
         assert not any(x.category == "role_hijack" for x in f)
 
+    def test_innocent_english_you_are_now(self):
+        f = scan_injection("You are now connected to the server. Please wait.")
+        assert not any(x.category == "role_hijack" for x in f)
+
+    def test_innocent_english_from_now_on(self):
+        f = scan_injection("From now on you are responsible for closing the store at 9pm.")
+        assert not any(x.category == "role_hijack" for x in f)
+
+    def test_innocent_english_pretend_role_play(self):
+        f = scan_injection("Please pretend to be a customer and write a review.")
+        assert not any(x.category == "role_hijack" for x in f)
+
+    def test_innocent_system_prompt_mention(self):
+        f = scan_injection("Update the system prompt configuration file before the release.")
+        assert not any(x.category == "exfiltration" for x in f)
+
+    def test_innocent_thai_role_sentence(self):
+        f = scan_injection("จากนี้ไปคุณคือผู้จัดการสาขา ดูแลพนักงานทั้งหมด")
+        assert not any(x.category == "role_hijack" for x in f)
+
 
 class TestShape:
     def test_finding_fields_and_span_valid(self):
