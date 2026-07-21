@@ -161,6 +161,24 @@ class SessionVault:
                 out[pseudonym] = record.original
         return out
 
+    def trusted_pseudonyms(self) -> set[str]:
+        """Pseudonyms this vault minted itself, excluding caller-supplied ones.
+
+        SECURITY BOUNDARY. `_reverse` mixes two populations: values written by
+        the anonymizer (trustworthy — this process generated them) and values
+        re-admitted through seed() from a caller-held mapping (a stranger's
+        claim on the platform path). The outbound leak guard excuses anything
+        it believes is a pseudonym, so treating the two alike let a caller
+        declare a real, checksum-valid national ID to be "their pseudonym" and
+        have the guard fall silent on it. Callers that need the full set for
+        positional bookkeeping still read `_reverse` directly.
+        """
+        return {
+            record.pseudonym
+            for record in self._table.values()
+            if record.data_type != SEEDED_DATA_TYPE and record.pseudonym
+        }
+
     def seed(self, pseudonym: str, original: str) -> None:
         """Re-admit a pair from a previous turn's exported mapping.
 

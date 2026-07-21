@@ -222,6 +222,35 @@ _RE_PASSPORT_TH = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{2}\d{7})(?![A-Za-z0-9_])"
 _RE_PASSPORT = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{1,2}\d{6,9})(?![A-Za-z0-9_])")
 _RE_STUDENT_ID = re.compile(r"(?<!\d)(\d{8,12})(?!\d)")
 
+# Thai address components. The NER side only ever recognises place NAMES it has
+# seen (province, district), which is the LEAST identifying part of an address
+# line -- "กรุงเทพมหานคร" was masked while "99 ซอยลาดพร้าว 71" went out intact.
+# These patterns key on the structure instead: a label word followed by its
+# value. The label itself is not captured (group 1 is the value), so the output
+# still reads as an address with the identifying part removed.
+_RE_HOUSE_NO = re.compile(r"(?:บ้านเลขที่|เลขที่|ที่อยู่)\s*(\d{1,4}(?:\s*[/-]\s*\d{1,4})?)(?!\d)")
+# Captures the soi/road NAME plus its number ("ลาดพร้าว 71"): the name alone
+# identifies a neighbourhood and the number narrows it to one lane, so masking
+# only the digits would leave the person locatable.
+_RE_SOI_ROAD = re.compile(r"(?:ซอย|ซ\.|ถนน|ถ\.)\s*([ก-๛A-Za-z0-9]+(?:\s*\d{1,4})?)(?!\d)")
+_RE_MOO = re.compile(r"(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(?!\d)")
+# Sub-district / district / province NAMES. The CRF recognises the well-known
+# ones (it masked "กรุงเทพมหานคร") but misses the rest, and a sub-district plus
+# a postal code narrows a person to a few streets. Structure again, not a
+# gazetteer: whatever follows the administrative label is the value.
+_RE_ADMIN_AREA = re.compile(r"(?:แขวง|ตำบล|ต\.|อำเภอ|อ\.|เขต|จังหวัด|จ\.)\s*([ก-๛]{2,})")
+# A bare 5-digit run is far too common to mask on sight (quantities, years in
+# tables, reference numbers), so the postal code is only claimed when an address
+# cue sits close in front of it.
+_RE_POSTAL_CODE = re.compile(r"(?<!\d)(\d{5})(?!\d)")
+# HN (เวชระเบียน) is the primary identifier inside a Thai health record and is
+# typically 5-9 digits -- below the 8-digit floor the generic numeric catch-all
+# starts at, so it was invisible to every detector. Requires its own cue, which
+# also makes the MEDICAL_ID label honest rather than a guess.
+_RE_MEDICAL_ID = re.compile(
+    r"(?<![A-Za-z])(?:HN|เวชระเบียน|ผู้ป่วยเลขที่)\s*[:：]?\s*(\d{4,9})(?!\d)", re.IGNORECASE
+)
+
 _SEP_RE = re.compile(r"[-\s]")
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
 
@@ -237,6 +266,11 @@ _PHONE_CUE_RE = re.compile(r"โทรศัพท์|โทร|เบอร์|
 # business PO/invoice number stops masquerading as a passport or student id --
 # it is still masked, as the generic ID_NUMBER.
 _BIRTH_CUE_RE = re.compile(r"เกิด")
+# Address cue for the postal code. The window is wider than _CUE_WINDOW because
+# a postal code sits at the END of the address line, so the nearest cue is a
+# whole district/province name away ("แขวงวังทองหลาง กรุงเทพมหานคร 10310").
+_POSTAL_CUE_RE = re.compile(r"รหัสไปรษณีย์|จังหวัด|แขวง|ตำบล|อำเภอ|เขต|กรุงเทพ|ที่อยู่")
+_POSTAL_CUE_WINDOW = 45
 _STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|student", re.IGNORECASE)
 _PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือเดินทาง|passport", re.IGNORECASE)
 
@@ -359,6 +393,24 @@ def detect_fp(text: str) -> list[Entity]:
     for m in _RE_STUDENT_ID.finditer(text):
         dtype = "STUDENT_ID" if _cue_before(_STUDENT_CUE_RE, text, m.start(1)) else "ID_NUMBER"
         candidates.append(_make_entity(dtype, m, text, score=0.8))
+
+    # 11. ADDRESS components (house number, soi/road, moo). Scored above the
+    # generic numeric catch-alls (0.8) so an address value keeps its honest
+    # ADDRESS label instead of being swallowed as ID_NUMBER, but below the
+    # checksum-backed types (1.0) which must always win an overlap.
+    for pattern in (_RE_HOUSE_NO, _RE_SOI_ROAD, _RE_MOO, _RE_ADMIN_AREA):
+        for m in pattern.finditer(text):
+            candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
+
+    # 12. POSTAL_CODE — only with an address cue in front (see _RE_POSTAL_CODE).
+    for m in _RE_POSTAL_CODE.finditer(text):
+        ctx = text[max(0, m.start(1) - _POSTAL_CUE_WINDOW) : m.start(1)]
+        if _POSTAL_CUE_RE.search(ctx):
+            candidates.append(_make_entity("POSTAL_CODE", m, text, score=0.85))
+
+    # 13. MEDICAL_ID (HN) — cue-gated, so the label is earned rather than assumed.
+    for m in _RE_MEDICAL_ID.finditer(text):
+        candidates.append(_make_entity("MEDICAL_ID", m, text, score=0.9))
 
     candidates = _disambiguate_bank_phone(text, candidates)
     return _deduplicate(candidates)

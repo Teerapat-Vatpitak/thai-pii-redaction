@@ -71,7 +71,7 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
     2. Locate every pseudonym occurrence on the ORIGINAL (untouched) text,
        longest pseudonym first so a shorter pseudonym cannot claim a slice of a
        longer one; claimed ranges never overlap (same rule as
-       leak_guard._pseudonym_ranges).
+       leak_guard.pseudonym_ranges).
     3. Splice the originals in a single tail-first pass.
     4. Return (restored_text, list_of_replaced_pseudonyms).
 
