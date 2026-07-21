@@ -222,6 +222,9 @@ def main() -> None:
     # Single-source version (Horizon-1 #5): bundle VERSION at the bundle root
     # so app/server.py's _read_version() finds it via sys._MEIPASS when frozen.
     cmd += ["--add-data", f"{ROOT / 'VERSION'}{os.pathsep}."]
+    # Bundle the demo playground page so app/server.py's _demo_page_path() can
+    # find it under sys._MEIPASS/demo/playground.html when AIGUARD_DEMO=1.
+    cmd += ["--add-data", f"{ROOT / 'demo' / 'playground.html'}{os.pathsep}demo"]
     cmd += data_args()
     # Absolute paths so we never depend on / mutate the caller's working directory.
     cmd += [
