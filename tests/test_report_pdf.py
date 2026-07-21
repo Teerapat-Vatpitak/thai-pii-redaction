@@ -8,8 +8,15 @@ names), never raw text or entity values — the PII-free property is structural
 import io
 
 import pdfplumber
+import pytest
 
+from pii_redactor.exporter import _register_thai_font
 from pii_redactor.report_pdf import render_pdpa_report
+
+requires_thai_font = pytest.mark.skipif(
+    _register_thai_font() == "Helvetica",
+    reason="no Thai-capable font on this machine — Thai text cannot render or extract",
+)
 
 ANALYSIS = {
     "overall_score": 72.0,
@@ -49,6 +56,7 @@ def test_returns_pdf_magic_bytes():
     assert pdf[:5] == b"%PDF-"
 
 
+@requires_thai_font
 def test_report_carries_scores_headings_and_thai_labels():
     pdf = render_pdpa_report(
         ANALYSIS,
@@ -67,12 +75,14 @@ def test_report_carries_scores_headings_and_thai_labels():
     assert "ข้อจำกัด" in text  # limitations block present
 
 
+@requires_thai_font
 def test_report_never_renders_keyword_excerpts():
     # section26 entries carry a "keyword" field — the renderer must not draw it
     pdf = render_pdpa_report(ANALYSIS, version="2.3.0", source_sha256_12="abc123def456")
     assert "แพ้ยา" not in _text_of(pdf)
 
 
+@requires_thai_font
 def test_empty_findings_render_gracefully():
     empty = {
         **ANALYSIS,

@@ -7,6 +7,8 @@
 
 import pytest
 
+from pii_redactor.exporter import _register_thai_font
+
 try:
     from fastapi.testclient import TestClient
 
@@ -17,6 +19,11 @@ except ImportError:
     FASTAPI_AVAILABLE = False
 
 pytestmark = pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
+
+requires_thai_font = pytest.mark.skipif(
+    _register_thai_font() == "Helvetica",
+    reason="no Thai-capable font on this machine — Thai text cannot render or extract",
+)
 
 THAI_TEXT = "ผมชื่อ นายสมชาย ใจดี เลขบัตรประชาชน 1101700230708 โทร 081-234-5678"
 
@@ -169,6 +176,7 @@ class TestAnalyzeReport:
         assert isinstance(body["overall_score"], (int, float))
         assert body["overall_grade"]
 
+    @requires_thai_font
     def test_report_pdf_is_pii_free_end_to_end(self, client):
         import base64
         import io
