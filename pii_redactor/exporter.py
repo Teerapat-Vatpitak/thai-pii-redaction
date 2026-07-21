@@ -16,6 +16,9 @@ from pii_redactor.output_validator import ValidationResult
 _THAI_FONT_CANDIDATES = [
     r"C:\Windows\Fonts\sarabun-v17-latin_latin-ext_thai_vietnamese-regular.ttf",
     "/usr/share/fonts/truetype/thai/Sarabun-Regular.ttf",
+    # fonts-thai-tlwg (Debian/Ubuntu, incl. CI + Docker): Laksaman is the
+    # TH Sarabun New derivative the package actually ships.
+    "/usr/share/fonts/truetype/tlwg/Laksaman.ttf",
 ]
 _PDF_TEXT_FONT_NAME = "Sarabun"
 

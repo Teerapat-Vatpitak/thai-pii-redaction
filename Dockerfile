@@ -26,6 +26,13 @@ COPY requirements.lock ./
 RUN python -m pip install --no-cache-dir pip==26.1.2 \
     && python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 
+# Thai font for /api/analyze-report PDFs (reportlab falls back to Helvetica,
+# Latin-only, without one) — fonts-thai-tlwg ships Laksaman, the TH Sarabun New
+# derivative exporter.py's font candidate list looks for. apt packages are
+# deliberately unversioned (see Verifiable build note in CLAUDE.md).
+RUN apt-get update && apt-get install -y --no-install-recommends fonts-thai-tlwg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Bake the Thai NER model into the image. Without this the first request in a
 # fresh container reaches out to download it — which fails on an isolated
 # runner and silently makes cold-start latency a network measurement.
