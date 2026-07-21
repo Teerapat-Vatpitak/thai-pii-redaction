@@ -83,7 +83,7 @@ localhost/127.0.0.1 (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
-One core pipeline (`pii_redactor/`) exposed via two storefronts over one shared backend:
+One core pipeline (`pii_redactor/`) exposed via three storefronts over one shared backend:
 
 | Storefront | Entry point |
 |---|---|
