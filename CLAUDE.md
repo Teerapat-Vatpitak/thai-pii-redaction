@@ -89,6 +89,7 @@ One core pipeline (`pii_redactor/`) exposed via two storefronts over one shared 
 |---|---|
 | Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
+| Queue worker (AI for Thai platform) | `app/worker/` (`python -m app.worker`; job → stateless core; transport is HTTP poll, a provisional guess until the platform spec is published — job schema is `provisional` per docstring in `handler.py`; no PII in logs per VAULT-4; `docker compose --profile worker`) |
 
 Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
 product's front door; the backend is API-only (no web frontend) and runs on localhost.
