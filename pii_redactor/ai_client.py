@@ -88,6 +88,37 @@ class ClaudeProvider(AIProvider):
         return resp.json()["content"][0]["text"]
 
 
+class PathummaProvider(AIProvider):
+    """Pathumma LLM (NECTEC, AI for Thai). Requires AIFORTHAI_API_KEY env var.
+
+    Wire shape proven against the live endpoint on 2026-07-21: the API accepts
+    form-encoded bodies ONLY — a JSON body draws a 422 "Field required" that
+    looks like a naming bug but is a content-type bug. Same Apikey header
+    convention as detectors/tner_client.py, same env var, one credential for
+    the whole AI for Thai surface.
+    """
+
+    API_URL = "https://api.aiforthai.in.th/textqa/completion"
+
+    def __init__(self):
+        self._api_key = os.environ.get("AIFORTHAI_API_KEY", "")
+        if not self._api_key:
+            raise ValueError("AIFORTHAI_API_KEY environment variable not set")
+
+    def complete(self, system: str, user: str, *, timeout: float = 60.0) -> str:
+        """Send prompt to Pathumma LLM and return response text."""
+        headers = {"Apikey": self._api_key, "X-lib": "aiguard"}
+        data = {
+            "instruction": user,
+            "system_prompt": system,
+            "max_new_tokens": 1024,
+            "temperature": 0.4,
+        }
+        resp = httpx.post(self.API_URL, data=data, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()["content"]
+
+
 class FakeLLMProvider(AIProvider):
     """For testing - returns user prompt unchanged (identity function)."""
 

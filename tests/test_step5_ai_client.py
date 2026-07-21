@@ -304,3 +304,58 @@ def test_pre_send_blocks_tb_name_leak():
     provider = FakeLLMProvider()
     with pytest.raises(PreSendValidationError):
         send_to_ai("ผมชื่อสมชาย ใจดี ครับ", registry, vault, provider)
+
+
+class TestPathummaProvider:
+    """Wire shape proven live 2026-07-21: form-encoded only, JSON gets a 422.
+
+    Evidence: dev/aift-onboarding/probe_results.json (outside this repo).
+    """
+
+    def test_requires_api_key(self, monkeypatch):
+        from pii_redactor.ai_client import PathummaProvider
+
+        monkeypatch.delenv("AIFORTHAI_API_KEY", raising=False)
+        with pytest.raises(ValueError):
+            PathummaProvider()
+
+    def test_complete_posts_form_data_not_json(self, monkeypatch):
+        import httpx
+
+        from pii_redactor import ai_client
+        from pii_redactor.ai_client import PathummaProvider
+
+        monkeypatch.setenv("AIFORTHAI_API_KEY", "test-key")
+        captured = {}
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+            request = httpx.Request("POST", url)
+            return httpx.Response(200, json={"content": "คำตอบ [ชื่อ_1]"}, request=request)
+
+        monkeypatch.setattr(ai_client.httpx, "post", fake_post)
+        out = PathummaProvider().complete("system prompt", "ผู้ใช้ [ชื่อ_1]")
+        assert out == "คำตอบ [ชื่อ_1]"
+        assert captured["url"] == "https://api.aiforthai.in.th/textqa/completion"
+        # live-proven: the endpoint 422s on a JSON body — must send form data
+        assert "json" not in captured["kwargs"]
+        assert captured["kwargs"]["data"]["instruction"] == "ผู้ใช้ [ชื่อ_1]"
+        assert captured["kwargs"]["data"]["system_prompt"] == "system prompt"
+        assert captured["kwargs"]["headers"]["Apikey"] == "test-key"
+
+    def test_http_error_propagates(self, monkeypatch):
+        import httpx
+
+        from pii_redactor import ai_client
+        from pii_redactor.ai_client import PathummaProvider
+
+        monkeypatch.setenv("AIFORTHAI_API_KEY", "test-key")
+
+        def fake_post(url, **kwargs):
+            request = httpx.Request("POST", url)
+            return httpx.Response(429, json={"detail": "quota"}, request=request)
+
+        monkeypatch.setattr(ai_client.httpx, "post", fake_post)
+        with pytest.raises(httpx.HTTPStatusError):
+            PathummaProvider().complete("s", "u")
