@@ -48,6 +48,9 @@
   #cmpSlider{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
   #cmpBar{position:absolute;top:0;bottom:0;left:50%;width:3px;background:#2563eb;pointer-events:none}
   .pdfmeta{margin-top:10px;font-size:14px;color:var(--dim)}
+  #guardBar{margin-top:10px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .guard-chip{background:#7f1d1d;color:#fecaca;border-radius:6px;padding:2px 8px}
+  .guard-ok{color:var(--dim)}
 </style>
 </head>
 <body>
@@ -106,6 +109,7 @@
 
 <div class="legend" id="legend"></div>
 <div class="meta" id="meta"></div>
+<div id="guardBar"></div>
 </div><!-- /tab-text -->
 
 <div id="tab-pdf" class="tabpage">
@@ -185,6 +189,20 @@ async function detectNow() {
     renderHighlight(text, body.entities);
     renderLegend(body.entity_type_counts);
     meta.textContent = `พบข้อมูลส่วนบุคคล ${body.entities.length} รายการ`;
+    try {
+      const gr = await fetch("/api/guard", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text}),
+      });
+      if (gr.ok) {
+        const gb = await gr.json();
+        const bar = document.getElementById("guardBar");
+        bar.innerHTML = gb.flagged
+          ? '<span class="guard-ok">ตรวจ prompt injection (ชั้น rule-based):</span> '
+            + gb.guard.map(g => `<span class="guard-chip" title="${esc(g.rationale)}">${esc(g.category)}</span>`).join("")
+          : '<span class="guard-ok">ตรวจ prompt injection (ชั้น rule-based): ไม่พบสัญญาณ</span>';
+      }
+    } catch { /* เครือข่ายล้ม ปล่อย */ }
   } catch { /* เครือข่ายล้ม — ปล่อยรอบถัดไป */ }
 }
 
