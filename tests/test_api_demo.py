@@ -100,3 +100,34 @@ class TestRoundtrip:
         before = len(server.SERVICE._sessions)
         client.post("/api/roundtrip", json={"text": THAI_TEXT})
         assert len(server.SERVICE._sessions) == before
+
+    def test_roundtrip_invalid_mode_400(self, client):
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "mode": "redact"})
+        assert resp.status_code == 400
+
+    def test_roundtrip_provider_failure_502(self, client, monkeypatch):
+        import app.server as server
+
+        class BoomProvider:
+            def complete(self, system, user, *, timeout=60.0):
+                raise KeyError("content")
+
+        monkeypatch.setitem(server._PROVIDER_FACTORIES, "boom", BoomProvider)
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "boom"})
+        assert resp.status_code == 502
+        assert "KeyError" in resp.json()["detail"]
+
+    def test_roundtrip_leak_blocked_422(self, client, monkeypatch):
+        import app.server as server
+        from pii_redactor.stateless import StatelessLeakError
+
+        def boom_sanitize(*args, **kwargs):
+            raise StatelessLeakError(["THAI_ID"])
+
+        monkeypatch.setattr(server, "sanitize_stateless", boom_sanitize)
+        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT})
+        assert resp.status_code == 422
+        body = resp.json()["detail"]
+        assert body["error"] == "pii_leak_risk"
+        assert body["types"] == ["THAI_ID"]
+        assert "สมชาย" not in resp.text
