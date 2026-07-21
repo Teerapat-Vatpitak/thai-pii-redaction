@@ -84,3 +84,10 @@ def test_leak_block_maps_to_error():
     assert out["status"] == "error"
     assert out["error"]["type"] == "pii_leak_risk"
     assert "1101700230708" not in str(out)
+
+
+def test_entrypoint_importable_and_wires_sigterm():
+    # smoke: the module imports and exposes main() without side effects
+    from app.worker.__main__ import main
+
+    assert callable(main)

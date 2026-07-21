@@ -6,3 +6,13 @@ services:
     environment:
       - PYTHONUTF8=1
     restart: unless-stopped
+
+  worker:
+    profiles: ["worker"]
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      - AIGUARD_QUEUE_POLL_URL=${AIGUARD_QUEUE_POLL_URL:-}
+      - AIGUARD_QUEUE_RESULT_URL=${AIGUARD_QUEUE_RESULT_URL:-}
+      - AIFORTHAI_API_KEY=${AIFORTHAI_API_KEY:-}
+    restart: unless-stopped

@@ -2,8 +2,8 @@
 
 PROVISIONAL JOB SCHEMA (2026-07-21, pre-spec): the AI for Thai deployment
 spec was not yet published when this was written, so the wire schema below is
-OURS. When the real spec lands, adapt `parse_job` / `format_result` (and the
-transport) — nothing below `_OPERATIONS` should need to change.
+OURS. When the real spec lands, adapt the schema mapping in the _op functions
+and the transport — nothing else should need to change.
 
     job    = {"job_id": str, "operation": <op>, "payload": {...}}
     result = {"job_id": str, "operation": <op>, "status": "ok",
@@ -94,7 +94,7 @@ _OPERATIONS = {
 
 
 def handle_job(job: dict) -> dict:
-    """Run one job. Never raises — a poison job must not kill the worker."""
+    """Run one job. Never raises (except process-signal exceptions like KeyboardInterrupt) — a poison job must not kill the worker."""
     job_id = str(job.get("job_id", ""))
     operation = str(job.get("operation", ""))
     base = {"job_id": job_id, "operation": operation}
