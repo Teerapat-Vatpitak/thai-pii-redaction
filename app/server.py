@@ -30,7 +30,7 @@ from typing import Annotated
 import httpx
 from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -141,6 +141,29 @@ def _boot_token_ok(supplied: str | None) -> bool:
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/docs")
+
+
+def _demo_page_path() -> Path:
+    """Resolve demo/playground.html next to the repo root or the frozen exe."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass) / "demo" / "playground.html"
+    return Path(__file__).resolve().parent.parent / "demo" / "playground.html"
+
+
+@app.get("/demo", include_in_schema=False)
+def demo_page():
+    """Demo playground — off unless AIGUARD_DEMO=1 (backend stays API-only).
+
+    Read dynamically (not at import) so one process can flip it in tests and
+    the packaged exe's default stays "off" without a rebuild.
+    """
+    if os.environ.get("AIGUARD_DEMO") != "1":
+        raise HTTPException(status_code=404, detail="Not Found")
+    page = _demo_page_path()
+    if not page.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(page, media_type="text/html")
 
 
 def _schedule_exit() -> None:

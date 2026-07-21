@@ -131,3 +131,16 @@ class TestRoundtrip:
         assert body["error"] == "pii_leak_risk"
         assert body["types"] == ["THAI_ID"]
         assert "สมชาย" not in resp.text
+
+
+class TestDemoGate:
+    def test_demo_404_by_default(self, client, monkeypatch):
+        monkeypatch.delenv("AIGUARD_DEMO", raising=False)
+        assert client.get("/demo").status_code == 404
+
+    def test_demo_served_when_enabled(self, client, monkeypatch):
+        monkeypatch.setenv("AIGUARD_DEMO", "1")
+        resp = client.get("/demo")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "AI Guard" in resp.text
