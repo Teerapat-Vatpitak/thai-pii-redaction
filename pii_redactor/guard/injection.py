@@ -10,7 +10,13 @@ default, never claim to be airtight. Exfiltration targets require an
 unambiguous system/hidden/internal referent by design — bare possessives like
 "your rules"/"your instructions" are deliberately NOT matched (precision over
 recall on an irreducibly ambiguous case), and that gap is recorded, not
-hidden, in the test suite's bypass corpus.
+hidden, in the test suite's bypass corpus. The Thai instruction_override rule
+has the same qualifier discipline for the same reason: Thai has no word
+boundaries, so a bare "คำสั่ง"/"กติกา" substring match fires on ordinary nouns
+like "คำสั่งซื้อ" (purchase order); it now requires an adjacent prior-context
+cue (ก่อนหน้า/ที่ผ่านมา/...), and a bare cue-less phrasing that slips through
+is recorded (not hidden) in the bypass corpus, mirroring the English
+bare-possessive gap.
 
 Separate from leak_guard.py (outbound PII) and the PII detectors — prompt
 injection is a different problem and lives in its own module.
@@ -78,7 +84,24 @@ _EXFIL_TARGET_EN = (
     r"(?:prompt|instruction)s?\b"
 )
 _EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก|ขอดู|ขอ)"
-_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|ค่าจริงทั้งหมด|คำสั่งระบบ)"
+# Vault-specific targets only — "คำสั่งระบบ" was dropped (fix pass 5): it's a
+# generic noun phrase ("ระบบนัดหมาย" = appointment system) that fires on
+# ordinary IT/admin Thai, not an unambiguous internal-secret referent like the
+# other two.
+_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|ค่าจริงทั้งหมด)"
+
+# Thai override rule (fix pass 5): Thai has no word boundaries, so a bare
+# substring match on "คำสั่ง"/"กติกา" fires on ordinary nouns that happen to
+# contain it — "คำสั่งซื้อ" (purchase order), "คำสั่งลา" (leave order),
+# "คำสั่งแพทย์" (doctor's order). The attack always refers to the AI's PRIOR
+# instructions, so require an override verb + คำสั่ง/กติกา/ข้อกำหนด
+# IMMEDIATELY followed by a prior-context cue — cue adjacent to the noun, no
+# concrete noun (ซื้อ/ลา/แพทย์/เก่า/...) allowed in between. เก่า/เดิม are
+# deliberately NOT cues: "คำสั่งเก่า" (old medical/standing order) is innocent
+# and ambiguous in a way "ก่อนหน้า"/"ที่ผ่านมา" are not.
+_OVERRIDE_VERB_TH = r"(?:ลืม|ยกเลิก|ไม่ต้องสนใจ|ไม่สนใจ|เพิกเฉยต่อ)"
+_OVERRIDE_NOUN_TH = r"(?:คำสั่ง|กติกา|ข้อกำหนด)"
+_OVERRIDE_CUE_TH = r"(?:ก่อนหน้า|ที่ผ่านมา|ที่ให้ไว้|ที่สั่งไว้|ที่บอกไว้|ทั้งหมด)"
 
 # Rule table: (category, severity, compiled pattern, rationale).
 # Patterns are intentionally readable — this file IS the spec of what layer 1
@@ -88,7 +111,7 @@ _RULES: list[tuple[str, str, re.Pattern, str]] = [
         "instruction_override",
         "high",
         re.compile(
-            r"ลืมคำสั่ง|ไม่ต้องสนใจคำสั่ง|ไม่ต้องสนใจกติกา|ยกเลิกคำสั่ง"
+            rf"{_OVERRIDE_VERB_TH}{_OVERRIDE_NOUN_TH}{_OVERRIDE_CUE_TH}"
             r"|ignore (?:all |the )?(?:previous|prior|above) instruction"
             r"|disregard (?:all |the )?(?:previous|prior|above)"
             r"|forget (?:everything|all|your) (?:above|instruction|rule)",
