@@ -1,3 +1,216 @@
 <!DOCTYPE html>
-<html lang="th"><head><meta charset="utf-8"><title>AI Guard Playground</title></head>
-<body><h1>AI Guard</h1></body></html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Guard — สนามทดลอง</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --line:#334155; --text:#e2e8f0; --dim:#94a3b8;
+    --c-name:#f9a8d4; --c-id:#fca5a5; --c-phone:#fdba74; --c-email:#fde047;
+    --c-addr:#86efac; --c-date:#93c5fd; --c-org:#c4b5fd; --c-other:#a5b4fc;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'Sarabun','Leelawadee UI',system-ui,sans-serif;padding:24px;min-height:100vh}
+  h1{font-size:22px;margin-bottom:4px}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:20px}
+  .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .controls label{font-size:14px;color:var(--dim)}
+  select,button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-family:inherit;font-size:14px;cursor:pointer}
+  button.primary{background:#2563eb;border-color:#2563eb;font-weight:600}
+  button:disabled{opacity:.5;cursor:wait}
+  .samples{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .samples button{font-size:13px;padding:6px 10px}
+  .panes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;min-height:340px}
+  @media(max-width:900px){.panes{grid-template-columns:1fr}}
+  .pane{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
+  .pane h2{font-size:14px;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--dim);font-weight:600}
+  .pane .body{padding:12px 14px;flex:1;position:relative;font-size:15px;line-height:1.9;white-space:pre-wrap;word-break:break-word;overflow:auto}
+  /* ช่องซ้าย: textarea โปร่งใสทับ div ไฮไลต์ */
+  #editorWrap{position:relative;flex:1}
+  #highlight,#editor{position:absolute;inset:0;padding:12px 14px;font:inherit;font-size:15px;line-height:1.9;white-space:pre-wrap;word-break:break-word;overflow:auto}
+  #highlight{pointer-events:none;color:var(--text)}
+  #editor{background:transparent;color:transparent;caret-color:var(--text);border:0;outline:0;resize:none;width:100%;height:100%}
+  mark{border-radius:4px;padding:0 1px;color:#0f172a;font-weight:600}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .meta{margin-top:10px;font-size:13px;color:var(--dim);min-height:20px}
+  .warn{color:#fbbf24}
+  .provider-tag{font-size:12px;background:var(--line);border-radius:6px;padding:2px 8px;margin-left:8px}
+</style>
+</head>
+<body>
+<h1>AI Guard — สนามทดลอง</h1>
+<p class="sub">พิมพ์ข้อความที่มีข้อมูลส่วนบุคคล แล้วดูว่าระบบเห็นอะไร ปกปิดอย่างไร และกู้คืนกลับมาอย่างไร ข้อมูลจริงไม่เคยออกจากวงจรนี้</p>
+
+<div class="samples">
+  <span style="color:var(--dim);font-size:13px;align-self:center">ตัวอย่าง</span>
+  <button data-sample="เรียนหัวหน้างาน ผมชื่อ นายสมชาย ใจดี ขอลาป่วยวันนี้ ติดต่อกลับได้ที่ 081-234-5678 หรือ somchai.j@example.com ครับ">อีเมลลาป่วย</button>
+  <button data-sample="ผู้ป่วยชื่อ นางสาวมนัสนันท์ วงศ์สว่าง เลขบัตรประชาชน 1-1017-00230-70-8 เกิดวันที่ 12 มีนาคม 2534 มีอาการแพ้ยาเพนิซิลลิน นัดติดตามอาการที่โรงพยาบาลสงขลานครินทร์">เวชระเบียน</button>
+  <button data-sample="ขอเชิญ นายวีรภัทร ตั้งตระกูล บ้านเลขที่ 99/12 ถนนกาญจนวณิชย์ ตำบลหาดใหญ่ อำเภอหาดใหญ่ จังหวัดสงขลา 90110 เข้าร่วมประชุมประชาคม โทร 074-123-456">หนังสือราชการ</button>
+</div>
+
+<div class="controls">
+  <label>รูปแบบการปกปิด
+    <select id="mode">
+      <option value="token">โทเคน เช่น [ชื่อ_1]</option>
+      <option value="surrogate">ข้อมูลสมมุติ (อ่านเป็นธรรมชาติ)</option>
+    </select>
+  </label>
+  <label>โมเดลปลายทาง
+    <select id="provider">
+      <option value="fake">จำลอง (ทดสอบวงจร ไม่เรียกโมเดลจริง)</option>
+      <option value="pathumma">Pathumma LLM (AI for Thai)</option>
+      <option value="ollama">Ollama (ในเครื่อง)</option>
+      <option value="claude">Claude</option>
+    </select>
+  </label>
+  <button id="send" class="primary">ส่งเข้า AI อย่างปลอดภัย</button>
+</div>
+
+<div class="panes">
+  <section class="pane">
+    <h2>1. ข้อความของคุณ (ตรวจจับสดขณะพิมพ์)</h2>
+    <div id="editorWrap">
+      <div id="highlight" aria-hidden="true"></div>
+      <textarea id="editor" spellcheck="false" placeholder="พิมพ์ที่นี่..."></textarea>
+    </div>
+  </section>
+  <section class="pane">
+    <h2>2. สิ่งที่ AI เห็นจริง ๆ</h2>
+    <div class="body" id="masked"><span style="color:var(--dim)">ยังไม่ได้ส่ง</span></div>
+  </section>
+  <section class="pane">
+    <h2>3. คำตอบที่กู้คืนแล้ว <span id="providerTag" class="provider-tag" hidden></span></h2>
+    <div class="body" id="restored"><span style="color:var(--dim)">ยังไม่ได้ส่ง</span></div>
+  </section>
+</div>
+
+<div class="legend" id="legend"></div>
+<div class="meta" id="meta"></div>
+
+<script>
+"use strict";
+const COLORS = {
+  NAME: "var(--c-name)", THAI_ID: "var(--c-id)", PHONE: "var(--c-phone)",
+  EMAIL: "var(--c-email)", ADDRESS: "var(--c-addr)", LOCATION: "var(--c-addr)",
+  DATE: "var(--c-date)", DATE_OF_BIRTH: "var(--c-date)", ORGANIZATION: "var(--c-org)",
+};
+const THAI_LABELS = {
+  NAME: "ชื่อบุคคล", THAI_ID: "เลขบัตรประชาชน", PHONE: "เบอร์โทรศัพท์",
+  EMAIL: "อีเมล", ADDRESS: "ที่อยู่", LOCATION: "สถานที่", DATE: "วันที่",
+  DATE_OF_BIRTH: "วันเกิด", ORGANIZATION: "องค์กร", BANK_ACCOUNT: "เลขบัญชี",
+  CREDIT_CARD: "บัตรเครดิต", PASSPORT: "หนังสือเดินทาง", ID_NUMBER: "เลขอ้างอิง",
+  STUDENT_ID: "รหัสนักศึกษา", VEHICLE_PLATE: "ทะเบียนรถ", IBAN: "IBAN",
+};
+const colorFor = t => COLORS[t] || "var(--c-other)";
+const labelFor = t => THAI_LABELS[t] || t;
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+const editor = document.getElementById("editor");
+const highlight = document.getElementById("highlight");
+const meta = document.getElementById("meta");
+let debounceTimer = null;
+
+function renderHighlight(text, entities) {
+  // วาดจากท้ายมาหน้าเพื่อไม่ให้ offset ขยับ (ตรรกะเดียวกับ tail-first splice ฝั่ง server)
+  const sorted = [...entities].sort((a, b) => b.start - a.start);
+  let html = esc(text);
+  // ทำงานบนข้อความดิบก่อนแล้วค่อย escape เป็นชิ้น เพื่อให้ index ตรง
+  const parts = [];
+  let cursor = text.length;
+  for (const e of sorted) {
+    if (e.end > cursor) continue; // กัน span ซ้อน (server dedupe แล้ว แต่กันไว้)
+    parts.unshift({text: text.slice(e.end, cursor)});
+    parts.unshift({text: text.slice(e.start, e.end), type: e.data_type});
+    cursor = e.start;
+  }
+  parts.unshift({text: text.slice(0, cursor)});
+  html = parts.map(p => p.type
+    ? `<mark style="background:${colorFor(p.type)}" title="${esc(labelFor(p.type))}">${esc(p.text)}</mark>`
+    : esc(p.text)).join("");
+  highlight.innerHTML = html + "\n"; // กัน scroll ท้ายเพี้ยนตอนบรรทัดสุดท้ายว่าง
+}
+
+function renderLegend(counts) {
+  const legend = document.getElementById("legend");
+  legend.innerHTML = Object.entries(counts).map(([t, n]) =>
+    `<span><i class="dot" style="background:${colorFor(t)}"></i>${esc(labelFor(t))} (${n})</span>`
+  ).join("");
+}
+
+async function detectNow() {
+  const text = editor.value;
+  if (!text.trim()) { highlight.textContent = ""; renderLegend({}); meta.textContent = ""; return; }
+  try {
+    const r = await fetch("/api/detect", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text}),
+    });
+    if (!r.ok) return;
+    const body = await r.json();
+    renderHighlight(text, body.entities);
+    renderLegend(body.entity_type_counts);
+    meta.textContent = `พบข้อมูลส่วนบุคคล ${body.entities.length} รายการ`;
+  } catch { /* เครือข่ายล้ม — ปล่อยรอบถัดไป */ }
+}
+
+editor.addEventListener("input", () => {
+  highlight.textContent = editor.value; // อัปเดตข้อความทันที ไฮไลต์ตามมา
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(detectNow, 400);
+});
+editor.addEventListener("scroll", () => {
+  highlight.scrollTop = editor.scrollTop; highlight.scrollLeft = editor.scrollLeft;
+});
+
+document.querySelectorAll(".samples button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    editor.value = btn.dataset.sample;
+    editor.dispatchEvent(new Event("input"));
+  });
+});
+
+document.getElementById("send").addEventListener("click", async () => {
+  const text = editor.value;
+  if (!text.trim()) return;
+  const btn = document.getElementById("send");
+  const masked = document.getElementById("masked");
+  const restored = document.getElementById("restored");
+  const tag = document.getElementById("providerTag");
+  btn.disabled = true;
+  masked.textContent = "กำลังปกปิด...";
+  restored.textContent = "กำลังรอคำตอบ...";
+  try {
+    const r = await fetch("/api/roundtrip", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        text,
+        mode: document.getElementById("mode").value,
+        provider: document.getElementById("provider").value,
+      }),
+    });
+    const body = await r.json();
+    if (!r.ok) {
+      const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      masked.innerHTML = `<span class="warn">ส่งไม่สำเร็จ (${r.status}) ${esc(detail)}</span>`;
+      restored.textContent = "";
+      return;
+    }
+    masked.textContent = body.sanitized_text;
+    restored.textContent = body.restored_text;
+    tag.textContent = body.provider_used;
+    tag.hidden = false;
+    meta.innerHTML = body.warnings.length
+      ? `<span class="warn">คำเตือน ${esc(body.warnings.join(" | "))}</span>`
+      : `กู้คืนครบ ${body.entities.length} รายการ ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้`;
+  } catch (err) {
+    masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
