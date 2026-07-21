@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import glob
+import hashlib
 import json
 import os
 import secrets
@@ -52,6 +53,7 @@ from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import EntityRegistry
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.report import generate_report, scan_section26
+from pii_redactor.report_pdf import render_pdpa_report
 from pii_redactor.stateless import (
     StatelessLeakError,
     restore_stateless,
@@ -541,6 +543,38 @@ def analyze(request: AnalyzeRequest):
         output_dir=_get_audit_log_dir(),
     )
     return result
+
+
+@app.post("/api/analyze-report")
+def analyze_report(request: AnalyzeRequest):
+    """PDPA risk report as a downloadable PDF — the compliance artifact.
+
+    Same assembly as /api/analyze (via _analyze_text), rendered by
+    pii_redactor/report_pdf.py which draws whitelist fields only; the source
+    text itself never reaches the canvas. The sha256 prefix ties a report to
+    its source without embedding any of it.
+    """
+    start = time.time()
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    text = clean(request.text).text
+    analysis = _analyze_text(text)
+    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    pdf_bytes = render_pdpa_report(analysis, version=__version__, source_sha256_12=source_hash)
+    write_process_log(
+        session_id=str(uuid.uuid4()),
+        step="api_analyze_report",
+        entity_count=analysis["direct_pii_count"],
+        validation_result="pass",
+        flags=[],
+        latency_ms=(time.time() - start) * 1000,
+        output_dir=_get_audit_log_dir(),
+    )
+    return {
+        "report_pdf_b64": base64.b64encode(pdf_bytes).decode("ascii"),
+        "overall_score": analysis["overall_score"],
+        "overall_grade": analysis["overall_grade"],
+    }
 
 
 @app.post("/api/detect")
