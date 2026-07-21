@@ -86,9 +86,9 @@ _EXFIL_TARGET_EN = (
 _EXFIL_VERB_TH = r"(?:แสดง|เปิดเผย|พิมพ์|บอก|ขอดู|ขอ)"
 # Vault-specific targets only — "คำสั่งระบบ" was dropped (fix pass 5): it's a
 # generic noun phrase ("ระบบนัดหมาย" = appointment system) that fires on
-# ordinary IT/admin Thai, not an unambiguous internal-secret referent like the
-# other two.
-_EXFIL_TARGET_TH = r"(?:ตารางจับคู่โทเคน|ค่าจริงทั้งหมด)"
+# ordinary IT/admin Thai, not an unambiguous internal-secret referent. "ค่าจริงทั้งหมด"
+# dropped (fix pass 6): generic finance phrase that fires on ordinary bank Thai.
+_EXFIL_TARGET_TH = r"ตารางจับคู่โทเคน"
 
 # Thai override rule (fix pass 5): Thai has no word boundaries, so a bare
 # substring match on "คำสั่ง"/"กติกา" fires on ordinary nouns that happen to
