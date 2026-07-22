@@ -57,7 +57,7 @@ jobs:
           python -m pip install --require-hashes -r requirements.lock
 
       - name: Pre-download the offline NER model
-        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+        run: python scripts/prewarm_ner.py
 
       - name: Install Thai font (Linux)
         if: runner.os == 'Linux'
@@ -92,7 +92,7 @@ jobs:
         run: python -m pip install pip==26.1.2 -r requirements.txt
 
       - name: Pre-download the offline NER model
-        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+        run: python scripts/prewarm_ner.py
 
       - name: Install Thai font (Linux)
         if: runner.os == 'Linux'
@@ -270,7 +270,7 @@ jobs:
           python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Pre-download the offline NER model
-        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+        run: python scripts/prewarm_ner.py
 
       - name: Set up Rust (build_sidecar reads the host triple from rustc)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
