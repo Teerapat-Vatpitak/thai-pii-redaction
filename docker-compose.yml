@@ -4,7 +4,11 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      - PYTHONUTF8=1
+      PYTHONUTF8: "1"
+      # Hosted deployments set this to authenticate the four protected contract
+      # endpoints. It stays optional here so the localhost extension workflow
+      # and the independent `--profile worker` path retain their legacy behavior.
+      AIGUARD_API_KEY: ${AIGUARD_API_KEY:-}
     restart: unless-stopped
 
   worker:

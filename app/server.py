@@ -17,6 +17,7 @@ import base64
 import glob
 import hashlib
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -29,9 +30,9 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -99,6 +100,23 @@ app = FastAPI(
     version=__version__,
 )
 
+_DECLARED_PLATFORM_POST_PATHS = frozenset(
+    {"/api/sanitize", "/api/reidentify", "/api/analyze", "/api/guard"}
+)
+
+
+@app.middleware("http")
+async def authenticate_declared_platform_endpoints(request: Request, call_next):
+    """Gate the stable platform POST surface before parsing request bodies."""
+    path = request.url.path.rstrip("/") or "/"
+    if request.method == "POST" and path in _DECLARED_PLATFORM_POST_PATHS:
+        if not _platform_api_key_ok(request.headers.get("X-AIGuard-Key")):
+            # Deliberately generic: neither the supplied key nor request
+            # content crosses into the response or application logs.
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome-extension://[a-p]{32}|moz-extension://[0-9a-fA-F-]+|tauri://localhost|https?://tauri\.localhost)$",
@@ -122,6 +140,24 @@ app.add_middleware(
 # module global directly, so the checks below read it dynamically at call time.
 _BOOT_TOKEN: str | None = os.environ.get("AIGUARD_TOKEN") or None
 
+# Optional authentication for the four POST endpoints in the declared
+# platform contract. Like the control-plane boot token above, this is read
+# once when the service starts and is never logged. Keeping the unset path
+# open preserves the existing localhost extension/desktop workflow.
+_API_KEY: str | None = os.environ.get("AIGUARD_API_KEY") or None
+_LOGGER = logging.getLogger(__name__)
+
+
+def _warn_if_api_key_unset() -> None:
+    """Make an unauthenticated deployment visible without logging user data."""
+    if _API_KEY is None:
+        _LOGGER.warning(
+            "AIGUARD_API_KEY is not configured; declared platform API endpoints are unauthenticated"
+        )
+
+
+_warn_if_api_key_unset()
+
 
 def _token_required() -> bool:
     return _BOOT_TOKEN is not None
@@ -139,6 +175,15 @@ def _boot_token_ok(supplied: str | None) -> bool:
     if not supplied:
         return False
     return secrets.compare_digest(supplied, _BOOT_TOKEN)
+
+
+def _platform_api_key_ok(supplied: str | None) -> bool:
+    """Authorize a declared platform endpoint when AIGUARD_API_KEY is set."""
+    if _API_KEY is None:
+        return True
+    if not supplied:
+        return False
+    return secrets.compare_digest(supplied, _API_KEY)
 
 
 @app.get("/", include_in_schema=False)
@@ -266,6 +311,7 @@ def health():
     return {
         "status": "ok",
         "version": __version__,
+        "contract_version": 1,
         "capabilities": {"token_required": _token_required()},
     }
 
