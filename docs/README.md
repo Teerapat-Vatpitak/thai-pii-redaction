@@ -21,6 +21,10 @@ status page and does not silently override a newer current-state document.
   resource profile, unknown platform fields, and acceptance checklist.
 - [Release process](release-process.md) - version, tag, draft release, packaging,
   and hotfix rules.
+- [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
+  Playground, PDF, Pathumma, and TNER gates.
+- [Versioning proposal](versioning-proposal.md) - why the existing product line
+  remains monotonic while a new AI for Thai service may start at `0.1.0`.
 - [Roadmap](../ROADMAP.md) - ordered delivery gates.
 - [Install from source](install-from-source.md) - local developer/runtime setup.
 

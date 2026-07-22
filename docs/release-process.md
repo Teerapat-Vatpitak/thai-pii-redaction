@@ -29,6 +29,10 @@ intentionally not version sources.
 Docs-only commits do not require a tag. Development commits after a release stay
 under `Unreleased` until the next release-preparation PR chooses the version.
 
+Published product versions are monotonic and are never reset to `0.1.0` in the
+same distribution identity. A separately deployed AI for Thai service may use
+its own `0.x` line; see [the versioning proposal](versioning-proposal.md).
+
 ## Release preparation PR
 
 1. Freeze the intended scope and ensure every item meets the roadmap definition

@@ -21,9 +21,12 @@ _LOG = logging.getLogger(__name__)
 
 LABEL_MAP: dict[str, str | None] = {
     "PERSON": "NAME",
+    # AI for Thai TNER uses these compact labels on the live API.
+    "PER": "NAME",
     "ORGANIZATION": "ORGANIZATION",  # quasi-identifier (employer/hospital)
     "LOCATION": "LOCATION",  # upgraded to ADDRESS by cue (below)
     "DATE": "DATE",  # upgraded to DATE_OF_BIRTH by cue (below)
+    "DTM": "DATE",
     "TIME": None,
     "MONEY": None,
     "PERCENT": None,

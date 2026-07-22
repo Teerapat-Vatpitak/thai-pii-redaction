@@ -24,7 +24,7 @@ existence from evidence on the real delivery path.
 | Token and surrogate sanitization | Verified | Local session and stateless worker paths; residual structured-PII guard. |
 | Local multi-turn re-identification | Verified | In-memory session vault, TTL/LRU, collision and concurrency tests. |
 | Stateless hosted sanitization | Verified | Worker operation; mapping omitted by default. |
-| Protected provider roundtrip | Acceptance pending | Fake-provider path and failure modes are tested; Pathumma wire probe succeeded, but the competition demo/platform path needs a repeated live acceptance run. |
+| Protected provider roundtrip | Verified | Repeatable live Pathumma acceptance passed on 2026-07-22: raw synthetic PII stayed out of provider-visible text and every returned token restored. Official hosted deployment remains a separate platform gate. |
 | PDPA JSON analysis | Verified | Shared analyzer and API tests. |
 | Thai PDPA PDF report | Verified | Whitelisted PII-free renderer and end-to-end tests. |
 | PDF redaction and preview | Verified | Text-layer path covered end to end; output flattened. |
@@ -36,12 +36,12 @@ existence from evidence on the real delivery path.
 
 | Feature | Status | Evidence / remaining gate |
 |---|---|---|
-| Pathumma provider | Acceptance pending | Live form-data probe preserved sample tokens; expand to a repeatable provider acceptance corpus. |
-| AI for Thai TNER engine | Acceptance pending | Client and opt-in engine are tested with fixtures; run the live service on the acceptance corpus. |
+| Pathumma provider | Verified | Repeatable live completion and protected-roundtrip checks pass; marker preservation is recorded as quality telemetry because a generative response need not repeat every entity. |
+| AI for Thai TNER engine | Verified | Live service shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-22; decoder is pinned to the live parallel `words`/`POS`/`tags` contract. |
 | Browser extension | Acceptance pending | JS/DOM fixtures cover declared sites; manual current-site smoke and live demo rehearsal remain. |
 | Desktop app | Acceptance pending | Rust/JS tests and packaged Windows sidecar smoke pass; final candidate install/update rehearsal remains. |
 | CLI | Verified | Sanitize/report and end-to-end pipeline tests. |
-| Demo playground | Acceptance pending | All endpoints are tested; live Pathumma, projector layout, PDF download, and offline fallback need rehearsal. |
+| Demo playground | Acceptance pending | Live detection, fake/Pathumma roundtrip, PDF upload, and previews passed on 2026-07-22; projector layout, browser download/open, guard fixture, and offline fallback remain. |
 | Scanned-PDF OCR | Optional | Requires OCR extras and returns an explicit unavailable error when absent; not included in the hosted core image. |
 | WangchanBERTa/union and semantic detector | Optional | Requires ML extras; never selected silently. |
 

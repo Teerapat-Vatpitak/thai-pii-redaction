@@ -19,6 +19,8 @@ log — see `git log` for full detail on any release.
 - Optional `AIGUARD_API_KEY` authentication for hosted API deployments.
 - Current-state documentation for architecture, feature acceptance, AI for Thai
   integration, and the version/tag/release lifecycle.
+- A repeatable, PII-free functional acceptance runner and manual checklists for
+  Extension, Desktop, Playground, PDF, Pathumma, and TNER.
 - A release-readiness gate that requires version targets, tag, dated changelog
   section, and a fresh empty `Unreleased` section to agree before a tag builds.
 
@@ -42,6 +44,10 @@ log — see `git log` for full detail on any release.
 - Version bumps validate every target before writing, so a parser/layout failure
   cannot leave the repository half-bumped.
 - Packaging metadata downloads now have a bounded network timeout.
+- Live TNER now decodes its parallel `words`/`POS`/`tags` response correctly;
+  compact labels (`PER`, `DTM`) map to AI Guard `NAME` and `DATE`
+  types instead of being silently discarded.
+- Demo privacy wording now remains accurate when the playground is hosted.
 
 ## [2.4.0] - 2026-07-22
 

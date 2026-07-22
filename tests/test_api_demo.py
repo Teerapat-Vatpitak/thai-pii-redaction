@@ -162,6 +162,8 @@ class TestDemoGate:
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
         assert "AI Guard" in resp.text
+        assert "ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้" not in resp.text
+        assert "ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง" in resp.text
 
 
 class TestAnalyzeReport:

@@ -6,17 +6,18 @@ TNER. Until now `_ENGINE_CONFIG` registered a `tner` slot that resolved to
 raised a raw library error instead of doing anything. That is the single
 easiest commitment for a judge to check.
 
-PROVENANCE NOTE: the wire shape pinned below (POST, `Apikey` header, form
-field `text`, response `{"POS": [[word, pos], ...], "tags": [...]}`) is taken
-from the published `aift` SDK, NOT from a live call -- the team has no API key
-on this machine. These tests therefore prove the client handles that shape and
-fails loudly on everything else; they do NOT prove the shape is current. Run
-one real call before relying on it.
+PROVENANCE NOTE: the live wire shape pinned below (POST, `Apikey` header, form
+field `text`, response with parallel `words`, `POS`, and `tags` lists) was
+verified on 2026-07-22. The decoder retains compatibility with the older
+published `aift` SDK's `[word, pos]` pairs. These tests pin both shapes and the
+compact live label vocabulary so a provider change cannot silently collapse
+detection recall.
 """
 
 import pytest
 
 from pii_redactor.detectors import tner_client
+from pii_redactor.detectors.tb_detector import LABEL_MAP
 from pii_redactor.detectors.tner_client import TnerEngine, TnerServiceError
 
 SAMPLE = "นายสมชาย ใจดี อยู่กรุงเทพ"
@@ -51,6 +52,37 @@ def test_tag_returns_word_tag_pairs_like_pythainlp(monkeypatch):
     tagged = TnerEngine(api_key="k").tag(SAMPLE)
 
     assert tagged == [("นาย", "B-PERSON"), ("สมชาย", "I-PERSON"), ("ใจดี", "I-PERSON")]
+
+
+def test_live_parallel_words_field_is_used_instead_of_pos_tags(monkeypatch):
+    """The live service returns POS tags and words in separate lists."""
+    payload = {
+        "words": ["นาย", "สมชาย", " ", "กรุงเทพ"],
+        "POS": ["TTL", "NR", " ", "NR"],
+        "tags": ["B-TTL", "B-PER", " ", "B-LOC"],
+    }
+    monkeypatch.setattr(tner_client.httpx, "post", lambda *a, **k: _FakeResponse(payload))
+
+    tagged = TnerEngine(api_key="k").tag(SAMPLE)
+
+    assert tagged == [
+        ("นาย", "B-TTL"),
+        ("สมชาย", "B-PER"),
+        (" ", " "),
+        ("กรุงเทพ", "B-LOC"),
+    ]
+
+
+def test_live_words_and_tag_counts_must_agree(monkeypatch):
+    payload = {
+        "words": ["นาย"],
+        "POS": ["TTL", "NR"],
+        "tags": ["B-TTL", "B-PER"],
+    }
+    monkeypatch.setattr(tner_client.httpx, "post", lambda *a, **k: _FakeResponse(payload))
+
+    with pytest.raises(TnerServiceError):
+        TnerEngine(api_key="k").tag(SAMPLE)
 
 
 def test_a_missing_api_key_is_refused_at_construction():
@@ -99,3 +131,10 @@ def test_word_and_tag_counts_must_agree(monkeypatch):
 
     with pytest.raises(TnerServiceError):
         TnerEngine(api_key="k").tag(SAMPLE)
+
+
+def test_live_tner_label_vocabulary_maps_to_public_types():
+    assert LABEL_MAP["PER"] == "NAME"
+    assert LABEL_MAP["LOC"] == "LOCATION"
+    assert LABEL_MAP["ORG"] == "ORGANIZATION"
+    assert LABEL_MAP["DTM"] == "DATE"

@@ -55,7 +55,7 @@
 </head>
 <body>
 <h1>AI Guard — สนามทดลอง</h1>
-<p class="sub">พิมพ์ข้อความที่มีข้อมูลส่วนบุคคล แล้วดูว่าระบบเห็นอะไร ปกปิดอย่างไร และกู้คืนกลับมาอย่างไร ข้อมูลจริงไม่เคยออกจากวงจรนี้</p>
+<p class="sub">พิมพ์ข้อความที่มีข้อมูลส่วนบุคคล แล้วดูว่าระบบเห็นอะไร ปกปิดอย่างไร และกู้คืนกลับมาอย่างไร ข้อมูลจริงถูกปกปิดก่อนส่งต่อไปยังโมเดลปลายทาง</p>
 
 <div class="tabs">
   <button data-tab="tab-text" class="active">ข้อความ</button>
@@ -254,7 +254,7 @@ document.getElementById("send").addEventListener("click", async () => {
     tag.hidden = false;
     meta.innerHTML = body.warnings.length
       ? `<span class="warn">คำเตือน ${esc(body.warnings.join(" | "))}</span>`
-      : `กู้คืนครบ ${body.entities.length} รายการ ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้`;
+      : `ประมวลผล ${body.entities.length} รายการ ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง`;
   } catch (err) {
     masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;
   } finally {

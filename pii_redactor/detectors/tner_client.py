@@ -1,17 +1,18 @@
 """Client for the AI for Thai TNER service (opt-in NER engine).
 
-Wire shape per the published `aift` SDK: POST to `/tner` with an `Apikey`
-header and the text as a form field, answering with a `POS` list of
-`[word, pos_tag]` pairs and a parallel `tags` list of BIO labels. It is
-translated here into PyThaiNLP's `(word, tag)` shape so `_bio_to_spans` can
-decode it unchanged.
+Wire shape verified against the live service: POST to `/tner` with an `Apikey`
+header and the text as a form field, answering with three parallel lists:
+`words`, `POS`, and `tags`. Older versions of the published `aift` SDK exposed
+`POS` as `[word, pos_tag]` pairs, so the decoder accepts that legacy shape too.
+Both are translated into PyThaiNLP's `(word, tag)` shape so `_bio_to_spans` can
+decode them unchanged.
 
-NOT VERIFIED AGAINST THE LIVE SERVICE. The shape above comes from the SDK, not
-from a call — no API key exists on the development machine. Every deviation
-from it raises `TnerServiceError` rather than returning a partial result,
-because the failure mode that matters here is silent: an unrecognised payload
-decoded as "no entities found" is indistinguishable from a clean document on a
-service whose entire purpose is not missing PII.
+Verified against the live service on 2026-07-22. The live BIO vocabulary uses
+compact labels such as PER, LOC, ORG, and DTM; `tb_detector.LABEL_MAP`
+translates those labels into AI Guard's public types. Every payload-shape
+deviation raises `TnerServiceError` rather than
+returning a partial result, because an unrecognised response decoded as "no
+entities found" is indistinguishable from a clean document.
 
 This engine sends text to a third party, so it is opt-in only
 (`AIGUARD_NER_ENGINE=tner`) and never the default — the offline claim the
@@ -90,16 +91,31 @@ class TnerEngine:
         if not isinstance(pos, list) or not isinstance(tags, list):
             raise TnerServiceError("TNER payload fields POS/tags must both be lists")
         if len(pos) != len(tags):
-            # A short tag list would silently drop the tail of the document.
-            raise TnerServiceError(f"TNER returned {len(pos)} words but {len(tags)} tags")
+            # Any unequal parallel field indicates a truncated response.
+            raise TnerServiceError(f"TNER returned {len(pos)} POS tags but {len(tags)} BIO tags")
 
+        words_field = payload.get("words")
         words: list[str] = []
-        for item in pos:
-            if isinstance(item, (list, tuple)) and item:
-                words.append(str(item[0]))
-            elif isinstance(item, str):
+        if words_field is not None:
+            if not isinstance(words_field, list):
+                raise TnerServiceError("TNER payload field words must be a list")
+            if len(words_field) != len(tags):
+                raise TnerServiceError(
+                    f"TNER returned {len(words_field)} words but {len(tags)} BIO tags"
+                )
+            for item in words_field:
+                if not isinstance(item, str):
+                    raise TnerServiceError(f"unexpected TNER words entry: {type(item).__name__}")
                 words.append(item)
-            else:
-                raise TnerServiceError(f"unexpected TNER POS entry: {type(item).__name__}")
+        else:
+            # Backward compatibility with the published SDK's older POS-pair
+            # representation. A bare POS string such as "NR" is never a word.
+            for item in pos:
+                if isinstance(item, (list, tuple)) and item:
+                    words.append(str(item[0]))
+                else:
+                    raise TnerServiceError(
+                        "TNER payload has no words list and POS entries are not word/POS pairs"
+                    )
 
         return [(word, str(tag)) for word, tag in zip(words, tags)]
