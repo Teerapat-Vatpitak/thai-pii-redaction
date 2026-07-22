@@ -5,7 +5,7 @@
 // escaped like every other field on this screen already is.
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/api.js", () => ({ analyze: vi.fn() }));
+vi.mock("../src/api.js", () => ({ analyze: vi.fn(), analyzeReport: vi.fn() }));
 
 import { analyze } from "../src/api.js";
 import { renderReport } from "../src/screen-report.js";

@@ -228,7 +228,10 @@ _RE_STUDENT_ID = re.compile(r"(?<!\d)(\d{8,12})(?!\d)")
 # These patterns key on the structure instead: a label word followed by its
 # value. The label itself is not captured (group 1 is the value), so the output
 # still reads as an address with the identifying part removed.
-_RE_HOUSE_NO = re.compile(r"(?:บ้านเลขที่|เลขที่|ที่อยู่)\s*(\d{1,4}(?:\s*[/-]\s*\d{1,4})?)(?!\d)")
+# Form fields commonly separate that label and value with an ASCII or
+# full-width colon (``ที่อยู่: 99`` / ``ที่อยู่：99``); keeping it outside
+# group 1 preserves the exact value-only span used by text replacement.
+_RE_HOUSE_NO = re.compile(r"(?:บ้านเลขที่|เลขที่|ที่อยู่)\s*[:：]?\s*(\d{1,4}(?:\s*[/-]\s*\d{1,4})?)(?!\d)")
 # Captures the soi/road NAME plus its number ("ลาดพร้าว 71"): the name alone
 # identifies a neighbourhood and the number narrows it to one lane, so masking
 # only the digits would leave the person locatable.

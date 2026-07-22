@@ -36,7 +36,7 @@ export function renderSettings(root) {
     </div>
     <div class="card">
       <b>ส่วนขยายเบราว์เซอร์</b>
-      <p class="muted">สำหรับปกปิดในหน้าแชต ChatGPT / Claude โดยตรง ติดตั้งจาก Chrome Web Store (เร็ว ๆ นี้) หรือโหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked</p>
+      <p class="muted">รองรับ ChatGPT, Codex, Gemini, Grok, Perplexity และ GLM/Z.ai โดยตรง โหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked เพื่อทดลองใช้งาน</p>
     </div>
     <div class="card">
       <b>บริการในเครื่อง</b>

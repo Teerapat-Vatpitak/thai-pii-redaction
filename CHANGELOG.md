@@ -21,6 +21,8 @@ log — see `git log` for full detail on any release.
   integration, and the version/tag/release lifecycle.
 - A repeatable, PII-free functional acceptance runner and manual checklists for
   Extension, Desktop, Playground, PDF, Pathumma, and TNER.
+- A Desktop action that generates and downloads the existing whitelisted Thai
+  PDPA PDF report, with explicit progress, success, and error states.
 - A release-readiness gate that requires version targets, tag, dated changelog
   section, and a fresh empty `Unreleased` section to agree before a tag builds.
 
@@ -60,6 +62,12 @@ log — see `git log` for full detail on any release.
 - Hash-pinned build/core locks now use non-yanked `pypdfium2` 5.12.1.
 - Acceptance evidence now records a full commit plus dirty-worktree state and
   strips credential-bearing URL components before writing JSON.
+- Desktop PDF results now render safe detector type labels instead of
+  `[object Object]`, localize the download action, and describe only the chat
+  sites the extension currently declares.
+- House numbers after form-style address labels such as `ที่อยู่: 99` are now
+  detected and blacked out; detector-span and rendered-pixel regressions pin
+  the complete address coverage.
 
 ## [2.4.0] - 2026-07-22
 

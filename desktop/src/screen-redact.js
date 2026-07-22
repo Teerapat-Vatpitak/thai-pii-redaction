@@ -1,6 +1,50 @@
 import { redactPdf } from "./api.js";
 import { screenHeader, escapeHtml } from "./ui.js";
 
+// Only display the detector's declared type.  The response objects may also
+// grow fields that contain source values, spans, or other sensitive metadata;
+// those must never be copied into the desktop DOM.
+const DISPLAYABLE_FIELD_TYPES = new Set([
+  "ADDRESS",
+  "BANK_ACCOUNT",
+  "CREDIT_CARD",
+  "DATE",
+  "DATE_OF_BIRTH",
+  "EMAIL",
+  "IBAN",
+  "ID_NUMBER",
+  "LOCATION",
+  "MEDICAL_ID",
+  "NAME",
+  "ORGANIZATION",
+  "PASSPORT",
+  "PHONE",
+  "POSTAL_CODE",
+  "STUDENT_ID",
+  "SURNAME",
+  "THAI_ID",
+  "VEHICLE_PLATE",
+]);
+
+function renderFieldChips(container, fields) {
+  container.replaceChildren();
+  if (!Array.isArray(fields)) return;
+
+  const seen = new Set();
+  for (const field of fields) {
+    if (!field || typeof field !== "object" || Array.isArray(field)) continue;
+    const dataType = field.data_type;
+    if (typeof dataType !== "string" || !DISPLAYABLE_FIELD_TYPES.has(dataType)) continue;
+    if (seen.has(dataType)) continue;
+    seen.add(dataType);
+
+    const chip = document.createElement("span");
+    chip.className = "chip chip--redact";
+    chip.textContent = dataType;
+    container.appendChild(chip);
+  }
+}
+
 function b64ToBlob(b64, type) {
   const bytes = atob(b64);
   const arr = new Uint8Array(bytes.length);
@@ -45,7 +89,7 @@ export function renderRedact(root) {
       </div>
       <div class="row" id="r-fields"></div>
       <div class="banner banner--warn hidden" id="r-human-review">ควรตรวจซ้ำด้วยตนเอง (ความมั่นใจ OCR ต่ำ)</div>
-      <div class="row"><button class="btn btn--primary" id="r-download">Download Redacted PDF</button></div>
+      <div class="row"><button class="btn btn--primary" id="r-download">ดาวน์โหลด PDF ที่ปกปิดแล้ว</button></div>
     </div>
   `;
 
@@ -69,9 +113,7 @@ export function renderRedact(root) {
         res.ocr_confidence != null ? res.ocr_confidence : "-";
       $("#r-before").src = "data:image/png;base64," + res.before_png_b64;
       $("#r-after").src = "data:image/png;base64," + res.after_png_b64;
-      $("#r-fields").innerHTML = (res.fields || [])
-        .map((f) => `<span class="chip chip--redact">${escapeHtml(f)}</span>`)
-        .join("");
+      renderFieldChips($("#r-fields"), res.fields);
       $("#r-human-review").classList.toggle("hidden", !res.human_review);
       $("#r-out").classList.remove("hidden");
     } catch (e) {

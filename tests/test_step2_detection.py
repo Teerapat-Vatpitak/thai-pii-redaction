@@ -158,6 +158,19 @@ def test_detect_fp_sample_thai():
     assert "EMAIL" in types
 
 
+def test_detect_fp_house_number_after_address_label_colon_has_exact_span():
+    """A form-style colon must not leave the identifying house number exposed."""
+    text = "ที่อยู่: 99 ถนนพหลโยธิน แขวงจตุจักร กรุงเทพฯ 10900"
+    house_numbers = [
+        entity
+        for entity in detect_fp(text)
+        if entity.data_type == "ADDRESS" and entity.original_text == "99"
+    ]
+
+    assert len(house_numbers) == 1
+    assert house_numbers[0].span == (text.index("99"), text.index("99") + 2)
+
+
 def test_detect_fp_no_overlap():
     text = "ID: 1101200012345 email: test@example.com"
     entities = detect_fp(text)

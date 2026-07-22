@@ -260,12 +260,16 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     ]
     assert covering, "expected one rectangle covering both name words with no gap"
 
-    # The three ADDRESS words on the same line must also merge into one box
-    # spanning the full line, closing the gaps visible in the earlier bug.
+    # Every identifying ADDRESS value on the same line -- including the house
+    # number after the form-style ``ที่อยู่:`` label -- must merge into one
+    # box spanning the full line, closing both the original word gaps and the
+    # exposed ``99`` regression.
     addr_words = [
-        wb for wb in page1_words if wb.text.strip() in ("ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ")
+        wb
+        for wb in page1_words
+        if wb.text.strip() in ("99", "ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ", "10900")
     ]
-    assert len(addr_words) == 3
+    assert len(addr_words) == 5
     addr_covering = [
         (x0, y0, x1, y1)
         for x0, y0, x1, y1 in merged
@@ -275,6 +279,56 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
         )
     ]
     assert addr_covering, "expected one rectangle covering the full address line with no gap"
+
+
+def test_redact_pdf_blacks_out_sample_house_number_pixels(tmp_path):
+    """The actual rendered output must contain no visible pixels from house no. 99."""
+    import pypdfium2 as pdfium
+
+    from pii_redactor.detectors.fp_detector import detect_fp
+    from pii_redactor.detectors.tb_detector import detect_tb
+    from pii_redactor.ingest.file_detector import detect_source_type
+    from pii_redactor.ingest.text_extractor import extract
+    from pii_redactor.models import EntityRegistry
+    from pii_redactor.redactor import RENDER_SCALE, redact_pdf
+
+    sample = Path(__file__).resolve().parents[1] / "examples" / "sample_document.pdf"
+    if not sample.exists():
+        pytest.skip("examples/sample_document.pdf not present")
+
+    source_type = detect_source_type(str(sample))
+    raw_text, word_bboxes, _meta = extract(str(sample), source_type)
+    fp = detect_fp(raw_text)
+    tb = detect_tb(raw_text)
+    registry = EntityRegistry(entities=fp + tb, fp_count=len(fp), tb_count=len(tb))
+
+    house_entities = [
+        entity for entity in fp if entity.data_type == "ADDRESS" and entity.original_text == "99"
+    ]
+    assert len(house_entities) == 1, "house number must be detected before PDF redaction"
+    house_words = [wb for wb in word_bboxes if wb.page == 1 and wb.text.strip() == "99"]
+    assert len(house_words) == 1, "fixture bug: could not find house-number bbox"
+
+    out_path = tmp_path / "redacted-house-number.pdf"
+    redact_pdf(str(sample), registry, word_bboxes, str(out_path))
+
+    doc = pdfium.PdfDocument(str(out_path))
+    try:
+        pil = doc[0].render(scale=RENDER_SCALE).to_pil().convert("L")
+    finally:
+        doc.close()
+    wb = house_words[0]
+    x0 = int(wb.x * RENDER_SCALE)
+    x1 = int((wb.x + wb.width) * RENDER_SCALE)
+    y0 = int(wb.y * RENDER_SCALE)
+    y1 = int((wb.y + wb.height) * RENDER_SCALE)
+    region = pil.crop((x0, y0, x1, y1))
+    assert region.width > 0 and region.height > 0
+    _minimum, maximum = region.getextrema()
+    assert maximum < 10, (
+        f"house number {wb.text!r} bbox not covered by an opaque black rectangle "
+        f"(max pixel intensity {maximum})"
+    )
 
 
 _SARABUN_FONT_CANDIDATES = [

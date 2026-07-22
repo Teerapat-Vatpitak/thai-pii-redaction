@@ -34,6 +34,14 @@ export function analyze(text) {
   });
 }
 
+export function analyzeReport(text) {
+  return j("/api/analyze-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
 export function redactPdf(file) {
   const fd = new FormData();
   fd.append("pdf_file", file);
