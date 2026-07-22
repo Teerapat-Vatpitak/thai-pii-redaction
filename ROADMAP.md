@@ -27,10 +27,10 @@ Decisions locked 2026-07-17:
   its findings live in
   [`docs/decisions/2026-07-19-audit-v2-findings.md`](docs/decisions/2026-07-19-audit-v2-findings.md).
 
-## Phase 1 — Close the next release
+## Phase 1 — Close the next release (complete)
 
 The first post-competition release: clean, audited, and proving a release
-pipeline that has never run on a real tag.
+pipeline that had never run on a real tag. Closed with v2.3.0.
 
 | Item | Status |
 |---|---|
@@ -38,12 +38,21 @@ pipeline that has never run on a real tag.
 | Full-repo re-audit with a permanent findings artifact | Done |
 | Close every critical/high finding | Done — see the findings doc's status table |
 | Release-pipeline gates (tag matches `VERSION`; NER model hash pinned; asset set verified before hashing/attesting) | Done |
-| Housekeeping (regenerate this file, drop the dead text-cleaner stages, mark the Rust specs superseded, clear the Dependabot action bumps) | In progress |
-| Tag the release and review the first real run of `release.yml` | Not started |
-| Owner action: enable GitHub private vulnerability reporting | Not started |
+| Housekeeping (regenerate this file, drop the dead text-cleaner stages, mark the Rust specs superseded, clear the Dependabot action bumps) | Done |
+| Tag the release and review the first real run of `release.yml` | Done — v2.3.0 published 2026-07-20 with `SHA256SUMS` + build provenance |
+| Owner action: enable GitHub private vulnerability reporting | Done |
 
 The remaining medium/low audit findings are tracked in the findings doc and
 are not release blockers.
+
+## Parallel track — AI for Thai platform readiness
+
+Runs alongside the phases (decision locked 2026-07-17: no buffer reserved).
+The platform-facing work — queue worker (`app/worker/`), stateless sanitize
+core (`pii_redactor/stateless.py`), prompt-injection guard, demo playground,
+and the `/api/detect`, `/api/roundtrip`, `/api/analyze-report`, `/api/guard`
+endpoints — merged to `main` 2026-07-22 (PR #51). The worker's transport is a
+provisional guess until the platform publishes its queue spec.
 
 ## Phase 2 — Safety net + front door
 
@@ -52,7 +61,7 @@ install without asking.
 
 | Item | Status |
 |---|---|
-| CI recall gate over the benchmark corpora (per-entity-type floors) | Not started — corpora and the NER strategy ADR already exist |
+| CI recall gate over the benchmark corpora (per-entity-type floors) | Done — `tests/test_benchmark.py` enforces per-type recall/precision floors in CI |
 | Playwright live-DOM checks + selector-drift badge for the extension | Not started — the vitest/cargo harness core is done |
 | README install-from-Releases in three steps, real screenshots, a real `desktop/README.md` | Not started |
 
