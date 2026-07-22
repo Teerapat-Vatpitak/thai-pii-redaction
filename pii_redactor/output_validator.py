@@ -131,16 +131,24 @@ def _layer3_integrity(text: str) -> tuple[bool, list[str]]:
         flags.append(f"encoding_error:{e}")
         return False, flags
 
-    # Truncation heuristic: text must end with punctuation, space, newline, or
-    # a Thai character. Thai has no sentence-final punctuation convention, so a
-    # normal Thai sentence ends in a consonant/vowel — flagging that as
-    # truncation halted every legitimate Thai export (the ฯ + tone-mark
-    # allowances were an incomplete patch; the whole Thai block covers them).
+    # Truncation heuristic, inverted to a small blocklist of endings that only
+    # occur mid-cut. Legitimate documents routinely end without sentence-final
+    # punctuation: Thai has no such convention at all, and a last line that is
+    # a restored phone number, a version string, or an English proper noun is
+    # normal output — flagging any of those halted real exports (VAULT-5).
+    # So any letter or digit (any script) is a valid ending, as are closers
+    # (quotes/brackets), sentence punctuation and whitespace. What remains —
+    # a trailing comma, hyphen, opening bracket, colon and the like — is a
+    # genuine mid-sentence cut. The cost is that a reply cut off exactly at a
+    # digit/letter boundary is undetectable, which is the accepted trade-off:
+    # this layer is a heuristic, and false halts destroyed real work.
     # Only flag if text is substantial (>20 chars).
     if text and len(text) > 20:
         last = text[-1]
-        is_thai = "฀" <= last <= "๿"
-        if last not in ".!?ฯ\n " and not is_thai:
+        is_valid_ending = (
+            last.isalnum() or last.isspace() or last in ".!?ฯๆ…%" or last in ")]}»\"'”’"
+        )
+        if not is_valid_ending:
             flags.append("possible_truncation:no_terminal_punctuation")
 
     ok = len(flags) == 0

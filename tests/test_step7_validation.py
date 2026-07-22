@@ -84,18 +84,52 @@ class TestValidateOutput:
         assert not result.passed
 
     def test_validate_output_halt_on_layer3(self):
-        """Layer 3 failure should set halt=True."""
+        """Layer 3 failure should set halt=True (mid-sentence cut endings)."""
         vault = _make_vault()
-        # Use a long text without terminal punctuation
-        rr = _make_reverse_result("This is a long text without ending punctuation abcdefghij")
+        # A trailing comma is a genuine mid-sentence cut, not a valid ending
+        rr = _make_reverse_result("The reply was cut off right after the comma,")
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
         result = validate_output(rr, registry, vault)
-        # The last character is 'j', which is not in the punctuation set
-        # So truncation flag should be present
         truncation_flags = [f for f in result.flags if "truncation" in f]
-        if truncation_flags:
-            assert not result.layer3_integrity_ok
-            assert result.halt
+        assert truncation_flags
+        assert not result.layer3_integrity_ok
+        assert result.halt
+
+    def test_validate_output_digit_ending_is_valid(self):
+        """VAULT-5: a normal document routinely ends with a number — a restored
+        phone number on the last line must not halt the export."""
+        vault = _make_vault(original="081-234-5678", pseudonym="[โทรศัพท์_1]")
+        rr = _make_reverse_result("ติดต่อกลับได้ที่เบอร์ 081-234-5678")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        result = validate_output(rr, registry, vault)
+        assert [f for f in result.flags if "truncation" in f] == []
+        assert result.layer3_integrity_ok
+        assert not result.halt
+
+    def test_validate_output_latin_letter_ending_is_valid(self):
+        """VAULT-5: English routinely ends without punctuation in chat replies
+        (e.g. a version string or a proper noun) — not a truncation."""
+        vault = _make_vault()
+        rr = _make_reverse_result("โปรดอัปเดตเป็นเวอร์ชันล่าสุดของ AI Guard")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        result = validate_output(rr, registry, vault)
+        assert [f for f in result.flags if "truncation" in f] == []
+        assert result.layer3_integrity_ok
+        assert not result.halt
+
+    def test_validate_output_open_connector_ending_still_flags(self):
+        """The heuristic must keep catching endings that only occur mid-cut:
+        a hyphen or an opening bracket cannot legitimately end a document."""
+        vault = _make_vault()
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        for text in (
+            "The total comes out to be 4 -",
+            "รายละเอียดเพิ่มเติม (",
+        ):
+            rr = _make_reverse_result(text)
+            result = validate_output(rr, registry, vault)
+            assert [f for f in result.flags if "truncation" in f], text
+            assert result.halt, text
 
     def test_validate_output_raises_on_unexpected_pii(self):
         """Unexpected PII (not in vault) should raise PIILeakError."""
