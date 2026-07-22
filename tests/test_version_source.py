@@ -290,6 +290,30 @@ def test_bump_version_rejects_non_semver(tmp_path):
     assert (repo / "VERSION").read_text(encoding="utf-8").strip() == _version_file_contents()
 
 
+def test_bump_version_prevalidates_every_target_before_writing(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    cargo_lock = repo / "desktop" / "src-tauri" / "Cargo.lock"
+    cargo_lock.write_text(
+        cargo_lock.read_text(encoding="utf-8").replace(
+            '[[package]]\nname = "desktop"\nversion = ',
+            '[[package]]\nname = "desktop"\nsource = "somewhere"\nversion = ',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    before = {rel_path: (repo / rel_path).read_bytes() for rel_path in _TRACKED_FILES}
+
+    bump = subprocess.run(
+        [PY, str(repo / "bump_version.py"), "9.9.9", "--root", str(repo)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert bump.returncode != 0
+    assert "nothing was written" in bump.stderr
+    assert {rel_path: (repo / rel_path).read_bytes() for rel_path in _TRACKED_FILES} == before
+
+
 def test_bump_version_never_targets_packaging_dir():
     # packaging/ (winget/scoop manifests) carries release-specific hashes that
     # must be regenerated at release time -- bump_version must never write there.

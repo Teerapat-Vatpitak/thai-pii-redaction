@@ -12,6 +12,77 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+### Added
+
+- Declared platform API contract v1 with an independently versioned health
+  response and Docker smoke coverage for every declared endpoint.
+- Optional `AIGUARD_API_KEY` authentication for hosted API deployments.
+- Current-state documentation for architecture, feature acceptance, AI for Thai
+  integration, and the version/tag/release lifecycle.
+- A release-readiness gate that requires version targets, tag, dated changelog
+  section, and a fresh empty `Unreleased` section to agree before a tag builds.
+
+### Changed
+
+- Queue sanitization omits the PII-bearing mapping unless the caller supplies
+  the exact boolean opt-in; protected `roundtrip` is the preferred hosted
+  restoration path because it consumes the mapping inside one job.
+- Packaging manifests now point at the published v2.4.0 installer.
+- README, roadmap, and security policy now distinguish the local-device trust
+  boundary from the hosted-platform trust boundary and place functional
+  acceptance before accuracy benchmarking.
+- Release jobs now run only from immutable tags, use least-privilege workflow
+  permissions, install Node dependencies with `npm ci`, and refuse incomplete
+  cross-platform asset sets.
+
+### Fixed
+
+- Account-number labels emitted by Thai NER no longer acquire a false ADDRESS
+  type merely because the word `เลขที่` appears inside the label itself.
+- Version bumps validate every target before writing, so a parser/layout failure
+  cannot leave the repository half-bumped.
+- Packaging metadata downloads now have a bounded network timeout.
+
+## [2.4.0] - 2026-07-22
+
+AI for Thai platform-readiness and the remaining audit-v2 medium findings.
+
+### Added
+
+- Stateless sanitize/restore core and a queue worker whose transport is isolated
+  from the product operations while the official platform wire spec is pending.
+- Pure detect and protected roundtrip APIs, including a Pathumma provider that
+  uses the verified AI for Thai form-data contract.
+- Opt-in AI for Thai TNER engine; the default CRF path remains fully offline.
+- Opt-in three-panel demo playground with text masking/roundtrip, PDF
+  before/after comparison, and PDPA report download.
+- Thai PDPA PDF report endpoint that renders only whitelisted aggregate fields.
+- Thai/English rule-based prompt-injection signals with documented bypass cases
+  and warn-only behavior.
+
+### Changed
+
+- Docker became a tested deliverable: Python/dependencies/toolchains are pinned,
+  the CRF model is baked into an appuser-owned offline data directory, the image
+  runs non-root, and CI boots it for an end-to-end masking smoke.
+- Session storage now has LRU eviction and a coarse process lock that makes the
+  single-user local API safe across FastAPI worker threads.
+- `/api/redact-pdf` runs as a synchronous endpoint so CPU-heavy PDF/OCR work does
+  not block the async event loop.
+
+### Fixed
+
+- Extension masking re-reads the target composer, reports success only when the
+  sanitized text actually landed, and displays a blocking failure overlay.
+- Restored PII overlays are rendered inside a closed shadow root so page scripts
+  cannot read the restored content.
+- Desktop startup verifies the process that owns port 8000 before trusting it
+  and reaps a verified orphaned sidecar on the next launch.
+- Output validation no longer treats ordinary Thai/English text or numbers at
+  the end of a document as truncation.
+- Desktop webview capabilities were reduced and report counts are coerced to
+  numeric values before rendering.
+
 ## [2.3.0] - 2026-07-20
 
 First post-competition release. Its headline is not a feature: a full-repo

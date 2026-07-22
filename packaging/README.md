@@ -3,8 +3,9 @@
 Package-manager manifests for distributing AI Guard as free OSS. These point at the
 GitHub Releases installer for the Windows Tauri desktop app.
 
-Current target: **v2.2.0**, Windows x64 NSIS installer
-(`AI.Guard_2.2.0_x64-setup.exe`, SHA256 `0fa1d2afa42dde2222066164bd72820b84dcd0bc010a5cfb96e57ccad1b03a9c`).
+Current target: **v2.4.0**, Windows x64 NSIS installer. The authoritative URL,
+version, release date, and SHA256 are the values in the manifests themselves;
+do not duplicate the hash in this prose.
 
 These files are prepared here for review. Nothing is submitted automatically — submitting to
 winget-pkgs or a Scoop bucket publishes the app outward, so do those steps yourself.
@@ -22,7 +23,7 @@ To submit to the community repository:
    `winget settings --enable LocalManifestFiles`):
    `winget install --manifest packaging/winget`
 4. Fork [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), copy the three files to
-   `manifests/t/Teerapat-Vatpitak/AIGuard/2.2.0/`, and open a PR. Or let wingetcreate do it:
+   `manifests/t/Teerapat-Vatpitak/AIGuard/<version>/`, and open a PR. Or let wingetcreate do it:
    `wingetcreate submit packaging/winget --token <gh-token>`
 
 Notes / caveats:

@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "Teerapat-Vatpitak/thai-pii-redaction"
+NETWORK_TIMEOUT_S = 30
 
 
 def installer_name(version: str) -> str:
@@ -33,7 +34,7 @@ def installer_name(version: str) -> str:
 
 def fetch_text(url: str) -> str:
     try:
-        with urllib.request.urlopen(url) as resp:
+        with urllib.request.urlopen(url, timeout=NETWORK_TIMEOUT_S) as resp:
             return resp.read().decode("utf-8")
     except urllib.error.URLError as e:
         sys.exit(f"ERROR: could not fetch {url}: {e}")

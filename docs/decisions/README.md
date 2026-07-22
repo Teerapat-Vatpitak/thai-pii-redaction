@@ -1,5 +1,10 @@
 # Design decisions
 
+These files are historical architecture/audit records. For current truth, start
+at [`docs/README.md`](../README.md), [`docs/project-status.md`](../project-status.md),
+and the root [`ROADMAP.md`](../../ROADMAP.md). A dated decision record does not
+silently override a newer current-state document.
+
 Why the code looks the way it does. These are working documents kept for the
 record, not polished specification — most are written in Thai, and each is dated
 by when the decision was made rather than continuously maintained.
@@ -9,7 +14,7 @@ by when the decision was made rather than continuously maintained.
 | [2026-07-22 platform integration contract](2026-07-22-platform-integration-contract.md) | What a platform may call and rely on, where the PII mapping lives, how callers authenticate, and the two supported deployment shapes |
 | [2026-07-20 session handoff](2026-07-20-session-handoff.md) | State after v2.3.0 shipped: what changed, what bit us, what is still open |
 | [2026-07-19 audit v2 findings](2026-07-19-audit-v2-findings.md) | Full-repo audit before v2.3.0: 59 findings with evidence, and which are closed |
-| [2026-07-17 roadmap v2](2026-07-17-roadmap-v2-design.md) | Current plan: GitHub-only distribution, the Rust rewrite killed, re-audit before tagging |
+| [2026-07-17 roadmap v2](2026-07-17-roadmap-v2-design.md) | Historical post-PSU plan; superseded by the root roadmap for current ordering and deployment scope |
 | [2026-07-15 NER engine strategy](2026-07-15-ner-engine-strategy-decision.md) | Why thainer-CRF is the default and WangchanBERTa/union stay opt-in |
 | [2026-07-13 Thai PII recall benchmark](2026-07-13-thai-pii-recall-benchmark-design.md) | How detection recall is measured |
 | [2026-07-10 post-competition roadmap](2026-07-10-post-competition-longterm-roadmap.md) | The original three-horizon plan (superseded on ordering by roadmap v2) |

@@ -49,6 +49,32 @@ def test_installer_name():
     assert up.installer_name("9.9.9") == "AI.Guard_9.9.9_x64-setup.exe"
 
 
+def test_fetch_text_has_a_bounded_network_timeout(monkeypatch):
+    seen = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def fake_urlopen(url, *, timeout):
+        seen.update(url=url, timeout=timeout)
+        return Response()
+
+    monkeypatch.setattr(up.urllib.request, "urlopen", fake_urlopen)
+
+    assert up.fetch_text("https://example.test/file") == "ok"
+    assert seen == {
+        "url": "https://example.test/file",
+        "timeout": up.NETWORK_TIMEOUT_S,
+    }
+
+
 def test_parse_hash_standard_format():
     sums = f"{SHA}  AI.Guard_9.9.9_x64-setup.exe\n{'cd' * 32}  latest.json\n"
     assert up.parse_hash(sums, "AI.Guard_9.9.9_x64-setup.exe") == SHA

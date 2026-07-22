@@ -25,6 +25,13 @@
 
 ## สถานะการปิด (อัปเดต 2026-07-22)
 
+Project reset หลัง v2.4.0 ปิด release-process findings เพิ่มในส่วน
+`Unreleased`: REL-4 ใช้ `npm ci`, REL-5 กำหนด workflow permissions ชัดเจน,
+REL-6 ตัด manual release dispatch, REL-7 pre-validate ทุก version target ก่อนเขียน,
+REL-8 ใส่ network timeout (ส่วน attestation เป็น publish gate ที่ maintainer ต้องตรวจ),
+และ REL-9 ใช้ Docker base image แบบ digest-pinned อยู่แล้ว รายละเอียดกระบวนการล่าสุด
+อยู่ที่ `docs/release-process.md` ไม่ใช่ลำดับงานในเอกสาร audit ฉบับนี้
+
 Medium อีก 11 ข้อปิดแล้วและ **ship ใน v2.4.0**: VAULT-2/3/5, API-1 (PR #52-#53),
 EXT-2/3 (PR #54), EXT-4 (PR #56), DESK-3/4 (PR #55), DESK-2/5 (commit `a18e0a7`)
 ทุกตัว TDD red-first สถานะรายตัวพร้อม fix และ trade-off ที่รับไว้อยู่ในตาราง
@@ -71,7 +78,9 @@ DET-1 WEAKNESS เรื่อง dot/paren separator เป็น pre-existing 
 
 apt จงใจไม่ pin (archive ของ Ubuntu ลบเวอร์ชันเก่า pin แล้วจะพังตอน archive หมุน) และเขียนระบุข้อยกเว้นไว้ใน release.yml header, CLAUDE.md, README.md แทนการปล่อยให้ประโยค "every build input is pinned" อ้างเกินจริง มี `tests/test_workflow_pins.py` กันถอยหลัง พิสูจน์แล้วว่าจับ regression ได้จริงไม่ใช่ผ่านลอย ๆ
 
-สิ่งที่จงใจไม่ทำ ไม่ assert platform coverage ใน REL-3 เพราะการไล่ชื่อ bundle ต่อ platform ของ tauri-action สำหรับ pipeline ที่ไม่เคยรันจริง เสี่ยงทำให้ release แรก fail ผิด ๆ ซึ่งแย่กว่าช่องที่เหลือ (บันทึกไว้ใน docstring ของ script) ให้ revisit หลัง tag แรกรันจริง
+ข้อจำกัดเดิมที่ยังไม่ assert platform coverage ใน REL-3 ถูกยกเลิกหลัง release
+v2.3.0 และ v2.4.0 รันจริงสำเร็จแล้ว ปัจจุบัน gate ต้องเห็น asset ของ Windows,
+macOS และ Linux ครบก่อนสร้าง checksum/attestation
 
 Medium/Low ที่เหลือยังไม่ปิด (งานรอบถัดไป)
 

@@ -7,6 +7,9 @@
 # never boot. Runs on every push to main and every PR.
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -118,7 +121,9 @@ jobs:
           python-version: "3.13"
 
       - name: Check VERSION is consistent everywhere
-        run: python scripts/check_version.py
+        run: |
+          python scripts/check_version.py
+          python scripts/check_release_readiness.py
 
   rust:
     name: cargo test (desktop shell)

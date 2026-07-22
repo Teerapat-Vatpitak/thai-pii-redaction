@@ -3,6 +3,9 @@
 # reaps the tree), so this is unix-only. Runs on merges to main + on demand.
 name: Smoke (cross-platform)
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]

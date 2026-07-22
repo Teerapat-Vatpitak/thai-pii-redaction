@@ -1,73 +1,94 @@
-# Security Policy
+# Security policy
 
 ## Supported versions
 
-Only the **latest release** (see [`VERSION`](VERSION) / the
-[Releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest))
-is supported with security fixes. This is a solo-maintained project without
-a long-term-support branch — please upgrade to the latest release before
-reporting an issue, and re-check it still reproduces there.
+Only the latest published release is supported with security fixes. The
+`main` branch may contain unreleased platform or competition work; a fix is
+considered shipped only when it appears in a published release or an explicitly
+identified hosted deployment.
 
 ## Reporting a vulnerability
 
-Please **do not open a public GitHub issue containing exploit details** for
-a security vulnerability — public issues expose real users before a fix
-exists.
+Do not open a public issue containing exploit details or real PII.
 
-<!-- Maintainers: enable private vulnerability reporting in
-     Settings → Code security so the preferred channel below works. -->
+1. Preferred: use [GitHub private vulnerability reporting](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/security/advisories/new).
+2. If that is unavailable, contact the maintainer through the channel listed on
+   the [GitHub profile](https://github.com/Teerapat-Vatpitak). A public issue may
+   ask for a private channel but must contain no exploit details.
 
-1. **Preferred (if enabled on this repo):** GitHub's private vulnerability
-   reporting —
-   [Security → Report a vulnerability](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/security/advisories/new).
-   This opens a private advisory visible only to the maintainer until a fix
-   is ready.
-2. **Fallback (if that page says private reporting is not enabled):** contact
-   the maintainer directly through the contact channel listed on the GitHub
-   profile ([@Teerapat-Vatpitak](https://github.com/Teerapat-Vatpitak)).
-   If you must open a GitHub issue to get attention, keep it to "I found a
-   security issue, please open a private channel" — no exploit details.
+Include the affected version or image digest, deployment context, reproduction
+using synthetic data, and expected impact. Relevant impacts include raw PII
+reaching a downstream AI, mapping/session exposure, log disclosure, PDF
+redaction bypass, localhost API abuse, and hosted caller-authentication bypass.
 
-Include, where relevant: the affected version (`VERSION` / release tag),
-a reproduction, and the impact you believe it has (e.g. PII leak to an
-external AI provider, vault/session data exposure, localhost API abuse).
+There is no bug bounty. Reports are handled on a best-effort basis.
 
-There is no bug bounty. Reports are handled on a best-effort, solo-maintainer
-timeline — expect an initial response within a few days, not hours.
+## Two security contexts
 
-## Threat model (short version)
+AI Guard runs in two contexts with different trust boundaries. A report should
+state which context it affects.
 
-AI Guard is a **local-first** tool. Understanding what "local-first" means
-here helps calibrate what counts as a security bug:
+### Local desktop and extension
 
-- **Backend is localhost-only.** `app/server.py` binds to `127.0.0.1` /
-  `localhost` and its CORS policy (`allow_origin_regex`) only allows browser
-  extension origins (`chrome-extension://`, `moz-extension://`) and the
-  bundled Tauri desktop shell (`tauri://localhost`) — not `*`. A
-  `TrustedHostMiddleware` further restricts the `Host` header to
-  localhost/127.0.0.1. There is no remote/hosted deployment of this backend;
-  running it reachable from the network is out of scope and unsupported.
-- **The vault never leaves the device.** The pseudonym ↔ original PII mapping
-  (`SessionVault`) lives in server process memory only — never written to
-  disk, never sent over the network. The browser extension holds only an
-  opaque `session_id`; the desktop app talks to its own bundled sidecar
-  process. A vulnerability that exfiltrates vault contents off-device (not
-  just within the local process) is high severity.
-- **No cloud, no telemetry.** PII detection and pseudonym generation run
-  entirely locally (regex/checksum + local NER models); nothing is sent to
-  an external service *except* the already-pseudonymized text, deliberately,
-  when the user chooses to send a prompt to an external AI provider (the
-  product's whole point). A bug that causes *real, unpseudonymized* PII to
-  reach that external call (a "leak") is the single highest-severity class of
-  bug in this project — see the pre-send / pre-export leak guards described
-  in `CLAUDE.md`.
-- **Distribution is unsigned.** The Windows/macOS/Linux builds are not
-  code-signed (a deliberate scope decision — see `ROADMAP.md`). Trust is
-  meant to come from a reproducible, verifiable build (pinned dependencies,
-  published checksums) rather than a purchased certificate. If you find a
-  way to make the build *not* reproducible from this source in a way that
-  matters for supply-chain trust, that's worth reporting too.
+- The backend binds to localhost and restricts accepted hosts/origins to the
+  local extension and Tauri shell by default.
+- The pseudonym-to-original mapping lives in process memory and is never
+  intentionally written to disk or sent over the network.
+- The extension holds an opaque session ID, not the mapping.
+- PII detection and pseudonym generation run locally. An external provider is
+  called only after the outbound leak guard accepts the masked text.
+- The control plane uses a boot token when the bundled desktop shell launches
+  the sidecar. The data plane remains compatible with the local extension
+  channel described in the architecture docs.
 
-Out of scope: the SmartScreen/Gatekeeper "unknown publisher" warning itself
-(expected, documented in the README) and denial-of-service against a backend
-that, by design, only your own machine can reach.
+The highest-severity local failure is real, unmasked PII reaching an external AI
+through an intended AI Guard send path.
+
+### Hosted platform service
+
+Calling a hosted service sends raw input to the hosting platform and AI Guard
+container. The local claim "PII never leaves the device" does not apply.
+
+Hosted security relies on:
+
+- caller authentication configured by `AIGUARD_API_KEY` or the official
+  platform adapter;
+- transient in-process mappings with no persistence;
+- mappings omitted from normal queue results;
+- PII-free application logs and safe public error bodies;
+- separation between the AI Guard caller credential and Pathumma/TNER provider
+  credentials; and
+- a protected roundtrip that sends the downstream provider only masked text.
+
+Failures that expose request text/mappings in platform-visible logs or results,
+bypass hosted caller authentication, or send raw PII to Pathumma are in scope.
+Retention and access inside infrastructure operated by the hosting platform are
+also part of the platform trust model, but must be reported to the relevant
+platform owner when they are outside this repository's code.
+
+## Data and logging rules
+
+- Tests, demos, issues, and vulnerability reproductions use synthetic PII.
+- Application logs contain event types, counts, timings, and safe identifiers -
+  never request text, entity values, mappings, provider response bodies, or
+  secrets.
+- Public errors expose stable categories, not payloads or upstream bodies.
+- PDF temporary files are bounded and removed after processing.
+- Session/container restart may discard mappings by design; persistence added
+  for convenience would be a security-significant architectural change.
+
+## Supply-chain and distribution model
+
+Desktop installers are currently unsigned by design, so SmartScreen or
+Gatekeeper warnings are expected. Releases publish `SHA256SUMS` and GitHub build
+provenance. Verify with the instructions in the README.
+
+Build inputs are pinned where the project can reliably pin them. Verification
+proves artifact origin and integrity, not bit-for-bit reproducibility. A finding
+that allows unreviewed code or an unexpected asset to receive first-party
+release provenance is in scope.
+
+Expected/out of scope by itself: the unsigned-publisher warning, loss of an
+in-memory session after restart, and denial-of-service against a correctly
+localhost-only personal backend. Resource exhaustion or cross-tenant impact on
+an official hosted service remains in scope once that deployment exists.

@@ -12,20 +12,16 @@ necessarily what this run built:
   download step's fallback can resolve a partially-populated release,
 - anything uploaded to the draft in between would inherit first-party provenance.
 
-This script fails the job when the asset set is not internally consistent with
-the version being released:
+This script fails the job when the asset set is incomplete or not internally
+consistent with the version being released:
 
 - every filename carrying a semver-looking token must carry THIS version,
 - at least one asset must be named for this version,
 - a filename with NO version must be one of the known unversioned release
   artifacts (SHA256SUMS / latest.json) -- otherwise an arbitrary upload like
-  `payload.zip` or `AI-Guard-Setup.exe` would sail through and be attested.
-
-Known limitation (deliberate): this does NOT assert platform coverage, so a
-partially-populated release (e.g. only the Windows leg finished) still passes.
-Enumerating tauri-action's exact per-platform bundle names for a pipeline that
-has never run risks falsely failing the first real release, which would be worse
-than the gap. Revisit once a real tagged run shows the true asset set.
+  `payload.zip` or `AI-Guard-Setup.exe` would sail through and be attested, and
+- the required Windows, macOS, Linux, and updater artifacts observed on the
+  successful v2.3.0/v2.4.0 release runs must all be present.
 
 Pure stdlib so it runs before any dependency install.
 
@@ -48,6 +44,18 @@ _VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)")
 # files are NOT here: tauri names them "<asset>.sig", so they inherit the
 # asset's version and are checked like any other versioned file.
 _UNVERSIONED_ALLOWED = frozenset({"SHA256SUMS", "latest.json"})
+
+
+def required_assets(version: str) -> set[str]:
+    """Minimum cross-platform artifact set produced by the Tauri matrix."""
+    return {
+        f"AI.Guard_{version}_x64-setup.exe",
+        f"AI.Guard_{version}_aarch64.dmg",
+        f"AI.Guard_{version}_aarch64.app.tar.gz",
+        f"AI.Guard_{version}_amd64.AppImage",
+        f"AI.Guard_{version}_amd64.deb",
+        "latest.json",
+    }
 
 
 def version_tokens(name: str) -> set[str]:
@@ -89,6 +97,9 @@ def check(assets_dir: Path, expected: str) -> list[str]:
             f"no asset is named for version {expected}; the download step likely "
             "resolved the wrong release"
         )
+    missing = sorted(required_assets(expected) - set(files))
+    if missing:
+        problems.append("release is missing required cross-platform assets: " + ", ".join(missing))
     return problems
 
 

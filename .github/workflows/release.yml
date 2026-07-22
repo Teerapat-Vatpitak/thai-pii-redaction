@@ -1,11 +1,9 @@
 # Build installers for Windows / macOS / Linux, attach them to a GitHub
 # Release, then hash + attest everything.
 #
-# STATUS: the macOS/Linux legs and the checksums-and-attest job are UNTESTED
-# until the next real tag (they need real GitHub-hosted runners + a real
-# draft release, which can't be exercised from a Windows dev box). The
-# Windows sidecar build (scripts/build_sidecar.py) and the Rust compile were
-# verified locally. Review the first tagged run's logs before relying on it.
+# STATUS: the full Windows/macOS/Linux matrix and checksums/attestation path ran
+# successfully for v2.3.0 and v2.4.0. Every new tag still has to pass the same
+# gates; prior success is not permission to publish a partial draft.
 #
 # Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
 # hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
@@ -26,9 +24,10 @@
 #   REL-3  the downloaded asset set must belong to this version, checked before
 #          anything is hashed or attested.
 #
-# Trigger: push a tag like `v0.1.0`, or run manually (workflow_dispatch --
-# note the checksums job resolves the release by github.ref_name, so a
-# manual run from a branch will fail that job harmlessly).
+# Trigger: push an immutable tag like `v2.5.0` after the release preparation PR
+# has merged and main is green. Failed tag runs are re-run from the Actions UI;
+# workflow_dispatch is deliberately disabled because a branch name is not a
+# release identity and used to create unusable draft releases.
 
 name: Release
 
@@ -36,13 +35,33 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write # create the Release and upload assets
+  contents: read
 
 jobs:
+  preflight:
+    name: release metadata preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - name: Verify version, changelog, and tag agree
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python scripts/check_release_readiness.py --expect-tag "$TAG"
+
   build:
+    needs: preflight
+    permissions:
+      contents: write # create the draft Release and upload installers
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +85,7 @@ jobs:
       # not match the tree's VERSION. ci.yml's drift gate never runs on a tag
       # ref, so without this a v2.3.0 tag on a 2.2.0 tree shipped installers
       # named 2.2.0 and broke the packaging/updater URL templates (which assume
-      # tag == "v" + VERSION). Skipped on workflow_dispatch (no release tag).
+      # tag == "v" + VERSION).
       # The tag goes through env, never inline ${{ }} in run:, so a hostile tag
       # name cannot inject shell. bash on every matrix OS for one syntax.
       - name: Verify tag matches VERSION (single source of truth)
@@ -106,7 +125,7 @@ jobs:
 
       - name: Install desktop (Tauri CLI) deps
         working-directory: desktop
-        run: npm install
+        run: npm ci
 
       - name: Build the Tauri app and publish the Release
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0

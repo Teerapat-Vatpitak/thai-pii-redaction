@@ -1,98 +1,156 @@
 # Roadmap
 
-AI Guard's north star: **maximum adoption of a local-first Thai PII protection
-tool** — no cloud, no telemetry, vault never leaves the device. The
-competition (PSU Future Tech Challenge 2026) ended at the poster presentation;
-everything below is post-competition, solo-maintained OSS work.
+AI Guard has one product core and two delivery tracks:
 
-This is a summary. Full reasoning and the decision log live in
-[`docs/decisions/2026-07-17-roadmap-v2-design.md`](docs/decisions/2026-07-17-roadmap-v2-design.md),
-which supersedes the ordering in the
-[original post-competition roadmap](docs/decisions/2026-07-10-post-competition-longterm-roadmap.md).
+1. a local-first desktop/extension product where the PII mapping never leaves
+   the user's device; and
+2. a hosted AI for Thai service where the platform receives the request, AI
+   Guard avoids persistence and PII-bearing logs, and downstream Pathumma calls
+   receive only masked text.
 
-Ground rules (2026-07-10, still in force): engineering/quality is the main
-axis, not new product features; OSS solo; stay unsigned — trust comes from
-verifiable builds, not a paid certificate.
+The current ordering is deliberate: **make every committed feature work on its
+real delivery path first; measure and improve detection accuracy after feature
+acceptance**. A benchmark is evidence for a working product, not a substitute
+for one.
 
-Decisions locked 2026-07-17:
+Current truth lives in [docs/project-status.md](docs/project-status.md). Design
+history remains in [docs/decisions/](docs/decisions/), but an old decision record
+does not override this roadmap.
 
-- **GitHub is the only distribution channel this round.** Releases + README.
-  No Chrome Web Store, winget/scoop, or PyPI submission until there is a
-  signal to justify it.
-- **The Rust rewrite is dead, permanently.** No language migration. Detection
-  improves on the existing Python stack (Python + ONNX Runtime). Both Rust
-  design docs are marked superseded.
-- **Re-audit before the next tag.** The earlier "tier 1-6" audit left no
-  findings artifact, so it did not count as done; a full re-audit was run and
-  its findings live in
-  [`docs/decisions/2026-07-19-audit-v2-findings.md`](docs/decisions/2026-07-19-audit-v2-findings.md).
+## Definition of done for a feature
 
-## Phase 1 — Close the next release (complete)
+A feature is not complete merely because its function exists. Before it moves
+to Done it must have:
 
-The first post-competition release: clean, audited, and proving a release
-pipeline that had never run on a real tag. Closed with v2.3.0.
+- a working caller-facing path (UI, API, CLI, or queue operation);
+- positive, invalid-input, provider-failure, and privacy/log tests appropriate
+  to that path;
+- a container or packaged-runtime smoke test where that is how users run it;
+- documented configuration, trust boundary, limitations, and failure behavior;
+- a repeatable demo or acceptance fixture using synthetic PII; and
+- no known critical path that returns raw PII in logs or an unintended mapping.
 
-| Item | Status |
-|---|---|
-| Core correctness + detection fixes from the first audit pass | Done |
-| Full-repo re-audit with a permanent findings artifact | Done |
-| Close every critical/high finding | Done — see the findings doc's status table |
-| Release-pipeline gates (tag matches `VERSION`; NER model hash pinned; asset set verified before hashing/attesting) | Done |
-| Housekeeping (regenerate this file, drop the dead text-cleaner stages, mark the Rust specs superseded, clear the Dependabot action bumps) | Done |
-| Tag the release and review the first real run of `release.yml` | Done — v2.3.0 published 2026-07-20 with `SHA256SUMS` + build provenance |
-| Owner action: enable GitHub private vulnerability reporting | Done |
+## Phase 0 - Project reset
 
-The remaining medium/low audit findings are tracked in the findings doc and
-are not release blockers.
+Goal: make the repository tell one accurate story before building more.
 
-## Parallel track — AI for Thai platform readiness
+- Establish current-state architecture, feature status, AI for Thai integration,
+  and release-process documents.
+- Reconcile README, SECURITY, CHANGELOG, packaging docs, and roadmap with the
+  code on `main`.
+- Separate current documentation from historical ADRs and competition artifacts.
+- Record GitHub repository hygiene and branch-protection actions.
 
-Runs alongside the phases (decision locked 2026-07-17: no buffer reserved).
-The platform-facing work — queue worker (`app/worker/`), stateless sanitize
-core (`pii_redactor/stateless.py`), prompt-injection guard, demo playground,
-and the `/api/detect`, `/api/roundtrip`, `/api/analyze-report`, `/api/guard`
-endpoints — merged to `main` 2026-07-22 (PR #51) and shipped in **v2.4.0**
-(same day, together with eleven closed audit-v2 medium findings; per-finding
-status lives in the findings doc). The worker's transport is a provisional
-guess until the platform publishes its queue spec.
+Exit gate: a new contributor can identify what is shipped, what is implemented
+but awaiting acceptance, what is blocked externally, and what is deliberately
+deferred without reading commit history.
 
-## Phase 2 — Safety net + front door
+## Phase 1 - Feature acceptance before accuracy work
 
-Every change after this has a measurement behind it, and a newcomer can
-install without asking.
+Goal: every feature committed in the proposal and the onboarding demo design
+works end to end.
 
-| Item | Status |
-|---|---|
-| CI recall gate over the benchmark corpora (per-entity-type floors) | Done — `tests/test_benchmark.py` enforces per-type recall/precision floors in CI |
-| Playwright live-DOM checks + selector-drift badge for the extension | Not started — the vitest/cargo harness core is done |
-| README install-from-Releases in three steps, real screenshots, a real `desktop/README.md` | Not started |
+### Local product
 
-## Phase 3 — Detection quality on Python
+- Extension mask/restore on every declared site, including visible fail-closed
+  behavior when the composer cannot be updated.
+- Desktop text masking, restore, PDF redaction, PDPA report, settings, audit log,
+  hotkeys, sidecar lifecycle, and updater path.
+- CLI sanitize/report and one full pipeline roundtrip.
+- Token and surrogate consistency across turns; session expiry and recovery are
+  documented and tested.
 
-| Item | Status |
-|---|---|
-| ONNX Runtime as an opt-in NER engine, measured against the recall gate | Not started |
-| Fine-tune a Thai PII NER model and publish it to HuggingFace | Not started — prerequisites (benchmark, windowing) are done |
-| Publish the benchmark dataset as a community standard | Not started |
+### Demo features
 
-## Backlog — no date, waiting for a real signal
+- Three-panel playground: detect -> mask -> provider -> restore.
+- PDF before/after comparison and redacted-file download.
+- Live extension demonstration with a fixed synthetic fixture.
+- PII-free Thai PDPA PDF report.
+- Prompt-injection signal layer framed and tested as warn-only.
 
-Chrome Web Store and Edge submission; winget/scoop submission; PyPI publish;
-technical blog posts; Chrome native messaging with a token-gated data plane;
-a Presidio bridge (still gated on a one-page decision doc); an OCR bake-off;
-an on-prem PDPA tier; dark theme for the desktop app and side panel; and the
-documented CLI gaps (`run_pipeline()` does not call `audit.py` and drops PDF
-word bboxes).
+### Platform-facing features
 
-## Explicitly out of scope (kill-list)
+- Detect, sanitize, and analyze operations as the core hosted service.
+- Protected Pathumma roundtrip without returning the transient mapping.
+- TNER as an explicit opt-in integration, never a silent replacement for the
+  offline engine.
+- Authentication, safe error responses, PII-free logs, health checks, and a
+  replaceable queue/HTTP adapter boundary.
+- Resource profile and configuration reference for the actual Docker image.
 
-No cloud/SaaS-hosted version. No mobile app. No multi-tenant/Redis session
-store before a real pilot org asks for one. No WangchanBERTa as the *default*
-NER engine until its windowing cost is fixed and benchmarked. No public
-accuracy/F1 claims before the benchmark ships. No language migration. No
-hand-written volatile numbers (test counts, version strings, platform lists)
-in prose — those live in machine-readable files (`VERSION`, CI output) and get
-cited from there, not typed by hand.
+Exit gate: the acceptance matrix in `docs/project-status.md` contains no
+"implemented but unverified" item in the committed scope. Optional OCR/ML extras
+may remain optional if their absence and HTTP failure are explicit.
 
-See the linked design docs' kill-list sections for the full list and
-reasoning.
+## Phase 2 - Official AI for Thai acceptance
+
+Goal: replace assumptions with evidence from the real platform.
+
+- Capture the official job envelope, authentication, registry, retry/ack,
+  timeout, payload, logging, network, and resource policies when the account is
+  issued.
+- Implement only the platform adapter/configuration delta; keep the core
+  operations stable.
+- Push the image, boot it, complete the first real job, and verify Thai UTF-8,
+  secrets, result delivery, and error behavior.
+- Run duplicate, timeout, malformed-input, crash-recovery, payload-limit, and
+  concurrent-job acceptance cases.
+- Run a PII honeytoken scan over application and platform-visible logs.
+
+Exit gate: an accepted platform job plus a repeatable soak with no crash,
+duplicate side effect, mapping export, or PII-bearing log.
+
+The account/spec delay is an external blocker only for the official adapter and
+acceptance. It does not block the emulator, feature tests, docs, image, resource
+measurement, or demo preparation.
+
+## Phase 3 - Benchmark and detection accuracy
+
+Goal: improve what the accepted product demonstrably misses.
+
+- Freeze a synthetic, document-like development corpus and a separately locked
+  blind corpus.
+- Measure type-aware recall/precision, character coverage, exact boundaries,
+  latency, and memory for each supported engine.
+- Fix in this order: scorer/boundaries, structured misses, NAME context,
+  ADDRESS coverage, then false positives.
+- Compare CRF, TNER, WangchanBERTa/union, and any future ONNX path on the same
+  corpus before changing a default.
+- Fine-tune a model only if the locked evidence shows rules/context cannot close
+  the remaining high-risk gap.
+
+Exit gate: results are reproducible, the blind set has not been tuned against,
+all public claims include corpus size and limitations, and no accuracy number is
+copied into volatile prose without a generated source.
+
+## Phase 4 - Competition release and presentation
+
+Goal: ship one candidate that the demonstration, documentation, and platform all
+describe identically.
+
+- Freeze features; only blocker and security fixes enter the candidate.
+- Prepare a release PR: version bump, changelog section, full CI, Docker smoke,
+  packaged-runtime smoke, and release notes.
+- Tag the exact green commit; never move or reuse a published tag.
+- Verify installers, signatures, `SHA256SUMS`, and build attestations before the
+  draft release is published.
+- Update packaging manifests only after the release exists.
+- Rehearse a fixed live demo and keep an offline fallback plus video.
+
+The next tag is chosen by delivered scope, not by elapsed time: additive
+platform/product capability is a minor release, compatible fixes are a patch,
+and a breaking public contract is a major release. See
+[docs/release-process.md](docs/release-process.md).
+
+## Deferred until the four gates above
+
+- New providers, dashboards, batch orchestration, multi-tenant/shared vaults,
+  mobile apps, and new storefronts.
+- A default heavyweight NER engine without resource and accuracy evidence.
+- Broad OCR expansion beyond the existing optional scanned-PDF path.
+- Public benchmark leadership claims or a community dataset launch.
+- Package-store submissions that create a support surface before the candidate
+  is stable.
+
+Security fixes, official platform requirements, and defects in a committed
+feature are never deferred by this list.

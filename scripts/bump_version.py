@@ -37,22 +37,30 @@ def bump(root: Path, new_version: str) -> list[Path]:
     if not _SEMVER_RE.match(new_version):
         raise ValueError(f"expected a semver X.Y.Z version, got {new_version!r}")
 
-    version_file = root / "VERSION"
-    version_file.write_text(new_version + "\n", encoding="utf-8")
-    touched = [version_file]
-
+    # Validate the complete target set before the first write. A parser/layout
+    # drift must never leave VERSION ahead of only some manifests.
+    planned = []
     for rel_path, getter, setter, optional in targets(root):
         path = root / rel_path
         if not path.is_file():
-            continue
+            if optional:
+                continue
+            raise ValueError(f"required version file {rel_path} is missing -- nothing was written")
         if getter(path) is None:
             if optional:
                 continue  # version field legitimately absent -- nothing to bump
             raise ValueError(
                 f"could not parse a version from required file {rel_path} -- "
-                "refusing to continue (VERSION was already written; fix the "
-                "file or the parser in scripts/_version_targets.py, then rerun)"
+                "fix the file or the parser in scripts/_version_targets.py; "
+                "nothing was written"
             )
+        planned.append((path, setter))
+
+    version_file = root / "VERSION"
+    version_file.write_text(new_version + "\n", encoding="utf-8")
+    touched = [version_file]
+
+    for path, setter in planned:
         setter(path, new_version)
         touched.append(path)
 

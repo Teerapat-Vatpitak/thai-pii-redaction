@@ -1,8 +1,9 @@
 # Contributing to AI Guard
 
-Thanks for considering a contribution. This is a solo-maintained OSS project
-(see [`ROADMAP.md`](ROADMAP.md) for direction), so please open an issue or
-discussion before starting large changes — it saves everyone a rewritten PR.
+Thanks for considering a contribution. This is a maintainer-led OSS project
+with an active AI for Thai competition track. See [`ROADMAP.md`](ROADMAP.md)
+and [`docs/project-status.md`](docs/project-status.md) before starting large
+changes, then open an issue so the intended delivery gate is explicit.
 
 ## Dev setup
 
@@ -81,18 +82,21 @@ actually matters.
 
 ## Repo layout (short version)
 
-Full architecture: [`CLAUDE.md`](CLAUDE.md). In brief:
+Full architecture: [`docs/architecture.md`](docs/architecture.md). In brief:
 
 - `pii_redactor/` — the core pipeline (detection, pseudonymization, vault,
   reverse mapping, validation). Both storefronts sit on top of this.
 - `app/server.py` — the FastAPI backend (`/api/*`), the browser extension's
   and desktop app's only entry point.
+- `app/worker/` — stateless platform operations behind a replaceable transport
+  adapter.
 - `extension/` — the MV3 browser extension (primary UI).
 - `desktop/` — the Tauri desktop shell (Rust + static frontend).
 - `demo_cli.py`, `ai_guard.py` — the CLI storefront.
 - `tests/` — one file per pipeline step, plus API/hardening/benchmark tests.
 - `scripts/` — build, packaging, and release tooling (including
   `bump_version.py` / `check_version.py`, see below).
+- `docs/` — current operating documents plus historical decision records.
 
 ## Versioning
 
@@ -103,8 +107,14 @@ a version string in any other file.
 
 - To check every version-bearing file agrees with `VERSION`:
   `python scripts/check_version.py`
+- To check version, changelog, and release metadata are mutually consistent:
+  `python scripts/check_release_readiness.py`
 - To bump the version everywhere at once (maintainer-only, part of a release):
   `python scripts/bump_version.py <new-version>`
+
+The complete tag/draft/publish/packaging sequence lives in
+[`docs/release-process.md`](docs/release-process.md). Do not create or move a
+release tag from a feature branch.
 
 ## Pull request conventions
 
