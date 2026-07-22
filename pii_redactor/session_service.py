@@ -99,11 +99,17 @@ class SessionService:
         # point serializes on this lock: without it, drop/evict null-byte-clears
         # a vault another thread is mid-restore on. RLock because sanitize/
         # restore call drop() on their expiry paths while already holding it.
+        # Deliberately coarse — it serializes heavy NER work across sessions,
+        # but only the localhost extension (one user) goes through this class;
+        # the concurrent-traffic paths (/api/roundtrip, the platform worker)
+        # are stateless and never touch it. A per-session lock would add
+        # deadlock surface for no real-world gain.
         self._lock = threading.RLock()
 
     @property
     def session_count(self) -> int:
-        return len(self._sessions)
+        with self._lock:
+            return len(self._sessions)
 
     def _get_or_create(self, session_id: str | None, mode: str | None) -> tuple[str, _Session]:
         with self._lock:
