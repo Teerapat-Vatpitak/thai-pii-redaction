@@ -1,19 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window. Deliberately minimal (DESK-3): the global shortcut, clipboard and sidecar work is all Rust-side, which never consults webview capabilities — granting shell/clipboard/global-shortcut here only widens what a webview XSS can reach. tests/test_desktop_capabilities.py pins this.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "core:tray:default",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "clipboard-manager:allow-read-text",
-    "clipboard-manager:allow-write-text",
-    "updater:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/aiguard", "sidecar": true, "args": true }]
-    }
-  ]
+  "permissions": ["core:default", "core:tray:default", "updater:default"]
 }

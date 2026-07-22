@@ -60,7 +60,7 @@ export function renderReport(root) {
                   (b) => `<tr>
                     <td>${escapeHtml(b.data_type)}</td>
                     <td><span class="chip ${b.redact_type === "FP" ? "chip--token" : "chip--surrogate"}">${escapeHtml(b.redact_type)}</span></td>
-                    <td class="num">${b.count}</td>
+                    <td class="num">${Number(b.count) || 0}</td>
                   </tr>`
                 )
                 .join("")}
@@ -96,7 +96,7 @@ export function renderReport(root) {
           <span class="stat__cap">re-identification (เกรด ${escapeHtml(r.reid.grade)}) ${reidCombo}</span>
         </div>
         <div class="stat">
-          <span class="stat__num">${r.direct_pii_count}</span>
+          <span class="stat__num">${Number(r.direct_pii_count) || 0}</span>
           <span class="stat__cap">PII โดยตรง</span>
         </div>
       </div>
