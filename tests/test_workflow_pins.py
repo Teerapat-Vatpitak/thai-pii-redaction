@@ -71,3 +71,41 @@ def test_pip_is_pinned(name, text):
     assert not re.search(r"pip install\s+--upgrade\s+pip(?![=\w])", text), (
         f"{name}: pip is upgraded to an unpinned latest; use pip==<version>"
     )
+
+
+def test_docker_base_image_is_pinned_to_a_multi_platform_digest():
+    """The hosted artifact must not rebuild from a moving base-image tag.
+
+    Keep the human-readable tag for provenance, but pin the OCI index digest;
+    unlike an architecture manifest, an index still supports native builds on
+    both amd64 and arm64.
+    """
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    from_lines = [line.strip() for line in dockerfile.splitlines() if line.startswith("FROM ")]
+    assert from_lines == [
+        "FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91"
+    ]
+
+
+def test_docker_smoke_covers_authenticated_declared_contract():
+    """CI must boot the real image and call every endpoint we promise."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    docker_job = ci.split("  docker-smoke:", 1)[1].split("  windows-exe-smoke:", 1)[0]
+
+    for path in ("/api/health", "/api/sanitize", "/api/reidentify", "/api/analyze", "/api/guard"):
+        assert path in docker_job
+    assert "AIGUARD_API_KEY=" in docker_job
+    assert "X-AIGuard-Key" in docker_job
+    assert "out['session_id']" in docker_job
+
+
+def test_compose_keeps_api_key_optional_for_local_and_worker_modes():
+    """Hosted docs require the key, but Compose also serves local/worker use.
+
+    A required-variable interpolation on the HTTP service is evaluated even
+    for ``--profile worker`` and would prevent that independent deployment
+    mode from starting. CI's hosted smoke supplies the key explicitly.
+    """
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "AIGUARD_API_KEY: ${AIGUARD_API_KEY:-}" in compose
+    assert "AIGUARD_API_KEY:?" not in compose

@@ -32,6 +32,30 @@ Check it: open `http://localhost:8000/api/health` and you should see
 `{"status":"ok"}` with the current version. Interactive API docs are at
 `http://localhost:8000/docs`.
 
+## Hosted/container deployment
+
+The Docker image exposes the five-endpoint platform contract documented in
+[the integration decision](decisions/2026-07-22-platform-integration-contract.md).
+For a hosted deployment, set a strong API key before starting it:
+
+```bash
+export AIGUARD_API_KEY='replace-with-a-long-random-secret'
+docker compose up --build ai-guard
+```
+
+Send that value in `X-AIGuard-Key` on `sanitize`, `reidentify`, `analyze`, and
+`guard` requests. `health` deliberately remains unauthenticated for
+orchestrator probes. Terminate TLS at the platform gateway and keep the key in
+its secret manager rather than in the image or repository. Compose leaves the
+variable optional only to preserve the existing localhost extension workflow
+and to let `docker compose --profile worker` run independently; do not leave it
+unset on a network-accessible deployment.
+
+The token-to-original mapping exists only in the serving process. A load
+balancer must use sticky routing so `sanitize` and `reidentify` for one
+`session_id` reach the same container. Restarting or replacing that container
+intentionally destroys its sessions; no PII mapping is persisted to disk.
+
 ## Browser extension
 
 The extension talks to that local backend, so it works with either the desktop

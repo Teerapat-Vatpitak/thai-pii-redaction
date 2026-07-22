@@ -4,10 +4,10 @@
 # release build use the hash-pinned lockfile. It had also never been built or
 # booted in CI, so nothing proved it worked at all.
 #
-# TODO before shipping to the platform: pin the base image by digest
-# (python:3.13-slim@sha256:...) like every GitHub Action is pinned. Left as a
-# tag here because the digest must be read from the registry, not guessed.
-FROM python:3.13-slim
+# Multi-platform OCI index for the official Python 3.13.14 slim-trixie image,
+# resolved from Docker Hub on 2026-07-22. Pinning the index (rather than one
+# architecture manifest) preserves Docker's native amd64/arm64 selection.
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91
 
 WORKDIR /app
 
