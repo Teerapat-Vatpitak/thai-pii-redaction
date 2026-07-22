@@ -38,11 +38,23 @@ function makeChrome(resp) {
   };
 }
 
+// Capture shadow roots on creation so tests can read inside the closed
+// overlay tree (EXT-4 moved it out of page reach; content scripts run in an
+// isolated world, so a real page cannot replicate this hook).
+let capturedShadows;
+
 async function loadContent(site, chrome) {
   document.documentElement.innerHTML = "<head></head><body></body>";
   document.body.appendChild(site._textarea);
   global.chrome = chrome;
   window.AIGUARD_SITES = site;
+  capturedShadows = [];
+  const orig = Element.prototype.attachShadow;
+  vi.spyOn(Element.prototype, "attachShadow").mockImplementation(function (init) {
+    const root = orig.call(this, init);
+    capturedShadows.push(root);
+    return root;
+  });
   vi.resetModules();
   await import("../content.js");
 }
@@ -52,7 +64,11 @@ function statusEl() {
 }
 
 function warningOverlay() {
-  return document.querySelector(".aiguard-overlay-back");
+  return document.querySelector(".aiguard-overlay-host");
+}
+
+function warningText() {
+  return capturedShadows.map((s) => s.textContent).join(" ");
 }
 
 async function clickMask() {
@@ -110,7 +126,7 @@ describe("mask failure warning (EXT-3)", () => {
     expect(statusEl().className).toContain("aiguard-err");
     expect(warningOverlay()).not.toBeNull();
     // The warning must tell the user the raw text is still there.
-    expect(warningOverlay().textContent).toContain("ยังไม่ได้ปกปิด");
+    expect(warningText()).toContain("ยังไม่ได้ปกปิด");
   });
 
   it("overlay dismisses on close so the user can retry", async () => {
@@ -119,9 +135,9 @@ describe("mask failure warning (EXT-3)", () => {
     const chrome = makeChrome({ ok: false, status: 0, error: "unreachable" });
     await loadContent(site, chrome);
     await clickMask();
-    const overlay = warningOverlay();
-    expect(overlay).not.toBeNull();
-    overlay.querySelector("button").click();
+    expect(warningOverlay()).not.toBeNull();
+    // The close button lives inside the closed shadow; reach it via the hook.
+    capturedShadows[capturedShadows.length - 1].querySelector("button").click();
     expect(warningOverlay()).toBeNull();
   });
 });
