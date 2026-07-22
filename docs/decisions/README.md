@@ -6,6 +6,7 @@ by when the decision was made rather than continuously maintained.
 
 | Document | What it decides |
 |---|---|
+| [2026-07-22 platform integration contract](2026-07-22-platform-integration-contract.md) | What a platform may call and rely on, where the PII mapping lives, how callers authenticate, and the two supported deployment shapes |
 | [2026-07-20 session handoff](2026-07-20-session-handoff.md) | State after v2.3.0 shipped: what changed, what bit us, what is still open |
 | [2026-07-19 audit v2 findings](2026-07-19-audit-v2-findings.md) | Full-repo audit before v2.3.0: 59 findings with evidence, and which are closed |
 | [2026-07-17 roadmap v2](2026-07-17-roadmap-v2-design.md) | Current plan: GitHub-only distribution, the Rust rewrite killed, re-audit before tagging |
