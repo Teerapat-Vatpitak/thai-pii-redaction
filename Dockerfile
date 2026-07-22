@@ -14,6 +14,10 @@ WORKDIR /app
 ENV PYTHONUTF8=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# PyThaiNLP defaults its data dir to ~/pythainlp-data. The runtime user has no
+# home (--no-create-home below), so pin a fixed, appuser-owned location that the
+# baked model lives in and the container can read at boot.
+ENV PYTHAINLP_DATA=/opt/pythainlp-data
 
 # Deliberately no build-essential: requirements.lock resolves to wheels on
 # cp313/linux. If a future dependency needs a compiler the docker-smoke CI job
@@ -35,7 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-thai-tlwg
 # runner and silently makes cold-start latency a network measurement. This
 # step is the download, so it must run BEFORE PYTHAINLP_OFFLINE is set —
 # offline mode blocks the fetch and the prewarm fails with corpus-not-found.
-RUN python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+RUN mkdir -p "$PYTHAINLP_DATA" \
+    && python -c "from pythainlp.tag import NER; NER(engine='thainer')"
 
 # Now that the model is baked in, forbid any runtime fetch so a container
 # without egress behaves identically to one with it.
@@ -44,7 +49,8 @@ ENV PYTHAINLP_OFFLINE=1
 COPY . .
 
 # Run as non-root user
-RUN useradd --no-create-home --shell /bin/false appuser && chown -R appuser /app
+RUN useradd --no-create-home --shell /bin/false appuser \
+    && chown -R appuser /app "$PYTHAINLP_DATA"
 USER appuser
 
 EXPOSE 8000
