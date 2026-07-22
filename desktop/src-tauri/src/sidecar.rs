@@ -40,19 +40,170 @@ pub struct SidecarState {
     pub token: Mutex<Option<String>>,
 }
 
+// ---- port-owner identity (DESK-2 / DESK-5) --------------------------------
+//
+// Anything can bind 127.0.0.1:8000 before we start; attaching blindly would
+// hand every hotkey clipboard grab and UI request to the squatter. The
+// strongest identity available without changing the wire protocol is the
+// image name of the process that owns the listening socket. Honest limit:
+// same-user malware that names its binary aiguard.exe still passes — at that
+// point the machine is already lost. All parsers are pure functions so tests
+// pin them without a live backend (same pattern as `taskkill_args`).
+
+/// Parse `netstat -ano -p tcp` output: the PID of the LISTENING socket bound
+/// to the given local port (exact port match — `:18000` must not match 8000).
+fn port_owner_pid_from_netstat(output: &str, port: u16) -> Option<u32> {
+    let needle = format!(":{port}");
+    for line in output.lines() {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 5 || cols[0] != "TCP" {
+            continue;
+        }
+        if cols[1].ends_with(&needle) && cols[3] == "LISTENING" {
+            return cols[4].parse().ok();
+        }
+    }
+    None
+}
+
+/// Parse `tasklist /FI "PID eq N" /FO CSV /NH`: the quoted image name in the
+/// first field, or None on the "INFO: No tasks" miss line.
+fn image_name_from_tasklist_csv(csv: &str) -> Option<String> {
+    let line = csv.lines().next()?.trim();
+    let first = line.split("\",\"").next()?;
+    let name = first.trim_start_matches('"').trim_end_matches('"').trim();
+    if name.is_empty() || !line.starts_with('"') {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// Parse `lsof -nP -iTCP:<port> -sTCP:LISTEN`: the COMMAND column of the
+/// first process row (macOS/Linux path).
+fn image_name_from_lsof(output: &str) -> Option<String> {
+    for line in output.lines().skip(1) {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() >= 2 && cols[1].chars().all(|c| c.is_ascii_digit()) {
+            return Some(cols[0].to_string());
+        }
+    }
+    None
+}
+
+/// Exact image-name match only: "aiguard-fake.exe" is not our binary.
+fn is_aiguard_image(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "aiguard.exe" || n == "aiguard"
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum AttachDecision {
+    /// Dev escape hatch (AIGUARD_ALLOW_ATTACH=1): legacy attach, no identity
+    /// check — the from-source `uvicorn` backend runs under python.exe.
+    AttachLegacy,
+    /// Our own binary owns the port. The single-instance plugin excludes a
+    /// live second shell, so this is an orphan from a crashed shell whose
+    /// token died with it (DESK-5): reap the tree and spawn fresh.
+    KillOrphanAndSpawn,
+    /// Unknown or foreign owner: never attach, never send it a byte.
+    RefuseUntrusted,
+}
+
+fn attach_decision(owner_image: Option<&str>, allow_attach: bool) -> AttachDecision {
+    if allow_attach {
+        return AttachDecision::AttachLegacy;
+    }
+    match owner_image {
+        Some(name) if is_aiguard_image(name) => AttachDecision::KillOrphanAndSpawn,
+        _ => AttachDecision::RefuseUntrusted,
+    }
+}
+
+/// Resolve the image name of the process listening on 127.0.0.1:<port>.
+#[cfg(windows)]
+fn port_owner_image(port: u16) -> (Option<u32>, Option<String>) {
+    let netstat = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output();
+    let Ok(out) = netstat else { return (None, None) };
+    let pid = port_owner_pid_from_netstat(&String::from_utf8_lossy(&out.stdout), port);
+    let Some(pid) = pid else { return (None, None) };
+    let tasklist = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output();
+    let name = tasklist
+        .ok()
+        .and_then(|o| image_name_from_tasklist_csv(&String::from_utf8_lossy(&o.stdout)));
+    (Some(pid), name)
+}
+
+#[cfg(not(windows))]
+fn port_owner_image(port: u16) -> (Option<u32>, Option<String>) {
+    let lsof = std::process::Command::new("lsof")
+        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN"])
+        .output();
+    let Ok(out) = lsof else { return (None, None) };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let name = image_name_from_lsof(&text);
+    let pid = text
+        .lines()
+        .skip(1)
+        .filter_map(|l| l.split_whitespace().nth(1))
+        .find_map(|p| p.parse().ok());
+    (pid, name)
+}
+
+/// Raised (as an Err string prefix) when an untrusted process owns the port.
+/// lib.rs matches on it to fail closed instead of merely logging.
+pub const UNTRUSTED_PORT_OWNER: &str = "untrusted-port-owner";
+
 /// Spawn the `aiguard` sidecar and stream its output to the Rust log.
 pub fn spawn(app: &AppHandle) -> Result<(), String> {
-    // Don't spawn a second backend if one is already listening (defends the
-    // "no second backend" invariant even if single-instance ever fails to
-    // short-circuit the second process).
+    // Something already listening? Decide what it is before trusting it
+    // (DESK-2): our own orphan gets reaped and replaced (DESK-5); anything
+    // else is refused outright — the app must not run against it.
     if std::net::TcpStream::connect_timeout(
         &"127.0.0.1:8000".parse().expect("valid socket addr"),
         Duration::from_millis(300),
     )
     .is_ok()
     {
-        log::info!("backend already listening on 127.0.0.1:8000; skipping sidecar spawn");
-        return Ok(());
+        let allow_attach = std::env::var("AIGUARD_ALLOW_ATTACH").is_ok_and(|v| v == "1");
+        let (owner_pid, owner_image) = port_owner_image(8000);
+        match attach_decision(owner_image.as_deref(), allow_attach) {
+            AttachDecision::AttachLegacy => {
+                log::info!(
+                    "backend already listening on 127.0.0.1:8000; attaching (AIGUARD_ALLOW_ATTACH=1)"
+                );
+                return Ok(());
+            }
+            AttachDecision::KillOrphanAndSpawn => {
+                let pid = owner_pid.expect("aiguard owner implies a pid");
+                log::warn!(
+                    "orphan aiguard backend (pid {pid}) owns 127.0.0.1:8000 — reaping and respawning"
+                );
+                force_kill_tree(pid);
+                // Wait for the socket to actually free before binding anew.
+                for _ in 0..30 {
+                    if std::net::TcpStream::connect_timeout(
+                        &"127.0.0.1:8000".parse().expect("valid socket addr"),
+                        Duration::from_millis(100),
+                    )
+                    .is_err()
+                    {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+            AttachDecision::RefuseUntrusted => {
+                return Err(format!(
+                    "{UNTRUSTED_PORT_OWNER}: 127.0.0.1:8000 is owned by {} (pid {:?}), not an aiguard backend — refusing to attach",
+                    owner_image.as_deref().unwrap_or("an unidentifiable process"),
+                    owner_pid,
+                ));
+            }
+        }
     }
 
     // Random per-boot shared secret. Passed to the sidecar via its env so the
@@ -184,6 +335,85 @@ pub fn kill(app: &AppHandle) {
 pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
     if let RunEvent::ExitRequested { .. } = event {
         kill(app);
+    }
+}
+
+#[cfg(test)]
+mod port_owner_tests {
+    use super::*;
+
+    const NETSTAT: &str = "\
+  Proto  Local Address          Foreign Address        State           PID\r\n\
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1100\r\n\
+  TCP    127.0.0.1:18000        0.0.0.0:0              LISTENING       7777\r\n\
+  TCP    127.0.0.1:8000         127.0.0.1:52011        ESTABLISHED     4321\r\n\
+  TCP    127.0.0.1:8000         0.0.0.0:0              LISTENING       4321\r\n\
+  TCP    [::1]:8000             [::]:0                 LISTENING       4321\r\n";
+
+    #[test]
+    fn netstat_parser_finds_the_listening_pid_on_the_exact_port() {
+        assert_eq!(port_owner_pid_from_netstat(NETSTAT, 8000), Some(4321));
+    }
+
+    #[test]
+    fn netstat_parser_ignores_other_ports_and_non_listening_rows() {
+        // :18000 must not substring-match :8000, ESTABLISHED rows don't count.
+        assert_eq!(port_owner_pid_from_netstat(NETSTAT, 9000), None);
+        let established_only =
+            "  TCP    127.0.0.1:8000    127.0.0.1:5201    ESTABLISHED    4321\r\n";
+        assert_eq!(port_owner_pid_from_netstat(established_only, 8000), None);
+    }
+
+    #[test]
+    fn tasklist_csv_parser_extracts_the_image_name() {
+        let csv = "\"aiguard.exe\",\"4321\",\"Console\",\"1\",\"120,564 K\"\r\n";
+        assert_eq!(
+            image_name_from_tasklist_csv(csv),
+            Some("aiguard.exe".to_string())
+        );
+        assert_eq!(image_name_from_tasklist_csv("INFO: No tasks are running.\r\n"), None);
+        assert_eq!(image_name_from_tasklist_csv(""), None);
+    }
+
+    #[test]
+    fn lsof_parser_extracts_the_command_name() {
+        let out = "\
+COMMAND   PID  USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\n\
+aiguard  4321 teera    3u  IPv4 0x1234      0t0    TCP 127.0.0.1:8000 (LISTEN)\n";
+        assert_eq!(image_name_from_lsof(out), Some("aiguard".to_string()));
+        assert_eq!(image_name_from_lsof("COMMAND PID USER\n"), None);
+        assert_eq!(image_name_from_lsof(""), None);
+    }
+
+    #[test]
+    fn aiguard_image_names_match_exactly_not_by_substring() {
+        assert!(is_aiguard_image("aiguard.exe"));
+        assert!(is_aiguard_image("AIGUARD.EXE"));
+        assert!(is_aiguard_image("aiguard"));
+        assert!(!is_aiguard_image("python.exe"));
+        assert!(!is_aiguard_image("aiguard-fake.exe"));
+        assert!(!is_aiguard_image("not-aiguard.exe"));
+    }
+
+    #[test]
+    fn attach_decision_is_fail_closed() {
+        // Explicit dev escape hatch: legacy attach no matter who owns the port.
+        assert_eq!(
+            attach_decision(Some("python.exe"), true),
+            AttachDecision::AttachLegacy
+        );
+        // Our own binary on the port = orphan from a dead shell (the
+        // single-instance plugin excludes a live second shell): reap + respawn.
+        assert_eq!(
+            attach_decision(Some("aiguard.exe"), false),
+            AttachDecision::KillOrphanAndSpawn
+        );
+        // Anyone else — or nobody identifiable — never receives our traffic.
+        assert_eq!(
+            attach_decision(Some("python.exe"), false),
+            AttachDecision::RefuseUntrusted
+        );
+        assert_eq!(attach_decision(None, false), AttachDecision::RefuseUntrusted);
     }
 }
 

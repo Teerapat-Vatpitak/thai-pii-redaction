@@ -12,6 +12,14 @@ src-tauri/      Rust: sidecar lifecycle, tray, hotkeys, updater
 The shell never talks to a remote service. It calls the sidecar on
 `127.0.0.1:8000`, and the token-to-original vault stays in that backend's memory.
 
+If something already owns port 8000 at startup, the shell checks the owning
+process's image name: its own orphaned `aiguard` backend (from a crashed shell)
+is killed and respawned with a fresh boot token; anything else makes the shell
+refuse to start (a native alert explains why) rather than send clipboard/UI
+data to an unknown process. To attach to a from-source dev backend
+(`uvicorn` under python.exe), set `AIGUARD_ALLOW_ATTACH=1` before launching —
+that restores the legacy attach behavior with no identity check.
+
 ## Develop
 
 ```powershell
