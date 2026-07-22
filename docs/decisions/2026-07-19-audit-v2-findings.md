@@ -23,6 +23,13 @@
 
 ทั้งหมดเป็น finding ที่ owner ต้องตัดสินใจแก้ ไม่ใช่การอ้างว่าทำงานเสร็จแล้ว หลักฐานคือ code excerpt + repro ในเอกสารนี้
 
+## สถานะการปิด (อัปเดต 2026-07-22)
+
+Medium อีก 11 ข้อปิดแล้วและ **ship ใน v2.4.0**: VAULT-2/3/5, API-1 (PR #52-#53),
+EXT-2/3 (PR #54), EXT-4 (PR #56), DESK-3/4 (PR #55), DESK-2/5 (commit `a18e0a7`)
+ทุกตัว TDD red-first สถานะรายตัวพร้อม fix และ trade-off ที่รับไว้อยู่ในตาราง
+ของแต่ละ subsystem ด้านล่าง Medium ที่ยังเปิดคือ DET-4/5/6/7
+
 ## สถานะการปิด (อัปเดต 2026-07-20)
 
 Critical + High ปิดครบทั้ง 6 แล้ว commit `298f581` บน branch `audit-v2-findings` แก้แบบ TDD (red ก่อน green ทุกตัว) แล้วผ่าน workflow adversarial verification (6 skeptic agents) ซึ่งเจาะเจอ gap เพิ่ม 4 จุด (DET-2 ฟอร์มมีขีด, VAULT-1 Latin, EXT-1 side panel, DESK-1 empty masked) ปิดเพิ่มครบและ re-verify แล้ว suite เขียวทุกภาษา Python 504 / JS 36 / Rust 13

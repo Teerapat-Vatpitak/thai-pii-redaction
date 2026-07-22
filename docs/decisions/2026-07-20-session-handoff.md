@@ -133,3 +133,20 @@ working docs were rewritten rather than resolved by publishing those docs.
   branch gets deleted, and a doc that fails the publication criteria in
   `docs/decisions/README.md` gets de-linked rather than published to fix a
   dangling reference.
+
+## Update — 2026-07-22
+
+The snapshot above is kept as written; state has since moved:
+
+- **v2.4.0 published** (11 assets, SHA256SUMS verified, attestation passes,
+  release notes now carry a changelog). It ships the AI for Thai platform
+  readiness set (PR #51: stateless core, queue worker, `/api/detect`,
+  `/api/roundtrip`, `/api/analyze-report`, `/api/guard`, `/demo`) and eleven
+  closed audit-v2 medium findings.
+- Of the "highest value" open work listed above, VAULT-2/3/4, API-1 are all
+  FIXED, as are VAULT-5, EXT-2/3/4 and DESK-2/3/4/5 (PR #52-#56 +
+  `a18e0a7`). Per-finding status and accepted trade-offs live in the
+  findings doc. Remaining medium: DET-4/5/6/7.
+- Still open from the list above: Intel Mac support (`macos-13` matrix),
+  the `thai_dictionary` licence question, old history reachable via PR
+  refs, REL-2's silent-on-success model-pin check.

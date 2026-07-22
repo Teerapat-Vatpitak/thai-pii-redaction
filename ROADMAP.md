@@ -51,8 +51,10 @@ Runs alongside the phases (decision locked 2026-07-17: no buffer reserved).
 The platform-facing work — queue worker (`app/worker/`), stateless sanitize
 core (`pii_redactor/stateless.py`), prompt-injection guard, demo playground,
 and the `/api/detect`, `/api/roundtrip`, `/api/analyze-report`, `/api/guard`
-endpoints — merged to `main` 2026-07-22 (PR #51). The worker's transport is a
-provisional guess until the platform publishes its queue spec.
+endpoints — merged to `main` 2026-07-22 (PR #51) and shipped in **v2.4.0**
+(same day, together with eleven closed audit-v2 medium findings; per-finding
+status lives in the findings doc). The worker's transport is a provisional
+guess until the platform publishes its queue spec.
 
 ## Phase 2 — Safety net + front door
 
