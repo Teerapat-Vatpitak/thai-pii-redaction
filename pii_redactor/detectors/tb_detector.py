@@ -41,7 +41,19 @@ LABEL_MAP: dict[str, str | None] = {
 # The ADDRESS check includes the span ITSELF because address cues (เขต/ตำบล/
 # ซอย/ถนน) usually sit inside the address text; the DOB check looks only at
 # the preceding context.
-_ADDR_CUE_RE = re.compile(r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่|เลขที่|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด")
+# `เลขที่` is a real address cue on its own ("เลขที่ 26 ซอย...") but it also
+# opens compounds meaning "the number of <a thing>" -- เลขที่บัญชี, เลขที่สัญญา,
+# เลขที่ใบกำกับภาษี -- which are not addresses. Without the lookahead the
+# account-number LABEL was upgraded to ADDRESS and replaced with a fake street
+# address; that surrogate landed beside other surrogates, the NER drew one wide
+# ADDRESS span across them, and the pre-send guard halted a clean prompt
+# (intermittent PreSendValidationError, salt-dependent). Alternation order
+# still matters: บ้านเลขที่ must be tried before เลขที่.
+_ADDR_CUE_RE = re.compile(
+    r"ที่อยู่|บ้านเลขที่|อาศัยอยู่|พักอยู่"
+    r"|เลขที่(?!บัญชี|ใบ|สัญญา|เอกสาร|คำสั่ง|กรมธรรม์|พัสดุ|คดี|หนังสือ)"
+    r"|ซอย|ถนน|ตำบล|แขวง|อำเภอ|เขต|จังหวัด"
+)
 _TB_BIRTH_CUE_RE = re.compile(r"เกิด")
 _TB_CUE_WINDOW = 30
 

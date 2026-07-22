@@ -78,16 +78,32 @@ def test_pipeline_validation_result_is_validation_result():
     assert isinstance(result.validation_result, ValidationResult)
 
 
+# run_pipeline() mints a random salt when none is passed, and the salt decides
+# every surrogate value — so this test used to sample ONE random point of the
+# input space per run and went red on CI only when it happened to draw a bad
+# one. Fixed salts make it deterministic AND broaden it: each prompt is now
+# exercised against several surrogate sets, every one of them reproducible from
+# the test id alone.
+ROUNDTRIP_SALTS = ["a1b2c3d4", "deadbeef", "0f0f0f0f", "5a5a5a5a", "cafebabe"]
+
+
+@pytest.mark.parametrize("salt", ROUNDTRIP_SALTS)
 @pytest.mark.parametrize("prompt_path", EXAMPLE_PROMPTS, ids=[p.stem for p in EXAMPLE_PROMPTS])
-def test_pipeline_example_prompts_roundtrip(prompt_path):
+def test_pipeline_example_prompts_roundtrip(prompt_path, salt):
     """The shipped example prompts must survive the full pipeline.
 
-    Regression: the pre-send guard used exact-match pseudonym exclusion, but
+    Regression 1: the pre-send guard used exact-match pseudonym exclusion, but
     NER emits fuzzy spans around embedded pseudonyms (title/context words get
     swallowed into the span), so every Thai prompt with a title-cued name
     halted with PreSendValidationError.
+
+    Regression 2 (salt-dependent, hence the sweep): `เลขที่บัญชี` was upgraded
+    to ADDRESS by the `เลขที่` cue, so an account-number LABEL was replaced by
+    a fake street address. Next to the other surrogates that made the NER draw
+    one wide ADDRESS span across three pseudonyms, and the guard halted a clean
+    prompt.
     """
-    result = run_pipeline(input_path=str(prompt_path), provider=FakeLLMProvider())
+    result = run_pipeline(input_path=str(prompt_path), provider=FakeLLMProvider(), salt=salt)
     assert isinstance(result, PipelineResult)
     assert result.reverse_result.text  # round-trip completed
 
