@@ -64,7 +64,77 @@
   }
 
   // ---- overlay for restored text / prominent warnings --------------------
+  //
+  // EXT-4: the restored text is real PII, and anything placed in the host
+  // page's DOM is readable by every script that page runs (session replay,
+  // analytics). The overlay therefore lives inside a CLOSED shadow root: the
+  // page tree only ever contains an empty host element — host.shadowRoot is
+  // null to the page, and no traversal reaches the text. The page could still
+  // *remove* the host node (that only hides the PII), and our content script's
+  // isolated world means the page cannot pre-patch attachShadow to steal the
+  // root. Styles must ride inside the shadow too (page-injected content.css
+  // does not cross the boundary), so the overlay's CSS lives in the constant
+  // below rather than content.css.
+  const OVERLAY_CSS = `
+:host { all: initial; }
+.aiguard-overlay-back {
+  --ag-surface: #ffffff; --ag-ink: #15233b; --ag-muted: #5b6b85;
+  --ag-line: #e3e9f2; --ag-well: #f1f4f8; --ag-err: #b91c1c;
+  --ag-scrim: rgba(11, 18, 32, 0.55);
+  --ag-shadow-2: 0 16px 48px rgba(21, 35, 59, 0.22);
+  --ag-font: "Leelawadee UI", "Thonburi", "Noto Sans Thai", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  .aiguard-overlay-back {
+    --ag-surface: #18253c; --ag-ink: #e4eaf4; --ag-muted: #97a6bf;
+    --ag-line: rgba(255, 255, 255, 0.12); --ag-well: #0f1a2c; --ag-err: #e5636b;
+  }
+}
+.aiguard-overlay-back {
+  position: fixed; inset: 0; z-index: 2147483647; background: var(--ag-scrim);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: aiguard-fade 240ms ease;
+}
+.aiguard-overlay {
+  position: relative; width: min(680px, 92vw); max-height: 80vh; overflow: auto;
+  background: var(--ag-surface); color: var(--ag-ink);
+  border: 1px solid var(--ag-line); border-radius: 14px;
+  box-shadow: var(--ag-shadow-2); padding: 20px 22px; font-family: var(--ag-font);
+  animation: aiguard-pop 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+.aiguard-overlay.aiguard-overlay-warn { border: 2px solid var(--ag-err); }
+.aiguard-overlay.aiguard-overlay-warn .aiguard-overlay-title { color: var(--ag-err); }
+.aiguard-overlay.aiguard-overlay-warn .aiguard-overlay-body {
+  border-color: var(--ag-err); font-weight: 600;
+}
+@keyframes aiguard-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aiguard-pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .aiguard-overlay-back, .aiguard-overlay { animation: none; }
+}
+.aiguard-overlay-close {
+  position: absolute; top: 8px; right: 10px; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center; border: none;
+  background: transparent; font-size: 20px; line-height: 1; color: var(--ag-muted);
+  cursor: pointer; border-radius: 6px;
+}
+.aiguard-overlay-close:hover { background: var(--ag-well); color: var(--ag-ink); }
+.aiguard-overlay-title {
+  font-size: 15px; font-weight: 700; margin-bottom: 12px; padding-right: 32px;
+}
+.aiguard-overlay-body {
+  margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px;
+  line-height: 1.6; background: var(--ag-well); border: 1px solid var(--ag-line);
+  border-radius: 10px; padding: 12px 14px; color: var(--ag-ink);
+}
+.aiguard-overlay-meta { margin-top: 10px; font-size: 12px; color: var(--ag-muted); }
+`;
+
   function showOverlay(title, bodyText, meta, kind) {
+    const host = el("div", "overlay-host");
+    const shadow = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = OVERLAY_CSS;
     const back = el("div", "overlay-back");
     const card = el("div", "overlay" + (kind ? " " + PREFIX + "overlay-" + kind : ""));
     const close = el("button", "overlay-close", "×"); // multiplication sign
@@ -74,10 +144,12 @@
     card.appendChild(el("pre", "overlay-body", bodyText));
     if (meta) card.appendChild(el("div", "overlay-meta", meta));
     back.appendChild(card);
-    document.documentElement.appendChild(back);
+    shadow.appendChild(style);
+    shadow.appendChild(back);
+    document.documentElement.appendChild(host);
 
     function dismiss() {
-      back.remove();
+      host.remove();
       document.removeEventListener("keydown", onKey);
     }
     function onKey(e) {

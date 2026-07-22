@@ -2,10 +2,11 @@
    with the host page. Tokens are namespaced --ag-* and declared ON the injected
    roots (never :root, so the host page is untouched) and swapped by the host
    page's color scheme. The bar uses a system Thai font stack -- no @font-face is
-   injected into the host page. */
+   injected into the host page. The restored-text overlay is NOT styled here:
+   it renders inside a closed shadow root (EXT-4) that page CSS cannot reach,
+   so its styles live in OVERLAY_CSS inside content.js. */
 
 .aiguard-bar,
-.aiguard-overlay-back,
 .aiguard-msg-btn {
   --ag-surface: #ffffff;
   --ag-ink: #15233b;
@@ -26,7 +27,6 @@
 
 @media (prefers-color-scheme: dark) {
   .aiguard-bar,
-  .aiguard-overlay-back,
   .aiguard-msg-btn {
     --ag-surface: #18253c;
     --ag-ink: #e4eaf4;
@@ -111,84 +111,3 @@
   cursor: pointer;
 }
 .aiguard-msg-btn:hover { filter: brightness(0.97); }
-
-/* ---- restored-text overlay (scheme-aware; no more white flashbang on dark) ---- */
-.aiguard-overlay-back {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483647;
-  background: var(--ag-scrim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  animation: aiguard-fade 240ms ease;
-}
-
-.aiguard-overlay {
-  position: relative;
-  width: min(680px, 92vw);
-  max-height: 80vh;
-  overflow: auto;
-  background: var(--ag-surface);
-  color: var(--ag-ink);
-  border: 1px solid var(--ag-line);
-  border-radius: 14px;
-  box-shadow: var(--ag-shadow-2);
-  padding: 20px 22px;
-  font-family: var(--ag-font);
-  animation: aiguard-pop 240ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-/* EXT-3: mask-failure warning — the raw text is still in the composer, so the
-   card must read as danger, not information. */
-.aiguard-overlay.aiguard-overlay-warn {
-  border: 2px solid var(--ag-err);
-}
-.aiguard-overlay.aiguard-overlay-warn .aiguard-overlay-title { color: var(--ag-err); }
-.aiguard-overlay.aiguard-overlay-warn .aiguard-overlay-body {
-  border-color: var(--ag-err);
-  font-weight: 600;
-}
-
-@keyframes aiguard-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes aiguard-pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) {
-  .aiguard-overlay-back, .aiguard-overlay { animation: none; }
-}
-
-.aiguard-overlay-close {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--ag-muted);
-  cursor: pointer;
-  border-radius: 6px;
-}
-.aiguard-overlay-close:hover { background: var(--ag-well); color: var(--ag-ink); }
-
-.aiguard-overlay-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; padding-right: 32px; }
-
-.aiguard-overlay-body {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 14px;
-  line-height: 1.6;
-  background: var(--ag-well);
-  border: 1px solid var(--ag-line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  color: var(--ag-ink);
-}
-
-.aiguard-overlay-meta { margin-top: 10px; font-size: 12px; color: var(--ag-muted); }
