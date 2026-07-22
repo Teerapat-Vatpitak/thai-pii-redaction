@@ -36,7 +36,7 @@ risk report.
 | PDF redaction | Paints PII at word bounding boxes and flattens the result so the original text layer is not recoverable. |
 | PDPA analysis | Reports direct PII, Section 26 signals, and re-identification risk without including raw values in the generated report. |
 | Protected AI roundtrip | Masks a prompt, calls a configured provider such as Pathumma, and restores the answer without exporting the transient mapping. |
-| Prompt-injection signals | Flags known Thai and English instruction-override patterns as a transparent, rule-based first layer. It warns; it is not a complete defense. |
+| Prompt-injection signals | Flags known Thai and English attacks with explicit rules plus bounded normalization/intent features. It warns; it is not a complete defense. |
 
 ## Two deployment contexts
 

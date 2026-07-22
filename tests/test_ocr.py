@@ -10,6 +10,7 @@ functions against synthetic images.
 """
 
 import builtins
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,6 +30,58 @@ def test_is_available_false_when_import_fails(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     assert ocr_processor.is_available() is False
+
+
+def test_is_available_primes_torch_before_importing_ocr(monkeypatch):
+    """Protect the Windows DLL load order proven by full acceptance."""
+    events = []
+    real_import = builtins.__import__
+
+    def prime():
+        events.append("torch")
+
+    def fake_import(name, *args, **kwargs):
+        if name in {"cv2", "paddleocr"}:
+            events.append(name)
+            return object()
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(ocr_processor, "_prime_torch_if_present", prime)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert ocr_processor.is_available() is True
+    assert events == ["torch", "cv2", "paddleocr"]
+
+
+def test_get_engine_primes_torch_before_constructing_paddleocr(monkeypatch):
+    """The real lazy-engine path must enforce the same Windows DLL order."""
+    events = []
+    fake_engine = object()
+    real_import = builtins.__import__
+
+    def prime():
+        events.append("torch")
+
+    def construct_engine(**kwargs):
+        events.append(("construct", kwargs))
+        return fake_engine
+
+    def fake_import(name, *args, **kwargs):
+        if name == "paddleocr":
+            events.append("paddleocr")
+            return SimpleNamespace(PaddleOCR=construct_engine)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(ocr_processor, "_prime_torch_if_present", prime)
+    monkeypatch.setattr(ocr_processor, "_engine", None)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert ocr_processor._get_engine() is fake_engine
+    assert events == [
+        "torch",
+        "paddleocr",
+        ("construct", {"lang": "th", "use_textline_orientation": True}),
+    ]
 
 
 # --- Tier 1: _run_ocr_once() pixel -> point rescaling -----------------------
@@ -167,7 +220,7 @@ def test_ocr_page_word_count_matches_text(monkeypatch):
     assert result.words == words
 
 
-# --- Tier 2: real preprocessing functions (requires opencv-python-headless) --
+# --- Tier 2: real preprocessing functions (requires the OCR OpenCV runtime) --
 # Each test imports cv2 and numpy itself (rather than at module level) so the
 # rest of this file still collects and runs when the optional OCR stack isn't
 # installed -- a module-level import of either would break Tier-1 collection.

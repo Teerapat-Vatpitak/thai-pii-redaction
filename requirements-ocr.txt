@@ -7,4 +7,8 @@
 # https://github.com/PaddlePaddle/Paddle/issues/77340 -- 3.2.2 is unaffected.
 paddlepaddle>=2.6.0,<3.3.0
 paddleocr>=3.0.0
-opencv-python-headless>=4.9.0
+# PaddleOCR 3 pulls PaddleX, whose declared OpenCV runtime is
+# opencv-contrib-python. Do not install opencv-python(-headless) beside it:
+# both distributions own the same `cv2` package and the last wheel installed
+# silently wins. The full acceptance environment verifies the PaddleX-provided
+# cv2 runtime instead.

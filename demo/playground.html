@@ -198,9 +198,9 @@ async function detectNow() {
         const gb = await gr.json();
         const bar = document.getElementById("guardBar");
         bar.innerHTML = gb.flagged
-          ? '<span class="guard-ok">ตรวจ prompt injection (ชั้น rule-based):</span> '
+          ? '<span class="guard-ok">ตรวจ prompt injection (rules + intent):</span> '
             + gb.guard.map(g => `<span class="guard-chip" title="${esc(g.rationale)}">${esc(g.category)}</span>`).join("")
-          : '<span class="guard-ok">ตรวจ prompt injection (ชั้น rule-based): ไม่พบสัญญาณ</span>';
+          : '<span class="guard-ok">ตรวจ prompt injection (rules + intent): ไม่พบสัญญาณ</span>';
       }
     } catch { /* เครือข่ายล้ม ปล่อย */ }
   } catch { /* เครือข่ายล้ม — ปล่อยรอบถัดไป */ }
@@ -230,6 +230,8 @@ document.getElementById("send").addEventListener("click", async () => {
   const restored = document.getElementById("restored");
   const tag = document.getElementById("providerTag");
   btn.disabled = true;
+  tag.hidden = true;
+  tag.textContent = "";
   masked.textContent = "กำลังปกปิด...";
   restored.textContent = "กำลังรอคำตอบ...";
   try {
@@ -245,7 +247,7 @@ document.getElementById("send").addEventListener("click", async () => {
     if (!r.ok) {
       const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
       masked.innerHTML = `<span class="warn">ส่งไม่สำเร็จ (${r.status}) ${esc(detail)}</span>`;
-      restored.textContent = "";
+      restored.innerHTML = '<span class="warn">ยังไม่มีคำตอบให้กู้คืน</span>';
       return;
     }
     masked.textContent = body.sanitized_text;
@@ -257,6 +259,7 @@ document.getElementById("send").addEventListener("click", async () => {
       : `ประมวลผล ${body.entities.length} รายการ ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง`;
   } catch (err) {
     masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;
+    restored.innerHTML = '<span class="warn">ยังไม่มีคำตอบให้กู้คืน</span>';
   } finally {
     btn.disabled = false;
   }

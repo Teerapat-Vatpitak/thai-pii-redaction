@@ -1,9 +1,10 @@
 """OCR processing for pdf_hybrid pages (Step 1).
 
 Optional dependency (requirements-ocr.txt): paddleocr, paddlepaddle,
-opencv-python-headless. Never imported at module load time -- only inside
-functions -- so importing this module is always safe even when the OCR
-stack isn't installed. Callers must check is_available() (or catch
+OpenCV (provided by the PaddleOCR/PaddleX dependency set). Never imported at
+module load time -- only inside functions -- so importing this module is
+always safe even when the OCR stack isn't installed. Callers must check
+is_available() (or catch
 OCRUnavailableError) before relying on OCR extraction.
 """
 

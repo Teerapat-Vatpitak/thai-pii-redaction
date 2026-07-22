@@ -48,6 +48,18 @@ log — see `git log` for full detail on any release.
   compact labels (`PER`, `DTM`) map to AI Guard `NAME` and `DATE`
   types instead of being silently discarded.
 - Demo privacy wording now remains accurate when the playground is hosted.
+- Prompt-injection warnings now recover the five recorded spaced-letter,
+  paraphrase, possessive-target, and Thai bare-rule bypasses through bounded
+  normalization and intent features, while retaining warn-only behavior.
+- Playground roundtrip failures now clear the stale provider badge and pending
+  restore state instead of leaving an old result that looks in progress.
+- The version drift gate and bump script now cover both npm lockfile root
+  version fields; the previously stale `0.1.0` metadata now matches `VERSION`.
+- The OCR extra no longer installs two distributions that both own `cv2`;
+  PaddleX supplies the single OpenCV runtime used by PaddleOCR.
+- Hash-pinned build/core locks now use non-yanked `pypdfium2` 5.12.1.
+- Acceptance evidence now records a full commit plus dirty-worktree state and
+  strips credential-bearing URL components before writing JSON.
 
 ## [2.4.0] - 2026-07-22
 

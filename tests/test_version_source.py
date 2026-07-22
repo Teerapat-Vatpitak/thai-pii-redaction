@@ -121,6 +121,7 @@ _TRACKED_FILES = [
     "desktop/src-tauri/Cargo.toml",
     "desktop/src-tauri/Cargo.lock",
     "desktop/package.json",
+    "desktop/package-lock.json",
 ]
 
 
@@ -245,6 +246,20 @@ def test_check_version_fails_on_real_drift(tmp_path):
     assert "manifest.json" in result.stdout
 
 
+def test_check_version_detects_npm_lock_root_metadata_drift(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    lock_path = repo / "desktop" / "package-lock.json"
+    data = json.loads(lock_path.read_text(encoding="utf-8"))
+    data["packages"][""]["version"] = "0.0.1"
+    lock_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    result = _run_check(repo)
+
+    assert result.returncode == 1
+    assert "package-lock.json" in result.stdout
+    assert "0.0.1" in result.stdout
+
+
 def test_bump_version_writes_every_tracked_file(tmp_path):
     repo = _copy_repo_slice(tmp_path)
     bump = subprocess.run(
@@ -272,6 +287,10 @@ def test_bump_version_writes_every_tracked_file(tmp_path):
 
     package_json = json.loads((repo / "desktop" / "package.json").read_text(encoding="utf-8"))
     assert package_json["version"] == "9.9.9"
+
+    package_lock = json.loads((repo / "desktop" / "package-lock.json").read_text(encoding="utf-8"))
+    assert package_lock["version"] == "9.9.9"
+    assert package_lock["packages"][""]["version"] == "9.9.9"
 
     # check_version must now agree everything is consistent.
     result = _run_check(repo)

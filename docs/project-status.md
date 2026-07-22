@@ -27,8 +27,8 @@ existence from evidence on the real delivery path.
 | Protected provider roundtrip | Verified | Repeatable live Pathumma acceptance passed on 2026-07-22: raw synthetic PII stayed out of provider-visible text and every returned token restored. Official hosted deployment remains a separate platform gate. |
 | PDPA JSON analysis | Verified | Shared analyzer and API tests. |
 | Thai PDPA PDF report | Verified | Whitelisted PII-free renderer and end-to-end tests. |
-| PDF redaction and preview | Verified | Text-layer path covered end to end; output flattened. |
-| Prompt-injection signals | Verified | Thai/English rule corpus and documented bypass cases. Canonical behavior is warn-only. |
+| PDF redaction and preview | Verified | Text-layer path is covered end to end and flattened; the optional scanned/OCR path also passed in the Python 3.13 full-acceptance environment. |
+| Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
 | HTTP API authentication | Verified | Optional local compatibility; required in hosted configuration. |
 | PII-free public errors/logs | Verified | Contract and worker safety tests; official platform-visible log scan remains part of platform acceptance. |
 
@@ -38,11 +38,11 @@ existence from evidence on the real delivery path.
 |---|---|---|
 | Pathumma provider | Verified | Repeatable live completion and protected-roundtrip checks pass; marker preservation is recorded as quality telemetry because a generative response need not repeat every entity. |
 | AI for Thai TNER engine | Verified | Live service shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-22; decoder is pinned to the live parallel `words`/`POS`/`tags` contract. |
-| Browser extension | Acceptance pending | JS/DOM fixtures cover declared sites; manual current-site smoke and live demo rehearsal remain. |
-| Desktop app | Acceptance pending | Rust/JS tests and packaged Windows sidecar smoke pass; final candidate install/update rehearsal remains. |
+| Browser extension | Acceptance pending | Versioned ZIP packaging and 43 JS/DOM tests pass. Chrome had no candidate extension loaded and automation cannot install it, so current-site mask/restore still requires the owner to load the exact candidate. |
+| Desktop app | Acceptance pending | An isolated Windows build rehearsal produced and smoked the NSIS payload, release shell, and frozen sidecar. Interactive installed-app UI/update rehearsal and CI updater signing remain. |
 | CLI | Verified | Sanitize/report and end-to-end pipeline tests. |
-| Demo playground | Acceptance pending | Live detection, fake/Pathumma roundtrip, PDF upload, and previews passed on 2026-07-22; projector layout, browser download/open, guard fixture, and offline fallback remain. |
-| Scanned-PDF OCR | Optional | Requires OCR extras and returns an explicit unavailable error when absent; not included in the hosted core image. |
+| Demo playground | Acceptance pending | Live token/surrogate roundtrip, guard warning, 800 px/1366 px layouts, report generation, and corrected offline failure state pass. Browser download/open and PDF file-chooser flow remain blocked by the current Chrome automation permission. |
+| Scanned-PDF OCR | Optional | Python 3.13 full environment, focused OCR/PDF tests, and real Thai PaddleOCR inference pass; the extra remains excluded from the packaged exe and hosted core image. |
 | WangchanBERTa/union and semantic detector | Optional | Requires ML extras; never selected silently. |
 
 ## Platform and delivery
@@ -55,7 +55,7 @@ existence from evidence on the real delivery path.
 | Queue transport/envelope | Blocked externally | HTTP-poll transport is an adapter placeholder until the platform sends its actual spec/account. |
 | Official AI for Thai deployment | Blocked externally | Account/username, registry, and deployment contract have not been issued. |
 | Load/soak and retry acceptance | Acceptance pending | Emulator and official-platform acceptance suite must be completed before feature freeze. |
-| Version/tag/release pipeline | Acceptance pending | v2.4.0 built successfully; docs/release governance are being reset and the next candidate must prove the revised process. |
+| Version/tag/release pipeline | Acceptance pending | v2.4.0 is published. The npm lockfile drift gap and yanked build dependency were fixed, but GitHub reports no configured `main` protection and the next version must not be cut until storefront acceptance closes. |
 
 ## Internal-plan differences resolved here
 

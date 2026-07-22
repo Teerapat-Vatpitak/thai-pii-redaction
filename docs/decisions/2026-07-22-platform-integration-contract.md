@@ -25,7 +25,7 @@
 | `POST /api/sanitize` | ปกปิด PII คืนข้อความที่ปกปิดแล้วกับ `session_id` |
 | `POST /api/reidentify` | คืนค่าจริงกลับเข้าไปในข้อความ ด้วย `session_id` |
 | `POST /api/analyze` | รายงานความเสี่ยง PDPA คะแนน เกรด และหมวดมาตรา 26 |
-| `POST /api/guard` | สัญญาณ prompt injection แบบ rule-based ชั้นแรก |
+| `POST /api/guard` | สัญญาณเตือน prompt injection แบบ dependency-light (explicit rules + bounded intent classifier) |
 
 endpoint อื่นทั้งหมด (`/api/detect`, `/api/roundtrip`, `/api/redact-pdf`,
 `/api/analyze-report`, `/demo`, control plane) ถือเป็น **ภายใน** มีไว้ให้ extension
@@ -130,5 +130,6 @@ base image ถูก pin ด้วย multi-platform OCI digest ใน `Dockerfi
 - ไม่รับประกันความเข้ากันได้ของ endpoint ที่ไม่ได้ประกาศในข้อ 1
 - ไม่รับประกันว่า mapping จะอยู่ข้ามการรีสตาร์ต container (โดยตั้งใจ)
 - ไม่มี multi-tenant ไม่มี session store ร่วมข้าม instance จนกว่าจะมีผู้ใช้จริงร้องขอ
-- ไม่อ้างว่าชั้น guard จับ prompt injection ได้ครบ มันเป็นชั้นแรกแบบ rule-based
-  ที่ประกาศขีดจำกัดของตัวเองไว้แล้ว
+- ไม่อ้างว่าชั้น guard จับ prompt injection ได้ครบ มันเป็นชั้นเตือนแบบ
+  dependency-light ที่ใช้ explicit rules ร่วมกับ bounded intent classifier
+  และยังประกาศขีดจำกัดของตัวเองไว้

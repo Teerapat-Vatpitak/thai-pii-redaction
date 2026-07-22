@@ -51,3 +51,30 @@ def test_checked_records_exception_type_without_exception_message():
     assert result.status == "fail"
     assert result.details == {"error_type": "RuntimeError"}
     assert secret not in json.dumps(acceptance.asdict(result))
+
+
+def test_evidence_base_url_drops_every_credential_bearing_component():
+    raw = "https://user:password@example.test:8443/private/token?api_key=secret#secret"
+
+    safe = acceptance._evidence_base_url(raw)
+
+    assert safe == "https://example.test:8443"
+    assert "user" not in safe
+    assert "password" not in safe
+    assert "token" not in safe
+    assert "secret" not in safe
+
+
+def test_write_evidence_records_reproducible_git_state_without_secrets(tmp_path, monkeypatch):
+    monkeypatch.setattr(acceptance, "_git_state", lambda _root: ("a" * 40, True))
+    output = tmp_path / "evidence.json"
+    raw_url = "http://owner:credential@localhost:8000/api?token=credential"
+
+    acceptance._write_evidence(output, raw_url, [])
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 2
+    assert payload["git_commit"] == "a" * 40
+    assert payload["git_dirty"] is True
+    assert payload["base_url"] == "http://localhost:8000"
+    assert "credential" not in output.read_text(encoding="utf-8")

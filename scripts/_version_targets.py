@@ -43,6 +43,25 @@ def _json_set(path: Path, new_version: str) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def _npm_lock_get(path: Path) -> str | None:
+    """Read and cross-check both npm lockfile root-version fields."""
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    top_level = data.get("version")
+    root_package = data.get("packages", {}).get("", {}).get("version")
+    if not isinstance(top_level, str) or not isinstance(root_package, str):
+        return None
+    if top_level != root_package:
+        return f"{top_level} (packages[''] has {root_package})"
+    return top_level
+
+
+def _npm_lock_set(path: Path, new_version: str) -> None:
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    data["version"] = new_version
+    data["packages"][""]["version"] = new_version
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
 # `[package]\nname = "..."\nversion = "..."` -- matches the first
 # `version = "..."` line in a Cargo.toml, which is the `[package]` table's
 # version as long as it appears before any dependency table (true for every
@@ -99,4 +118,7 @@ def targets(root: Path) -> list[tuple[Path, Getter, Setter, bool]]:
         # spec -- some Tauri scaffolds omit it. _json_get/_json_set already
         # no-op cleanly when the key is absent.
         (Path("desktop/package.json"), _json_get, _json_set, True),
+        # npm lockfile v3 duplicates the root package version. Both copies are
+        # release metadata and must agree with VERSION.
+        (Path("desktop/package-lock.json"), _npm_lock_get, _npm_lock_set, False),
     ]

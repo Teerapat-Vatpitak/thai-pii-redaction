@@ -32,7 +32,26 @@ $env:PYTHONUTF8='1'
 
 The command writes a PII-free JSON record under `artifacts/acceptance/`, which
 is gitignored. Exit codes are `0` pass, `1` functional failure, and `2` selected
-live check blocked by missing credentials.
+live check blocked by missing credentials. Evidence records the full Git commit
+and a `git_dirty` flag; any credential-bearing URL components are discarded.
+Treat a dirty-tree record as provisional evidence and reproduce release gates
+from a clean candidate checkout.
+
+For the full optional acceptance environment, use Python 3.13 and install the
+four dependency groups together before running the complete suite:
+
+```powershell
+$env:PYTHONUTF8='1'
+uv venv --python 3.13 .venv-full
+uv pip install --python .venv-full\Scripts\python.exe `
+  -r requirements.txt -r requirements-web.txt `
+  -r requirements-ml.txt -r requirements-ocr.txt
+uv pip check --python .venv-full\Scripts\python.exe
+.\.venv-full\Scripts\python.exe -m pytest -q -ra
+```
+
+Keep this environment outside release packaging. ML/OCR are optional product
+paths and remain excluded from the frozen desktop sidecar and hosted core image.
 
 ## Extension checklist
 
@@ -80,7 +99,7 @@ If no candidate binary is installed or built, status is **Blocked**, not Pass.
 - [ ] Fake-provider token and surrogate roundtrips restore exactly.
 - [ ] Pathumma completes without raw fixture values in `ai_response_masked`.
   Unused-token warnings are valid when a conversational answer omits an entity.
-- [ ] The rule-based guard shows a warning for the injection fixture and does
+- [ ] The rules + intent guard shows a warning for the injection fixture and does
   not claim to block it.
 - [ ] PDPA report download produces a readable PDF.
 - [ ] PDF upload shows before/after previews and offers a redacted download.

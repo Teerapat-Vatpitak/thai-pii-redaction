@@ -165,6 +165,14 @@ class TestDemoGate:
         assert "ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้" not in resp.text
         assert "ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง" in resp.text
 
+    def test_roundtrip_failure_clears_the_pending_restore_state(self, client, monkeypatch):
+        monkeypatch.setenv("AIGUARD_DEMO", "1")
+
+        resp = client.get("/demo")
+
+        assert resp.status_code == 200
+        assert resp.text.count("ยังไม่มีคำตอบให้กู้คืน") >= 2
+
 
 class TestAnalyzeReport:
     def test_returns_valid_pdf_b64(self, client):

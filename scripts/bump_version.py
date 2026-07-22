@@ -5,7 +5,8 @@ source of truth (`VERSION`) down.
 Writes the new version into: `VERSION`, `extension/manifest.json`,
 `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`,
 `desktop/src-tauri/Cargo.lock` (only the `desktop` package entry), and
-`desktop/package.json` (if it has a `version` field).
+`desktop/package.json` (if it has a `version` field), and both root-version
+fields in `desktop/package-lock.json`.
 
 Deliberately does NOT touch `packaging/` (winget/scoop manifests carry a
 release-specific hash that must be regenerated at release time, not by this

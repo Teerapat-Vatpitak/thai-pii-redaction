@@ -745,10 +745,10 @@ def roundtrip(request: RoundtripRequest):
 
 @app.post("/api/guard")
 def guard(request: GuardRequest):
-    """Rule-based prompt-injection scan (honest first layer — warns, blocks nothing).
+    """Dependency-light prompt-injection warning scan; blocks nothing.
 
-    See pii_redactor/guard/injection.py: matches known injection shapes in
-    Thai/English; not airtight, structured for a later classifier layer.
+    See pii_redactor/guard/injection.py: explicit rules plus bounded
+    normalization/intent features in Thai and English; not airtight.
     """
     if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
