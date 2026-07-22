@@ -252,3 +252,12 @@ def test_reidentify_audit_log_never_records_the_pseudonym(tmp_path, monkeypatch)
 
     served = _client().get("/api/audit-log").text
     assert secret_token not in served
+
+
+def test_redact_pdf_endpoint_is_sync_so_it_runs_in_threadpool():
+    """API-1: an async endpoint runs its body on the event loop, so the heavy
+    OCR/NER/render work would block every other request. FastAPI only moves a
+    handler into the threadpool when it is a plain function."""
+    import asyncio
+
+    assert not asyncio.iscoroutinefunction(server.redact_pdf)

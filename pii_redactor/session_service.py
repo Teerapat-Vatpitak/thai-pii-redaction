@@ -11,6 +11,7 @@ null-byte-clears its vault first.
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -94,12 +95,23 @@ class SessionService:
         self._cap = cap
         self._ttl_s = ttl_s
         self._now = now_fn
+        # FastAPI runs sync endpoints in a threadpool, so every public entry
+        # point serializes on this lock: without it, drop/evict null-byte-clears
+        # a vault another thread is mid-restore on. RLock because sanitize/
+        # restore call drop() on their expiry paths while already holding it.
+        self._lock = threading.RLock()
 
     @property
     def session_count(self) -> int:
         return len(self._sessions)
 
     def _get_or_create(self, session_id: str | None, mode: str | None) -> tuple[str, _Session]:
+        with self._lock:
+            return self._get_or_create_locked(session_id, mode)
+
+    def _get_or_create_locked(
+        self, session_id: str | None, mode: str | None
+    ) -> tuple[str, _Session]:
         if session_id is not None:
             session = self._sessions.get(session_id)
             if session is None or self._now() - session.last_access > self._ttl_s:
@@ -117,8 +129,12 @@ class SessionService:
             raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
 
         if len(self._sessions) >= self._cap:
-            oldest = min(self._sessions, key=lambda k: self._sessions[k].created)
-            self.drop(oldest)
+            # LRU victim: least-recently-used, never the oldest-created — an
+            # old but active session must survive (VAULT-2). A TTL-expired
+            # session is by definition the least recently accessed, so it is
+            # always evicted first.
+            lru = min(self._sessions, key=lambda k: self._sessions[k].last_access)
+            self.drop(lru)
         sid = str(uuid.uuid4())
         now = self._now()
         # vault idle timeout mirrors the service TTL as a second layer; if the
@@ -135,11 +151,12 @@ class SessionService:
         return sid, session
 
     def drop(self, session_id: str) -> bool:
-        session = self._sessions.pop(session_id, None)
-        if session is None:
-            return False
-        session.vault.clear()
-        return True
+        with self._lock:
+            session = self._sessions.pop(session_id, None)
+            if session is None:
+                return False
+            session.vault.clear()
+            return True
 
     def sanitize(
         self,
@@ -148,7 +165,17 @@ class SessionService:
         mode: str | None = None,
         session_id: str | None = None,
     ) -> SanitizeOutcome:
-        sid, session = self._get_or_create(session_id, mode)
+        with self._lock:
+            return self._sanitize_locked(text, mode=mode, session_id=session_id)
+
+    def _sanitize_locked(
+        self,
+        text: str,
+        *,
+        mode: str | None,
+        session_id: str | None,
+    ) -> SanitizeOutcome:
+        sid, session = self._get_or_create_locked(session_id, mode)
 
         try:
             try:
@@ -183,7 +210,11 @@ class SessionService:
             raise SessionExpiredError("Session not found or expired") from None
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
-        sid, session = self._get_or_create(session_id, None)
+        with self._lock:
+            return self._restore_locked(session_id, text)
+
+    def _restore_locked(self, session_id: str, text: str) -> RestoreOutcome:
+        sid, session = self._get_or_create_locked(session_id, None)
         if not text or not text.strip():
             return RestoreOutcome(
                 restored_text=text,

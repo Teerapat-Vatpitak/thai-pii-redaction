@@ -83,6 +83,61 @@ def test_cap_evicts_oldest_and_clears_vault():
     assert len(s1.vault._table) == 0
 
 
+def test_cap_evicts_least_recently_used_not_oldest_created():
+    """VAULT-2: at cap the victim must be the LRU session (last_access), not the
+    oldest-created — an old but actively-used session must survive."""
+    svc, clock = _svc(cap=2)
+    sid_a, _ = svc._get_or_create(None, None)  # created first
+    clock["t"] += 1
+    sid_b, _ = svc._get_or_create(None, None)
+    clock["t"] += 1
+    svc._get_or_create(sid_a, None)  # touch A — B is now least recently used
+    clock["t"] += 1
+    svc._get_or_create(None, None)  # third session: must evict B, not A
+    sid_again, _ = svc._get_or_create(sid_a, None)
+    assert sid_again == sid_a
+    with pytest.raises(SessionExpiredError):
+        svc._get_or_create(sid_b, None)
+
+
+def test_drop_blocks_while_restore_is_in_flight(monkeypatch):
+    """VAULT-3: FastAPI runs sync endpoints in a threadpool, so drop/evict can
+    race an in-flight restore. Without locking, drop null-byte-clears the vault
+    mid-restore and the reply comes back with tokens unrestored."""
+    import threading
+    import time as _time
+
+    import pii_redactor.session_service as svc_mod
+
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+
+    in_restore = threading.Event()
+    release = threading.Event()
+    real_reverse = svc_mod.reverse_map
+
+    def slow_reverse(response, registry, vault):
+        in_restore.set()
+        release.wait(timeout=5)
+        return real_reverse(response, registry, vault)
+
+    monkeypatch.setattr(svc_mod, "reverse_map", slow_reverse)
+
+    result = {}
+    restorer = threading.Thread(
+        target=lambda: result.update(r=svc.restore(out.session_id, out.sanitized_text))
+    )
+    restorer.start()
+    assert in_restore.wait(timeout=5)
+    dropper = threading.Thread(target=lambda: svc.drop(out.session_id))
+    dropper.start()
+    _time.sleep(0.05)  # give drop every chance to run — it must block on the lock
+    release.set()
+    restorer.join(timeout=5)
+    dropper.join(timeout=5)
+    assert "081-234-5678" in result["r"].restored_text
+
+
 def test_drop_clears_and_reports():
     svc, _ = _svc()
     sid, session = svc._get_or_create(None, None)
