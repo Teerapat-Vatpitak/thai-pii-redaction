@@ -2,10 +2,10 @@
   "manifest_version": 3,
   "default_locale": "th",
   "name": "__MSG_appName__",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "__MSG_appDesc__",
   "action": {
-    "default_title": "เปิดแถบ AI Guard",
+    "default_title": "\u0e40\u0e1b\u0e34\u0e14\u0e41\u0e16\u0e1a AI Guard",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -25,7 +25,11 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "clipboardWrite", "sidePanel"],
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "sidePanel"
+  ],
   "host_permissions": [
     "http://localhost:8000/*",
     "http://127.0.0.1:8000/*"
@@ -47,14 +51,24 @@
         "https://*.chatglm.cn/*",
         "https://*.bigmodel.cn/*"
       ],
-      "js": ["sites.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "sites.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/icon16.png", "icons/icon32.png", "icons/icon48.png", "icons/icon128.png"],
+      "resources": [
+        "icons/icon16.png",
+        "icons/icon32.png",
+        "icons/icon48.png",
+        "icons/icon128.png"
+      ],
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
