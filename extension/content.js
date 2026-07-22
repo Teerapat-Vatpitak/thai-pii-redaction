@@ -63,10 +63,10 @@
     status.className = PREFIX + "status" + (kind ? " " + PREFIX + kind : "");
   }
 
-  // ---- overlay for restored text ----------------------------------------
-  function showOverlay(title, bodyText, meta) {
+  // ---- overlay for restored text / prominent warnings --------------------
+  function showOverlay(title, bodyText, meta, kind) {
     const back = el("div", "overlay-back");
-    const card = el("div", "overlay");
+    const card = el("div", "overlay" + (kind ? " " + PREFIX + "overlay-" + kind : ""));
     const close = el("button", "overlay-close", "×"); // multiplication sign
     close.setAttribute("aria-label", "Close");
     card.appendChild(close);
@@ -91,6 +91,27 @@
   }
 
   // ---- Mask -------------------------------------------------------------
+  // EXT-3: a failed Mask means the RAW text is still in the composer and the
+  // site's own Send button is one keystroke away. A corner status is not
+  // enough — raise the full-screen overlay (its backdrop also blocks the page
+  // until the user consciously dismisses it).
+  function maskFailed(reason) {
+    setStatus("ยังไม่ได้ปกปิด", "err");
+    showOverlay(
+      "ยังไม่ได้ปกปิด",
+      "ข้อความจริงยังอยู่ในช่องพิมพ์ อย่าเพิ่งกดส่ง\n" + reason,
+      "ปิดหน้าต่างนี้แล้วลองกด Mask PII อีกครั้ง",
+      "warn"
+    );
+  }
+
+  // Whitespace-insensitive comparison: contenteditable editors re-render text
+  // through their own document model (innerText adds/collapses newlines), so
+  // an exact string match would fail on a perfectly good write.
+  function sameText(a, b) {
+    return (a || "").replace(/\s+/g, " ").trim() === (b || "").replace(/\s+/g, " ").trim();
+  }
+
   async function doMask() {
     const composer = SITE.composer();
     if (!composer) {
@@ -107,10 +128,19 @@
     const resp = await send({ type: "sanitize", text });
     maskBtn.disabled = false;
     if (!resp || !resp.ok) {
-      setStatus(backendError(resp), "err");
+      maskFailed(backendError(resp));
       return;
     }
     SITE.writeComposer(composer, resp.data.sanitized_text);
+    // EXT-2: writeComposer's return value is not evidence — the host editor
+    // may have swallowed the write (React re-render, replaced node). Success
+    // is only what a fresh read of the composer actually contains.
+    const check = SITE.composer() || composer;
+    const now = check ? SITE.readComposer(check) : "";
+    if (!sameText(now, resp.data.sanitized_text)) {
+      maskFailed("เขียนข้อความที่ปกปิดแล้วลงช่องพิมพ์ไม่สำเร็จ");
+      return;
+    }
     const n = (resp.data.entities || []).length;
     setStatus("ปกปิด " + n + " รายการ", "ok");
   }
