@@ -508,6 +508,28 @@ def test_tb_location_with_addr_cue_upgrades_to_address(monkeypatch):
     assert any(e.data_type == "ADDRESS" for e in ents)
 
 
+def test_tb_account_number_label_is_not_an_address_cue(monkeypatch):
+    """`เลขที่บัญชี` (account number) must not upgrade a span to ADDRESS.
+
+    The address cue `เลขที่` also sits inside compounds that mean "the number
+    of <a thing>", so it fired on the account-number label and the label got
+    replaced with a fake street address. That surrogate then landed beside
+    other surrogates, the NER drew one wide ADDRESS span across them, and the
+    pre-send guard halted a perfectly clean prompt (an intermittent
+    PreSendValidationError in the pipeline roundtrip, salt-dependent).
+    """
+    text = "เลขที่บัญชี 123-4-56789-0 เบอร์โทร 086-111-2233"
+    ents = _fake_ner_detect(text, [("เลขที่บัญชี", "B-LOCATION")], monkeypatch)
+    assert not any(e.data_type == "ADDRESS" for e in ents)
+
+
+def test_tb_real_address_still_upgrades_after_the_compound_guard(monkeypatch):
+    """The guard must not cost a real `เลขที่`-cued address its ADDRESS label."""
+    text = "ที่อยู่ เลขที่ 26 ซอยสาทร 5 เขตสาทร กรุงเทพ"
+    ents = _fake_ner_detect(text, [("เขตสาทร", "B-LOCATION")], monkeypatch)
+    assert any(e.data_type == "ADDRESS" for e in ents)
+
+
 def test_tb_date_with_birth_cue_upgrades_to_dob(monkeypatch):
     text = "เกิดวันที่ 12 พฤษภาคม 2530 ที่กรุงเทพ"
     ents = _fake_ner_detect(text, [("12 พฤษภาคม 2530", "B-DATE")], monkeypatch)
