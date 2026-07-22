@@ -724,7 +724,7 @@ _MAX_PDF_BYTES = 50 * 1024 * 1024
 
 
 @app.post("/api/redact-pdf")
-async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
+def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     """Redact PII in a text-layer or scanned PDF and return the redacted file + previews.
 
     Detection runs on a length-preserving normalisation of the raw extracted
@@ -742,9 +742,12 @@ async def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     if not pdf_file.filename or not pdf_file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
+    # Sync endpoint on purpose (API-1): the heavy OCR/NER/render work must run
+    # in FastAPI's threadpool, not on the event loop. pdf_file.file is the
+    # underlying SpooledTemporaryFile, readable without await.
     chunks: list[bytes] = []
     size = 0
-    while chunk := await pdf_file.read(64 * 1024):
+    while chunk := pdf_file.file.read(64 * 1024):
         size += len(chunk)
         if size > _MAX_PDF_BYTES:
             raise HTTPException(
