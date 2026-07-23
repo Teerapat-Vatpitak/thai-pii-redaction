@@ -56,7 +56,7 @@ existence from evidence on the real delivery path.
 | Queue transport/envelope | Blocked externally | HTTP-poll transport is an adapter placeholder until the platform sends its actual spec/account. |
 | Official AI for Thai deployment | Blocked externally | Account/username, registry, and deployment contract have not been issued. |
 | Load/soak and retry acceptance | Acceptance pending | Emulator and official-platform acceptance suite must be completed before feature freeze. |
-| Version/tag/release pipeline | Acceptance pending | v2.4.0 is published. The unpublished `v2.4.1` draft/tag was superseded after release acceptance found additional surrogate, Grok, and Perplexity defects; tags are not moved or reused. A `2.4.2` patch candidate is in preparation. The release PR, tag workflow, checksums, attestations, and exact-installer smoke must pass before publication. Full Office support remains gated for a later minor release. |
+| Version/tag/release pipeline | Verified | v2.4.2 is published as Latest from exact merge commit `5c7149d`. All main and tag workflow jobs passed; the complete asset set matched `SHA256SUMS`; GitHub provenance identified the expected repository/tag/commit; and the exact Windows installer passed registration, version, launch/API, token/surrogate/fake-roundtrip, close, and port-release smoke. The unpublished `v2.4.1` draft/tag remains superseded and is not moved or reused. Full Office support remains gated for v2.5.0. |
 
 ## Internal-plan differences resolved here
 
