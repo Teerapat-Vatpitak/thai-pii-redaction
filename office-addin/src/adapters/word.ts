@@ -8,11 +8,11 @@ export interface WordSelectionRecord {
   tableCount: number;
   /**
    * Direct formatting properties that Word can report reliably for a range.
-   * `font.name`, `font.size`, and `font.color` are deliberately excluded:
-   * Word can return mixed/null values for otherwise uniform Thai + Latin
-   * selections when it resolves script fallback fonts and automatic theme
-  * color. Treating that as mixed made ordinary Thai PII Copy-only.
-  */
+   * `font.name` is deliberately excluded because Word resolves Thai and Latin
+   * script fallback fonts independently. Size, color, emphasis, highlight,
+   * strike-through, and baseline properties remain part of the signature so a
+   * replacement cannot silently flatten those user-visible differences.
+   */
   formatting: Array<string | number | boolean | null>;
   /** Production reads set this; injected gateways may omit it for compatibility. */
   formattingStatus?: "uniform" | "mixed" | "too-large";
@@ -25,18 +25,45 @@ export interface WordGateway {
 }
 
 const MAX_FORMAT_CHECK_CHARACTERS = 500;
+const DIRECT_FORMAT_PROPERTIES =
+  "bold,italic,underline,size,color,highlightColor,strikeThrough,doubleStrikeThrough,subscript,superscript";
 
 interface FormattingResult {
   formatting: Array<string | number | boolean | null>;
   status: NonNullable<WordSelectionRecord["formattingStatus"]>;
 }
 
+type FontRecord = Record<string, string | number | boolean | null | undefined>;
+
+function directFormattingSignature(font: FontRecord): string | null {
+  const requiredValues = [
+    font.bold,
+    font.italic,
+    font.underline,
+    font.size,
+    font.strikeThrough,
+    font.doubleStrikeThrough,
+    font.subscript,
+    font.superscript,
+  ];
+  if (requiredValues.some((value) => value === null || value === undefined)) return null;
+
+  // Word reports automatic font/highlight colors as null on some hosts. That
+  // is a stable value when every checked run is automatic; an empty string is
+  // the documented mixed-highlight sentinel and therefore cannot be written.
+  const color = font.color ?? null;
+  const highlightColor = font.highlightColor ?? null;
+  if (color === "" || highlightColor === "") return null;
+
+  return JSON.stringify([...requiredValues, color, highlightColor]);
+}
+
 /**
- * Checks direct emphasis run-by-run instead of asking Word for one aggregate
+ * Checks direct formatting run-by-run instead of asking Word for one aggregate
  * font. The aggregate reports `null` for normal Thai + Latin text because the
  * host resolves different script fallback fonts, which is not user-applied
  * mixed formatting. Splitting on every selected character lets Word report
- * each run's actual bold/italic/underline state without retaining its text.
+ * each run's actual user-visible formatting without retaining its text.
  */
 async function readDirectFormatting(context: Word.RequestContext, range: Word.Range): Promise<FormattingResult> {
   const textCharacters = Array.from(range.text);
@@ -49,28 +76,21 @@ async function readDirectFormatting(context: Word.RequestContext, range: Word.Ra
   // The fallback keeps older/mocked Office.js gateways fail-closed. Current
   // supported Word Desktop supplies `getTextRanges` (WordApi 1.3+).
   if (typeof range.getTextRanges !== "function") {
-    range.font.load("bold,italic,underline");
+    range.font.load(DIRECT_FORMAT_PROPERTIES);
     await context.sync();
-    const font = range.font as unknown as Record<string, string | number | boolean | null>;
-    const values = [font.bold ?? null, font.italic ?? null, font.underline ?? null];
-    return values.some((value) => value === null)
+    const signature = directFormattingSignature(range.font as unknown as FontRecord);
+    return signature === null
       ? { formatting: [null], status: "mixed" }
-      : { formatting: [JSON.stringify(values)], status: "uniform" };
+      : { formatting: [signature], status: "uniform" };
   }
 
   const ranges = range.getTextRanges(characters, false);
   ranges.load("items");
   await context.sync();
-  for (const textRange of ranges.items) textRange.font.load("bold,italic,underline");
+  for (const textRange of ranges.items) textRange.font.load(DIRECT_FORMAT_PROPERTIES);
   await context.sync();
 
-  const signatures = new Set(
-    ranges.items.map((textRange) => {
-      const font = textRange.font as unknown as Record<string, string | number | boolean | null>;
-      const values = [font.bold ?? null, font.italic ?? null, font.underline ?? null];
-      return values.some((value) => value === null) ? null : JSON.stringify(values);
-    }),
-  );
+  const signatures = new Set(ranges.items.map((textRange) => directFormattingSignature(textRange.font as unknown as FontRecord)));
   const onlySignature = signatures.values().next().value;
   return signatures.size === 1 && onlySignature !== null && onlySignature !== undefined
     ? { formatting: [onlySignature], status: "uniform" }
