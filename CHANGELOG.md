@@ -12,11 +12,21 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+### Added
+
+- A packaged, deterministic unified Microsoft 365 manifest transport with
+  authoritative schema validation and archive-content verification for the
+  Word-only release surface.
+
 ### Changed
 
 - Release drafts now explicitly require release-specific changelog notes before
   publication and show platform-correct SHA256 verification commands for
   Windows, macOS, and Linux.
+- The Microsoft 365 candidate now has completed local XML real-host acceptance
+  for Word, Excel, and PowerPoint using synthetic PII. Unified-manifest
+  acquisition, validation, and packaging also pass; custom ribbon activation
+  on the packaged distribution transport remains separately unconfirmed.
 
 ## [2.4.2] - 2026-07-23
 

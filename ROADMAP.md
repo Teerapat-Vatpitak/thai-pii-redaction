@@ -74,6 +74,13 @@ works end to end.
 - Node 22 build, mock tests, unified-manifest/version validation, and real-host
   acceptance evidence before the lane is Done.
 
+Local acceptance evidence now records completed synthetic-PII Word, Excel, and
+PowerPoint XML-host runs, plus unified Word-manifest acquisition, authoritative
+schema validation, and deterministic package verification. The candidate must
+continue to describe the unified transport accurately: custom ribbon activation
+on the packaged distribution transport has not been independently confirmed,
+and this is not a Marketplace or broad Office-distribution claim.
+
 Exit gate for this lane: Word, Excel, and PowerPoint checklist items pass on the
 candidate build, then Office and the remaining storefront acceptance gates may
 be released together as `2.5.0`. Development does not bump `VERSION`.
