@@ -71,10 +71,10 @@ function warningText() {
   return capturedShadows.map((s) => s.textContent).join(" ");
 }
 
-async function clickMask() {
+async function clickMask(waitMs = 600) {
   // bar order: logo, Mask PII, Restore PII, status — Mask is the first button
   document.querySelector("button.aiguard-btn").click();
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, waitMs));
 }
 
 afterEach(() => {
@@ -113,6 +113,26 @@ describe("doMask verification (EXT-2)", () => {
     expect(statusEl().className).toContain("aiguard-err");
     // EXT-3: the failure must be prominent, not a corner whisper.
     expect(warningOverlay()).not.toBeNull();
+  });
+
+  it("accepts a controlled editor update that lands on the next cycle", async () => {
+    const site = makeSite({ writeActuallyWrites: false });
+    site._textarea.value = "ผมชื่อ สมชาย โทร 081-234-5678";
+    site.writeComposer = (el, text) => {
+      setTimeout(() => {
+        el.value = text;
+      }, 25);
+      return true;
+    };
+    const chrome = makeChrome({
+      ok: true,
+      data: { sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]", entities: [{}, {}] },
+    });
+    await loadContent(site, chrome);
+    await clickMask();
+    expect(site._textarea.value).toBe("ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]");
+    expect(statusEl().textContent).toContain("ปกปิด 2 รายการ");
+    expect(warningOverlay()).toBeNull();
   });
 });
 

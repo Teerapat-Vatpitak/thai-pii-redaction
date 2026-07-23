@@ -5,9 +5,10 @@
 // (reply nodes, for the per-message Restore button). If a site changes its UI,
 // update the selectors here only -- the rest of the extension is host-agnostic.
 //
-// Sites differ in composer type: ChatGPT/Claude/Gemini use a contenteditable
-// rich editor; Grok/Perplexity/GLM(Z.ai) use a plain <textarea>. read/write
-// below handle both. Every site also falls back to genericComposer() -- a
+// Sites differ in composer type and can change it without notice. ChatGPT,
+// Claude, Gemini, and current Grok use a contenteditable rich editor, while
+// Perplexity/GLM(Z.ai) may use a plain <textarea>. read/write below handle
+// both. Every site also falls back to genericComposer() -- a
 // visible-input picker -- so Mask keeps working even if a site-specific
 // selector drifts. assistantMessages() is best-effort; the floating Restore
 // button works on any selected text, so it is the universal fallback.
@@ -77,7 +78,30 @@ window.AIGUARD_SITES = (function () {
       return true;
     }
     try {
-      document.execCommand("selectAll", false, null);
+      // Scope the selection to the editor itself. document.execCommand(
+      // "selectAll") is document-wide on Lexical editors such as current
+      // Perplexity, so insertText either writes nowhere or the framework
+      // restores its old state. A DOM Range keeps the native edit inside the
+      // focused composer and still emits the framework-observable input.
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      if (el.getAttribute("data-lexical-editor") === "true") {
+        // Lexical owns its editor state and immediately repairs direct DOM
+        // mutations. Its beforeinput handler is the supported browser-facing
+        // path: when it consumes the event (preventDefault), the editor state
+        // and DOM update together.
+        const beforeInput = new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          data: text,
+          inputType: "insertText",
+        });
+        if (!el.dispatchEvent(beforeInput)) return true;
+      }
       if (document.execCommand("insertText", false, text)) return true;
     } catch (e) {
       /* fall through to fallback */
@@ -156,12 +180,19 @@ window.AIGUARD_SITES = (function () {
     writeComposer: writeComposer,
   };
 
-  // Grok (grok.com): a plain <textarea> composer. Reply markup is less stable,
-  // so per-message buttons are best-effort; selection Restore covers the rest.
+  // Grok (grok.com): current builds use a Tiptap/ProseMirror contenteditable
+  // plus a visible helper textarea. Prefer the real rich editor explicitly;
+  // choosing the helper textarea reads a single "x", reports zero detections,
+  // and leaves raw PII in the visible composer.
   const grok = {
     name: "grok",
     composer: function () {
       return (
+        pickVisible(
+          document.querySelectorAll(
+            "div.tiptap[contenteditable='true'], div.ProseMirror[contenteditable='true'], [role='textbox'][contenteditable='true']"
+          )
+        ) ||
         pickVisible(document.querySelectorAll("textarea")) ||
         document.querySelector("textarea") ||
         genericComposer()

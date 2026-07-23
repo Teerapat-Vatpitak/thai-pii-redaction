@@ -184,6 +184,22 @@
     return (a || "").replace(/\s+/g, " ").trim() === (b || "").replace(/\s+/g, " ").trim();
   }
 
+  async function waitForComposerText(expected) {
+    // Controlled editors can commit a valid native edit on their next update
+    // cycle. Re-read the current composer for a short, bounded window; never
+    // trust writeComposer's return value, and still fail closed if the masked
+    // text does not become the visible editor state.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const check = SITE.composer();
+      const now = check ? SITE.readComposer(check) : "";
+      if (sameText(now, expected)) return true;
+      if (attempt < 7) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    return false;
+  }
+
   async function doMask() {
     const composer = SITE.composer();
     if (!composer) {
@@ -206,10 +222,8 @@
     SITE.writeComposer(composer, resp.data.sanitized_text);
     // EXT-2: writeComposer's return value is not evidence — the host editor
     // may have swallowed the write (React re-render, replaced node). Success
-    // is only what a fresh read of the composer actually contains.
-    const check = SITE.composer() || composer;
-    const now = check ? SITE.readComposer(check) : "";
-    if (!sameText(now, resp.data.sanitized_text)) {
+    // is only what fresh reads of the composer actually contain.
+    if (!(await waitForComposerText(resp.data.sanitized_text))) {
       maskFailed("เขียนข้อความที่ปกปิดแล้วลงช่องพิมพ์ไม่สำเร็จ");
       return;
     }
