@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Guard Change Workflow"
+  short_description: "Plan, verify, and publish AI Guard changes"
+  default_prompt: "Use $aiguard-change-workflow to plan, implement, verify, and prepare this AI Guard change."
