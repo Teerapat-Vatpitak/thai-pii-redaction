@@ -12,11 +12,22 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-24
+
+Microsoft 365 feature release. Word, Excel, and PowerPoint share one local
+task pane and the existing FastAPI/vault core; Extension, Playground, PDF, and
+live AI for Thai acceptance remain closed on the release lineage.
+
 ### Added
 
 - A packaged, deterministic unified Microsoft 365 manifest transport with
   authoritative schema validation and archive-content verification for the
-  Word-only release surface.
+  Word, Excel, and PowerPoint release surface.
+- Word selection Detect/Analyze/Mask/Restore and explicit Pathumma response
+  insertion, Excel text-cell-only masking with formula preservation, and
+  PowerPoint selected-text masking with slide/shape isolation.
+- Browser-level regression coverage for Playground PDPA-report and redacted-PDF
+  download wiring.
 
 ### Changed
 
@@ -27,6 +38,11 @@ log — see `git log` for full detail on any release.
   for Word, Excel, and PowerPoint using synthetic PII. Unified-manifest
   acquisition, validation, and packaging also pass; custom ribbon activation
   on the packaged distribution transport remains separately unconfirmed.
+
+### Fixed
+
+- Word selections inside a table now remain Preview/Copy-only even when
+  Office.js reports an empty nested-table collection.
 
 ## [2.4.2] - 2026-07-23
 
