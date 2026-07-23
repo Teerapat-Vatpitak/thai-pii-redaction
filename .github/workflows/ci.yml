@@ -208,6 +208,8 @@ jobs:
       - name: Validate manifest and product version
         run: |
           npm run validate:manifest
+          npm run validate:manifest:upstream
+          npm run package:manifest
           node -e "const fs=require('fs'); const expected=fs.readFileSync('../VERSION','utf8').trim(); const actual=require('./manifest.json').version; if(actual!==expected) process.exit(1)"
       - name: Typecheck, test, and build
         run: |

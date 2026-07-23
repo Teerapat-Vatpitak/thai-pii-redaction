@@ -109,18 +109,25 @@ unified manifest พร้อมเผยแพร่ แต่ละ local mani
 npm run typecheck
 npm test
 npm run validate:manifest
+npm run validate:manifest:upstream
 npm run validate:manifest:local
+npm run package:manifest
 npm run build
 ```
 
 `validate:manifest` ตรวจว่า release manifest ยังเปิดเฉพาะ host ที่ผ่าน promotion
 gate รวมถึง unified schema 1.25, HTTPS runtime, icon assets และ version
-consistency แบบ deterministic. `validate:manifest:upstream` มีไว้ตรวจกับ
-Microsoft CLI เพิ่มเติม แต่ยังไม่ใช้เป็น CI gate จนกว่าผลของ validator รุ่นที่ pin
-ไว้จะตรงกับ current unified schema โดยไม่แปลง package ผิดรูปแบบ
+consistency แบบ deterministic. `validate:manifest:upstream` ดึง schema 1.25
+จาก Microsoft โดยตรง ตรวจ SHA-256 ที่ review แล้ว และตรวจ JSON ด้วย JSON Schema
+validator; ใช้แทน CLI รุ่นที่แปลง unified ribbon fields ผิดรูปแบบ. คำสั่งนี้ต้องใช้
+network และเป็น authoritative schema check ของ release transport.
 `validate:manifest:local` ตรวจ XML acceptance transport ของ Word, Excel และ
 PowerPoint ด้วย Microsoft validator แต่การผ่าน schema ของ XML ห้ามนำไปแทน
-real-host acceptance หรือ unified-manifest promotion gate
+real-host acceptance หรือ unified-manifest promotion gate. `package:manifest`
+สร้าง `out/office-addin/aiguard-office-addin-<version>.zip` แล้วตรวจว่า archive มี
+`manifest.json` ที่ root และ icon outline/color ตามที่ manifest ระบุ โดย byte
+ตรงกับ source. ZIP นี้เป็น app-package transport; ยังไม่ใช่หลักฐาน real-host
+acceptance หรือการ promote Excel/PowerPoint.
 
 Real-host acceptance อยู่ใน
 [docs/acceptance/README.md](../docs/acceptance/README.md#office-add-in-checklist).
