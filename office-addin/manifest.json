@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
   "manifestVersion": "1.25",
-  "version": "2.4.2",
+  "version": "2.5.0",
   "id": "9f16ea86-a09b-4ad6-95f1-c25c429594bd",
   "localizationInfo": {
     "defaultLanguageTag": "th-th"
@@ -45,7 +45,9 @@
     {
       "requirements": {
         "scopes": [
-          "document"
+          "document",
+          "workbook",
+          "presentation"
         ]
       },
       "runtimes": [
@@ -85,7 +87,9 @@
               }
             ],
             "scopes": [
-              "document"
+              "document",
+              "workbook",
+              "presentation"
             ],
             "formFactors": [
               "desktop"

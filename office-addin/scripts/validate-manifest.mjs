@@ -14,6 +14,7 @@ const localManifests = localManifestSpecs.map((spec) => ({
   source: readFileSync(resolve(root, spec.file), "utf8"),
 }));
 const errors = [];
+const promotedScopes = ["document", "workbook", "presentation"];
 
 if (manifest.version !== packageJson.version) errors.push("manifest version must match package version");
 if (manifest.manifestVersion !== "1.25") errors.push("unified manifestVersion must be 1.25");
@@ -31,8 +32,21 @@ if (!Array.isArray(manifest.extensions) || manifest.extensions.length !== 1) err
 
 const extension = manifest.extensions?.[0];
 const scopes = new Set(extension?.requirements?.scopes ?? []);
-if (scopes.size !== 1 || !scopes.has("document")) {
-  errors.push("release manifest must expose Word/document only until Excel and PowerPoint real-host acceptance pass");
+if (scopes.size !== promotedScopes.length || !promotedScopes.every((scope) => scopes.has(scope))) {
+  errors.push("release manifest must expose exactly Word/document, Excel/workbook, and PowerPoint/presentation");
+}
+const ribbonScopes = new Set(extension?.ribbons?.[0]?.requirements?.scopes ?? []);
+if (ribbonScopes.size !== promotedScopes.length || !promotedScopes.every((scope) => ribbonScopes.has(scope))) {
+  errors.push("release ribbon must expose exactly Word/document, Excel/workbook, and PowerPoint/presentation");
+}
+const permissions = manifest.authorization?.permissions?.resourceSpecific;
+if (
+  !Array.isArray(permissions) ||
+  permissions.length !== 1 ||
+  permissions[0]?.name !== "Document.ReadWrite.User" ||
+  permissions[0]?.type !== "Delegated"
+) {
+  errors.push("release manifest must retain delegated Document.ReadWrite.User permission for all Office hosts");
 }
 const page = extension?.runtimes?.[0]?.code?.page;
 if (page !== "https://localhost:3000/taskpane.html") errors.push("runtime page must use the trusted localhost HTTPS origin");

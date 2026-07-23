@@ -121,15 +121,17 @@ export class OfficeWordGateway implements WordGateway {
   async read(): Promise<WordSelectionRecord> {
     return Word.run(async (context) => {
       const range = context.document.getSelection();
+      const parentTable = range.parentTableOrNullObject;
       range.load("text");
       range.paragraphs.load("items");
       range.tables.load("items");
+      parentTable.load("isNullObject");
       await context.sync();
       const formatting = await readDirectFormatting(context, range);
       return {
         text: range.text,
         paragraphCount: range.paragraphs.items.length,
-        tableCount: range.tables.items.length,
+        tableCount: parentTable.isNullObject ? range.tables.items.length : Math.max(1, range.tables.items.length),
         formatting: formatting.formatting,
         formattingStatus: formatting.status,
       };
@@ -157,15 +159,17 @@ export class OfficeWordGateway implements WordGateway {
   }
 
   private async loadRecord(context: Word.RequestContext, range: Word.Range): Promise<WordSelectionRecord> {
+    const parentTable = range.parentTableOrNullObject;
     range.load("text");
     range.paragraphs.load("items");
     range.tables.load("items");
+    parentTable.load("isNullObject");
     await context.sync();
     const formatting = await readDirectFormatting(context, range);
     return {
       text: range.text,
       paragraphCount: range.paragraphs.items.length,
-      tableCount: range.tables.items.length,
+      tableCount: parentTable.isNullObject ? range.tables.items.length : Math.max(1, range.tables.items.length),
       formatting: formatting.formatting,
       formattingStatus: formatting.status,
     };

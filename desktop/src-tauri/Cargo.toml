@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "2.4.2"
+version = "2.5.0"
 description = "Thai PII detection and redaction — desktop app"
 authors = ["Teerapat Vatpitak <teerapatv.c@gmail.com>"]
 edition = "2021"

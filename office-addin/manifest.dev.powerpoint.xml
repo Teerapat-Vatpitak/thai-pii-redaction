@@ -7,7 +7,7 @@
   xsi:type="TaskPaneApp">
   <!-- Local PowerPoint acceptance transport only. The release artifact is manifest.json. -->
   <Id>f57a940f-1d80-4f31-983c-f6903aac3d0b</Id>
-  <Version>2.4.2.0</Version>
+  <Version>2.5.0.0</Version>
   <ProviderName>AI Guard</ProviderName>
   <DefaultLocale>th-TH</DefaultLocale>
   <DisplayName DefaultValue="AI Guard PowerPoint (Local Acceptance)" />

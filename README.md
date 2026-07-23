@@ -57,8 +57,12 @@ a hosted service.
 - Browser extension: in-page Mask/Restore for supported AI sites plus a docked
   side panel.
 - Desktop app: bundled Tauri shell and local FastAPI sidecar.
-- Microsoft 365 Add-in: one Thai task pane for Word, Excel, and PowerPoint;
-  currently in development with real-host acceptance pending.
+- Microsoft 365 Add-in: one Thai task pane for Word, Excel, and PowerPoint.
+  Local XML acceptance and the three-host unified-manifest
+  acquisition/validation/package transport have passed with synthetic PII.
+  The packaged transport's custom ribbon activation was not independently
+  observable during Office client cache refresh; this is not a Marketplace or
+  broad Office-distribution claim.
 - HTTP API: detection, sanitization, re-identification, analysis, reporting,
   guard, PDF, and demo endpoints.
 - Queue worker: stateless operations behind a replaceable transport adapter for

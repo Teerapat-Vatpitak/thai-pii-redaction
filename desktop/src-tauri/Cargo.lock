@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "log",
  "reqwest 0.12.28",
