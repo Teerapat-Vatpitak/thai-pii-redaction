@@ -2,8 +2,8 @@
 """Bump the product version everywhere it's hardcoded, from the single
 source of truth (`VERSION`) down.
 
-Writes the new version into: `VERSION`, `extension/manifest.json`,
-`desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`,
+Writes the new version into: `VERSION`, `extension/manifest.json`, the Office
+Add-in unified and host-specific local manifests plus package/lock files, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`,
 `desktop/src-tauri/Cargo.lock` (only the `desktop` package entry), and
 `desktop/package.json` (if it has a `version` field), and both root-version
 fields in `desktop/package-lock.json`.

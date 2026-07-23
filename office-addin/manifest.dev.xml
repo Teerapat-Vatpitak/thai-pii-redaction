@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+  <!-- Local Word acceptance transport only. The release artifact is manifest.json. -->
+  <Id>6f585180-7c5f-43ed-9f66-fb12d6128a3e</Id>
+  <Version>2.4.0.0</Version>
+  <ProviderName>AI Guard</ProviderName>
+  <DefaultLocale>th-TH</DefaultLocale>
+  <DisplayName DefaultValue="AI Guard (Local Acceptance)" />
+  <Description DefaultValue="ทดสอบ AI Guard for Microsoft 365 กับ Word บนเครื่องนี้" />
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png" />
+  <SupportUrl DefaultValue="https://github.com/Teerapat-Vatpitak/thai-pii-redaction" />
+  <AppDomains>
+    <AppDomain>https://localhost:3000</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides
+    xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+    xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.1">
+        <bt:Set Name="AddinCommands" />
+      </bt:Sets>
+    </Requirements>
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="AIGuard.Group">
+                <Label resid="AIGuard.Group.Label" />
+                <Icon>
+                  <bt:Image size="16" resid="AIGuard.Icon.16" />
+                  <bt:Image size="32" resid="AIGuard.Icon.32" />
+                  <bt:Image size="80" resid="AIGuard.Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="AIGuard.OpenButton">
+                  <Label resid="AIGuard.Button.Label" />
+                  <Supertip>
+                    <Title resid="AIGuard.Button.Label" />
+                    <Description resid="AIGuard.Button.Tooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="AIGuard.Icon.16" />
+                    <bt:Image size="32" resid="AIGuard.Icon.32" />
+                    <bt:Image size="80" resid="AIGuard.Icon.80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>Office.AutoShowTaskpaneWithDocument</TaskpaneId>
+                    <SourceLocation resid="AIGuard.Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="AIGuard.Icon.16" DefaultValue="https://localhost:3000/assets/icon-16.png" />
+        <bt:Image id="AIGuard.Icon.32" DefaultValue="https://localhost:3000/assets/icon-32.png" />
+        <bt:Image id="AIGuard.Icon.80" DefaultValue="https://localhost:3000/assets/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="AIGuard.Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="AIGuard.Group.Label" DefaultValue="AI Guard" />
+        <bt:String id="AIGuard.Button.Label" DefaultValue="เปิด AI Guard" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="AIGuard.Button.Tooltip" DefaultValue="ตรวจและปกป้อง PII ใน selection" />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

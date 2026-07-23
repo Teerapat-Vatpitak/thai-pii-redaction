@@ -1,0 +1,36 @@
+:root {
+  font-family: "Segoe UI", "Noto Sans Thai", sans-serif;
+  color: #17212b;
+  background: #f4f7fa;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; }
+.shell { padding: 16px; display: grid; gap: 12px; }
+header { display: flex; align-items: center; gap: 10px; }
+header h1, header p, h2 { margin: 0; }
+header p { color: #65717e; font-size: 13px; }
+.brand-mark { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: #3157d5; color: white; font-weight: 700; }
+.card { background: white; border: 1px solid #dce3ea; border-radius: 12px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 2px 8px rgb(21 37 55 / 5%); }
+.row { display: flex; align-items: center; gap: 8px; }
+.spread { justify-content: space-between; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.primary-actions button { flex: 1 1 44%; }
+button, select, textarea { font: inherit; }
+button { border: 1px solid #b8c3cf; background: white; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: #3157d5; }
+button.primary { background: #3157d5; color: white; border-color: #3157d5; }
+button.wide { width: 100%; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+select, textarea { border: 1px solid #b8c3cf; border-radius: 7px; padding: 7px; background: white; }
+textarea { width: 100%; resize: vertical; }
+.banner { padding: 9px 11px; border-radius: 8px; font-size: 13px; }
+.banner.checking { background: #eef2f6; }
+.banner.ok { background: #e6f5ec; color: #176a3a; }
+.banner.error { background: #fdeaea; color: #992525; }
+.muted, .privacy-note { color: #65717e; font-size: 12px; margin: 0; }
+.pill { background: #eef2f6; border-radius: 999px; padding: 3px 8px; font-size: 11px; }
+pre { min-height: 76px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; padding: 10px; border-radius: 8px; background: #f5f7f9; font: 12px/1.5 Consolas, "Noto Sans Thai", monospace; }
+.warnings { color: #8b5b00; font-size: 12px; margin: 0; padding-left: 20px; }
+.privacy-note { text-align: center; padding: 4px 8px 12px; }
