@@ -1,0 +1,100 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.25",
+  "version": "2.4.0",
+  "id": "9f16ea86-a09b-4ad6-95f1-c25c429594bd",
+  "localizationInfo": { "defaultLanguageTag": "th-th" },
+  "developer": {
+    "name": "AI Guard",
+    "websiteUrl": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction",
+    "privacyUrl": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/SECURITY.md",
+    "termsOfUseUrl": "https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/LICENSE"
+  },
+  "name": {
+    "short": "AI Guard",
+    "full": "AI Guard for Microsoft 365"
+  },
+  "description": {
+    "short": "ปกป้องข้อมูลส่วนบุคคลก่อนใช้งาน AI",
+    "full": "ตรวจ วิเคราะห์ ปกปิด และคืนค่าข้อมูลส่วนบุคคลใน Word, Excel และ PowerPoint ด้วย AI Guard ที่ทำงานบนเครื่อง"
+  },
+  "icons": {
+    "outline": "assets/icon-32.png",
+    "color": "assets/icon-64.png"
+  },
+  "accentColor": "#3157D5",
+  "validDomains": ["https://localhost:3000"],
+  "showLoadingIndicator": false,
+  "isFullScreen": false,
+  "defaultBlockUntilAdminAction": false,
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [{ "name": "Document.ReadWrite.User", "type": "Delegated" }]
+    }
+  },
+  "extensions": [
+    {
+      "requirements": {
+        "scopes": ["document"]
+      },
+      "runtimes": [
+        {
+          "requirements": {
+            "capabilities": [{ "name": "AddinCommands", "minVersion": "1.1" }],
+            "formFactors": ["desktop"]
+          },
+          "id": "aiguard_runtime",
+          "type": "general",
+          "code": { "page": "https://localhost:3000/taskpane.html" },
+          "lifetime": "short",
+          "actions": [{ "id": "OpenAIGuardTaskPane", "type": "openPage" }]
+        }
+      ],
+      "ribbons": [
+        {
+          "requirements": {
+            "capabilities": [{ "name": "AddinCommands", "minVersion": "1.1" }],
+            "scopes": ["document"],
+            "formFactors": ["desktop"]
+          },
+          "contexts": ["default"],
+          "tabs": [
+            {
+              "builtInTabId": "TabHome",
+              "groups": [
+                {
+                  "id": "AIGuardGroup",
+                  "label": "AI Guard",
+                  "icons": [
+                    { "size": 16, "url": "https://localhost:3000/assets/icon-16.png" },
+                    { "size": 32, "url": "https://localhost:3000/assets/icon-32.png" },
+                    { "size": 80, "url": "https://localhost:3000/assets/icon-80.png" }
+                  ],
+                  "controls": [
+                    {
+                      "id": "AIGuardButton",
+                      "type": "button",
+                      "label": "เปิด AI Guard",
+                      "icons": [
+                        { "size": 16, "url": "https://localhost:3000/assets/icon-16.png" },
+                        { "size": 32, "url": "https://localhost:3000/assets/icon-32.png" },
+                        { "size": 80, "url": "https://localhost:3000/assets/icon-80.png" }
+                      ],
+                      "supertip": {
+                        "title": "AI Guard",
+                        "description": "ตรวจและปกป้อง PII ใน selection"
+                      },
+                      "actionId": "OpenAIGuardTaskPane",
+                      "overriddenByRibbonApi": false,
+                      "enabled": true
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

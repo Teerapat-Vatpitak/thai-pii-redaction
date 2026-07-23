@@ -117,6 +117,12 @@ def test_read_version_prefers_meipass_when_frozen(monkeypatch, tmp_path):
 _TRACKED_FILES = [
     "VERSION",
     "extension/manifest.json",
+    "office-addin/manifest.json",
+    "office-addin/manifest.dev.xml",
+    "office-addin/manifest.dev.excel.xml",
+    "office-addin/manifest.dev.powerpoint.xml",
+    "office-addin/package.json",
+    "office-addin/package-lock.json",
     "desktop/src-tauri/tauri.conf.json",
     "desktop/src-tauri/Cargo.toml",
     "desktop/src-tauri/Cargo.lock",
@@ -273,6 +279,30 @@ def test_bump_version_writes_every_tracked_file(tmp_path):
 
     manifest = json.loads((repo / "extension" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == "9.9.9"
+
+    office_manifest = json.loads(
+        (repo / "office-addin" / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert office_manifest["version"] == "9.9.9"
+    office_local_manifest = (repo / "office-addin" / "manifest.dev.xml").read_text(encoding="utf-8")
+    assert "<Version>9.9.9.0</Version>" in office_local_manifest
+    office_excel_manifest = (repo / "office-addin" / "manifest.dev.excel.xml").read_text(
+        encoding="utf-8"
+    )
+    assert "<Version>9.9.9.0</Version>" in office_excel_manifest
+    office_powerpoint_manifest = (repo / "office-addin" / "manifest.dev.powerpoint.xml").read_text(
+        encoding="utf-8"
+    )
+    assert "<Version>9.9.9.0</Version>" in office_powerpoint_manifest
+    office_package = json.loads(
+        (repo / "office-addin" / "package.json").read_text(encoding="utf-8")
+    )
+    assert office_package["version"] == "9.9.9"
+    office_lock = json.loads(
+        (repo / "office-addin" / "package-lock.json").read_text(encoding="utf-8")
+    )
+    assert office_lock["version"] == "9.9.9"
+    assert office_lock["packages"][""]["version"] == "9.9.9"
 
     tauri_conf = json.loads(
         (repo / "desktop" / "src-tauri" / "tauri.conf.json").read_text(encoding="utf-8")

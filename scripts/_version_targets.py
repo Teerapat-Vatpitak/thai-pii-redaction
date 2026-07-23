@@ -62,6 +62,23 @@ def _npm_lock_set(path: Path, new_version: str) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+# Office add-in-only XML manifests use a four-part version. The product keeps
+# SemVer as the source of truth and reserves the fourth component for Office.
+_OFFICE_XML_VERSION_RE = re.compile(r"(<Version>)(\d+\.\d+\.\d+)\.0(</Version>)")
+
+
+def _office_xml_get(path: Path) -> str | None:
+    match = _OFFICE_XML_VERSION_RE.search(path.read_text(encoding="utf-8"))
+    return match.group(2) if match else None
+
+
+def _office_xml_set(path: Path, new_version: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    new_text, n = _OFFICE_XML_VERSION_RE.subn(rf"\g<1>{new_version}.0\g<3>", text, count=1)
+    if n:
+        path.write_text(new_text, encoding="utf-8")
+
+
 # `[package]\nname = "..."\nversion = "..."` -- matches the first
 # `version = "..."` line in a Cargo.toml, which is the `[package]` table's
 # version as long as it appears before any dependency table (true for every
@@ -111,6 +128,17 @@ def targets(root: Path) -> list[tuple[Path, Getter, Setter, bool]]:
     """
     return [
         (Path("extension/manifest.json"), _json_get, _json_set, False),
+        (Path("office-addin/manifest.json"), _json_get, _json_set, False),
+        (Path("office-addin/manifest.dev.xml"), _office_xml_get, _office_xml_set, False),
+        (Path("office-addin/manifest.dev.excel.xml"), _office_xml_get, _office_xml_set, False),
+        (
+            Path("office-addin/manifest.dev.powerpoint.xml"),
+            _office_xml_get,
+            _office_xml_set,
+            False,
+        ),
+        (Path("office-addin/package.json"), _json_get, _json_set, False),
+        (Path("office-addin/package-lock.json"), _npm_lock_get, _npm_lock_set, False),
         (Path("desktop/src-tauri/tauri.conf.json"), _json_get, _json_set, False),
         (Path("desktop/src-tauri/Cargo.toml"), _cargo_toml_get, _cargo_toml_set, False),
         (Path("desktop/src-tauri/Cargo.lock"), _cargo_lock_get, _cargo_lock_set, False),

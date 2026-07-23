@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://appsforoffice.microsoft.com; script-src 'self' https://appsforoffice.microsoft.com; style-src 'self'; connect-src 'self' https://localhost:3000; img-src 'self' data:;" />
+    <title>AI Guard for Microsoft 365</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div class="brand-mark" aria-hidden="true">AG</div>
+        <div>
+          <h1>AI Guard</h1>
+          <p>สำหรับ Microsoft 365</p>
+        </div>
+      </header>
+
+      <section id="backend-banner" class="banner checking" role="status">
+        กำลังตรวจสอบ AI Guard…
+      </section>
+
+      <section class="card">
+        <div class="row spread">
+          <label for="mode">รูปแบบการปกปิด</label>
+          <select id="mode">
+            <option value="token" selected>Token (แนะนำ)</option>
+            <option value="surrogate">ข้อมูลสมมติ</option>
+          </select>
+        </div>
+        <p id="host-note" class="muted"></p>
+        <div class="actions primary-actions">
+          <button data-action="detect">ตรวจ PII</button>
+          <button data-action="analyze">วิเคราะห์ PDPA</button>
+          <button data-action="mask" class="primary">Preview Mask</button>
+          <button data-action="restore">Preview Restore</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <label for="prompt">คำสั่งสำหรับ Pathumma</label>
+        <textarea id="prompt" rows="3" placeholder="เช่น สรุปข้อความนี้เป็นภาษาทางการ"></textarea>
+        <button data-action="ask" class="wide">Ask Pathumma</button>
+      </section>
+
+      <section class="card output-card">
+        <div class="row spread">
+          <h2>ผลลัพธ์</h2>
+          <span id="state-pill" class="pill">idle</span>
+        </div>
+        <p id="summary" class="muted">เลือกข้อความในเอกสารเพื่อเริ่มใช้งาน</p>
+        <pre id="output" tabindex="0" aria-live="polite"></pre>
+        <ul id="warnings" class="warnings"></ul>
+        <div class="actions">
+          <button data-action="apply" class="primary" hidden>Apply</button>
+          <button data-action="copy" disabled>Copy</button>
+          <button data-action="insert" hidden>Insert response</button>
+        </div>
+      </section>
+
+      <p class="privacy-note">ข้อความและ session อยู่ในหน่วยความจำเท่านั้น ไม่มีการเก็บ mapping ใน Add-in</p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
