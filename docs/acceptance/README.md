@@ -10,6 +10,7 @@ Latest recorded runs:
 - [2026-07-23 Storefront release acceptance](2026-07-23-storefront-release-run.md)
 - [2026-07-24 Storefront candidate follow-up](2026-07-24-storefront-candidate-run.md)
 - [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
+- [2026-07-24 Office 2.5.0 local acceptance and promotion preparation](2026-07-24-office-2.5.0-run.md)
 
 Use only the synthetic fixtures in `examples/` and this document. Evidence must
 never contain request text, entity values, mappings, credentials, or provider
@@ -166,8 +167,14 @@ transport.
 The same run record also contains the unified Word follow-up: ribbon/task-pane
 acquisition, multiple-paragraph Preview/Copy-only behavior, protected Pathumma
 preview, and explicit Insert response passed. Table and real-host failure cases
-remain open, and Excel/PowerPoint have not yet been promoted into the unified
-release manifest.
+remain open; Excel/PowerPoint were not yet present in that historical unified
+manifest.
+
+The 2.5.0 preparation record adds local XML evidence for all three hosts and
+headless verification of the promoted three-host unified manifest, official
+schema, and app-package ZIP. Those results do not prove a promoted package was
+acquired by each Office host: Excel and PowerPoint custom-ribbon activation is
+still pending, and the host-specific checklist items below remain open.
 
 ### Word
 
