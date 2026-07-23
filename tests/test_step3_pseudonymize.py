@@ -71,6 +71,16 @@ def test_generate_tb_name():
     assert "___" not in result
 
 
+def test_generate_tb_full_name_preserves_two_part_shape():
+    result = generate_tb(
+        "NAME",
+        "ผมชื่อ ___ ขอลาป่วย",
+        salt=SALT,
+        original="นายสมชาย ใจดี",
+    )
+    assert len(result.split()) == 2
+
+
 def test_generate_tb_deterministic():
     r1 = generate_tb("NAME", "context ___", salt=SALT, original="สมชาย")
     r2 = generate_tb("NAME", "context ___", salt=SALT, original="สมชาย")
