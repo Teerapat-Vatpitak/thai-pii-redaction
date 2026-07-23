@@ -11,7 +11,7 @@ or screenshot was saved as an artifact.
 ## Candidate identity
 
 - Product version: `2.4.0` (no development version bump)
-- Branch: `codex/office-addin`
+- Original-run branch: `codex/office-addin`
 - Office host: Word for Windows Desktop
 - Reported host baseline: `16.0.20131.20154`
 - Evidence state: dirty development tree; repeat release gates from a clean
@@ -62,3 +62,52 @@ was opened or counted as accepted.
 
 The local XML result may be cited as functional isolation evidence only. It
 must not be used to mark Word, the unified package, or the Office lane Done.
+
+## Clean-candidate follow-up
+
+A follow-up run used the same host-specific local XML transports from the clean
+`codex/office-format-acceptance` candidate at commit `ed3d65f`. Product and
+backend version remained `2.4.0`. The run again used synthetic PII only and did
+not save selections, mappings, restored text, provider bodies, credentials, or
+screenshots.
+
+Automated Office gates on this candidate passed manifest validation,
+type-checking, build, and all 59 tests. The real-host follow-up added this
+functional evidence:
+
+### Word
+
+- A visually uniform Thai + Latin selection was writable after the adapter
+  ignored script-font fallback while checking direct formatting.
+- Mixed font size, color, or highlight remained Preview/Copy-only.
+- Token and surrogate Preview/Apply/Restore each returned the selection exactly.
+
+Word remains partial. Table and multiple-paragraph handling, explicit Insert
+response, missing-key/provider-failure/session-expiry behavior, and the release
+unified manifest still require real-host acceptance.
+
+### Excel
+
+- A selected range containing text, a formula, a number, a date, and a blank
+  reported every skipped non-text cell before Apply.
+- Apply changed only the text cell. The formula remained byte-for-byte
+  unchanged, and Restore returned the text cell exactly.
+- Changing the selected range after Preview made Apply fail without changing
+  the worksheet.
+
+Excel remains partial. Ask Pathumma Preview/Copy-only behavior still requires a
+real-host run, and the host remains absent from the release manifest.
+
+### PowerPoint
+
+- A uniform selected text range supported Preview/Apply/Restore.
+- An unselected placeholder stayed unchanged.
+- Mixed font size stayed Preview/Copy-only, and no text selection produced an
+  explicit failure without changing the deck.
+
+PowerPoint remains partial. Additional shape/slide/note/image isolation, the
+unsupported-API 1.5 fallback, Ask Pathumma Preview/Copy-only behavior, and the
+release manifest promotion gate remain open.
+
+This follow-up closes the previously recorded Word formatting-rerun item. It
+does not close any host section or the unified distribution gate.

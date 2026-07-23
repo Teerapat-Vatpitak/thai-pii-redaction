@@ -4,13 +4,28 @@ import { PowerPointHostAdapter, type PowerPointGateway } from "../src/adapters/p
 import { OfficeWordGateway, WordHostAdapter, type WordGateway } from "../src/adapters/word";
 
 describe("WordHostAdapter", () => {
+  const uniformDirectFont = (overrides: Record<string, string | number | boolean | null> = {}) => ({
+    bold: false,
+    italic: false,
+    underline: "None",
+    size: 11,
+    color: "#000000",
+    highlightColor: null,
+    strikeThrough: false,
+    doubleStrikeThrough: false,
+    subscript: false,
+    superscript: false,
+    load: vi.fn(),
+    ...overrides,
+  });
+
   it("validates and replaces the same captured Word range in one write transaction", async () => {
     const range = {
       text: "selected",
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
-      font: { name: "Aptos", size: 11, bold: false, italic: false, color: "#000", underline: "None", load: vi.fn() },
+      font: uniformDirectFont(),
       insertText: vi.fn(),
     };
     const context = {
@@ -51,8 +66,8 @@ describe("WordHostAdapter", () => {
 
   it("does not treat a Thai/Latin script-font fallback as mixed direct formatting", async () => {
     const directFonts = [
-      { bold: false, italic: false, underline: "None", load: vi.fn() },
-      { bold: false, italic: false, underline: "None", load: vi.fn() },
+      uniformDirectFont(),
+      uniformDirectFont(),
     ];
     const range = {
       text: "นาย A",
@@ -79,11 +94,40 @@ describe("WordHostAdapter", () => {
 
   it("keeps a real bold/non-bold run mix copy-only", async () => {
     const directFonts = [
-      { bold: false, italic: false, underline: "None", load: vi.fn() },
-      { bold: true, italic: false, underline: "None", load: vi.fn() },
+      uniformDirectFont(),
+      uniformDirectFont({ bold: true }),
     ];
     const range = {
       text: "0812",
+      load: vi.fn(),
+      paragraphs: { items: [{}], load: vi.fn() },
+      tables: { items: [], load: vi.fn() },
+      font: { load: vi.fn() },
+      getTextRanges: vi.fn(() => ({
+        items: directFonts.map((font) => ({ font })),
+        load: vi.fn(),
+      })),
+    };
+    const context = { document: { getSelection: vi.fn(() => range) }, sync: vi.fn().mockResolvedValue(undefined) };
+    vi.stubGlobal("Word", { run: vi.fn(async (callback: (value: typeof context) => Promise<unknown>) => callback(context)) });
+
+    try {
+      const snapshot = await new WordHostAdapter(new OfficeWordGateway()).readSelection();
+      expect(snapshot.writeback.allowed).toBe(false);
+      expect(snapshot.writeback.reasons.join(" ")).toContain("รูปแบบตัวอักษรหลายแบบ");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["font size", { size: 14 }],
+    ["font color", { color: "#FF0000" }],
+    ["highlight", { highlightColor: "Yellow" }],
+  ])("keeps a real mixed %s selection copy-only", async (_label, changedFormatting) => {
+    const directFonts = [uniformDirectFont(), uniformDirectFont(changedFormatting)];
+    const range = {
+      text: "AB",
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
