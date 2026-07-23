@@ -116,8 +116,10 @@ Record Office host, full build number, add-in commit, backend version, and
 pass/fail. Do not capture raw selection, mapping, provider body, credential, or
 restored answer in logs/test artifacts.
 
-Current distribution blocker (2026-07-23): a fresh Word-only unified package
-registers and launches Word, but Office does not acquire its ribbon/task pane.
+The original Word-only unified package registered and launched Word but did not
+acquire its ribbon/task pane. The manifest declared `validDomains` as a URL
+instead of a host and port. After correcting it to `localhost:3000`, Word
+acquired the AI Guard ribbon and opened the task pane on 2026-07-23.
 The host-specific local add-in-only manifests may be used to isolate task-pane
 and host behavior from tenant acquisition: `manifest.dev.xml` for Word,
 `manifest.dev.excel.xml` for Excel, and `manifest.dev.powerpoint.xml` for
@@ -142,8 +144,15 @@ while preserving the formula byte-for-byte and cancelled a stale-range Apply.
 PowerPoint changed and restored only selected uniform text, while mixed size and
 no-selection cases performed no writeback. See the
 [run record](2026-07-23-office-local-run.md). This is a partial functional
-slice, not full host or unified-manifest acceptance; the checkboxes remain
-unchecked until their whole scenario passes on the release transport.
+slice, not full host or unified distribution/promotion acceptance; the
+checkboxes remain unchecked until their whole scenario passes on the release
+transport.
+
+The same run record also contains the unified Word follow-up: ribbon/task-pane
+acquisition, multiple-paragraph Preview/Copy-only behavior, protected Pathumma
+preview, and explicit Insert response passed. Table and real-host failure cases
+remain open, and Excel/PowerPoint have not yet been promoted into the unified
+release manifest.
 
 ### Word
 

@@ -46,7 +46,10 @@ bold/non-bold mix, an indeterminate aggregate response, and the 500-character
 bound. The final real-host rerun of the new per-run checker was interrupted and
 remains mandatory before Word acceptance can close.
 
-## Still open
+## Still open after the original run
+
+The follow-up sections below close some of these original-run items while
+preserving this chronological record.
 
 - Unified-manifest acquisition/ribbon/task-pane on the release transport
 - Surrogate Preview/Apply/Restore on the current candidate
@@ -111,3 +114,31 @@ release manifest promotion gate remain open.
 
 This follow-up closes the previously recorded Word formatting-rerun item. It
 does not close any host section or the unified distribution gate.
+
+## Unified Word follow-up
+
+The `codex/release-2.5.0-acceptance` candidate at code commit `6bd10d1`
+corrected `validDomains` from a URL to the required `localhost:3000` host and
+port form and added a deterministic validation guard. The unified Word package
+then registered successfully, Word acquired the AI Guard ribbon, and the task
+pane opened against backend version `2.4.0`.
+
+Using synthetic PII only on that unified transport:
+
+- a multiple-paragraph selection produced a masked preview but remained
+  Preview/Copy-only, with no document writeback;
+- a protected Pathumma roundtrip displayed masked outbound and restored
+  response text without changing the document automatically; and
+- the response was inserted after the selected text only after the explicit
+  Insert response action.
+
+No selection, mapping, provider body, credential, restored answer, or
+screenshot from this run was persisted as a repository artifact. The temporary
+unified sideload, backend, and HTTPS development server were stopped after the
+run.
+
+This closes Word unified acquisition, multiple-paragraph fail-closed, and
+explicit response insertion evidence. Word table handling, missing-key,
+provider-failure, and expired-session real-host cases remain open. Excel and
+PowerPoint are still absent from the release unified manifest and no Office
+host section is fully accepted yet.
