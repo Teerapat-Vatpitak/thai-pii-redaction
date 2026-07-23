@@ -12,6 +12,12 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-07-23
+
+Compatibility and release-hardening update after v2.4.0. Microsoft 365 work
+remains an acceptance-pending preview and is not claimed as a fully supported
+Office distribution in this patch.
+
 ### Added
 
 - Declared platform API contract v1 with an independently versioned health
