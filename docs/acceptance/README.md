@@ -8,6 +8,7 @@ Latest recorded runs:
 
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
 - [2026-07-23 Storefront release acceptance](2026-07-23-storefront-release-run.md)
+- [2026-07-24 Storefront candidate follow-up](2026-07-24-storefront-candidate-run.md)
 - [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
 
 Use only the synthetic fixtures in `examples/` and this document. Evidence must
@@ -78,6 +79,13 @@ candidate backend is healthy.
 Declared sites: ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM/Z.ai. A DOM
 fixture test is not a substitute for one current live-site smoke per release.
 
+Candidate follow-up, recorded on 2026-07-24: all six declared sites completed
+the basic Mask smoke; backend-offline blocking and same-session token
+consistency also passed. The generic side-panel Mask was **not** re-run in that
+follow-up, so its prior evidence remains carry-forward only. See the
+[candidate record](2026-07-24-storefront-candidate-run.md); do not infer an
+unrecorded Restore/side-panel result from the all-sites Mask smoke.
+
 ## Desktop checklist
 
 Precondition: install the exact candidate artifact, not a dev web page.
@@ -108,6 +116,12 @@ If no candidate binary is installed or built, status is **Blocked**, not Pass.
 - [ ] PDPA report download produces a readable PDF.
 - [ ] PDF upload shows before/after previews and offers a redacted download.
 - [ ] At projector width and at less than 900 px, every control remains usable.
+
+The 2026-07-24 candidate follow-up covered the basic live playground flow and
+the PII-free HTTP runner. It also added headless regressions for report and
+redacted-PDF download wiring. Those tests do not prove that a browser completed
+or opened either download; browser artifact evidence is carried forward from
+the 2026-07-23 storefront run.
 
 ## Office Add-in checklist
 
@@ -204,6 +218,12 @@ items. Keep status **Acceptance pending** until all three host sections pass.
 - [ ] Scanned input either succeeds with OCR confidence/review metadata or
   returns the documented 503 when OCR extras are absent.
 - [ ] Temporary files disappear after success and failure.
+
+On the 2026-07-24 candidate, the HTTP runner passed the text-layer redaction,
+preview payload, flattened-output, and non-PDF checks. Browser download/open,
+visual coverage, oversized-upload, OCR-unavailable, and temporary-file
+observations are carry-forward evidence from 2026-07-23 unless explicitly
+rerun on a clean release candidate.
 
 ## Live provider acceptance semantics
 
