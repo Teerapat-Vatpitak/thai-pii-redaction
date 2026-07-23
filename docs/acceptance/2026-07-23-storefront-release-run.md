@@ -61,9 +61,10 @@ Synthetic-only screenshots are stored locally under
 `gemini_masked.png`, `grok_masked.png`, `perplexity_masked.png`, and
 `zai_masked.png`.
 
-The generic side-panel Mask check is still pending a manual click. Browser
-automation correctly refused direct navigation to the extension-owned
-`chrome-extension://` page, so that policy boundary is not bypassed.
+The owner completed the generic side-panel Mask check manually and confirmed it
+passed on 2026-07-23. Browser automation correctly refused direct navigation to
+the extension-owned `chrome-extension://` page, so that policy boundary was not
+bypassed.
 
 ## Playground
 
