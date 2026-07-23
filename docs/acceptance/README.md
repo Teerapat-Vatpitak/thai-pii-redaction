@@ -7,6 +7,7 @@ benchmark.
 Latest recorded runs:
 
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
+- [2026-07-23 Storefront release acceptance](2026-07-23-storefront-release-run.md)
 - [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
 
 Use only the synthetic fixtures in `examples/` and this document. Evidence must

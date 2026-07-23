@@ -15,7 +15,7 @@ Use three independent numbers instead:
 
 | Scope | Recommended next value | Rule |
 |---|---:|---|
-| Desktop/extension/product `VERSION` | `2.4.1` for the approved compatible manifest/release fixes; `2.5.0` only when the additive Office/storefront scope passes | Monotonic SemVer; never reset or reuse a published tag. |
+| Desktop/extension/product `VERSION` | `2.4.2` for the accepted compatible surrogate and browser-editor fixes; the unpublished `v2.4.1` candidate is superseded, not retagged; `2.5.0` only when the additive Office scope passes | Monotonic SemVer; never reset, move, or reuse a tag. |
 | AI for Thai service deployment | `0.1.0` | New deployment line; `0.1.1`, `0.1.2` for compatible fixes, `0.2.0` for a new operation or platform contract change. |
 | Public API contract | current `1` | Change only for an actual incompatible caller contract; independent of both release lines. |
 

@@ -12,6 +12,35 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-07-23
+
+Release-acceptance patch. Microsoft 365 remains paused and
+acceptance-pending; this release does not claim complete Office support.
+
+### Fixed
+
+- Surrogate mode now preserves a two-part shape for multi-part Thai names, so
+  the outbound high-recall guard no longer absorbs the following ordinary
+  phrase and blocks the playground's own generated name.
+- The Grok adapter now prefers the current Tiptap/ProseMirror composer over its
+  visible one-character helper textarea.
+- The Perplexity adapter now writes through the current Lexical editor's
+  `beforeinput` path and waits for a short, bounded visible-state commit before
+  reporting success. A write that never lands still raises the fail-closed
+  blocking overlay.
+
+### Verified
+
+- The exact unpacked extension candidate masked synthetic PII on ChatGPT,
+  Claude, Gemini, Grok, Perplexity, and GLM/Z.ai in Chrome 150 without sending
+  a prompt. ChatGPT additionally passed backend-offline fail-closed behavior,
+  closed-shadow restoration, and two-turn token consistency.
+- Playground report download/open and PDF upload/preview/redacted-download
+  flows passed in a real browser. The flattened output exposed no extractable
+  source text.
+- Repeatable live Pathumma completion/protected-roundtrip and TNER
+  tagging/pipeline mapping passed on 2026-07-23.
+
 ## [2.4.1] - 2026-07-23
 
 Compatibility and release-hardening update after v2.4.0. Microsoft 365 work
