@@ -45,7 +45,9 @@
     {
       "requirements": {
         "scopes": [
-          "document"
+          "document",
+          "workbook",
+          "presentation"
         ]
       },
       "runtimes": [
@@ -85,7 +87,9 @@
               }
             ],
             "scopes": [
-              "document"
+              "document",
+              "workbook",
+              "presentation"
             ],
             "formFactors": [
               "desktop"

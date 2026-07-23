@@ -17,6 +17,8 @@
     "validate:manifest:local": "office-addin-manifest validate manifest.dev.xml && office-addin-manifest validate manifest.dev.excel.xml && office-addin-manifest validate manifest.dev.powerpoint.xml",
     "package:manifest": "node scripts/package-unified-manifest.mjs",
     "start:word": "office-addin-debugging start manifest.json desktop --app word --dev-server-port 3000 --no-debug",
+    "start:excel": "office-addin-debugging start manifest.json desktop --app excel --dev-server-port 3000 --no-debug",
+    "start:powerpoint": "office-addin-debugging start manifest.json desktop --app powerpoint --dev-server-port 3000 --no-debug",
     "start:word:local": "office-addin-debugging start manifest.dev.xml desktop --app word --dev-server-port 3000 --no-debug",
     "start:excel:local": "office-addin-debugging start manifest.dev.excel.xml desktop --app excel --dev-server-port 3000 --no-debug",
     "start:powerpoint:local": "office-addin-debugging start manifest.dev.powerpoint.xml desktop --app powerpoint --dev-server-port 3000 --no-debug",
