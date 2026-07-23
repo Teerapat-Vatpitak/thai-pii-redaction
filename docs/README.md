@@ -22,7 +22,7 @@ status page and does not silently override a newer current-state document.
 - [Release process](release-process.md) - version, tag, draft release, packaging,
   and hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
-  Playground, PDF, Pathumma, and TNER gates.
+  Office, Playground, PDF, Pathumma, and TNER gates.
 - [Versioning proposal](versioning-proposal.md) - why the existing product line
   remains monotonic while a new AI for Thai service may start at `0.1.0`.
 - [Roadmap](../ROADMAP.md) - ordered delivery gates.
@@ -32,6 +32,7 @@ status page and does not silently override a newer current-state document.
 
 - [Browser extension](../extension/README.md)
 - [Desktop app](../desktop/README.md)
+- [Microsoft 365 Add-in](../office-addin/README.md)
 - [Store listing](store/listing.md)
 - [Extension permissions](store/permissions-justification.md)
 - [Privacy policy](store/privacy-policy.md)
