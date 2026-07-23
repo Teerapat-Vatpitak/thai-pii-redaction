@@ -202,12 +202,23 @@ def generate_tb(
     rng = _seeded_rng(salt, original, attempt)
 
     if data_type == "NAME":
-        if "นาย" in context_with_blank:
-            return rng.choice(MALE_NAMES)
-        elif "นาง" in context_with_blank:
-            return rng.choice(FEMALE_NAMES)
+        # Preserve the useful shape of a full Thai name. Returning only a
+        # given name for an original such as "นายสมชาย ใจดี" leaves the next
+        # ordinary Thai phrase looking like a surname to the high-recall name
+        # detector ("ผมชื่อ สุรชัย ขอลาป่วย"). The outbound guard then blocks
+        # our own trusted surrogate. A two-part surrogate both reads more
+        # naturally and gives the detector an unambiguous end boundary.
+        original_parts = original.split()
+        has_surname = len(original_parts) >= 2
+        if "นาย" in context_with_blank or original.startswith("นาย"):
+            given_name = rng.choice(MALE_NAMES)
+        elif "นาง" in context_with_blank or original.startswith(("นาง", "น.ส.")):
+            given_name = rng.choice(FEMALE_NAMES)
         else:
-            return rng.choice(MALE_NAMES + FEMALE_NAMES)
+            given_name = rng.choice(MALE_NAMES + FEMALE_NAMES)
+        if has_surname:
+            return f"{given_name} {rng.choice(SURNAMES)}"
+        return given_name
 
     elif data_type == "SURNAME":
         return rng.choice(SURNAMES)

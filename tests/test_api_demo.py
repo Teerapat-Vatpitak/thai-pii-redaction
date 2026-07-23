@@ -26,6 +26,10 @@ requires_thai_font = pytest.mark.skipif(
 )
 
 THAI_TEXT = "ผมชื่อ นายสมชาย ใจดี เลขบัตรประชาชน 1101700230708 โทร 081-234-5678"
+SICK_LEAVE_TEXT = (
+    "เรียนหัวหน้างาน ผมชื่อ นายสมชาย ใจดี ขอลาป่วยวันนี้ "
+    "ติดต่อกลับได้ที่ 081-234-5678 หรือ somchai.j@example.com ครับ"
+)
 
 
 @pytest.fixture
@@ -134,6 +138,17 @@ class TestRoundtrip:
         assert "1101700230708" not in body["sanitized_text"]
         assert "[ชื่อ" not in body["sanitized_text"]  # surrogate mode: realistic values, no tokens
         assert "สมชาย" in body["restored_text"]
+
+    def test_roundtrip_surrogate_sick_leave_fixture_restores_exactly(self, client):
+        """The playground fixture must not trip the guard on its own fake name."""
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": SICK_LEAVE_TEXT, "mode": "surrogate", "provider": "fake"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["restored_text"] == SICK_LEAVE_TEXT
+        assert "possible_tb_leak:NAME" not in body["warnings"]
 
     def test_roundtrip_leak_blocked_422(self, client, monkeypatch):
         import app.server as server

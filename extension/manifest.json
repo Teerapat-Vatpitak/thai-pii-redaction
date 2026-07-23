@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "th",
   "name": "__MSG_appName__",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "__MSG_appDesc__",
   "action": {
     "default_title": "\u0e40\u0e1b\u0e34\u0e14\u0e41\u0e16\u0e1a AI Guard",

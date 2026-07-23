@@ -51,4 +51,21 @@ describe("cross-fixture safety", () => {
       expect(sites.generic.composer()).not.toBeNull();
     }
   });
+  test("grok prefers the rich editor over its helper textarea", () => {
+    load("grok");
+    const composer = sites.grok.composer();
+    expect(composer.tagName).toBe("DIV");
+    expect(composer.getAttribute("contenteditable")).toBe("true");
+  });
+  test("perplexity writes through Lexical beforeinput", () => {
+    load("perplexity");
+    const composer = sites.perplexity.composer();
+    composer.addEventListener("beforeinput", (event) => {
+      event.preventDefault();
+      composer.textContent = event.data;
+    });
+
+    expect(sites.perplexity.writeComposer(composer, "ข้อความ [ชื่อ_1]")).toBe(true);
+    expect(sites.perplexity.readComposer(composer)).toBe("ข้อความ [ชื่อ_1]");
+  });
 });

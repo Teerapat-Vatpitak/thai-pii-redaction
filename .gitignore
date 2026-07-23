@@ -16,6 +16,7 @@ step1-7_*.pdf
 logs/
 benchmark/reports/
 artifacts/acceptance/
+/tmp/
 
 # stray scratch files (kept out of repo root)
 /*.jpg
