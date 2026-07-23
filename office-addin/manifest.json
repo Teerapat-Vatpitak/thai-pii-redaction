@@ -23,7 +23,7 @@
     "color": "assets/icon-64.png"
   },
   "accentColor": "#3157D5",
-  "validDomains": ["https://localhost:3000"],
+  "validDomains": ["localhost:3000"],
   "showLoadingIndicator": false,
   "isFullScreen": false,
   "defaultBlockUntilAdminAction": false,
