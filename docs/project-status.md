@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-07-22
+Updated: 2026-07-23
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -40,6 +40,7 @@ existence from evidence on the real delivery path.
 | AI for Thai TNER engine | Verified | Live service shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-22; decoder is pinned to the live parallel `words`/`POS`/`tags` contract. |
 | Browser extension | Acceptance pending | Versioned ZIP packaging and 43 JS/DOM tests pass. Chrome had no candidate extension loaded and automation cannot install it, so current-site mask/restore still requires the owner to load the exact candidate. |
 | Desktop app | Verified locally | Fresh packaged UI from exact commit `58bb6ab` passed token/surrogate restore, PDPA analysis and PII-free report download, PDF upload/previews/localized download with whitelisted chips, 300-DPI address coverage including `99`, global hotkey mask/restore, settings/audit/updater, and close/reopen with sidecar port release. This duplicate `2.4.0` rehearsal is not publishable; release CI must rebuild under pinned Node 22 and sign updater artifacts. |
+| Microsoft 365 Add-in | Acceptance pending | TypeScript task pane, HTTPS localhost proxy, Word/Excel/PowerPoint adapters, stale-selection guards, memory-only session state, atomic writeback checks, safe error disclosure, manifest validation, and Node 22 CI lane are implemented. Separate Microsoft-validated local XML acceptance transports now exist for all three hosts, while the release manifest still exposes Word only; Excel/PowerPoint stay hidden until each real-host acceptance passes. The unified package registered but was not acquired by the current Office tenant/client. A local Word XML transport passed a partial real-host slice on 2026-07-23: ribbon/task pane, ready/offline states, Detect + PDPA Analyze, token Preview/Apply/exact Restore with boundary whitespace, stale-selection cancellation, bold/non-bold Copy-only, and protected Pathumma preview with unused-token warning. The run found an aggregate-font false positive for ordinary Thai + Latin text; the bounded per-run checker now fails closed when formatting cannot be proven and has automated coverage, but needs a final real-host rerun. XML schema/results do not satisfy the unified promotion gate, and no host is fully accepted. Current product version remains 2.4.0 until the full storefront gate closes. |
 | CLI | Verified | Sanitize/report and end-to-end pipeline tests. |
 | Demo playground | Acceptance pending | Live token/surrogate roundtrip, guard warning, 800 px/1366 px layouts, report generation, and corrected offline failure state pass. Browser download/open and PDF file-chooser flow remain blocked by the current Chrome automation permission. |
 | Scanned-PDF OCR | Optional | Python 3.13 full environment, focused OCR/PDF tests, and real Thai PaddleOCR inference pass; the extra remains excluded from the packaged exe and hosted core image. |

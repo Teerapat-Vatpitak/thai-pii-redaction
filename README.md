@@ -45,7 +45,7 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local desktop and browser extension | Detection, pseudonymization, and the mapping stay on the user's device. An external AI receives only the masked text. |
+| Local desktop, browser extension, and Office Add-in | Detection, pseudonymization, and the mapping stay on the user's device. An external AI receives only the masked text. |
 | Hosted platform service | The raw request reaches the platform-hosted AI Guard container. AI Guard does not persist the transient mapping or write user text to its logs; a protected Pathumma roundtrip sends only masked text to Pathumma. |
 
 The hosted statement is intentionally narrower than the local statement. AI
@@ -57,6 +57,8 @@ a hosted service.
 - Browser extension: in-page Mask/Restore for supported AI sites plus a docked
   side panel.
 - Desktop app: bundled Tauri shell and local FastAPI sidecar.
+- Microsoft 365 Add-in: one Thai task pane for Word, Excel, and PowerPoint;
+  currently in development with real-host acceptance pending.
 - HTTP API: detection, sanitization, re-identification, analysis, reporting,
   guard, PDF, and demo endpoints.
 - Queue worker: stateless operations behind a replaceable transport adapter for
@@ -84,6 +86,10 @@ installing; see [SECURITY.md](SECURITY.md).
 To add the in-page browser bar, load `extension/` unpacked at
 `chrome://extensions` while the desktop app is running. See
 [extension/README.md](extension/README.md).
+
+To develop or sideload the Windows Office task pane, see
+[office-addin/README.md](office-addin/README.md). It reuses the running local
+backend and does not ship in the current installer.
 
 ## Run the API container
 

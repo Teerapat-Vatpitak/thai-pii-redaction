@@ -60,6 +60,24 @@ works end to end.
 - Token and surrogate consistency across turns; session expiry and recovery are
   documented and tested.
 
+### AI Guard for Microsoft 365 (owner-approved feature lane)
+
+- One TypeScript task pane and host-adapter contract, delivered in the fixed
+  order Word -> Excel -> PowerPoint on Windows Desktop.
+- Word selection Detect/Analyze/Mask/Restore/Pathumma with Preview before Apply,
+  stale-selection cancellation, Copy-only mixed formatting, and explicit
+  response insertion.
+- Excel selected-range masking/restoration that changes text cells only and
+  proves every formula remains unchanged.
+- PowerPoint API 1.5 selected-text masking/restoration with capability and
+  formatting fail-closed behavior; no notes, images, or unselected shapes.
+- Node 22 build, mock tests, unified-manifest/version validation, and real-host
+  acceptance evidence before the lane is Done.
+
+Exit gate for this lane: Word, Excel, and PowerPoint checklist items pass on the
+candidate build, then Office and the remaining storefront acceptance gates may
+be released together as `2.5.0`. Development does not bump `VERSION`.
+
 ### Demo features
 
 - Three-panel playground: detect -> mask -> provider -> restore.
@@ -145,7 +163,7 @@ and a breaking public contract is a major release. See
 ## Deferred until the four gates above
 
 - New providers, dashboards, batch orchestration, multi-tenant/shared vaults,
-  mobile apps, and new storefronts.
+  mobile apps, and any storefront not explicitly approved above.
 - A default heavyweight NER engine without resource and accuracy evidence.
 - Broad OCR expansion beyond the existing optional scanned-PDF path.
 - Public benchmark leadership claims or a community dataset launch.

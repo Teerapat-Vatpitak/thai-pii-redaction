@@ -4,7 +4,10 @@ Acceptance answers one question: can a user complete the feature on the real
 delivery path without leaking raw PII? It is separate from the later accuracy
 benchmark.
 
-Latest recorded run: [2026-07-22 live acceptance](2026-07-22-live-run.md).
+Latest recorded runs:
+
+- [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
+- [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
 
 Use only the synthetic fixtures in `examples/` and this document. Evidence must
 never contain request text, entity values, mappings, credentials, or provider
@@ -104,6 +107,78 @@ If no candidate binary is installed or built, status is **Blocked**, not Pass.
 - [ ] PDPA report download produces a readable PDF.
 - [ ] PDF upload shows before/after previews and offers a redacted download.
 - [ ] At projector width and at less than 900 px, every control remains usable.
+
+## Office Add-in checklist
+
+Precondition: run the exact branch/candidate backend and `office-addin/` HTTPS
+development server, sideload its unified manifest, and use synthetic PII only.
+Record Office host, full build number, add-in commit, backend version, and
+pass/fail. Do not capture raw selection, mapping, provider body, credential, or
+restored answer in logs/test artifacts.
+
+Current distribution blocker (2026-07-23): a fresh Word-only unified package
+registers and launches Word, but Office does not acquire its ribbon/task pane.
+The host-specific local add-in-only manifests may be used to isolate task-pane
+and host behavior from tenant acquisition: `manifest.dev.xml` for Word,
+`manifest.dev.excel.xml` for Excel, and `manifest.dev.powerpoint.xml` for
+PowerPoint. They use separate add-in IDs and are acceptance-only; schema
+validation or a functional pass on them cannot close the unified-manifest
+promotion gate.
+
+Local Word evidence on 2026-07-23: the Microsoft-validated XML transport showed
+the AI Guard ribbon/task pane; health ready and backend-offline/disabled states
+passed; Detect and PDPA Analyze left the document unchanged; token Preview left
+it unchanged; explicit Apply and Restore returned the synthetic selection
+exactly, including its boundary space. Changing selection before Apply was
+cancelled without modifying either selection, and a deliberate bold/non-bold
+range stayed Copy-only. A live Pathumma call showed only a token in masked
+outbound, kept the response preview-only, and surfaced `unused_pseudonyms:1`
+when the model did not repeat the token. The run also exposed a false mixed-font
+result for ordinary Thai + Latin text; the bounded per-run formatting fix now
+fails closed when Office cannot prove uniformity and has automated coverage,
+but still needs its final real-host rerun. See the
+[run record](2026-07-23-office-local-run.md). This is a partial functional
+slice, not full Word or unified-manifest acceptance; the checkboxes remain
+unchecked until their whole scenario passes on the release transport.
+
+### Word
+
+- [ ] Task pane health check passes when the backend is running; when stopped,
+  every action is disabled and the document stays unchanged.
+- [ ] Detect and PDPA Analyze read a non-empty selection without changing it.
+- [ ] Token and surrogate Mask previews do not change the document; explicit
+  Apply masks one uniform-format paragraph and Restore returns every character.
+- [ ] Change selection after Preview and before Apply; the operation cancels and
+  neither selection is modified.
+- [ ] Mixed formatting, table content, and multiple paragraphs remain
+  Preview/Copy-only.
+- [ ] Ask Pathumma shows the masked outbound and restored response. Raw fixture
+  values are absent from provider-visible text and no response is inserted
+  until Insert response is pressed.
+- [ ] Missing `AIFORTHAI_API_KEY`, provider failure, backend shutdown, and
+  expired session display explicit failures without document corruption or a
+  guessed restoration.
+- [ ] A response that omits one token displays a leftover/unused-token warning.
+
+### Excel
+
+- [ ] Selected range containing text, formulas, numbers, dates, and blanks
+  previews skipped cells and changes only text cells on Apply.
+- [ ] Capture formulas before/after and verify every formula is byte-for-byte
+  unchanged; changing a value/formula/range before Apply cancels the write.
+- [ ] Restore works per text cell in the same task-pane session.
+- [ ] Ask Pathumma provides Preview/Copy only and never writes a cell.
+
+### PowerPoint
+
+- [ ] A uniform selected text range can Preview/Apply Mask and Restore.
+- [ ] No unselected shape, slide, note, image, or text range changes.
+- [ ] Mixed formatting, no text selection, or missing PowerPoint API 1.5 shows
+  Copy-only/unsupported behavior and performs no writeback.
+- [ ] Ask Pathumma provides Preview/Copy only and never changes the deck.
+
+The automated mock suite is necessary but does not satisfy these real-host
+items. Keep status **Acceptance pending** until all three host sections pass.
 
 ## PDF checklist
 
