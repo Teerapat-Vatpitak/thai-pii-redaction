@@ -140,6 +140,10 @@ jobs:
           releaseBody: |
             AI Guard desktop — installers for Windows / macOS / Linux.
 
+            This is a draft starting point. Before publication, replace this
+            paragraph with the dated release-specific section from CHANGELOG.md
+            and retain the verification instructions below.
+
             **Windows:** the installer is unsigned by design (trust comes from
             verifiability, not a paid certificate — see SECURITY.md). SmartScreen
             will warn on first run: choose **More info → Run anyway**.
@@ -150,7 +154,9 @@ jobs:
 
             - Integrity, Windows: `certutil -hashfile <file> SHA256`, compare
               against the matching line in `SHA256SUMS`
-            - Integrity, macOS/Linux: `sha256sum -c SHA256SUMS --ignore-missing`
+            - Integrity, macOS: `shasum -a 256 <file>`, compare against the
+              matching line in `SHA256SUMS`
+            - Integrity, Linux: `sha256sum -c SHA256SUMS --ignore-missing`
             - Provenance (proves GitHub Actions built the file from this repo at
               this tag): `gh attestation verify <file> -R Teerapat-Vatpitak/thai-pii-redaction`
 

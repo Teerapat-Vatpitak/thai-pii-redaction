@@ -12,6 +12,12 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+### Changed
+
+- Release drafts now explicitly require release-specific changelog notes before
+  publication and show platform-correct SHA256 verification commands for
+  Windows, macOS, and Linux.
+
 ## [2.4.2] - 2026-07-23
 
 Release-acceptance patch. Microsoft 365 remains paused and
