@@ -1,17 +1,24 @@
 # Storefront candidate follow-up — 2026-07-24
 
-Candidate runtime: product `2.5.0`, code commit
-`ad1a11d8f2299ea3ec52f9166cae9b09d440d542`. The captured HTTP evidence marks
-the working tree dirty, so this is **provisional candidate evidence**, not
-release-commit evidence. Reproduce release gates from a clean candidate
-checkout before tagging or publishing.
+Candidate runtime: product `2.5.0`. Clean release-preparation commit
+`e91a124168895464b7159f543bedbc115e4d1c54` passed the repeatable non-quota
+acceptance gates. The live-provider supplement was captured earlier from the
+same runtime changes with a dirty working tree and remains identified
+separately below.
 
 This record contains outcomes, counts, and references only. It contains no raw
 request text, mappings, provider response bodies, credentials, or screenshots.
 
 ## Repeatable HTTP and live-provider acceptance
 
-Evidence: `artifacts/acceptance/acceptance-20260723T180919Z.json` (gitignored).
+Clean evidence:
+`artifacts/acceptance/acceptance-20260723T182256Z.json` (gitignored), reporting
+version 2.5.0, the exact commit above, `git_dirty: false`, and **7 pass, 0 fail,
+0 blocked** for health, demo enablement, fake protected roundtrip, guard
+warning semantics, PDPA PDF, text-layer PDF redaction, and non-PDF rejection.
+
+Live supplement:
+`artifacts/acceptance/acceptance-20260723T180919Z.json` (gitignored).
 
 The runner completed with **11 pass, 0 fail, 0 blocked**:
 
@@ -58,8 +65,6 @@ carry-forward evidence from the 2026-07-23 storefront run.
 
 ## Remaining candidate evidence
 
-- Repeat the applicable release checks from a clean checkout, because the
-  recorded HTTP run was dirty.
 - The exact release artifact still requires Desktop installer smoke after the
   tag workflow builds it.
 
