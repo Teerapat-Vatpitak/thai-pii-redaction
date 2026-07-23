@@ -20,6 +20,13 @@ if (manifest.manifestVersion !== "1.25") errors.push("unified manifestVersion mu
 if (manifest.$schema !== "https://developer.microsoft.com/json-schemas/teams/v1.25/MicrosoftTeams.schema.json") {
   errors.push("unified manifest schema must match manifestVersion 1.25");
 }
+if (
+  !Array.isArray(manifest.validDomains) ||
+  manifest.validDomains.length !== 1 ||
+  manifest.validDomains[0] !== "localhost:3000"
+) {
+  errors.push("validDomains must contain the localhost host and port without a URL scheme");
+}
 if (!Array.isArray(manifest.extensions) || manifest.extensions.length !== 1) errors.push("unified manifest must contain one extension");
 
 const extension = manifest.extensions?.[0];

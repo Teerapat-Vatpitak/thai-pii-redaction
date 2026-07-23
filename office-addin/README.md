@@ -10,12 +10,13 @@ Add-in
 Excel และ PowerPoint จะถูกเพิ่มหลัง real-host acceptance ของแต่ละ host ผ่านเท่านั้น
 โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting
 
-การลอง unified manifest ล่าสุดวันที่ 2026-07-23 ลงทะเบียน Word-only package และเปิด
-Word ได้ แต่ AI Guard ribbon/task pane ไม่ปรากฏ และ runtime log ไม่ได้รับ manifest
-จึงยังห้ามนับว่า unified-manifest acceptance ผ่าน โครงการมี host-specific local
-XML manifests สำหรับแยกการทดสอบฟังก์ชันบนเครื่องออกจากปัญหา acquisition ของ
-บัญชี/tenant เท่านั้น ไฟล์เหล่านี้ไม่ใช่ release artifact: `manifest.dev.xml`
-(Word), `manifest.dev.excel.xml` และ `manifest.dev.powerpoint.xml`
+การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
+host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
+`localhost:3000` แล้ว Word acquire ribbon และเปิด task pane ได้จริง ตัว validator
+ของโครงการตรวจรูปแบบนี้เพื่อกัน regression แล้ว โครงการยังมี host-specific local
+XML manifests สำหรับแยกการทดสอบฟังก์ชันบนเครื่อง ไฟล์เหล่านี้ไม่ใช่ release
+artifact: `manifest.dev.xml` (Word), `manifest.dev.excel.xml` และ
+`manifest.dev.powerpoint.xml`
 
 การทดสอบผ่าน local XML ในวันเดียวกันยืนยัน ribbon/task pane, backend ready และ
 offline-disabled states, Detect, PDPA Analyze, token Preview/Apply/Restore แบบ
@@ -28,7 +29,9 @@ Excel follow-up ยืนยันว่าเปลี่ยนเฉพาะ 
 ยืนยัน selected-text Apply/Restore พร้อม mixed/no-selection fail-closed รายละเอียด
 อยู่ที่
 [Office local acceptance run](../docs/acceptance/2026-07-23-office-local-run.md)
-งานนี้ยังไม่ครอบคลุม checklist ของทุก host และไม่เปลี่ยนสถานะ unified manifest
+Unified Word follow-up ยืนยัน multiple-paragraph Copy-only, Pathumma preview และ
+Insert response หลังผู้ใช้กดอย่างชัดเจนแล้ว งานนี้ยังไม่ครอบคลุม checklist ของทุก
+host และ release manifest ยังเปิด Word เท่านั้น
 
 ## Trust boundary
 

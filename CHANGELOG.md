@@ -23,6 +23,9 @@ log — see `git log` for full detail on any release.
   Extension, Desktop, Playground, PDF, Pathumma, and TNER.
 - A Desktop action that generates and downloads the existing whitelisted Thai
   PDPA PDF report, with explicit progress, success, and error states.
+- A shared Microsoft 365 task pane and Word, Excel, and PowerPoint host adapters
+  for detection, PDPA analysis, masking, restoration, and protected Pathumma
+  preview through the existing local backend.
 - A release-readiness gate that requires version targets, tag, dated changelog
   section, and a fresh empty `Unreleased` section to agree before a tag builds.
 
@@ -68,6 +71,9 @@ log — see `git log` for full detail on any release.
 - House numbers after form-style address labels such as `ที่อยู่: 99` are now
   detected and blacked out; detector-span and rendered-pixel regressions pin
   the complete address coverage.
+- The Microsoft 365 unified manifest now declares its trusted localhost domain
+  as a host and port rather than a URL, allowing Word to acquire the AI Guard
+  ribbon and task pane; deterministic validation prevents the regression.
 
 ## [2.4.0] - 2026-07-22
 
