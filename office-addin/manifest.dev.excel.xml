@@ -7,7 +7,7 @@
   xsi:type="TaskPaneApp">
   <!-- Local Excel acceptance transport only. The release artifact is manifest.json. -->
   <Id>4b9c86fd-0a67-4c56-8b87-2070bbf6c161</Id>
-  <Version>2.4.0.0</Version>
+  <Version>2.4.1.0</Version>
   <ProviderName>AI Guard</ProviderName>
   <DefaultLocale>th-TH</DefaultLocale>
   <DisplayName DefaultValue="AI Guard Excel (Local Acceptance)" />
