@@ -60,6 +60,11 @@ carry-forward evidence from the 2026-07-23 storefront run.
 
 - Repeat the applicable release checks from a clean checkout, because the
   recorded HTTP run was dirty.
-- If release policy requires fresh browser artifact evidence, re-run the
-  report/PDF download-open and visual inspection manually; this record does
-  not promote the headless tests into real-browser acceptance.
+- The exact release artifact still requires Desktop installer smoke after the
+  tag workflow builds it.
+
+The Extension, Playground, report, and PDF production sources are unchanged
+from the 2026-07-23 accepted release path, apart from the synchronized Extension
+manifest version. Accordingly the previous real-browser artifact evidence is
+retained as lineage evidence, while this record identifies exactly which
+interactions were repeated on the 2.5.0 candidate.

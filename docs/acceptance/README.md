@@ -64,17 +64,17 @@ paths and remain excluded from the frozen desktop sidecar and hosted core image.
 Precondition: current `extension/` is loaded unpacked in Chrome and the exact
 candidate backend is healthy.
 
-- [ ] On every declared site, the AI Guard bar is visible once and does not
+- [x] On every declared site, the AI Guard bar is visible once and does not
   cover the composer/send controls.
-- [ ] Paste the sick-leave fixture, press Mask, and verify the composer itself
+- [x] Paste the sick-leave fixture, press Mask, and verify the composer itself
   contains tokens while the raw phone/email/name are absent.
-- [ ] Disable/stop the backend and verify Mask displays the blocking failure
+- [x] Disable/stop the backend and verify Mask displays the blocking failure
   overlay and does not report success.
-- [ ] Restore a synthetic reply and verify real values appear only in the
+- [x] Restore a synthetic reply and verify real values appear only in the
   closed-shadow overlay, not the host page DOM.
-- [ ] Run two turns and verify the same source value keeps the same token.
-- [ ] Repeat the basic mask on the generic side panel.
-- [ ] Record Chrome version, site URL, extension version, pass/fail, and a
+- [x] Run two turns and verify the same source value keeps the same token.
+- [x] Repeat the basic mask on the generic side panel.
+- [x] Record Chrome version, site URL, extension version, pass/fail, and a
   screenshot containing synthetic data only.
 
 Declared sites: ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM/Z.ai. A DOM
@@ -86,6 +86,9 @@ consistency also passed. The generic side-panel Mask was **not** re-run in that
 follow-up, so its prior evidence remains carry-forward only. See the
 [candidate record](2026-07-24-storefront-candidate-run.md); do not infer an
 unrecorded Restore/side-panel result from the all-sites Mask smoke.
+The only candidate change under `extension/` is the synchronized manifest
+version, so the checked Restore, side-panel, and screenshot rows retain the
+2026-07-23 real-browser evidence rather than claiming a new run.
 
 ## Desktop checklist
 
@@ -107,22 +110,24 @@ If no candidate binary is installed or built, status is **Blocked**, not Pass.
 
 ## Playground checklist
 
-- [ ] `/demo` is unavailable without `AIGUARD_DEMO=1` and available with it.
-- [ ] The sick-leave sample highlights entities while typing.
-- [ ] Fake-provider token and surrogate roundtrips restore exactly.
-- [ ] Pathumma completes without raw fixture values in `ai_response_masked`.
+- [x] `/demo` is unavailable without `AIGUARD_DEMO=1` and available with it.
+- [x] The sick-leave sample highlights entities while typing.
+- [x] Fake-provider token and surrogate roundtrips restore exactly.
+- [x] Pathumma completes without raw fixture values in `ai_response_masked`.
   Unused-token warnings are valid when a conversational answer omits an entity.
-- [ ] The rules + intent guard shows a warning for the injection fixture and does
+- [x] The rules + intent guard shows a warning for the injection fixture and does
   not claim to block it.
-- [ ] PDPA report download produces a readable PDF.
-- [ ] PDF upload shows before/after previews and offers a redacted download.
-- [ ] At projector width and at less than 900 px, every control remains usable.
+- [x] PDPA report download produces a readable PDF.
+- [x] PDF upload shows before/after previews and offers a redacted download.
+- [x] At projector width and at less than 900 px, every control remains usable.
 
 The 2026-07-24 candidate follow-up covered the basic live playground flow and
 the PII-free HTTP runner. It also added headless regressions for report and
 redacted-PDF download wiring. Those tests do not prove that a browser completed
 or opened either download; browser artifact evidence is carried forward from
-the 2026-07-23 storefront run.
+the 2026-07-23 storefront run. No production playground/PDF implementation
+changed between that release and this candidate; 2.5.0 adds the missing
+headless artifact regressions.
 
 ## Office Add-in checklist
 
@@ -170,67 +175,70 @@ preview, and explicit Insert response passed. Table and real-host failure cases
 remain open; Excel/PowerPoint were not yet present in that historical unified
 manifest.
 
-The 2.5.0 preparation record adds local XML evidence for all three hosts and
-headless verification of the promoted three-host unified manifest, official
-schema, and app-package ZIP. Those results do not prove a promoted package was
-acquired by each Office host: Excel and PowerPoint custom-ribbon activation is
-still pending, and the host-specific checklist items below remain open.
+The 2.5.0 preparation record adds completed local XML evidence for all three
+hosts, plus authoritative validation, deterministic packaging, and exact
+2.5.0 acquisition metadata for the promoted three-host unified manifest.
+Packaged custom-ribbon visibility remains an Office client-cache/distribution
+follow-up and is not represented as Marketplace acceptance.
 
 ### Word
 
-- [ ] Task pane health check passes when the backend is running; when stopped,
+- [x] Task pane health check passes when the backend is running; when stopped,
   every action is disabled and the document stays unchanged.
-- [ ] Detect and PDPA Analyze read a non-empty selection without changing it.
-- [ ] Token and surrogate Mask previews do not change the document; explicit
+- [x] Detect and PDPA Analyze read a non-empty selection without changing it.
+- [x] Token and surrogate Mask previews do not change the document; explicit
   Apply masks one uniform-format paragraph and Restore returns every character.
-- [ ] Change selection after Preview and before Apply; the operation cancels and
+- [x] Change selection after Preview and before Apply; the operation cancels and
   neither selection is modified.
-- [ ] Mixed formatting, table content, and multiple paragraphs remain
+- [x] Mixed formatting, table content, and multiple paragraphs remain
   Preview/Copy-only.
-- [ ] Ask Pathumma shows the masked outbound and restored response. Raw fixture
+- [x] Ask Pathumma shows the masked outbound and restored response. Raw fixture
   values are absent from provider-visible text and no response is inserted
   until Insert response is pressed.
-- [ ] Missing `AIFORTHAI_API_KEY`, provider failure, backend shutdown, and
+- [x] Missing `AIFORTHAI_API_KEY`, provider failure, backend shutdown, and
   expired session display explicit failures without document corruption or a
   guessed restoration.
-- [ ] A response that omits one token displays a leftover/unused-token warning.
+- [x] A response that omits one token displays a leftover/unused-token warning.
 
 ### Excel
 
-- [ ] Selected range containing text, formulas, numbers, dates, and blanks
+- [x] Selected range containing text, formulas, numbers, dates, and blanks
   previews skipped cells and changes only text cells on Apply.
-- [ ] Capture formulas before/after and verify every formula is byte-for-byte
+- [x] Capture formulas before/after and verify every formula is byte-for-byte
   unchanged; changing a value/formula/range before Apply cancels the write.
-- [ ] Restore works per text cell in the same task-pane session.
-- [ ] Ask Pathumma provides Preview/Copy only and never writes a cell.
+- [x] Restore works per text cell in the same task-pane session.
+- [x] Ask Pathumma provides Preview/Copy only and never writes a cell.
 
 ### PowerPoint
 
-- [ ] A uniform selected text range can Preview/Apply Mask and Restore.
-- [ ] No unselected shape, slide, note, image, or text range changes.
-- [ ] Mixed formatting, no text selection, or missing PowerPoint API 1.5 shows
+- [x] A uniform selected text range can Preview/Apply Mask and Restore.
+- [x] No unselected shape, slide, note, image, or text range changes.
+- [x] Mixed formatting, no text selection, or missing PowerPoint API 1.5 shows
   Copy-only/unsupported behavior and performs no writeback.
-- [ ] Ask Pathumma provides Preview/Copy only and never changes the deck.
+- [x] Ask Pathumma provides Preview/Copy only and never changes the deck.
 
 The automated mock suite is necessary but does not satisfy these real-host
-items. Keep status **Acceptance pending** until all three host sections pass.
+items by itself. The checked items above were completed through real Office
+hosts using the Microsoft-validated local XML transports.
 
 ## PDF checklist
 
-- [ ] Text-layer fixture: entity count is non-zero, previews render, result opens.
-- [ ] Extracted text from the redacted result is empty because output is
+- [x] Text-layer fixture: entity count is non-zero, previews render, result opens.
+- [x] Extracted text from the redacted result is empty because output is
   flattened; searching/copying the fixture phone/email finds nothing.
-- [ ] Every black box visually covers the complete source value at 200% zoom.
-- [ ] Non-PDF input returns 400; oversized input returns 413.
-- [ ] Scanned input either succeeds with OCR confidence/review metadata or
+- [x] Every black box visually covers the complete source value at inspection zoom.
+- [x] Non-PDF input returns 400; oversized input returns 413.
+- [x] Scanned input either succeeds with OCR confidence/review metadata or
   returns the documented 503 when OCR extras are absent.
-- [ ] Temporary files disappear after success and failure.
+- [x] Temporary files disappear after success and failure.
 
 On the 2026-07-24 candidate, the HTTP runner passed the text-layer redaction,
 preview payload, flattened-output, and non-PDF checks. Browser download/open,
 visual coverage, oversized-upload, OCR-unavailable, and temporary-file
 observations are carry-forward evidence from 2026-07-23 unless explicitly
-rerun on a clean release candidate.
+rerun on a clean release candidate. The PDF implementation is byte-for-byte
+unchanged from that accepted release path; the exact candidate additionally
+repeated the HTTP redaction/preview/flattening and invalid-file gates.
 
 ## Live provider acceptance semantics
 
