@@ -25,6 +25,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: uniformDirectFont(),
       insertText: vi.fn(),
     };
@@ -42,6 +43,29 @@ describe("WordHostAdapter", () => {
       expect(run).toHaveBeenCalledTimes(2);
       expect(context.document.getSelection).toHaveBeenCalledTimes(2);
       expect(range.insertText).toHaveBeenCalledWith("[NAME_1]", "Replace");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps text selected inside a table copy-only even when range.tables is empty", async () => {
+    const range = {
+      text: "selected",
+      load: vi.fn(),
+      paragraphs: { items: [{}], load: vi.fn() },
+      tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: false, load: vi.fn() },
+      font: uniformDirectFont(),
+    };
+    const context = {
+      document: { getSelection: vi.fn(() => range) },
+      sync: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.stubGlobal("Word", { run: vi.fn(async (callback: (value: typeof context) => Promise<unknown>) => callback(context)) });
+    try {
+      const snapshot = await new WordHostAdapter(new OfficeWordGateway()).readSelection();
+      expect(snapshot.writeback.allowed).toBe(false);
+      expect(snapshot.writeback.reasons.join(" ")).toContain("ตาราง");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -74,6 +98,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: { name: null, size: null, color: null, bold: null, italic: null, underline: null, load: vi.fn() },
       getTextRanges: vi.fn(() => ({
         items: directFonts.map((font) => ({ font })),
@@ -102,6 +127,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: { load: vi.fn() },
       getTextRanges: vi.fn(() => ({
         items: directFonts.map((font) => ({ font })),
@@ -131,6 +157,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: { load: vi.fn() },
       getTextRanges: vi.fn(() => ({
         items: directFonts.map((font) => ({ font })),
@@ -155,6 +182,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: { bold: null, italic: null, underline: null, load: vi.fn() },
     };
     const context = { document: { getSelection: vi.fn(() => range) }, sync: vi.fn().mockResolvedValue(undefined) };
@@ -175,6 +203,7 @@ describe("WordHostAdapter", () => {
       load: vi.fn(),
       paragraphs: { items: [{}], load: vi.fn() },
       tables: { items: [], load: vi.fn() },
+      parentTableOrNullObject: { isNullObject: true, load: vi.fn() },
       font: { load: vi.fn() },
       getTextRanges: vi.fn(),
     };
