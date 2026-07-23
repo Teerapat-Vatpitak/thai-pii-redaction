@@ -74,7 +74,7 @@ candidate backend is healthy.
 - [ ] Record Chrome version, site URL, extension version, pass/fail, and a
   screenshot containing synthetic data only.
 
-Declared sites: ChatGPT, Codex, Gemini, Grok, Perplexity, and GLM/Z.ai. A DOM
+Declared sites: ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM/Z.ai. A DOM
 fixture test is not a substitute for one current live-site smoke per release.
 
 ## Desktop checklist
@@ -125,7 +125,7 @@ PowerPoint. They use separate add-in IDs and are acceptance-only; schema
 validation or a functional pass on them cannot close the unified-manifest
 promotion gate.
 
-Local Word evidence on 2026-07-23: the Microsoft-validated XML transport showed
+Local Office evidence on 2026-07-23: the Microsoft-validated XML transports showed
 the AI Guard ribbon/task pane; health ready and backend-offline/disabled states
 passed; Detect and PDPA Analyze left the document unchanged; token Preview left
 it unchanged; explicit Apply and Restore returned the synthetic selection
@@ -135,10 +135,14 @@ range stayed Copy-only. A live Pathumma call showed only a token in masked
 outbound, kept the response preview-only, and surfaced `unused_pseudonyms:1`
 when the model did not repeat the token. The run also exposed a false mixed-font
 result for ordinary Thai + Latin text; the bounded per-run formatting fix now
-fails closed when Office cannot prove uniformity and has automated coverage,
-but still needs its final real-host rerun. See the
+fails closed when Office cannot prove uniformity. A clean-candidate follow-up
+passed its Word real-host rerun, token and surrogate exact restore, and mixed
+size/color/highlight Copy-only behavior. Excel changed only a selected text cell
+while preserving the formula byte-for-byte and cancelled a stale-range Apply.
+PowerPoint changed and restored only selected uniform text, while mixed size and
+no-selection cases performed no writeback. See the
 [run record](2026-07-23-office-local-run.md). This is a partial functional
-slice, not full Word or unified-manifest acceptance; the checkboxes remain
+slice, not full host or unified-manifest acceptance; the checkboxes remain
 unchecked until their whole scenario passes on the release transport.
 
 ### Word

@@ -10,7 +10,7 @@ Add-in
 Excel และ PowerPoint จะถูกเพิ่มหลัง real-host acceptance ของแต่ละ host ผ่านเท่านั้น
 โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting
 
-การลองจริงล่าสุดวันที่ 2026-07-23 ลงทะเบียน Word-only unified package และเปิด
+การลอง unified manifest ล่าสุดวันที่ 2026-07-23 ลงทะเบียน Word-only package และเปิด
 Word ได้ แต่ AI Guard ribbon/task pane ไม่ปรากฏ และ runtime log ไม่ได้รับ manifest
 จึงยังห้ามนับว่า unified-manifest acceptance ผ่าน โครงการมี host-specific local
 XML manifests สำหรับแยกการทดสอบฟังก์ชันบนเครื่องออกจากปัญหา acquisition ของ
@@ -19,14 +19,16 @@ XML manifests สำหรับแยกการทดสอบฟังก์
 
 การทดสอบผ่าน local XML ในวันเดียวกันยืนยัน ribbon/task pane, backend ready และ
 offline-disabled states, Detect, PDPA Analyze, token Preview/Apply/Restore แบบ
-รักษาช่องว่างขอบ selection, stale-selection cancellation, mixed bold Copy-only
-และ Pathumma masked-outbound preview พร้อม unused-token warning แล้ว ระหว่างรัน
-พบว่า Word รายงาน aggregate font ของข้อความไทยผสม Latin เป็น mixed ทั้งที่ผู้ใช้
-ไม่ได้จัดรูปแบบต่างกัน จึงเปลี่ยนเป็นตรวจ bold/italic/underline แยกตาม text run
-และมี automated regression แล้ว แต่ยังต้องรันยืนยัน fix นี้บน Word จริงอีกครั้ง
-รายละเอียดอยู่ที่
+รักษาช่องว่างขอบ selection, stale-selection cancellation, mixed formatting
+Copy-only และ Pathumma masked-outbound preview พร้อม unused-token warning แล้ว
+ตัวตรวจ Word แยก direct formatting เป็นราย text run และไม่ใช้ชื่อ font ซึ่งอาจ
+ต่างกันตาม Thai/Latin script fallback; real-host follow-up ยืนยันข้อความสม่ำเสมอ,
+mixed size/color/highlight Copy-only และ token/surrogate exact Restore แล้ว
+Excel follow-up ยืนยันว่าเปลี่ยนเฉพาะ text cell โดยสูตรไม่เปลี่ยน และ PowerPoint
+ยืนยัน selected-text Apply/Restore พร้อม mixed/no-selection fail-closed รายละเอียด
+อยู่ที่
 [Office local acceptance run](../docs/acceptance/2026-07-23-office-local-run.md)
-งานนี้ยังไม่ครอบคลุม Word checklist ทั้งหมด และไม่เปลี่ยนสถานะ unified manifest
+งานนี้ยังไม่ครอบคลุม checklist ของทุก host และไม่เปลี่ยนสถานะ unified manifest
 
 ## Trust boundary
 
@@ -83,9 +85,10 @@ unified manifest พร้อมเผยแพร่ แต่ละ local mani
 ## Host behavior
 
 - Word: selection ต้องไม่ว่าง เป็นหนึ่งย่อหน้า ไม่อยู่ในตาราง และ formatting
-  สม่ำเสมอ จึง Apply ได้; ตัวตรวจแยก direct bold/italic/underline เป็นราย text
-  run เพื่อไม่ให้ Thai/Latin font fallback ถูกนับเป็น mixed และ selection เกิน
-  500 ตัวอักษรเป็น Preview/Copy เท่านั้น กรณีอื่น Preview/Copy เท่านั้น คำตอบ
+  สม่ำเสมอ จึง Apply ได้; ตัวตรวจแยก direct bold/italic/underline, size, color,
+  highlight, strike-through และ subscript/superscript เป็นราย text run โดยไม่ใช้
+  ชื่อ font เพื่อไม่ให้ Thai/Latin font fallback ถูกนับเป็น mixed และ selection
+  เกิน 500 ตัวอักษรเป็น Preview/Copy เท่านั้น กรณีอื่น Preview/Copy เท่านั้น คำตอบ
   Pathumma แทรกหลัง selection ได้เมื่อผู้ใช้กด Insert response เท่านั้น
 - Excel: ทำงานกับ selected range; เปลี่ยนเฉพาะ text cells และข้ามสูตร ตัวเลข
   วันที่ และช่องว่าง ก่อน Apply จะตรวจ address, values และ formulas ซ้ำ Ask AI
