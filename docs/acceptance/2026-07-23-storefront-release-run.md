@@ -113,6 +113,21 @@ Before the two live-browser fixes, the full gates passed:
 - Rust: `19 passed`; and
 - Ruff lint and format checks: pass.
 
-After the live-browser fixes, the JavaScript suite is `55 passed`. A final full
-gate run is required on the release commit after the version and documentation
-updates.
+After the live-browser fixes, the JavaScript suite is `55 passed`. The exact
+release merge commit `5c7149d` then passed all 11 main CI lanes, including
+Python on Windows/Linux/core-only, Ruff, JavaScript, Office Node 22, Rust,
+Docker, and the packaged-executable smoke.
+
+## Installer and publication
+
+Tag `v2.4.2` points to merge commit `5c7149d`. Release run `30023639048` passed
+metadata preflight, Windows/macOS/Linux builds, asset-version validation,
+`SHA256SUMS`, and GitHub build provenance. All downloaded checksum entries
+matched locally, and provenance identified the expected repository, tag,
+workflow, and source commit.
+
+The exact Windows installer registered `AI Guard 2.4.2`, installed
+`desktop.exe` with product/file version `2.4.2`, and launched a sidecar whose
+`/api/health` version was `2.4.2`. Synthetic token and surrogate sessions both
+restored exactly, the fake-provider roundtrip restored exactly, and closing the
+desktop released port 8000. The release was published as Latest on 2026-07-23.
