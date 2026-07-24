@@ -63,10 +63,27 @@ download opened. Browser report/PDF download-open, visual redaction coverage,
 oversized-upload, OCR-unavailable, and temporary-file observations remain
 carry-forward evidence from the 2026-07-23 storefront run.
 
-## Remaining candidate evidence
+## Installer and publication
 
-- The exact release artifact still requires Desktop installer smoke after the
-  tag workflow builds it.
+Tag `v2.5.0` points to merge commit
+`24914ab54fc8e8338ca529dd5c20a79f51d749c0`. PR CI, main CI,
+cross-platform smoke, release metadata preflight, and the Windows/macOS/Linux
+release build completed successfully in GitHub Actions. The 10 files listed in
+the generated `SHA256SUMS` matched their downloaded bytes, and all 10 verified
+against GitHub build provenance.
+
+The downloaded Windows installer had SHA256
+`2d4780f2ebc2e4555ebe99bbc56aca340543411cc9430d960395095e7684eb7e`
+and product/file version 2.5.0. Its silent upgrade exited successfully and
+registered AI Guard 2.5.0. The installed binary launched a sidecar reporting
+health version 2.5.0; token and surrogate sessions restored exactly; the fake
+provider roundtrip restored exactly while provider-visible text excluded the
+synthetic originals; and closing Desktop exited the app and released port
+8000.
+
+The release was published as GitHub Latest on 2026-07-24 local time. Public
+`latest.json` and ranged installer download checks returned successful HTTP
+responses before the packaging metadata was updated.
 
 The Extension, Playground, report, and PDF production sources are unchanged
 from the 2026-07-23 accepted release path, apart from the synchronized Extension

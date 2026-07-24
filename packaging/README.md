@@ -3,7 +3,7 @@
 Package-manager manifests for distributing AI Guard as free OSS. These point at the
 GitHub Releases installer for the Windows Tauri desktop app.
 
-Current target: **v2.4.2**, Windows x64 NSIS installer. The authoritative URL,
+Current target: **v2.5.0**, Windows x64 NSIS installer. The authoritative URL,
 version, release date, and SHA256 are the values in the manifests themselves;
 do not duplicate the hash in this prose.
 

@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: Teerapat-Vatpitak.AIGuard
-PackageVersion: 2.4.2
+PackageVersion: 2.5.0
 InstallerLocale: en-US
 Platform:
   - Windows.Desktop
@@ -16,10 +16,10 @@ ReleaseDate: 2026-07-23
 AppsAndFeaturesEntries:
   - DisplayName: AI Guard
     Publisher: Teerapat Vatpitak
-    DisplayVersion: 2.4.2
+    DisplayVersion: 2.5.0
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v2.4.2/AI.Guard_2.4.2_x64-setup.exe
-    InstallerSha256: DDDCB809526DBF951FD898B1B3C381DF233199BAE28E953971B787C1D6E31F16
+    InstallerUrl: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v2.5.0/AI.Guard_2.5.0_x64-setup.exe
+    InstallerSha256: 2D4780F2EBC2E4555EBE99BBC56ACA340543411CC9430D960395095E7684EB7E
 ManifestType: installer
 ManifestVersion: 1.6.0
