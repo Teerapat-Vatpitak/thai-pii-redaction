@@ -19,6 +19,9 @@ status page and does not silently override a newer current-state document.
   external blockers.
 - [AI for Thai integration](platform/ai-for-thai.md) - hosted service shape,
   resource profile, unknown platform fields, and acceptance checklist.
+- [AI for Thai specification request draft](platform/ai-for-thai-spec-request.md)
+  - ready-to-send account, registry, job, limits, secrets, logs, and acceptance
+  questions.
 - [Release process](release-process.md) - version, tag, draft release, packaging,
   and hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
@@ -43,6 +46,7 @@ status page and does not silently override a newer current-state document.
 - [Decision record index](decisions/README.md)
 - [Audit v2 findings](decisions/2026-07-19-audit-v2-findings.md)
 - [Platform contract ADR](decisions/2026-07-22-platform-integration-contract.md)
+- [Post-v2.5 AI for Thai execution plan](decisions/2026-07-24-post-v2.5-execution-plan.md)
 
 Files outside the public repository that contain submitted forms, signatures,
 member contact details, or working competition notes are not copied here. Their

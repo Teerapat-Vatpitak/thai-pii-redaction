@@ -11,6 +11,7 @@ by when the decision was made rather than continuously maintained.
 
 | Document | What it decides |
 |---|---|
+| [2026-07-24 post-v2.5 execution plan](2026-07-24-post-v2.5-execution-plan.md) | Critical-path ordering and dated gates from the 2.5.0 release to the 2026-08-19 presentation, and which items are calendar gates rather than estimates |
 | [2026-07-22 platform integration contract](2026-07-22-platform-integration-contract.md) | What a platform may call and rely on, where the PII mapping lives, how callers authenticate, and the two supported deployment shapes |
 | [2026-07-20 session handoff](2026-07-20-session-handoff.md) | State after v2.3.0 shipped: what changed, what bit us, what is still open |
 | [2026-07-19 audit v2 findings](2026-07-19-audit-v2-findings.md) | Full-repo audit before v2.3.0: 59 findings with evidence, and which are closed |
