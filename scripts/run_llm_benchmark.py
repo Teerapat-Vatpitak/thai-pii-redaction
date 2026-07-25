@@ -21,6 +21,8 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.gold import load_gold
@@ -68,6 +70,12 @@ def main(argv=None) -> int:
     untyped_predictions: list[list[tuple[int, int, str]]] = []
     stats = {"cached": 0, "called": 0, "failed": 0, "unlocatable": 0, "empty": 0}
     rejected_types: dict[str, int] = {}
+    # Indices whose document the endpoint never answered for. Scoring them as
+    # "found nothing" is right for the headline number -- a service that will
+    # not answer protects nothing -- but it buries the model's detection
+    # ability under the endpoint's reliability. Both are reported.
+    answered: list[int] = []
+    errors: dict[str, int] = {}
     started = time.monotonic()
 
     for n, s in enumerate(samples, 1):
@@ -94,12 +102,14 @@ def main(argv=None) -> int:
                 )
                 stats["called"] += 1
             except Exception as exc:
-                # One bad document must not abandon the other 251; the failure
-                # is counted and scored as "found nothing", which is the honest
-                # reading of no answer.
+                # One bad document must not abandon the other 251.
                 print(f"  {s.template_id}: {type(exc).__name__}: {exc}"[:200], file=sys.stderr)
-                rec = {"spans": [], "untyped_spans": [], "meta": {"error": type(exc).__name__}}
+                label = type(exc).__name__
+                if isinstance(exc, httpx.HTTPStatusError):
+                    label = f"HTTP {exc.response.status_code}"
+                rec = {"spans": [], "untyped_spans": [], "meta": {"error": label}}
                 stats["failed"] += 1
+                errors[label] = errors.get(label, 0) + 1
             # Only after a real call. Sleeping on a cache hit would make
             # re-scoring an already-fetched run cost minutes for nothing.
             if args.delay > 0:
@@ -107,6 +117,10 @@ def main(argv=None) -> int:
         predictions.append([tuple(x) for x in rec["spans"]])
         untyped_predictions.append([tuple(x) for x in rec.get("untyped_spans", [])])
         meta = rec.get("meta", {})
+        # Failures are never written to the cache, so an errored record can only
+        # have come from this run's exception path, which already counted it.
+        if not meta.get("error"):
+            answered.append(len(predictions) - 1)
         stats["unlocatable"] += meta.get("unlocatable", 0)
         stats["empty"] += bool(meta.get("empty_response"))
         for t in meta.get("rejected_types", []):
@@ -127,9 +141,22 @@ def main(argv=None) -> int:
     report["provider"] = args.provider
     report["source"] = "gold"
     report["run"] = stats
+    report["errors"] = errors
     report["invented_types"] = rejected_types
     report["wall_seconds"] = round(time.monotonic() - started, 1)
     report["delay_seconds"] = args.delay
+
+    # Same scorer over only the documents the endpoint actually answered.
+    # Without this, a provider that refuses a third of the set is reported as a
+    # weak detector when it is really an unreliable service -- two different
+    # problems with two different fixes. The headline number above stays the
+    # full set, because for a user a refused document is not protected either.
+    report["answered_only"] = None
+    if answered and len(answered) < len(samples):
+        report["answered_only"] = {
+            "documents": len(answered),
+            **score([samples[i] for i in answered], [predictions[i] for i in answered]),
+        }
 
     o = report["overall"]
     print(f"\nprovider={args.provider}  documents={len(samples)}")
@@ -157,7 +184,18 @@ def main(argv=None) -> int:
             f"negative slice: false_positives={neg['false_positives']} "
             f"clean_docs={neg['clean_docs']}/{neg['documents']} ({neg['clean_doc_rate']:.3f})"
         )
-    print(f"run={stats} invented_types={rejected_types} wall={report['wall_seconds']}s")
+    ao = report.get("answered_only")
+    if ao:
+        a = ao["overall"]
+        print(
+            f"{'ANSWERED ONLY':<16}{ao['corpus']['entities']:>5}"
+            f"{a['recall']:>9.3f}{a['precision']:>9.3f}{a['f2']:>9.3f}"
+            f"   ({ao['documents']}/{len(samples)} documents the endpoint answered)"
+        )
+    print(
+        f"run={stats} errors={errors} invented_types={rejected_types} "
+        f"wall={report['wall_seconds']}s"
+    )
 
     if args.json:
         Path(args.json).parent.mkdir(parents=True, exist_ok=True)
