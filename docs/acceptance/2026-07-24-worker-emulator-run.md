@@ -19,6 +19,8 @@ The command writes a PII-free, gitignored record to
 ## Passed cases
 
 - `detect`, `sanitize`, `analyze`, and fake-provider `roundtrip`;
+  `analyze` late-imports `app.server`, so a core-only environment exercises the
+  other three and the record names which ran under `checks.operations`;
 - explicit internal contract version and safe rejection of unsupported
   versions;
 - malformed and oversized envelopes;

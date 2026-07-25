@@ -7,6 +7,7 @@ official AI for Thai deployment evidence.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import json
 import logging
@@ -53,21 +54,47 @@ def _check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def _web_extra_available() -> bool:
+    """The analyze operation late-imports app.server, which needs fastapi.
+
+    The hosted image installs core+web from requirements.lock, so analyze runs
+    on the real deployment path. A core-only `pip install -r requirements.txt`
+    leaves it unimportable, and asserting it succeeds there would fail a job
+    that exists to keep that install path honest.
+    """
+
+    try:
+        return importlib.util.find_spec("fastapi") is not None
+    except ModuleNotFoundError:
+        return False
+
+
 def _run_contract_operations() -> dict:
+    planned = [
+        ("detect", {"text": SYNTHETIC_TEXT}),
+        ("sanitize", {"text": SYNTHETIC_TEXT, "mode": "token"}),
+        ("analyze", {"text": SYNTHETIC_TEXT}),
+        ("roundtrip", {"text": SYNTHETIC_TEXT, "mode": "token", "provider": "fake"}),
+    ]
+    skipped = [] if _web_extra_available() else ["analyze"]
+    exercised = [operation for operation, _ in planned if operation not in skipped]
     jobs = [
-        _job("accept-detect", "detect", {"text": SYNTHETIC_TEXT}),
-        _job("accept-sanitize", "sanitize", {"text": SYNTHETIC_TEXT, "mode": "token"}),
-        _job("accept-analyze", "analyze", {"text": SYNTHETIC_TEXT}),
-        _job(
-            "accept-roundtrip",
-            "roundtrip",
-            {"text": SYNTHETIC_TEXT, "mode": "token", "provider": "fake"},
-        ),
+        _job(f"accept-{operation}", operation, payload)
+        for operation, payload in planned
+        if operation not in skipped
     ]
     transport = EmulatedTransport(jobs)
     processed = run(transport, max_jobs=len(jobs))
     _check(processed == len(jobs), "not every contract operation was processed")
-    _check(all(result["status"] == "ok" for result in transport.results), "operation failed")
+    for result in transport.results:
+        # Name the operation and its error type: this runs in CI, where the
+        # only artifact is the log line and a bare "operation failed" costs a
+        # local reproduction to learn which of the four broke.
+        _check(
+            result["status"] == "ok",
+            f"operation {result['operation']} failed with "
+            f"{result.get('error', {}).get('type', 'unknown')}",
+        )
     _check(
         all(result["contract_version"] == CONTRACT_VERSION for result in transport.results),
         "contract version drift",
@@ -76,7 +103,12 @@ def _run_contract_operations() -> dict:
         "mapping" not in json.dumps(transport.results, ensure_ascii=False),
         "mapping crossed the result boundary",
     )
-    return {"processed": processed, "statuses": ["ok"] * processed}
+    return {
+        "processed": processed,
+        "exercised": exercised,
+        "skipped": skipped,
+        "statuses": ["ok"] * processed,
+    }
 
 
 def _run_duplicate_after_submit_failure() -> dict:
