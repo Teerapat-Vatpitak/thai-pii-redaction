@@ -18,13 +18,14 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.gold import load_gold
 from benchmark.llm_providers import ProviderUnavailable, build_caller
-from benchmark.llm_strategy import detect_with_llm
+from benchmark.llm_strategy import UNTYPED, detect_with_llm, score_raw
 from benchmark.scorer import score
 
 CACHE_ROOT = Path(__file__).resolve().parents[1] / "benchmark" / "reports" / "llm_cache"
@@ -42,6 +43,12 @@ def main(argv=None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="first N documents (0 = all)")
     ap.add_argument("--refresh", action="store_true", help="ignore cached responses")
     ap.add_argument("--json", default=None, help="write the scored report here")
+    ap.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="seconds to wait between API calls (default 1.0; 0 disables)",
+    )
     args = ap.parse_args(argv)
 
     try:
@@ -58,28 +65,47 @@ def main(argv=None) -> int:
     cache.mkdir(parents=True, exist_ok=True)
 
     predictions: list[list[tuple[int, int, str]]] = []
+    untyped_predictions: list[list[tuple[int, int, str]]] = []
     stats = {"cached": 0, "called": 0, "failed": 0, "unlocatable": 0, "empty": 0}
     rejected_types: dict[str, int] = {}
     started = time.monotonic()
 
     for n, s in enumerate(samples, 1):
         path = cache / f"{s.template_id}.json"
+        raw: str | None = None
+        rec: dict | None = None
         if path.exists() and not args.refresh:
-            rec = json.loads(path.read_text(encoding="utf-8"))
-            stats["cached"] += 1
-        else:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            raw = cached.get("raw")
+            if raw is None:
+                # Pre-raw cache entry. It cannot produce the type-agnostic view,
+                # so refetch rather than silently mixing two kinds of number in
+                # one report.
+                raw = None
+            else:
+                rec = score_raw(s.text, raw)
+                stats["cached"] += 1
+        if rec is None:
             try:
-                spans, meta = detect_with_llm(s.text, call)
-                rec = {"spans": spans, "meta": meta}
-                path.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+                raw, rec = detect_with_llm(s.text, call)
+                path.write_text(
+                    json.dumps({"raw": raw, **rec}, ensure_ascii=False, indent=1),
+                    encoding="utf-8",
+                )
                 stats["called"] += 1
             except Exception as exc:
-                # abandon the other 251; the failure is counted and scored as
-                # "found nothing", which is the honest reading of no answer.
+                # One bad document must not abandon the other 251; the failure
+                # is counted and scored as "found nothing", which is the honest
+                # reading of no answer.
                 print(f"  {s.template_id}: {type(exc).__name__}: {exc}"[:200], file=sys.stderr)
-                rec = {"spans": [], "meta": {"error": type(exc).__name__}}
+                rec = {"spans": [], "untyped_spans": [], "meta": {"error": type(exc).__name__}}
                 stats["failed"] += 1
+            # Only after a real call. Sleeping on a cache hit would make
+            # re-scoring an already-fetched run cost minutes for nothing.
+            if args.delay > 0:
+                time.sleep(args.delay)
         predictions.append([tuple(x) for x in rec["spans"]])
+        untyped_predictions.append([tuple(x) for x in rec.get("untyped_spans", [])])
         meta = rec.get("meta", {})
         stats["unlocatable"] += meta.get("unlocatable", 0)
         stats["empty"] += bool(meta.get("empty_response"))
@@ -89,11 +115,21 @@ def main(argv=None) -> int:
             print(f"  {n}/{len(samples)} ({time.monotonic() - started:.0f}s)", file=sys.stderr)
 
     report = score(samples, predictions)
+    # Type-agnostic view: relabel BOTH sides to one type and reuse the same
+    # scorer, so "found the PII" is measured without "named it correctly"
+    # riding along. Relabelling is why this cannot just read coverage_recall
+    # off the strict run -- that run has already dropped the rows whose type
+    # name was not in the vocabulary.
+    untyped_samples = [
+        replace(s, spans=[replace(g, entity_type=UNTYPED) for g in s.spans]) for s in samples
+    ]
+    report["untyped"] = score(untyped_samples, untyped_predictions)
     report["provider"] = args.provider
     report["source"] = "gold"
     report["run"] = stats
     report["invented_types"] = rejected_types
     report["wall_seconds"] = round(time.monotonic() - started, 1)
+    report["delay_seconds"] = args.delay
 
     o = report["overall"]
     print(f"\nprovider={args.provider}  documents={len(samples)}")
@@ -109,6 +145,12 @@ def main(argv=None) -> int:
         f"{o['recall']:>9.3f}{o['precision']:>9.3f}{o['f2']:>9.3f}"
     )
     print(f"coverage_recall={o['coverage_recall']:.3f} exact_recall={o['exact_recall']:.3f}")
+    u = report["untyped"]["overall"]
+    print(
+        f"{'UNTYPED':<16}{report['corpus']['entities']:>5}"
+        f"{u['recall']:>9.3f}{u['precision']:>9.3f}{u['f2']:>9.3f}"
+        f"   (type ignored; coverage_recall={u['coverage_recall']:.3f})"
+    )
     neg = report["by_slice"].get("negative", {})
     if neg.get("gold_entities") == 0:
         print(

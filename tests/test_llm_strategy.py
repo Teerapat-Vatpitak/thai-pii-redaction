@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from benchmark.llm_providers import ProviderUnavailable, build_caller
-from benchmark.llm_strategy import locate, parse_items
+from benchmark.llm_strategy import UNTYPED, locate, parse_items, score_raw
 
 
 # ── parsing ────────────────────────────────────────────────────────────
@@ -104,6 +104,44 @@ def test_locate_returns_spans_in_document_order():
     text = "a@b.com คุยกับ สมชาย"
     spans = locate(text, [("NAME", "สมชาย"), ("EMAIL", "a@b.com")])
     assert [t for _, _, t in spans] == ["EMAIL", "NAME"]
+
+
+# ── type-agnostic view ─────────────────────────────────────────────────
+def test_lenient_parse_keeps_rows_the_strict_view_drops():
+    # Pathumma answers with the Thai field label as the type. Strict scoring
+    # drops those rows, which measures instruction-following; the lenient view
+    # keeps the value so "did it find the PII" can be measured on its own.
+    raw = '[{"type": "ที่อยู่ปัจจุบัน", "value": "12 ถนนสุขุมวิท"}]'
+    strict, rejected = parse_items(raw, strict=True)
+    lenient, _ = parse_items(raw, strict=False)
+    assert strict == []
+    assert rejected == ["ที่อยู่ปัจจุบัน"]
+    assert lenient == [(UNTYPED, "12 ถนนสุขุมวิท")]
+
+
+def test_lenient_parse_also_relabels_known_types():
+    # Both views must be scored against a single relabelled gold set, so a row
+    # the strict view accepts still has to come back as UNTYPED here.
+    lenient, _ = parse_items('[{"type": "NAME", "value": "สมชาย"}]', strict=False)
+    assert lenient == [(UNTYPED, "สมชาย")]
+
+
+def test_score_raw_produces_both_views_from_one_response():
+    text = "ผู้ป่วย สมชาย ใจดี ที่อยู่ 12 ถนนสุขุมวิท"
+    raw = '[{"type": "NAME", "value": "สมชาย ใจดี"}, {"type": "ที่อยู่ปัจจุบัน", "value": "12 ถนนสุขุมวิท"}]'
+    rec = score_raw(text, raw)
+    assert [t for _, _, t in rec["spans"]] == ["NAME"]
+    assert [t for _, _, t in rec["untyped_spans"]] == [UNTYPED, UNTYPED]
+    assert rec["meta"]["kept_typed"] == 1
+    assert rec["meta"]["returned"] == 2
+    assert rec["meta"]["unlocatable"] == 0
+
+
+def test_score_raw_counts_unlocatable_against_the_lenient_view():
+    rec = score_raw("ชื่อ สมชาย", '[{"type": "NAME", "value": "นายสมชาย เกิดปี 2530"}]')
+    assert rec["spans"] == []
+    assert rec["untyped_spans"] == []
+    assert rec["meta"]["unlocatable"] == 1
 
 
 # ── provider construction ──────────────────────────────────────────────

@@ -114,12 +114,23 @@ def _load_rows(text: str) -> list:
     return rows
 
 
-def parse_items(raw: str) -> tuple[list[tuple[str, str]], list[str]]:
-    """Return ([(type, value)], [rejected type names]).
+UNTYPED = "PII"
+
+
+def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]], list[str]]:
+    """Return ([(type, value)], [type names outside the gold vocabulary]).
 
     Tolerant by design: a model that wraps its JSON in a fence or pads it with a
     sentence should not be scored as if it found nothing, since that would
     measure output formatting rather than detection.
+
+    `strict=True` keeps only the gold vocabulary, which is the type-aware view.
+    `strict=False` keeps every row and labels the whole lot `UNTYPED`, which is
+    the type-agnostic view: it answers "did the model find this PII at all",
+    separately from "did it call it by the right name". Pathumma needs the
+    distinction badly -- it answers with the Thai field label as the type
+    (`{"type": "ที่อยู่ปัจจุบัน"}`), inventing over 150 type names, so the
+    strict view scores its instruction-following, not its detection.
     """
     text = _THINK.sub("", raw or "")
     # An unclosed <think> means the answer never arrived (the token budget ran
@@ -140,8 +151,10 @@ def parse_items(raw: str) -> tuple[list[tuple[str, str]], list[str]]:
             continue
         if etype not in GOLD_TYPES:
             rejected.append(etype)
+            if not strict:
+                items.append((UNTYPED, value))
             continue
-        items.append((etype, value))
+        items.append((UNTYPED if not strict else etype, value))
     return items, rejected
 
 
@@ -167,18 +180,31 @@ def locate(text: str, items: list[tuple[str, str]]) -> list[tuple[int, int, str]
     return spans
 
 
-def detect_with_llm(text: str, call) -> tuple[list[tuple[int, int, str]], dict]:
-    """Run one document through a caller. Returns (spans, per-document stats)."""
-    raw = call(SYSTEM_PROMPT, USER_TEMPLATE.format(text=text))
-    items, rejected = parse_items(raw)
-    spans = locate(text, items)
-    return spans, {
-        "returned": len(items),
-        "located": len(spans),
-        # A value the model invented or paraphrased cannot be found in the
-        # source. Counting it separately keeps "the model hallucinated" apart
-        # from "the model missed something".
-        "unlocatable": len(items) - len(spans),
-        "rejected_types": rejected,
-        "empty_response": not (raw or "").strip(),
+def score_raw(text: str, raw: str) -> dict:
+    """Derive both views from one stored response. No network, so re-scoring a
+    cached run after a parser or scorer change costs nothing."""
+    typed, rejected = parse_items(raw, strict=True)
+    untyped, _ = parse_items(raw, strict=False)
+    typed_spans = locate(text, typed)
+    untyped_spans = locate(text, untyped)
+    return {
+        "spans": typed_spans,
+        "untyped_spans": untyped_spans,
+        "meta": {
+            "returned": len(untyped),
+            "kept_typed": len(typed),
+            "located": len(typed_spans),
+            # A value the model invented or paraphrased cannot be found in the
+            # source. Counting it separately keeps "the model hallucinated"
+            # apart from "the model missed something".
+            "unlocatable": len(untyped) - len(untyped_spans),
+            "rejected_types": rejected,
+            "empty_response": not (raw or "").strip(),
+        },
     }
+
+
+def detect_with_llm(text: str, call) -> tuple[str, dict]:
+    """Run one document through a caller. Returns (raw response, scored views)."""
+    raw = call(SYSTEM_PROMPT, USER_TEMPLATE.format(text=text))
+    return raw, score_raw(text, raw)
