@@ -150,6 +150,49 @@ def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity
     return out
 
 
+def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Entity]:
+    """Resolve spans that are ambiguously STUDENT_ID and BANK_ACCOUNT.
+
+    A 10-digit student id also matches _RE_BANK_ACCOUNT_2. BANK_ACCOUNT is
+    emitted at score 1.0 and needs no cue, while STUDENT_ID is cue-gated at 0.8,
+    so dedup handed every 10-digit id to BANK_ACCOUNT even with an explicit
+    student cue right in front of it -- on the gold set, 0 of 8 kept their type.
+
+    Same rule as _disambiguate_bank_phone: the cue nearest the number in the
+    preceding ~30 chars decides, and a bank cue at least as near as the student
+    cue keeps BANK (a student's own bank account is still a bank account). A
+    STUDENT_ID candidate only exists here when a student cue already matched, so
+    the no-cue case cannot reach this function.
+    """
+    types_by_span: dict[tuple[int, int], set[str]] = {}
+    for e in candidates:
+        types_by_span.setdefault(e.span, set()).add(e.data_type)
+
+    drop_bank: set[tuple[int, int]] = set()
+    drop_student: set[tuple[int, int]] = set()
+    for span, types in types_by_span.items():
+        if "STUDENT_ID" not in types or "BANK_ACCOUNT" not in types:
+            continue
+        ctx = text[max(0, span[0] - _CUE_WINDOW) : span[0]]
+        bank = _rightmost_cue(_BANK_CUE_RE, ctx)
+        student = _rightmost_cue(_STUDENT_CUE_RE, ctx)
+        if bank >= student:
+            drop_student.add(span)
+        else:
+            drop_bank.add(span)
+
+    if not drop_bank and not drop_student:
+        return candidates
+    out: list[Entity] = []
+    for e in candidates:
+        if e.data_type == "BANK_ACCOUNT" and e.span in drop_bank:
+            continue
+        if e.data_type == "STUDENT_ID" and e.span in drop_student:
+            continue
+        out.append(e)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Compiled patterns
 # ---------------------------------------------------------------------------
@@ -280,7 +323,13 @@ _BIRTH_CUE_RE = re.compile(r"เกิด")
 # whole district/province name away ("แขวงวังทองหลาง กรุงเทพมหานคร 10310").
 _POSTAL_CUE_RE = re.compile(r"รหัสไปรษณีย์|จังหวัด|แขวง|ตำบล|อำเภอ|เขต|กรุงเทพ|ที่อยู่")
 _POSTAL_CUE_WINDOW = 45
-_STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|student", re.IGNORECASE)
+# Cues that mean "this number identifies an enrolled person". นักเรียน/ผู้เรียน
+# were missing, so a school pupil's id fell through to the generic ID_NUMBER
+# while a university student's did not. Bare "รหัส" is deliberately NOT here: it
+# also labels รหัสสินค้า / รหัสวิชา / รหัสหลักสูตร / รหัสไปรษณีย์, and those are
+# still masked as ID_NUMBER anyway, so admitting them would buy no redaction
+# safety and cost an honest label.
+_STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|นักเรียน|ผู้เรียน|student", re.IGNORECASE)
 _PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือเดินทาง|passport", re.IGNORECASE)
 
 
@@ -421,5 +470,6 @@ def detect_fp(text: str) -> list[Entity]:
     for m in _RE_MEDICAL_ID.finditer(text):
         candidates.append(_make_entity("MEDICAL_ID", m, text, score=0.9))
 
+    candidates = _disambiguate_bank_student(text, candidates)
     candidates = _disambiguate_bank_phone(text, candidates)
     return _deduplicate(candidates)
