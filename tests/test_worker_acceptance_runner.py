@@ -2,6 +2,8 @@ import json
 import sys
 from contextlib import contextmanager
 
+import pytest
+
 from scripts.run_worker_acceptance import HONEYTOKEN, SYNTHETIC_TEXT, run_acceptance
 
 _WEB_ROOTS = ("fastapi", "starlette")
@@ -37,6 +39,11 @@ def _core_only_install():
 
 
 def test_acceptance_runner_exercises_analyze_when_the_web_extra_is_present():
+    # This test IS the optional-dependency case it describes: without fastapi
+    # the premise is false, so it must skip rather than assert a claim the
+    # environment cannot support.
+    pytest.importorskip("fastapi")
+
     operations = run_acceptance()["checks"]["operations"]
 
     assert operations["skipped"] == []
