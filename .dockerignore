@@ -5,10 +5,14 @@
 
 # Build artifacts and environments
 .venv
+.venv-*
 node_modules
 desktop/src-tauri/target
 dist
 build
+out
+tmp
+artifacts
 __pycache__
 *.pyc
 *.pyo
@@ -19,6 +23,7 @@ __pycache__
 # browser extension and the Tauri shell are installed on the user's machine.
 desktop
 extension
+office-addin
 
 # Development and release material
 .git
