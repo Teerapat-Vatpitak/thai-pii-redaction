@@ -47,6 +47,7 @@ packages = [
   "pii_redactor",
   "pii_redactor.detectors",
   "pii_redactor.anonymizer",
+  "pii_redactor.guard",
   "pii_redactor.ingest",
   "app",
   "app.worker",
