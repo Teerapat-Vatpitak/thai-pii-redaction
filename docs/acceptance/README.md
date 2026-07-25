@@ -6,9 +6,13 @@ benchmark.
 
 Latest recorded runs:
 
+- [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
 - [2026-07-23 Storefront release acceptance](2026-07-23-storefront-release-run.md)
 - [2026-07-24 Storefront candidate follow-up](2026-07-24-storefront-candidate-run.md)
+- [2026-07-24 Desktop 2.5.0 installed-artifact acceptance](2026-07-24-desktop-2.5.0-run.md)
+- [2026-07-24 Provisional worker emulator acceptance](2026-07-24-worker-emulator-run.md)
+- [2026-07-24 Hosted Docker local acceptance](2026-07-24-docker-run.md)
 - [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
 - [2026-07-24 Office 2.5.0 local acceptance and promotion preparation](2026-07-24-office-2.5.0-run.md)
 
@@ -94,19 +98,24 @@ version, so the checked Restore, side-panel, and screenshot rows retain the
 
 Precondition: install the exact candidate artifact, not a dev web page.
 
-- [ ] Launch from a clean state; one sidecar starts and `/api/health` reports
+- [x] Launch from a clean state; one sidecar starts and `/api/health` reports
   the same product version as the desktop UI.
-- [ ] Mask and restore the sick-leave fixture in token and surrogate modes.
-- [ ] Generate and open a PDPA report; verify it contains aggregate fields but
+- [x] Mask and restore the sick-leave fixture in token and surrogate modes.
+- [x] Generate and open a PDPA report; verify it contains aggregate fields but
   no fixture values.
-- [ ] Redact `examples/sample_document.pdf`, open the result, and verify text
+- [x] Redact `examples/sample_document.pdf`, open the result, and verify text
   selection/copy cannot recover the source text.
-- [ ] Exercise settings, audit-log view, global hotkey, and updater check.
-- [ ] Close the app and verify its sidecar/port is released; reopen once.
-- [ ] Record installer filename/hash, OS, version, pass/fail, and synthetic-only
+- [x] Exercise settings, audit-log view, global hotkey, and updater check.
+- [x] Close the app and verify its sidecar/port is released; reopen once.
+- [x] Record installer filename/hash, OS, version, pass/fail, and synthetic-only
   screenshots.
 
 If no candidate binary is installed or built, status is **Blocked**, not Pass.
+
+The exact published Windows `2.5.0` installer completed this checklist on
+2026-07-24. Visual evidence was inspected in the operator session but not
+committed; the dated record contains only version, hashes, aggregate outcomes,
+and privacy-safe observations.
 
 ## Playground checklist
 
