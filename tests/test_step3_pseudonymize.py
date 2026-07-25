@@ -196,6 +196,21 @@ def test_consistency_scan_does_not_corrupt_an_already_written_pseudonym():
     assert "อนุชา รักไทย" in result.text
 
 
+def test_consistency_scan_handles_a_self_overlapping_original():
+    """An original can occur at overlapping offsets: "กก" sits at two offsets
+    inside "กกก". Scheduling both splices one over the other, so a match must
+    consume its own characters the way str.replace does."""
+    text = "กก กกก"
+    entity = _make_entity("NAME", text, 0, 2, redact_type="TB")
+    vault = SessionVault()
+    _seed(vault, entity, "สมชาย")
+
+    registry = EntityRegistry(entities=[entity], fp_count=0, tb_count=1)
+    result = anonymize(text, registry, vault, salt=SALT)
+
+    assert result.text == "สมชาย สมชายก"
+
+
 def test_consistency_scan_still_replaces_an_untagged_repeat():
     """The scan's actual job: a value the detector tagged once but that occurs
     twice must be replaced at both occurrences, not just the tagged span."""

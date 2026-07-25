@@ -161,12 +161,18 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
 
 
 def _find_all(haystack: str, needle: str) -> list[int]:
-    """Every start offset of needle in haystack, left to right."""
+    """Non-overlapping start offsets of needle in haystack, left to right.
+
+    A match consumes its own characters, which is the scan str.replace performs:
+    "กก" occurs once in "กกก", not twice. Advancing a single character instead
+    would queue overlapping ranges, and the tail-first splice would then write
+    one of them over an offset a later splice had already invalidated.
+    """
     out: list[int] = []
     pos = 0
     while (i := haystack.find(needle, pos)) >= 0:
         out.append(i)
-        pos = i + 1
+        pos = i + len(needle)
     return out
 
 
