@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-07-22
+Updated: 2026-07-24
 
 ## Submitted service
 
@@ -30,9 +30,28 @@ the AI for Thai queue envelope, registry, credentials, retry rules, resource
 ceilings, timeout, payload size, result size, logging retention, or outbound
 network policy.
 
-The platform account/username and detailed specification are still pending.
-The existing HTTP-poll worker transport is therefore an adapter placeholder,
-not a claim about the official wire protocol.
+On 24 July, onboarding staff stated in the deployment group that:
+
+- a GitLab user had been sent by email and the team was preparing the
+  deployment repository; and
+- the team would provide a separate LLM endpoint that is not subject to the
+  normal per-account service limit.
+
+The owner subsequently verified that the GitLab account can sign in to the
+NECTEC GitLab instance. The Home page did not yet show a project, merge
+request, work item, or pending to-do. This closes the account-login blocker but
+not project provisioning. The repository URL, membership/role, CI variables,
+and deployment instructions remain unverified. The separate LLM endpoint,
+request contract, authentication, and policy have not yet been received.
+
+The same discussion clarified that ordinary Pathumma, Arnthai, and Partii calls
+made with a participant account consume that account's limit. Rotating personal
+accounts may be useful during informal testing, but it is not an accepted
+production credential or retry design. Hosted acceptance should use the
+platform-issued endpoint and secret once provided.
+
+The existing HTTP-poll worker transport is therefore still an adapter
+placeholder, not a claim about the official wire protocol.
 
 ## Measured container profile
 
@@ -42,15 +61,19 @@ offline CRF engine:
 | Item | Observation | Request / policy |
 |---|---|---|
 | Model | PyThaiNLP `thainer-1.4` CRF, about 1.8 MB | CPU only; baked into image; runtime downloads disabled. |
-| Image | Docker displays about 465 MB locally | Pull from a registry; do not build optional ML/OCR extras into this image. |
+| Image | Current local image is 115,898,138 bytes after excluding non-service build context. | Pull from a registry; do not build optional ML/OCR extras into this image. |
 | Startup | Health ready in about 2 seconds locally | Platform readiness timeout should leave margin for slower hosts. |
-| Memory | About 50 MB idle; about 198 MB high-water on the acceptance workload | Request 1 GB RAM; 512 MB is a measured minimum test, not the production request. |
+| Memory | A post-workload Docker sample used 177.2 MiB of a constrained 1 GiB container; the earlier high-water observation was about 198 MB. | Request 1 GB RAM; 512 MB is a measured minimum test, not the production request. |
 | CPU | Eight concurrent feature requests completed on one constrained vCPU without OOM | Request 1 vCPU initially; measure platform p95 before changing. |
 | Disk | No database or persistent mapping volume | Request 10 GB for image/layer updates, bounded temp files, and rotated logs. |
 | GPU | Not used | Do not request a GPU for the default service. |
 
 These are operational observations, not platform limits. Re-measure inside the
 allocated environment.
+
+The [2026-07-24 Docker record](../acceptance/2026-07-24-docker-run.md) contains
+the image ID, exact local constraints, endpoint latency, non-root check, and
+PII-free log scan. It is local readiness evidence only.
 
 ## Trust boundary
 
@@ -72,16 +95,45 @@ The core handler accepts the internal versioned envelope:
 
 ```json
 {
+  "contract_version": 1,
   "job_id": "platform-job-id",
   "operation": "detect|sanitize|analyze|roundtrip",
   "payload": {}
 }
 ```
 
+The missing `contract_version` field remains accepted as version 1 only for
+the original provisional fixtures. New fixtures and adapters must send it.
+Unsupported versions fail before an operation sees the payload. The provisional
+envelope defaults to a 1 MiB maximum; `AIGUARD_MAX_JOB_BYTES` may lower that
+local limit while the platform value remains unknown.
+
 The official adapter may translate a different queue message into this shape.
 Only the adapter owns platform polling/consumption, acknowledgement, retries,
 result submission, and authentication. Core operations must remain independent
 of those details.
+
+## Local emulator evidence
+
+The deterministic pre-platform runner is:
+
+```powershell
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe scripts\run_worker_acceptance.py
+```
+
+It covers the stable operations, malformed/version/size failures, concurrent
+handling, provider timeout, a substituted handler crash, duplicate conflicts,
+result-submit failure, and same-process duplicate suppression. It also scans
+worker-visible logs and public error results with a synthetic honeytoken. See
+the [dated acceptance record](../acceptance/2026-07-24-worker-emulator-run.md).
+
+This is readiness evidence, not platform evidence. The result cache is
+process-local and intentionally contains no durable mapping or payload. It can
+avoid repeating a provider call after a failed submit followed by redelivery
+in the same process. It cannot prove exactly-once behavior after a process or
+container crash. That requires the official acknowledgement semantics and, if
+necessary, a platform-supported idempotency store.
 
 ## Specification capture checklist
 
@@ -89,13 +141,14 @@ Complete this table immediately when the platform account/spec arrives:
 
 | Area | Required answer |
 |---|---|
-| Registry | Host, namespace, tag/digest rule, architecture, pull credentials. |
+| Account | Login verified; still need project membership/role and the support contact. |
+| Registry | Repository/registry URL, namespace, tag/digest rule, architecture, and pull credentials. |
 | Runtime | Docker/Compose/Kubernetes/runner, command, working directory, port or worker mode. |
 | Job delivery | Queue technology, envelope, content type, ordering, at-least/at-most-once semantics. |
 | Completion | Ack/nack timing, result endpoint/queue, duplicate job behavior, retry ownership. |
 | Limits | CPU, RAM, disk, image, request/result bytes, concurrency, timeout, max processing time. |
-| Networking | Inbound host/port, outbound allowlist for Pathumma/TNER, DNS and TLS policy. |
-| Secrets | Injection method, header names, rotation, separation of caller and provider keys. |
+| Networking | Inbound host/port, outbound allowlist for the platform LLM endpoint, Pathumma, and TNER; DNS and TLS policy. |
+| Secrets | Injection method, header names, rotation, separation of caller/provider keys, and the promised LLM endpoint credential. |
 | Logs | Capture destination, retention, access, redaction, stdout/stderr policy. |
 | Health | Probe protocol/path, interval, startup grace, restart policy. |
 | Acceptance | Required operations, fixtures, performance/SLA, owner and escalation path. |
