@@ -10,7 +10,8 @@ an account or accepted the provisional worker contract.
 
 ## Short Thai message
 
-> เรียนทีม AI for Thai  
+> เรียนทีม AI for Thai
+>
 > ทีม AI Guard เข้าร่วม onboarding แล้ว และกำลังเตรียม service สำหรับ
 > deployment ให้เสร็จก่อนวันที่ 17 สิงหาคม 2569 ขณะนี้ยังไม่ได้รับ
 > username/account และ specification ของแพลตฟอร์ม จึงขอข้อมูลตามรายการ
