@@ -12,7 +12,14 @@ Two layers share one set, tagged per document:
   after the structure of ordinary Thai paperwork. Entity mix follows what those
   documents actually contain, so overall numbers mean something.
 - `balanced` -- slices `name_no_cue` / `address_varied` / `messy` /
-  `bank_phone` / `id_docs`, which push the rare types up to a reportable n.
+  `bank_phone` / `id_docs` / `student_id_varied`, which push the rare types up
+  to a reportable n and vary one format axis at a time so a miss names its own
+  cause.
+
+`long_form` sits in the natural layer but exists for a second reason: every
+other document here is short enough to fit in one NER chunk, so the stride-chunk
+windowing the product actually runs was never exercised. Those documents clear
+LONG_FORM_MIN_CHARS and carry PII throughout, including past the boundary.
 
 The `negative` slice is its own thing: documents with NO PII at all, carrying
 only look-alikes that must not be flagged (document numbers, receipt numbers,
@@ -44,12 +51,20 @@ SLICE_LAYERS: dict[str, str] = {
     "messy": "balanced",
     "bank_phone": "balanced",
     "id_docs": "balanced",
+    "student_id_varied": "balanced",
     "gov_form": "natural",
     "medical": "natural",
     "finance": "natural",
     "education": "natural",
+    "long_form": "natural",
     "negative": "negative",
 }
+
+# `long_form` documents must clear this to exercise the detector's stride-chunk
+# windowing, whose core is 500 characters. Everything else in the set is a short
+# document that never reaches a chunk boundary, so without this slice the
+# chunking path is measured by nothing at all.
+LONG_FORM_MIN_CHARS = 500
 
 GOLD_SLICES = list(SLICE_LAYERS)
 

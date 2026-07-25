@@ -14,6 +14,7 @@ from benchmark.gold import (
     GOLD_DOCS,
     GOLD_LAYERS,
     GOLD_SLICES,
+    LONG_FORM_MIN_CHARS,
     SLICE_LAYERS,
     load_gold,
     parse_gold,
@@ -160,10 +161,14 @@ def test_negative_slice_documents_carry_no_labels():
         assert s.spans == [], (s.template_id, s.spans)
 
 
-def test_pii_values_are_unique_except_the_deliberate_bank_phone_pairs():
-    # bank_phone reuses one number in a bank context and a phone context on
-    # purpose; everywhere else a repeated value would let a detector look good
-    # by memorising one string.
+def test_pii_values_are_not_reused_across_documents():
+    # A value repeated in two different documents lets a detector look good by
+    # memorising one string. Repeats WITHIN one document are the opposite -- the
+    # same person named twice in one form is normal, and the product is supposed
+    # to give both mentions the same pseudonym.
+    #
+    # bank_phone is exempt entirely: it reuses one number in a bank context and
+    # a phone context on purpose, to probe that ambiguity.
     numeric = {"THAI_ID", "CREDIT_CARD", "PHONE", "BANK_ACCOUNT", "STUDENT_ID"}
     seen: dict[tuple[str, str], str] = {}
     for doc_id, slice_, etype, value in _labeled_values():
@@ -173,8 +178,42 @@ def test_pii_values_are_unique_except_the_deliberate_bank_phone_pairs():
         # the same number still collide. Keyed per type: a student id echoed
         # inside that student's university email is real, not a duplicate.
         key = (etype, re.sub(r"\D", "", value) if etype in numeric else value)
-        assert key not in seen, (key, seen.get(key), doc_id)
-        seen[key] = doc_id
+        owner = seen.setdefault(key, doc_id)
+        assert owner == doc_id, (key, owner, doc_id)
+
+
+def test_long_form_documents_cross_the_chunk_boundary():
+    # The point of this slice: the detector windows text in 500-char chunks, and
+    # every other document here is far too short to reach a boundary.
+    long_docs = [s for s in load_gold() if s.slice == "long_form"]
+    assert len(long_docs) >= 20
+    for s in long_docs:
+        assert len(s.text) > LONG_FORM_MIN_CHARS, (s.template_id, len(s.text))
+        assert len(s.spans) >= 6, (s.template_id, len(s.spans))
+    past_boundary = [
+        s.template_id for s in long_docs for sp in s.spans if sp.start >= LONG_FORM_MIN_CHARS
+    ]
+    assert len(set(past_boundary)) >= 5, past_boundary
+
+
+def test_student_id_probe_slice_varies_one_axis_at_a_time():
+    probes = [s for s in load_gold() if s.slice == "student_id_varied"]
+    assert len(probes) >= 20
+    assert all(any(sp.entity_type == "STUDENT_ID" for sp in s.spans) for s in probes)
+    # The axes the slice exists to separate: digit count, and glued vs spaced.
+    lengths = {
+        len(re.sub(r"\D", "", s.text[sp.start : sp.end]))
+        for s in probes
+        for sp in s.spans
+        if sp.entity_type == "STUDENT_ID"
+    }
+    assert {8, 10} <= lengths, lengths
+
+
+def test_negative_slice_is_large_enough_to_state_a_rate():
+    # 12 documents put the clean-document rate's confidence interval so wide it
+    # could not be reported; this floor is what makes the number publishable.
+    assert sum(1 for s in load_gold() if s.slice == "negative") >= 45
 
 
 def test_negative_slice_is_scored_as_false_positives_not_recall():
