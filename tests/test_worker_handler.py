@@ -6,6 +6,7 @@ core out. The transport half is the guess and lives elsewhere.
 
 import pytest
 
+from app.worker.contract import CONTRACT_VERSION
 from app.worker.handler import handle_job
 
 # The `analyze` op late-imports app.server (fastapi); on a core-only install
@@ -32,6 +33,7 @@ def test_sanitize_omits_mapping_by_default():
         }
     )
     assert out["job_id"] == "j1"
+    assert out["contract_version"] == CONTRACT_VERSION
     assert out["status"] == "ok"
     res = out["result"]
     assert "1101700230708" not in res["sanitized_text"]
@@ -229,3 +231,77 @@ def test_entrypoint_importable_and_wires_sigterm():
     from app.worker.__main__ import main
 
     assert callable(main)
+
+
+def test_explicit_contract_version_is_accepted():
+    out = handle_job(
+        {
+            "contract_version": CONTRACT_VERSION,
+            "job_id": "contract-v1",
+            "operation": "detect",
+            "payload": {"text": THAI_TEXT},
+        }
+    )
+    assert out["status"] == "ok"
+    assert out["contract_version"] == CONTRACT_VERSION
+
+
+@pytest.mark.parametrize("version", [0, 2, "1", True])
+def test_unsupported_contract_version_fails_safely(version):
+    out = handle_job(
+        {
+            "contract_version": version,
+            "job_id": "bad-contract",
+            "operation": "detect",
+            "payload": {"text": THAI_TEXT},
+        }
+    )
+    assert out["status"] == "error"
+    assert out["error"]["type"] == "unsupported_contract_version"
+    assert THAI_TEXT not in str(out)
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        None,
+        [],
+        {"job_id": "", "operation": "detect", "payload": {"text": THAI_TEXT}},
+        {"job_id": "bad id", "operation": "detect", "payload": {"text": THAI_TEXT}},
+        {"job_id": "safe-id", "operation": THAI_TEXT, "payload": {"text": THAI_TEXT}},
+        {"job_id": "safe-id", "operation": "detect", "payload": []},
+    ],
+)
+def test_invalid_envelope_never_echoes_payload(job):
+    out = handle_job(job)
+    assert out["status"] == "error"
+    assert out["error"]["type"] == "invalid_envelope"
+    assert THAI_TEXT not in str(out)
+
+
+def test_envelope_limit_is_configurable_and_safe(monkeypatch):
+    monkeypatch.setenv("AIGUARD_MAX_JOB_BYTES", "128")
+    out = handle_job(
+        {
+            "contract_version": CONTRACT_VERSION,
+            "job_id": "oversized",
+            "operation": "detect",
+            "payload": {"text": THAI_TEXT * 10},
+        }
+    )
+    assert out["status"] == "error"
+    assert out["error"]["type"] == "payload_too_large"
+    assert THAI_TEXT not in str(out)
+
+
+def test_invalid_envelope_limit_uses_safe_default(monkeypatch):
+    monkeypatch.setenv("AIGUARD_MAX_JOB_BYTES", "not-a-number")
+    out = handle_job(
+        {
+            "contract_version": CONTRACT_VERSION,
+            "job_id": "default-limit",
+            "operation": "detect",
+            "payload": {"text": THAI_TEXT},
+        }
+    )
+    assert out["status"] == "ok"

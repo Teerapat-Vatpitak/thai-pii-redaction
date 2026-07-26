@@ -43,7 +43,15 @@ optional-dependencies.ocr = { file = "requirements-ocr.txt" }
 [tool.setuptools]
 # Explicit over auto-discovery: the repo root also holds tests/, scripts/,
 # benchmark/ and examples/, which are not part of the installable package.
-packages = ["pii_redactor", "pii_redactor.detectors", "pii_redactor.anonymizer", "pii_redactor.ingest", "app"]
+packages = [
+  "pii_redactor",
+  "pii_redactor.detectors",
+  "pii_redactor.anonymizer",
+  "pii_redactor.guard",
+  "pii_redactor.ingest",
+  "app",
+  "app.worker",
+]
 
 # ---------------------------------------------------------------------------
 # pytest (moved here from pytest.ini so tool config lives in one file)

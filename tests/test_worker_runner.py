@@ -1,5 +1,6 @@
 """Tests for the worker's transport seam and run loop."""
 
+import logging
 import threading
 
 import httpx
@@ -147,3 +148,133 @@ def test_submit_raising_does_not_kill_loop():
     )
     # both jobs processed despite every submit raising — the loop never dies
     assert run(t, max_jobs=2) == 2
+
+
+def test_duplicate_delivery_reuses_result_without_repeating_handler():
+    job = {"job_id": "duplicate-1", "operation": "detect", "payload": {"text": THAI_TEXT}}
+    t = InMemoryTransport([job, dict(job)])
+    calls = 0
+
+    def counting_handler(current):
+        nonlocal calls
+        calls += 1
+        return {
+            "contract_version": 1,
+            "job_id": current["job_id"],
+            "operation": current["operation"],
+            "status": "ok",
+            "result": {"call": calls},
+        }
+
+    assert run(t, handler=counting_handler, max_jobs=2) == 2
+    assert calls == 1
+    assert t.results[0] == t.results[1]
+
+
+def test_submit_failure_then_redelivery_does_not_repeat_handler():
+    job = {"job_id": "retry-1", "operation": "detect", "payload": {"text": THAI_TEXT}}
+
+    class FailFirstSubmitTransport:
+        def __init__(self):
+            self.jobs = [job, dict(job)]
+            self.results = []
+            self.submit_calls = 0
+
+        def poll(self):
+            return self.jobs.pop(0) if self.jobs else None
+
+        def submit(self, result):
+            self.submit_calls += 1
+            if self.submit_calls == 1:
+                raise RuntimeError("temporary result failure")
+            self.results.append(result)
+
+    calls = 0
+
+    def counting_handler(current):
+        nonlocal calls
+        calls += 1
+        return {
+            "contract_version": 1,
+            "job_id": current["job_id"],
+            "operation": current["operation"],
+            "status": "ok",
+            "result": {"call": calls},
+        }
+
+    t = FailFirstSubmitTransport()
+    assert run(t, handler=counting_handler, max_jobs=2) == 2
+    assert calls == 1
+    assert len(t.results) == 1
+    assert t.results[0]["result"]["call"] == 1
+
+
+def test_same_job_id_with_different_payload_fails_without_second_handler_call():
+    first = {"job_id": "conflict-1", "operation": "detect", "payload": {"text": THAI_TEXT}}
+    second = {
+        "job_id": "conflict-1",
+        "operation": "detect",
+        "payload": {"text": THAI_TEXT + " changed"},
+    }
+    t = InMemoryTransport([first, second])
+    calls = 0
+
+    def counting_handler(current):
+        nonlocal calls
+        calls += 1
+        return {
+            "contract_version": 1,
+            "job_id": current["job_id"],
+            "operation": current["operation"],
+            "status": "ok",
+            "result": {},
+        }
+
+    assert run(t, handler=counting_handler, max_jobs=2) == 2
+    assert calls == 1
+    assert t.results[1]["status"] == "error"
+    assert t.results[1]["error"]["type"] == "duplicate_conflict"
+    assert THAI_TEXT not in str(t.results[1])
+
+
+def test_zero_capacity_disables_duplicate_cache():
+    job = {"job_id": "no-cache", "operation": "detect", "payload": {"text": THAI_TEXT}}
+    t = InMemoryTransport([job, dict(job)])
+    calls = 0
+
+    def counting_handler(current):
+        nonlocal calls
+        calls += 1
+        return {
+            "contract_version": 1,
+            "job_id": current["job_id"],
+            "operation": current["operation"],
+            "status": "ok",
+            "result": {},
+        }
+
+    assert run(t, handler=counting_handler, max_jobs=2, idempotency_capacity=0) == 2
+    assert calls == 2
+
+
+def test_logs_hash_job_id_and_never_include_payload(monkeypatch, caplog):
+    honeytoken = "HONEYTOKEN-PHONE-0812345678"
+    job_id = "secret-job-id"
+    t = InMemoryTransport(
+        [{"job_id": job_id, "operation": "detect", "payload": {"text": honeytoken}}]
+    )
+
+    def safe_handler(current):
+        return {
+            "contract_version": 1,
+            "job_id": current["job_id"],
+            "operation": current["operation"],
+            "status": "error",
+            "error": {"type": "synthetic", "message": "safe"},
+        }
+
+    with caplog.at_level(logging.INFO, logger="app.worker.runner"):
+        assert run(t, handler=safe_handler, max_jobs=1) == 1
+    assert honeytoken not in caplog.text
+    assert job_id not in caplog.text
+    assert "job_ref=" in caplog.text

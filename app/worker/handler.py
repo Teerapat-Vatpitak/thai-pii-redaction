@@ -5,11 +5,17 @@ than a guess at a platform-owned contract. If an external queue uses a
 different envelope, adapt that boundary in the transport/schema adapter; the
 operations and privacy rules below remain the product contract.
 
-    job    = {"job_id": str, "operation": <op>, "payload": {...}}
-    result = {"job_id": str, "operation": <op>, "status": "ok",
+    job    = {"contract_version": 1, "job_id": str,
+              "operation": <op>, "payload": {...}}
+    result = {"contract_version": 1, "job_id": str,
+              "operation": <op>, "status": "ok",
               "result": {...}}
-           | {"job_id": str, "operation": <op>, "status": "error",
+           | {"contract_version": 1, "job_id": str,
+              "operation": <op>, "status": "error",
               "error": {"type": str, "message": str}}
+
+Missing ``contract_version`` is accepted as v1 for compatibility with the
+original provisional fixtures. New adapters and fixtures must send it.
 
 Error messages NEVER echo payload text — a queue result may be logged by the
 platform, and payload text is PII by assumption (VAULT-4 applies here too).
@@ -19,6 +25,7 @@ from __future__ import annotations
 
 import uuid
 
+from app.worker.contract import CONTRACT_VERSION, EnvelopeError, validate_envelope
 from pii_redactor.ai_client import (
     DEFAULT_SYSTEM_PROMPT,
     ClaudeProvider,
@@ -177,11 +184,29 @@ _OPERATIONS = {
 }
 
 
-def handle_job(job: dict) -> dict:
+def _envelope_error_result(error: EnvelopeError) -> dict:
+    return {
+        "contract_version": CONTRACT_VERSION,
+        "job_id": error.job_id,
+        "operation": error.operation,
+        "status": "error",
+        "error": {"type": error.error_type, "message": error.safe_message},
+    }
+
+
+def handle_job(job: object) -> dict:
     """Run one job. Never raises (except process-signal exceptions like KeyboardInterrupt) — a poison job must not kill the worker."""
-    job_id = str(job.get("job_id", ""))
-    operation = str(job.get("operation", ""))
-    base = {"job_id": job_id, "operation": operation}
+    try:
+        envelope = validate_envelope(job)
+    except EnvelopeError as e:
+        return _envelope_error_result(e)
+
+    operation = envelope.operation
+    base = {
+        "contract_version": CONTRACT_VERSION,
+        "job_id": envelope.job_id,
+        "operation": operation,
+    }
 
     op = _OPERATIONS.get(operation)
     if op is None:
@@ -191,7 +216,7 @@ def handle_job(job: dict) -> dict:
             "error": {"type": "unknown_operation", "message": "unsupported operation"},
         }
     try:
-        return {**base, "status": "ok", "result": op(dict(job.get("payload") or {}))}
+        return {**base, "status": "ok", "result": op(envelope.payload)}
     except _SafeJobError as e:
         return {
             **base,
