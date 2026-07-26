@@ -144,6 +144,36 @@ def test_score_raw_counts_unlocatable_against_the_lenient_view():
     assert rec["meta"]["unlocatable"] == 1
 
 
+def test_score_values_reproduces_score_raw_without_the_body():
+    from benchmark.llm_strategy import parse_values, score_raw, score_values
+
+    text = "ผมชื่อ นายสมชาย ใจดี โทร 081-234-5678"
+    raw = '{"entities":[{"value":"นายสมชาย ใจดี","type":"NAME"},'
+    raw += '{"value":"081-234-5678","type":"PHONE"}]}'
+
+    from_raw = score_raw(text, raw)
+    from_values = score_values(text, parse_values(raw))
+
+    assert from_values["spans"] == from_raw["spans"]
+    assert from_values["untyped_spans"] == from_raw["untyped_spans"]
+
+
+def test_cache_entry_holds_no_provider_body(tmp_path):
+    import json
+
+    from benchmark.llm_strategy import parse_values, score_values
+
+    text = "ผมชื่อ นายสมชาย ใจดี"
+    raw = '{"reasoning":"I looked at the sentence and decided",'
+    raw += '"entities":[{"value":"นายสมชาย ใจดี","type":"NAME"}]}'
+
+    entry = {"values": parse_values(raw), **score_values(text, parse_values(raw))}
+    written = json.dumps(entry, ensure_ascii=False)
+
+    assert "reasoning" not in written
+    assert "I looked at the sentence" not in written
+
+
 # ── provider construction ──────────────────────────────────────────────
 def test_non_ascii_api_key_fails_loudly_at_construction(monkeypatch):
     # A key with Thai text pasted beside it otherwise dies inside httpx with a

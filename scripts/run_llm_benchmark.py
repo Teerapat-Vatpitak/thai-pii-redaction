@@ -3,9 +3,10 @@
     python scripts/run_llm_benchmark.py --provider pathumma
     python scripts/run_llm_benchmark.py --provider dotblue:openai/gpt-4o-mini
 
-Every response is cached under benchmark/reports/llm_cache/<provider>/ keyed by
-document id, so re-scoring after a prompt or scorer change costs nothing and a
-run interrupted halfway resumes instead of re-spending the quota. Pass --refresh
+Each response's parsed (type, value) pairs -- not the response body itself --
+are cached under benchmark/reports/llm_cache/<provider>/ keyed by document id,
+so re-scoring after a prompt or scorer change costs nothing and a run
+interrupted halfway resumes instead of re-spending the quota. Pass --refresh
 to ignore the cache.
 
 The gold set contains only fabricated PII, which is what makes sending it to a
@@ -27,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.gold import load_gold
 from benchmark.llm_providers import ProviderUnavailable, build_caller
-from benchmark.llm_strategy import UNTYPED, detect_with_llm, score_raw
+from benchmark.llm_strategy import UNTYPED, detect_with_llm, parse_values, score_values
 from benchmark.scorer import score
 
 CACHE_ROOT = Path(__file__).resolve().parents[1] / "benchmark" / "reports" / "llm_cache"
@@ -84,20 +85,19 @@ def main(argv=None) -> int:
         rec: dict | None = None
         if path.exists() and not args.refresh:
             cached = json.loads(path.read_text(encoding="utf-8"))
-            raw = cached.get("raw")
-            if raw is None:
-                # Pre-raw cache entry. It cannot produce the type-agnostic view,
-                # so refetch rather than silently mixing two kinds of number in
-                # one report.
-                raw = None
-            else:
-                rec = score_raw(s.text, raw)
+            values = cached.get("values")
+            if values is not None:
+                rec = score_values(s.text, [tuple(v) for v in values])
                 stats["cached"] += 1
         if rec is None:
             try:
                 raw, rec = detect_with_llm(s.text, call)
                 path.write_text(
-                    json.dumps({"raw": raw, **rec}, ensure_ascii=False, indent=1),
+                    json.dumps(
+                        {"values": parse_values(raw), **rec},
+                        ensure_ascii=False,
+                        indent=1,
+                    ),
                     encoding="utf-8",
                 )
                 stats["called"] += 1

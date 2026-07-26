@@ -180,11 +180,39 @@ def locate(text: str, items: list[tuple[str, str]]) -> list[tuple[int, int, str]
     return spans
 
 
-def score_raw(text: str, raw: str) -> dict:
-    """Derive both views from one stored response. No network, so re-scoring a
-    cached run after a parser or scorer change costs nothing."""
-    typed, rejected = parse_items(raw, strict=True)
-    untyped, _ = parse_items(raw, strict=False)
+def parse_values(raw: str) -> list[tuple[str, str]]:
+    """The (type, value) pairs a provider returned, with no response body kept.
+
+    Every row with a usable string value is kept here, whatever its type --
+    including ones outside the gold vocabulary. score_values needs both the
+    gold-vocabulary view and the "did it find anything at all" view, and both
+    have to come from this same list, so the vocabulary split happens there,
+    not here.
+    """
+    text = _THINK.sub("", raw or "")
+    text = _UNCLOSED_THINK.sub("", text)
+    text = _FENCE.sub("", text.strip())
+    data = _load_rows(text)
+
+    values: list[tuple[str, str]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        etype = str(row.get("type", "")).strip().upper()
+        value = row.get("value")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        values.append((etype, value))
+    return values
+
+
+def score_values(text: str, values: list[tuple[str, str]]) -> dict:
+    """Everything score_raw does after parsing. Re-scorable from a cache entry
+    holding only the parsed (type, value) pairs -- no network call, and no
+    response body kept around to re-score from."""
+    rejected = [etype for etype, _ in values if etype not in GOLD_TYPES]
+    typed = [(etype, value) for etype, value in values if etype in GOLD_TYPES]
+    untyped = [(UNTYPED, value) for _, value in values]
     typed_spans = locate(text, typed)
     untyped_spans = locate(text, untyped)
     return {
@@ -199,9 +227,15 @@ def score_raw(text: str, raw: str) -> dict:
             # apart from "the model missed something".
             "unlocatable": len(untyped) - len(untyped_spans),
             "rejected_types": rejected,
-            "empty_response": not (raw or "").strip(),
+            "empty_response": not values,
         },
     }
+
+
+def score_raw(text: str, raw: str) -> dict:
+    """Derive both views from one stored response. No network, so re-scoring a
+    cached run after a parser or scorer change costs nothing."""
+    return score_values(text, parse_values(raw))
 
 
 def detect_with_llm(text: str, call) -> tuple[str, dict]:
