@@ -513,6 +513,35 @@ def test_fp_non_person_code_cues_do_not_become_student_id():
         assert not any(e.data_type == "STUDENT_ID" for e in ents), text
 
 
+def test_fp_nearer_order_or_price_cue_wins_id_number_over_a_bare_student_word():
+    # Reviewer finding (PR #79): a bare person-word ("นักเรียน"/"นิสิต") is weak
+    # evidence for STUDENT_ID -- these three are plainly an order number and a
+    # price/refund amount in a sentence that happens to mention a pupil. Same
+    # nearest-cue-wins rule as _disambiguate_bank_phone and
+    # _disambiguate_bank_student above: whichever cue sits closer to the digits
+    # decides what they are.
+    for text in (
+        "นักเรียนสั่งซื้อสินค้ารหัส 88910423",
+        "นิสิตชั้นปีที่ 3 ซื้อของราคา 88910423 บาท",
+        "นักเรียนได้รับเงินคืน ยอด 88910423 บาท",
+    ):
+        ents = detect_fp(text)
+        assert any(e.data_type == "ID_NUMBER" and e.original_text == "88910423" for e in ents), text
+        assert not any(e.data_type == "STUDENT_ID" for e in ents), text
+
+
+def test_fp_student_cue_with_no_nearer_competing_cue_stays_student_id():
+    # Genuine student ids must not regress: no order/price cue sits between
+    # the student cue and the digits, so the student cue still wins.
+    for text, value in (
+        ("รหัสนักศึกษา 64010812 เข้าเรียน", "64010812"),
+        ("นักศึกษา 65021178 ลงทะเบียนแล้ว", "65021178"),
+        ("ผู้เรียนรหัส 66010334 ส่งงาน", "66010334"),
+    ):
+        ents = detect_fp(text)
+        assert any(e.data_type == "STUDENT_ID" and e.original_text == value for e in ents), text
+
+
 def test_fp_general_passport_without_cue_is_id_number():
     ents = detect_fp("เลขที่ใบสั่งซื้อ P1234567 จัดส่งแล้ว")
     assert any(e.data_type == "ID_NUMBER" and e.original_text == "P1234567" for e in ents)

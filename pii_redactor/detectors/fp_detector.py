@@ -193,6 +193,29 @@ def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Enti
     return out
 
 
+def _student_cue_wins(text: str, start: int) -> bool:
+    """True if a student cue is the nearer cue to the digit run at `start`.
+
+    A reviewer found that a bare person-word (นักเรียน/นิสิต/...) anywhere in
+    the preceding _CUE_WINDOW chars was enough to label any 8-12 digit run
+    STUDENT_ID, even when the number is plainly an order or invoice number
+    ("นักเรียนสั่งซื้อสินค้ารหัส 88910423"). Restricting _STUDENT_CUE_RE to
+    identifier phrases only (รหัสนักศึกษา/เลขประจำตัวนักเรียน/...) was measured
+    on the gold set and rejected: it cost 8 correct STUDENT_ID labels (recall
+    0.509 -> 0.368) and changed nothing else measurable. So the fix is scope,
+    not vocabulary -- same nearest-cue-wins rule as _disambiguate_bank_phone
+    and _disambiguate_bank_student above: a student cue wins only when no
+    competing number-introducing cue (order/price/invoice/...) sits at least
+    as close to the digits.
+    """
+    ctx = text[max(0, start - _CUE_WINDOW) : start]
+    student = _rightmost_cue(_STUDENT_CUE_RE, ctx)
+    if student < 0:
+        return False
+    competing = _rightmost_cue(_NON_STUDENT_NUM_CUE_RE, ctx)
+    return student > competing
+
+
 # ---------------------------------------------------------------------------
 # Compiled patterns
 # ---------------------------------------------------------------------------
@@ -330,6 +353,15 @@ _POSTAL_CUE_WINDOW = 45
 # still masked as ID_NUMBER anyway, so admitting them would buy no redaction
 # safety and cost an honest label.
 _STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|นักเรียน|ผู้เรียน|student", re.IGNORECASE)
+# Words that introduce a number which is not a student identifier. A bare
+# person-word is weak evidence: "นักเรียนสั่งซื้อสินค้ารหัส 88910423" is an
+# order number in a sentence about a pupil. Same nearest-cue-wins rule as the
+# bank/phone and bank/student pairs above -- whichever cue sits closer to the
+# digits decides what they are.
+_NON_STUDENT_NUM_CUE_RE = re.compile(
+    r"ราคา|ยอด|จำนวนเงิน|ใบเสร็จ|ใบแจ้งหนี้|ใบกำกับ|สินค้า|สั่งซื้อ|คำสั่งซื้อ|ออเดอร์|invoice|order",
+    re.IGNORECASE,
+)
 _PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือเดินทาง|passport", re.IGNORECASE)
 
 
@@ -446,10 +478,11 @@ def detect_fp(text: str) -> list[Entity]:
         else:
             candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
 
-    # 10. STUDENT_ID only with a student cue; bare 8-12 digit runs are masked
-    # as the honest generic ID_NUMBER (low priority; dedup handles overlap).
+    # 10. STUDENT_ID only when a student cue is nearer the digits than any
+    # competing number-introducing cue; otherwise the honest generic
+    # ID_NUMBER (low priority; dedup handles overlap).
     for m in _RE_STUDENT_ID.finditer(text):
-        dtype = "STUDENT_ID" if _cue_before(_STUDENT_CUE_RE, text, m.start(1)) else "ID_NUMBER"
+        dtype = "STUDENT_ID" if _student_cue_wins(text, m.start(1)) else "ID_NUMBER"
         candidates.append(_make_entity(dtype, m, text, score=0.8))
 
     # 11. ADDRESS components (house number, soi/road, moo). Scored above the
