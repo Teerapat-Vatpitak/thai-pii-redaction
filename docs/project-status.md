@@ -21,7 +21,7 @@ existence from evidence on the real delivery path.
 | Feature | Status | Evidence / remaining gate |
 |---|---|---|
 | Structured + Thai NER detection | Verified | Shared `detect_all` path, regression tests, Docker smoke. Accuracy improvement is deferred, not functional completion. |
-| Token and surrogate sanitization | Verified | Local session and stateless worker paths; residual structured-PII guard. |
+| Token and surrogate sanitization | Verified | Local session and stateless worker paths; residual structured-PII guard. A consistency-scan defect that could destroy an already-written pseudonym and lose the original text was found and fixed on 2026-07-26; the round-trip is covered by three non-random regression tests plus a 400-iteration repeat run. |
 | Local multi-turn re-identification | Verified | In-memory session vault, TTL/LRU, collision and concurrency tests. |
 | Stateless hosted sanitization | Verified | Worker operation; mapping omitted by default. |
 | Protected provider roundtrip | Verified | Repeatable live Pathumma acceptance passed again on 2026-07-23: raw synthetic PII stayed out of provider-visible text and every returned token restored. Official hosted deployment remains a separate platform gate. |
