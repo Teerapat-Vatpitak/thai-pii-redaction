@@ -144,6 +144,36 @@ def test_score_raw_counts_unlocatable_against_the_lenient_view():
     assert rec["meta"]["unlocatable"] == 1
 
 
+def test_unlocatable_counts_values_not_spans():
+    # One returned value, two occurrences in the text. locate() emits a span
+    # per occurrence on purpose, so a formula counting values-minus-spans goes
+    # negative here (1 value - 2 spans = -1). The field must stay non-negative
+    # because it counts values, not spans.
+    text = "โทร 081-234-5678 หรือ 081-234-5678"
+    raw = '[{"type": "PHONE", "value": "081-234-5678"}]'
+
+    meta = score_raw(text, raw)["meta"]
+
+    assert meta["unlocatable"] == 0
+
+
+def test_unlocatable_does_not_cancel_out_across_values():
+    # A value repeated in the text (contributes 0) alongside a genuinely
+    # unlocatable value (contributes 1) in the SAME run. The old
+    # values-minus-spans formula computed 2 rows - 2 spans = 0 here, silently
+    # hiding the one real miss behind the other value's repeat occurrence.
+    # This must not be satisfiable by hardcoding zero.
+    text = "โทร 081-234-5678 หรือ 081-234-5678"
+    raw = (
+        '[{"type": "PHONE", "value": "081-234-5678"}, '
+        '{"type": "EMAIL", "value": "ไม่มีอยู่จริง@example.com"}]'
+    )
+
+    meta = score_raw(text, raw)["meta"]
+
+    assert meta["unlocatable"] == 1
+
+
 def test_score_values_reproduces_score_raw_without_the_body():
     from benchmark.llm_strategy import parse_values, score_raw, score_values
 

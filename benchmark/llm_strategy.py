@@ -214,8 +214,12 @@ def score_values(text: str, values: list[tuple[str, str]]) -> dict:
             "located": len(typed_spans),
             # A value the model invented or paraphrased cannot be found in the
             # source. Counting it separately keeps "the model hallucinated"
-            # apart from "the model missed something".
-            "unlocatable": len(untyped) - len(untyped_spans),
+            # apart from "the model missed something". Count values that
+            # matched nothing at all -- not the row/span delta, which goes
+            # negative the moment locate() emits more than one span for a
+            # repeated value, and a negative count silently cancels out a
+            # real unlocatable value elsewhere in the same run.
+            "unlocatable": sum(1 for _, value in untyped if value not in text),
             "rejected_types": rejected,
             # True when the provider produced no usable rows at all -- the
             # body was blank, the reasoning ran past the token budget and got
