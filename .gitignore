@@ -48,6 +48,11 @@ docs/reference/
 out/
 *.log
 
+# ...but the hand-authored gold set is source data, not runtime output: every
+# value in it is fabricated (see benchmark/gold.py) and benchmark/gold.py cannot
+# load without it, so a fresh clone must carry it.
+!benchmark/data/gold.jsonl
+
 # .env alone does not match .env.local / .env.production, and AIGUARD_TOKEN is
 # a real secret in this project's threat model.
 .env.*

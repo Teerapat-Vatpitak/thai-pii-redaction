@@ -61,7 +61,16 @@ def render_table(report: dict) -> str:
     lines.append(f"coverage_recall={o['coverage_recall']:.3f} exact_recall={o['exact_recall']:.3f}")
     for sl in sorted(report["by_slice"]):
         s = report["by_slice"][sl]
-        lines.append(f"slice {sl:<10} recall={s['recall']:.3f} coverage={s['coverage_recall']:.3f}")
+        if s.get("gold_entities") == 0:
+            lines.append(
+                f"slice {sl:<10} no gold entities: false_positives={s['false_positives']} "
+                f"clean_docs={s['clean_docs']}/{s['documents']} "
+                f"({s['clean_doc_rate']:.3f})"
+            )
+        else:
+            lines.append(
+                f"slice {sl:<10} recall={s['recall']:.3f} coverage={s['coverage_recall']:.3f}"
+            )
     return "\n".join(lines)
 
 
