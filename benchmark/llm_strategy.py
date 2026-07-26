@@ -117,6 +117,36 @@ def _load_rows(text: str) -> list:
 UNTYPED = "PII"
 
 
+def parse_values(raw: str) -> list[tuple[str, str]]:
+    """The (type, value) pairs a provider returned, with no response body kept.
+
+    Every row with a usable string value is kept here, whatever its type --
+    including ones outside the gold vocabulary. This is the one place that
+    strips reasoning/fencing and walks the parsed rows; parse_items's
+    strict/lenient split and score_values's vocabulary split both build on
+    this same list instead of each re-deriving it.
+    """
+    text = _THINK.sub("", raw or "")
+    # An unclosed <think> means the answer never arrived (the token budget ran
+    # out mid-reasoning). Dropping the tail yields no detections, which is the
+    # honest reading -- and the run counts it among the documents with no
+    # usable rows.
+    text = _UNCLOSED_THINK.sub("", text)
+    text = _FENCE.sub("", text.strip())
+    data = _load_rows(text)
+
+    values: list[tuple[str, str]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        etype = str(row.get("type", "")).strip().upper()
+        value = row.get("value")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        values.append((etype, value))
+    return values
+
+
 def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]], list[str]]:
     """Return ([(type, value)], [type names outside the gold vocabulary]).
 
@@ -132,23 +162,9 @@ def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]]
     (`{"type": "ที่อยู่ปัจจุบัน"}`), inventing over 150 type names, so the
     strict view scores its instruction-following, not its detection.
     """
-    text = _THINK.sub("", raw or "")
-    # An unclosed <think> means the answer never arrived (the token budget ran
-    # out mid-reasoning). Dropping the tail yields no detections, which is the
-    # honest reading -- and the run reports it as an empty response.
-    text = _UNCLOSED_THINK.sub("", text)
-    text = _FENCE.sub("", text.strip())
-    data = _load_rows(text)
-
     items: list[tuple[str, str]] = []
     rejected: list[str] = []
-    for row in data:
-        if not isinstance(row, dict):
-            continue
-        etype = str(row.get("type", "")).strip().upper()
-        value = row.get("value")
-        if not isinstance(value, str) or not value.strip():
-            continue
+    for etype, value in parse_values(raw):
         if etype not in GOLD_TYPES:
             rejected.append(etype)
             if not strict:
@@ -180,32 +196,6 @@ def locate(text: str, items: list[tuple[str, str]]) -> list[tuple[int, int, str]
     return spans
 
 
-def parse_values(raw: str) -> list[tuple[str, str]]:
-    """The (type, value) pairs a provider returned, with no response body kept.
-
-    Every row with a usable string value is kept here, whatever its type --
-    including ones outside the gold vocabulary. score_values needs both the
-    gold-vocabulary view and the "did it find anything at all" view, and both
-    have to come from this same list, so the vocabulary split happens there,
-    not here.
-    """
-    text = _THINK.sub("", raw or "")
-    text = _UNCLOSED_THINK.sub("", text)
-    text = _FENCE.sub("", text.strip())
-    data = _load_rows(text)
-
-    values: list[tuple[str, str]] = []
-    for row in data:
-        if not isinstance(row, dict):
-            continue
-        etype = str(row.get("type", "")).strip().upper()
-        value = row.get("value")
-        if not isinstance(value, str) or not value.strip():
-            continue
-        values.append((etype, value))
-    return values
-
-
 def score_values(text: str, values: list[tuple[str, str]]) -> dict:
     """Everything score_raw does after parsing. Re-scorable from a cache entry
     holding only the parsed (type, value) pairs -- no network call, and no
@@ -227,7 +217,12 @@ def score_values(text: str, values: list[tuple[str, str]]) -> dict:
             # apart from "the model missed something".
             "unlocatable": len(untyped) - len(untyped_spans),
             "rejected_types": rejected,
-            "empty_response": not values,
+            # True when the provider produced no usable rows at all -- the
+            # body was blank, the reasoning ran past the token budget and got
+            # stripped by _UNCLOSED_THINK before any row could be read, or it
+            # genuinely answered with nothing. All three look the same from
+            # here: nothing left to score.
+            "no_values": not values,
         },
     }
 

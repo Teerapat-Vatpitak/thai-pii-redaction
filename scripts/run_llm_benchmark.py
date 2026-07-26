@@ -69,7 +69,7 @@ def main(argv=None) -> int:
 
     predictions: list[list[tuple[int, int, str]]] = []
     untyped_predictions: list[list[tuple[int, int, str]]] = []
-    stats = {"cached": 0, "called": 0, "failed": 0, "unlocatable": 0, "empty": 0}
+    stats = {"cached": 0, "called": 0, "failed": 0, "unlocatable": 0, "no_values": 0}
     rejected_types: dict[str, int] = {}
     # Indices whose document the endpoint never answered for. Scoring them as
     # "found nothing" is right for the headline number -- a service that will
@@ -122,7 +122,7 @@ def main(argv=None) -> int:
         if not meta.get("error"):
             answered.append(len(predictions) - 1)
         stats["unlocatable"] += meta.get("unlocatable", 0)
-        stats["empty"] += bool(meta.get("empty_response"))
+        stats["no_values"] += bool(meta.get("no_values"))
         for t in meta.get("rejected_types", []):
             rejected_types[t] = rejected_types.get(t, 0) + 1
         if n % 25 == 0 or n == len(samples):
