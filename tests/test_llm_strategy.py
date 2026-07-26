@@ -178,12 +178,15 @@ def test_score_values_reproduces_score_raw_without_the_body():
     from benchmark.llm_strategy import parse_values, score_raw, score_values
 
     text = "ผมชื่อ นายสมชาย ใจดี โทร 081-234-5678"
-    raw = '{"entities":[{"value":"นายสมชาย ใจดี","type":"NAME"},'
-    raw += '{"value":"081-234-5678","type":"PHONE"}]}'
+    raw = '[{"type":"NAME","value":"นายสมชาย ใจดี"},'
+    raw += '{"type":"PHONE","value":"081-234-5678"}]'
 
     from_raw = score_raw(text, raw)
     from_values = score_values(text, parse_values(raw))
 
+    # Both sides must carry real spans -- otherwise this equality is satisfied
+    # by two empty lists no matter what score_values does.
+    assert from_raw["spans"] != []
     assert from_values["spans"] == from_raw["spans"]
     assert from_values["untyped_spans"] == from_raw["untyped_spans"]
 
@@ -194,14 +197,18 @@ def test_cache_entry_holds_no_provider_body(tmp_path):
     from benchmark.llm_strategy import parse_values, score_values
 
     text = "ผมชื่อ นายสมชาย ใจดี"
-    raw = '{"reasoning":"I looked at the sentence and decided",'
-    raw += '"entities":[{"value":"นายสมชาย ใจดี","type":"NAME"}]}'
+    raw = "<think>reasoning: I looked at the sentence and decided</think>\n"
+    raw += '[{"type": "NAME", "value": "นายสมชาย ใจดี"}]'
 
     entry = {"values": parse_values(raw), **score_values(text, parse_values(raw))}
     written = json.dumps(entry, ensure_ascii=False)
 
     assert "reasoning" not in written
     assert "I looked at the sentence" not in written
+    # The stripped prose must not be the only thing missing -- the entry has to
+    # carry the actual detection, or "no body" is indistinguishable from "no
+    # content at all".
+    assert entry["values"] != []
 
 
 # ── provider construction ──────────────────────────────────────────────
