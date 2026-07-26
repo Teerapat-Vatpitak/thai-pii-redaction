@@ -462,12 +462,84 @@ def test_fp_bare_long_number_is_id_number():
 
 
 def test_fp_student_cue_keeps_student_id():
-    # 9 digits, not the brief's original 10: a 10-digit run is also claimed by
-    # the pre-existing BANK_ACCOUNT pattern (\d{7}\d{3}) at score 1.0, which
-    # beats STUDENT_ID's 0.8 in dedup regardless of any cue -- a real
-    # (out-of-scope) collision unrelated to this task's cue-gating change.
     ents = detect_fp("รหัสนักศึกษา 641234567 คณะวิศวกรรมศาสตร์")
     assert any(e.data_type == "STUDENT_ID" for e in ents)
+
+
+def test_fp_student_cue_wins_ten_digit_run_over_bank_account():
+    # A 10-digit student id also matches _RE_BANK_ACCOUNT_2, which scores 1.0
+    # and needs no cue at all, while STUDENT_ID scores 0.8 and must earn its
+    # label -- so a cue-backed student id lost to a cue-free bank account every
+    # time. Measured on the gold set: 0 of 8 ten-digit ids kept their type.
+    ents = detect_fp("รหัสประจำตัวนักศึกษา 6601552089 สาขาวิชาเคมี")
+    assert any(e.data_type == "STUDENT_ID" and e.original_text == "6601552089" for e in ents)
+    assert not any(e.data_type == "BANK_ACCOUNT" for e in ents)
+
+
+def test_fp_bank_cue_nearer_the_number_still_wins_over_a_student_cue():
+    # Same rule as BANK vs PHONE: the cue nearest the number decides, so a
+    # student's actual bank account stays a bank account.
+    ents = detect_fp("นักศึกษาแจ้งบัญชีธนาคารเลขที่ 6601552089 เพื่อรับทุน")
+    assert any(e.data_type == "BANK_ACCOUNT" and e.original_text == "6601552089" for e in ents)
+    assert not any(e.data_type == "STUDENT_ID" for e in ents)
+
+
+def test_fp_ten_digit_run_without_a_student_cue_stays_bank_account():
+    ents = detect_fp("โอนเข้าเลขที่ 6601552089 ภายในวันนี้")
+    assert any(e.data_type == "BANK_ACCOUNT" and e.original_text == "6601552089" for e in ents)
+    assert not any(e.data_type == "STUDENT_ID" for e in ents)
+
+
+def test_fp_pupil_and_learner_cues_keep_student_id():
+    # นักเรียน / ผู้เรียน mean the same enrolment number as นักศึกษา; without
+    # them these fell through to the generic ID_NUMBER.
+    for text, value in (
+        ("เลขประจำตัวนักเรียน 69200315 ชั้นมัธยมศึกษาปีที่ 4", "69200315"),
+        ("หมายเลขประจำตัวผู้เรียน 66033027 หลักสูตรระยะสั้น", "66033027"),
+    ):
+        ents = detect_fp(text)
+        assert any(e.data_type == "STUDENT_ID" and e.original_text == value for e in ents), text
+
+
+def test_fp_non_person_code_cues_do_not_become_student_id():
+    # The cue list must stay about people. "รหัส" alone labels product codes,
+    # course codes and curriculum codes too -- those stay the honest ID_NUMBER,
+    # which still masks them.
+    for text in (
+        "รหัสสินค้า 88910423 ราคาต่อหน่วย 1,290 บาท",
+        "รหัสหลักสูตร 25620141 ระดับปริญญาตรี",
+    ):
+        ents = detect_fp(text)
+        assert not any(e.data_type == "STUDENT_ID" for e in ents), text
+
+
+def test_fp_nearer_order_or_price_cue_wins_id_number_over_a_bare_student_word():
+    # Reviewer finding (PR #79): a bare person-word ("นักเรียน"/"นิสิต") is weak
+    # evidence for STUDENT_ID -- these three are plainly an order number and a
+    # price/refund amount in a sentence that happens to mention a pupil. Same
+    # nearest-cue-wins rule as _disambiguate_bank_phone and
+    # _disambiguate_bank_student above: whichever cue sits closer to the digits
+    # decides what they are.
+    for text in (
+        "นักเรียนสั่งซื้อสินค้ารหัส 88910423",
+        "นิสิตชั้นปีที่ 3 ซื้อของราคา 88910423 บาท",
+        "นักเรียนได้รับเงินคืน ยอด 88910423 บาท",
+    ):
+        ents = detect_fp(text)
+        assert any(e.data_type == "ID_NUMBER" and e.original_text == "88910423" for e in ents), text
+        assert not any(e.data_type == "STUDENT_ID" for e in ents), text
+
+
+def test_fp_student_cue_with_no_nearer_competing_cue_stays_student_id():
+    # Genuine student ids must not regress: no order/price cue sits between
+    # the student cue and the digits, so the student cue still wins.
+    for text, value in (
+        ("รหัสนักศึกษา 64010812 เข้าเรียน", "64010812"),
+        ("นักศึกษา 65021178 ลงทะเบียนแล้ว", "65021178"),
+        ("ผู้เรียนรหัส 66010334 ส่งงาน", "66010334"),
+    ):
+        ents = detect_fp(text)
+        assert any(e.data_type == "STUDENT_ID" and e.original_text == value for e in ents), text
 
 
 def test_fp_general_passport_without_cue_is_id_number():

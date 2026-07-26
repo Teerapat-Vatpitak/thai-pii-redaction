@@ -29,8 +29,11 @@ def _score_group(samples, predictions):
     by_type = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
     cov_covered = cov_total = exact_hit = gold_total = 0
     pred_char_total = pred_char_on_gold = 0
+    clean_docs = 0
 
     for sample, preds in zip(samples, predictions):
+        if not preds:
+            clean_docs += 1
         preds_by_type = defaultdict(list)
         for p in preds:
             preds_by_type[p[2]].append((p[0], p[1]))
@@ -94,6 +97,24 @@ def _score_group(samples, predictions):
     tp = sum(c["tp"] for c in by_type.values())
     fp = sum(c["fp"] for c in by_type.values())
     fn = sum(c["fn"] for c in by_type.values())
+
+    if gold_total == 0:
+        # A group with no gold entities (the `negative` slice) has no recall to
+        # report -- every prediction is a false positive by construction, and
+        # emitting recall=0.0 for it reads as a catastrophic miss instead of the
+        # clean sheet it may actually be. Report the FP view only, and mark the
+        # group so renderers and callers can tell the two cases apart.
+        return by_type, {
+            "gold_entities": 0,
+            "documents": len(samples),
+            "false_positives": fp,
+            "clean_docs": clean_docs,
+            "clean_doc_rate": clean_docs / len(samples) if samples else 1.0,
+            # Still meaningful here, and it is the FP-side metric: of what was
+            # masked, how much was really PII. Nothing masked stays 1.0.
+            "coverage_precision": (pred_char_on_gold / pred_char_total if pred_char_total else 1.0),
+        }
+
     overall = {"tp": tp, "fp": fp, "fn": fn, **_prf(tp, fp, fn)}
     overall["coverage_recall"] = cov_covered / cov_total if cov_total else 0.0
     # No prediction means no wrongly-masked character, so 1.0 rather than 0.0:
