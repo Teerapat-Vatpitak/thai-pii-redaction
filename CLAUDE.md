@@ -51,6 +51,10 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py sanitize examples\pr
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest tests/test_foo.py::test_name -v
 
+# Detection benchmark (see the Benchmark section below)
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m benchmark --source gold
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m benchmark --source gold --compare-strategies
+
 # Tests (JS — extension harness, vitest+jsdom; needs `npm install` once)
 npm run test:js
 
@@ -143,7 +147,7 @@ Two parallel detection passes on the Normalized Document Model:
   - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the default, fast, fully offline. An opt-in WangchanBERTa engine (`AIGUARD_NER_ENGINE=wangchanberta`, maps to `NER(engine="thainer-v2")`) is available for higher recall at a real cost: ~1.3s/sentence on CPU vs near-instant for CRF. Selected once per process via env var, not per-request; fails loudly (`NEREngineUnavailableError`) rather than silently falling back if `transformers` isn't installed. A third value `AIGUARD_NER_ENGINE=union` runs thainer (CRF) and WangchanBERTa together and unions their NER spans (highest recall per the strategy ADR `docs/decisions/2026-07-15-ner-engine-strategy-decision.md`); opt-in, needs `requirements-ml.txt`, and pays the WangchanBERTa cost on every sentence.
   - Name recall booster: `detectors/name_context.py` (`detect_name_context`, merged inside `detect_tb`) — token-level title/label cues (นาย/นาง/นางสาว/…, ผมชื่อ…, ลงชื่อ) capture names the CRF misses or clips; works on tokens so it ignores substrings like "นายก"/"คุณภาพ".
   - **Stride-chunk windowing** (Horizon-2 #10): consecutive sentences are tagged as chunks (core ≤500 chars, `window_size=1` sentence margins each side, spans kept when they START in the core; tagged strings are slices of the ORIGINAL text, never sentence joins) — ~1.2x chars tagged vs the old ±3 sliding window's ~7x, which is what makes WangchanBERTa/union practical.
-  - **Honest labels with cue upgrades**: PERSON→NAME; LOCATION→`LOCATION` (upgraded to `ADDRESS` when an address cue — ที่อยู่/บ้านเลขที่/เลขที่/ซอย/ถนน/ตำบล/แขวง/อำเภอ/เขต/จังหวัด — appears within 30 chars before OR inside the span); DATE→`DATE` (upgraded to `DATE_OF_BIRTH` on a preceding เกิด cue); ORGANIZATION→`ORGANIZATION` (kept and masked — quasi-identifier; spans with zero Thai characters are rejected because the CRF hallucinates ORGANIZATION on plain-English text, a deliberate boundary pinned by tests). FP side mirrors this: bare regex dates → `DATE`, bare 8-12 digit runs → `ID_NUMBER`, `STUDENT_ID`/general-`PASSPORT` only with their cues (Thai-format passport `[A-Z]{2}\d{7}` needs no cue). Nothing previously masked became unmasked — labels and surrogates just stopped lying (business dates no longer become fake birthdays, invoice/PO numbers no longer become fake passports).
+  - **Honest labels with cue upgrades**: PERSON→NAME; LOCATION→`LOCATION` (upgraded to `ADDRESS` when an address cue — ที่อยู่/บ้านเลขที่/เลขที่/ซอย/ถนน/ตำบล/แขวง/อำเภอ/เขต/จังหวัด — appears within 30 chars before OR inside the span); DATE→`DATE` (upgraded to `DATE_OF_BIRTH` on a preceding เกิด cue); ORGANIZATION→`ORGANIZATION` (kept and masked — quasi-identifier; spans with zero Thai characters are rejected because the CRF hallucinates ORGANIZATION on plain-English text, a deliberate boundary pinned by tests). FP side mirrors this: bare regex dates → `DATE`, bare 8-12 digit runs → `ID_NUMBER`, `STUDENT_ID`/general-`PASSPORT` only with their cues (Thai-format passport `[A-Z]{2}\d{7}` needs no cue). `STUDENT_ID` additionally requires its cue to be the *nearest* one: a competing number-introducer (ราคา/ยอด/ใบเสร็จ/สั่งซื้อ/invoice/order…) closer to the digits wins and the label falls back to `ID_NUMBER`, so "นักเรียนสั่งซื้อสินค้ารหัส 88910423" is an order number, not a student id. Same nearest-cue-wins rule as the bank/phone and bank/student pairs; measured to cost nothing on the gold set. Nothing previously masked became unmasked — labels and surrogates just stopped lying (business dates no longer become fake birthdays, invoice/PO numbers no longer become fake passports).
   - Span chokepoint: reject spans < 2 characters (prevents single-char NER false positives)
 - **Sensitive semantic (optional)**: `sensitive_detector.py` — MiniLM sentence-embedding similarity flags free-form PDPA Section 26 content (health, religion, etc.) the keyword scan misses. Non-generative (flags existing spans only). Requires `requirements-ml.txt`; degrades to no-op when absent.
 
@@ -239,6 +243,43 @@ Packaging manifests (winget/scoop under `packaging/`) point at a *released* inst
 ## Verifiable build (Horizon-2 #11)
 
 Shipped unsigned by design — trust comes from verifiability, not a certificate. Build inputs are pinned: hash-pinned Python lockfiles (see Requirements Split), all GitHub Actions pinned by commit SHA with `.github/dependabot.yml` keeping them fresh, the PyThaiNLP NER model pinned by SHA256 in `scripts/build_sidecar.py` (it is fetched from an upstream host at build time and baked into the attested exe), and — since REL-12 — pip, the Rust toolchain and Node pinned to explicit versions instead of `latest`/`stable`/`lts/*` (`tests/test_workflow_pins.py` guards this). The one deliberate exception is apt packages, left unversioned because Ubuntu's archive drops superseded versions and a pin would break the build when it rotates. `release.yml`'s `checksums-and-attest` job publishes `SHA256SUMS` and GitHub build provenance for every release asset; users verify with `certutil`/`sha256sum -c` (integrity) and `gh attestation verify` (origin). This is origin+integrity verification, **not** bit-for-bit reproducibility (PyInstaller/NSIS embed timestamps). That job and the lock-based release build first run on a real `v*` tag — review the first tagged run's logs before relying on them.
+
+## Benchmark (`benchmark/`)
+
+`python -m benchmark` scores the detector against one of two corpora, selected
+with `--source`:
+
+- `synthetic` — `corpus.py` generates documents from seeded templates. Fast and
+  unbounded, but it can only contain the entity shapes its own generators emit,
+  so a rule that agrees with the generator scores perfectly whether or not it is
+  right. Every field is drawn from one shared `random.Random(seed)`, so editing
+  any generator reshuffles unrelated values at a fixed seed.
+- `gold` — `data/gold.jsonl`, 252 hand-authored documents carrying 641 annotated
+  entities across 11 types, no type under 24 instances, plus a 45-document
+  `negative` slice containing no PII at all. Each record stores the document with
+  entities marked inline (`[[NAME|สมชาย ใจดี]]`); `gold.py` strips the markup and
+  derives the spans, so the text and its annotation cannot drift apart. All
+  values are fabricated.
+
+The negative slice is what makes a false-positive rate reportable — a corpus in
+which every document contains PII can report recall and nothing else.
+
+`scorer.py` reports three views of the same predictions, and they disagree by
+design: entity-level type-aware matching (a hit on one shared character, greedy
+one-to-one), character-level coverage (the share of annotated PII characters any
+prediction actually covered — the figure that describes what a redaction box
+leaves visible), and exact boundary. Headline is F2, since recall is weighted
+four times precision here. Recall is undefined on the negative slice, which
+reports false-positive count and clean-document rate instead.
+
+`llm_strategy.py` + `llm_providers.py` + `scripts/run_llm_benchmark.py` score a
+hosted model as a detector over the same gold set, both with and without the
+type label, because several Thai models answer with the Thai field name as the
+type. Responses are cached under `benchmark/reports/llm_cache/` as parsed
+`(type, value)` pairs — never the provider's response body, which AGENTS.md
+forbids in acceptance artifacts — keyed by a hash of provider, prompt and
+document text so a prompt or gold-set edit cannot silently reuse a stale answer.
+`benchmark/reports/` is gitignored.
 
 ## Design Invariants
 
