@@ -160,6 +160,22 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
     return token
 
 
+def _find_all(haystack: str, needle: str) -> list[int]:
+    """Non-overlapping start offsets of needle in haystack, left to right.
+
+    A match consumes its own characters, which is the scan str.replace performs:
+    "กก" occurs once in "กกก", not twice. Advancing a single character instead
+    would queue overlapping ranges, and the tail-first splice would then write
+    one of them over an offset a later splice had already invalidated.
+    """
+    out: list[int] = []
+    pos = 0
+    while (i := haystack.find(needle, pos)) >= 0:
+        out.append(i)
+        pos = i + len(needle)
+    return out
+
+
 def anonymize(
     text: str,
     entity_registry: EntityRegistry,
@@ -232,8 +248,24 @@ def anonymize(
             continue
         original = entity.original_text
         pseudo = existing.pseudonym
-        if original in pseudonymized and original not in known_pseudonyms_scan:
-            pseudonymized = pseudonymized.replace(original, pseudo)
+        if not original or original in known_pseudonyms_scan:
+            continue
+        # Replace only OUTSIDE the ranges pseudonyms already occupy. A generated
+        # pseudonym can contain another entity's original verbatim -- the fake
+        # pools are small and the NER splits names, so "ไทย" is its own LOCATION
+        # entity while also sitting inside a fake surname. str.replace reached
+        # into the pseudonym written moments earlier, and the corrupted value no
+        # longer matched the vault, so reverse_map could not restore it and the
+        # original was lost. Whole-string equality does not catch that; the
+        # hazard is containment. Same positional rule as reverse_mapper.
+        protected = pseudonym_ranges(pseudonymized, [p for p in known_pseudonyms_scan if p])
+        hits = [
+            (i, i + len(original))
+            for i in _find_all(pseudonymized, original)
+            if not any(i < pe and i + len(original) > ps for ps, pe in protected)
+        ]
+        for start, end in reversed(hits):  # tail-first so earlier offsets stay valid
+            pseudonymized = pseudonymized[:start] + pseudo + pseudonymized[end:]
 
     # Step 5: post-replace PII leak check
     # Collect known pseudonyms so they are not mistaken for real PII leaks.
