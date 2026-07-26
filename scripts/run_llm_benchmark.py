@@ -4,10 +4,13 @@
     python scripts/run_llm_benchmark.py --provider dotblue:openai/gpt-4o-mini
 
 Each response's parsed (type, value) pairs -- not the response body itself --
-are cached under benchmark/reports/llm_cache/<provider>/ keyed by document id,
-so re-scoring after a prompt or scorer change costs nothing and a run
-interrupted halfway resumes instead of re-spending the quota. Pass --refresh
-to ignore the cache.
+are cached under benchmark/reports/llm_cache/<provider>/ keyed by document id
+plus a hash of the prompt and the document text, so re-scoring after a
+scorer-only change costs nothing and a run interrupted halfway resumes
+instead of re-spending the quota. Editing the prompt or a gold document
+changes the hash, so it misses the cache and pays for a fresh call instead of
+silently reusing a stale response and reporting it as the new experiment's
+result. Pass --refresh to ignore the cache outright.
 
 The gold set contains only fabricated PII, which is what makes sending it to a
 third-party endpoint acceptable at all. Do not point this at real documents.
@@ -16,6 +19,7 @@ third-party endpoint acceptable at all. Do not point this at real documents.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -28,14 +32,45 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.gold import load_gold
 from benchmark.llm_providers import ProviderUnavailable, build_caller
-from benchmark.llm_strategy import UNTYPED, detect_with_llm, parse_values, score_values
+from benchmark.llm_strategy import (
+    SYSTEM_PROMPT,
+    UNTYPED,
+    USER_TEMPLATE,
+    detect_with_llm,
+    parse_values,
+    score_values,
+)
 from benchmark.scorer import score
 
 CACHE_ROOT = Path(__file__).resolve().parents[1] / "benchmark" / "reports" / "llm_cache"
 
+# Both constants shape what the provider is asked to do: SYSTEM_PROMPT is the
+# instructions, USER_TEMPLATE is the wrapper the document text is dropped
+# into (its fixed wording -- e.g. "answer as a JSON array only" -- can change
+# what the model returns just as much as the instructions can). The document
+# text itself is hashed separately in _cache_identity, so it is deliberately
+# left out here rather than folded in via USER_TEMPLATE.format(text=...).
+PROMPT_IDENTITY = SYSTEM_PROMPT + "\x00" + USER_TEMPLATE
+
 
 def _cache_dir(spec: str) -> Path:
     return CACHE_ROOT / spec.replace("/", "_").replace(":", "_")
+
+
+def _cache_identity(provider: str, prompt: str, text: str) -> str:
+    """Cache identity covers everything that changes what a response means.
+
+    A cache entry is only a valid stand-in for a fresh call when the
+    provider, the exact prompt sent, and the document text all match what
+    produced it. Any one of them changing must miss the cache -- otherwise a
+    prompt or gold-set edit silently reuses a stale response and reports it
+    as a result of the new experiment.
+    """
+    h = hashlib.sha256()
+    for part in (provider, prompt, text):
+        h.update(part.encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()[:32]
 
 
 def main(argv=None) -> int:
@@ -80,7 +115,10 @@ def main(argv=None) -> int:
     started = time.monotonic()
 
     for n, s in enumerate(samples, 1):
-        path = cache / f"{s.template_id}.json"
+        path = (
+            cache
+            / f"{s.template_id}-{_cache_identity(args.provider, PROMPT_IDENTITY, s.text)}.json"
+        )
         raw: str | None = None
         rec: dict | None = None
         if path.exists() and not args.refresh:
