@@ -1,5 +1,6 @@
 """Tests for Step 3: pseudonymization (fp_generator, tb_generator, anonymizer)."""
 
+import time
 import uuid
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 from pii_redactor.anonymizer.anonymizer import anonymize
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
-from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument
+from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, VaultRecord
 from pii_redactor.session_vault import SessionVault
 
 SALT = "test-salt-abc123"
@@ -154,6 +155,72 @@ def test_anonymize_consistency():
     registry = EntityRegistry(entities=[e1, e2], fp_count=2, tb_count=0)
     vault = SessionVault()
     result = anonymize(text, registry, vault, salt=SALT)
+    assert "081-234-5678" not in result.text
+
+
+def _seed(vault: SessionVault, entity: Entity, pseudonym: str) -> None:
+    """Pin an entity's pseudonym so the test does not depend on a random draw."""
+    vault.write(
+        VaultRecord(
+            entity_id=entity.entity_id,
+            original=entity.original_text,
+            pseudonym=pseudonym,
+            type=entity.redact_type,
+            data_type=entity.data_type,
+            span=entity.span,
+            timestamp=time.monotonic(),
+        )
+    )
+
+
+def test_consistency_scan_does_not_corrupt_an_already_written_pseudonym():
+    """A pseudonym may contain another entity's original value verbatim.
+
+    The fake pools are small and the NER splits names, so "ไทย" can be its own
+    LOCATION entity while also sitting inside the NAME entity's fake surname.
+    The consistency scan must not reach into a pseudonym it already wrote.
+    """
+    text = "ผู้ป่วยชื่อ สมหญิง รักไทย มาตรวจ"
+    name_start = text.index("สมหญิง")
+    name = _make_entity("NAME", text, name_start, name_start + len("สมหญิง"), redact_type="TB")
+    loc_start = text.index("รักไทย") + len("รัก")
+    loc = _make_entity("LOCATION", text, loc_start, loc_start + len("ไทย"), redact_type="TB")
+
+    vault = SessionVault()
+    _seed(vault, name, "อนุชา รักไทย")  # contains the LOCATION entity's original
+    _seed(vault, loc, "เขตลาดกระบัง")
+
+    registry = EntityRegistry(entities=[name, loc], fp_count=0, tb_count=2)
+    result = anonymize(text, registry, vault, salt=SALT)
+
+    assert "อนุชา รักไทย" in result.text
+
+
+def test_consistency_scan_handles_a_self_overlapping_original():
+    """An original can occur at overlapping offsets: "กก" sits at two offsets
+    inside "กกก". Scheduling both splices one over the other, so a match must
+    consume its own characters the way str.replace does."""
+    text = "กก กกก"
+    entity = _make_entity("NAME", text, 0, 2, redact_type="TB")
+    vault = SessionVault()
+    _seed(vault, entity, "สมชาย")
+
+    registry = EntityRegistry(entities=[entity], fp_count=0, tb_count=1)
+    result = anonymize(text, registry, vault, salt=SALT)
+
+    assert result.text == "สมชาย สมชายก"
+
+
+def test_consistency_scan_still_replaces_an_untagged_repeat():
+    """The scan's actual job: a value the detector tagged once but that occurs
+    twice must be replaced at both occurrences, not just the tagged span."""
+    text = "โทร 081-234-5678 หรือ 081-234-5678"
+    start = text.index("081")
+    entity = _make_entity("PHONE", text, start, start + len("081-234-5678"))
+    registry = EntityRegistry(entities=[entity], fp_count=1, tb_count=0)
+
+    result = anonymize(text, registry, SessionVault(), salt=SALT)
+
     assert "081-234-5678" not in result.text
 
 

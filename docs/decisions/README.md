@@ -11,6 +11,7 @@ by when the decision was made rather than continuously maintained.
 
 | Document | What it decides |
 |---|---|
+| [2026-07-25 gold set v3 and LLM baseline](2026-07-25-gold-set-and-llm-baseline.md) | Why the hand-authored gold set grew to 641 entities, what it exposed, and how a hosted model is scored on the same set |
 | [2026-07-24 post-v2.5 execution plan](2026-07-24-post-v2.5-execution-plan.md) | Critical-path ordering and dated gates from the 2.5.0 release to the 2026-08-19 presentation, and which items are calendar gates rather than estimates |
 | [2026-07-22 platform integration contract](2026-07-22-platform-integration-contract.md) | What a platform may call and rely on, where the PII mapping lives, how callers authenticate, and the two supported deployment shapes |
 | [2026-07-20 session handoff](2026-07-20-session-handoff.md) | State after v2.3.0 shipped: what changed, what bit us, what is still open |
