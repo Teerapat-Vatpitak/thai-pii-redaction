@@ -1,4 +1,4 @@
-"""AI Guard — Thai PII redaction pipeline CLI (PSU FTC 2026)."""
+"""AI Guard — Thai PII redaction pipeline CLI."""
 
 import argparse
 import sys
@@ -123,7 +123,7 @@ def cmd_report(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="ai_guard",
-        description="AI Guard — Thai PII redaction pipeline (PSU FTC 2026)",
+        description="AI Guard — Thai PII redaction pipeline",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

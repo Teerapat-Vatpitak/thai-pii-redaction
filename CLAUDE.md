@@ -4,13 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Thai PII detection and redaction system for PSU Future Tech Challenge 2026 (AI Innovation for Future Society, DIIS / PSU Cybersecurity & AI & Data Privacy Day). Prototype-level entry; submission deadline 29 June 2026, poster presentation 10 July 2026.
+AI Guard — open-source (Apache-2.0) Thai PII detection, anonymization, and redaction toolkit. Originally built as a PSU Future Tech Challenge 2026 entry; now maintained as a standalone open-source project. Two modes:
 
-Two modes:
 - **True redaction**: permanently black-box PII at bbox level in PDF
 - **AI Guard**: pseudonymize PII with tokens before sending to external AI, re-identify locally from vault after response
 
-Deliverables are an MS Form, one-page A4 doc, <=5 min video, and A1 poster (source code not required).
+### What this file is, and what it is not
+
+This file is the **code map**: where things live, what each module is for, and
+which invariants a change must not break. It deliberately carries no status and
+no schedule. Three documents each carrying a bit of all three is how the
+repository starts telling three different stories.
+
+| Question | Document |
+|---|---|
+| Where does this live, and what must I not break? | this file |
+| What gets built next, in what order, and what is the gate? | [ROADMAP.md](ROADMAP.md) |
+| What is actually finished, and what is the evidence? | [docs/project-status.md](docs/project-status.md) |
+
+`tests/test_docs_coverage.py` fails if a tracked top-level directory is absent
+from this map or a storefront named here has no status row, so a new lane cannot
+be added without appearing in both.
 
 ## Environment Setup
 
@@ -61,6 +75,10 @@ npm run test:js
 # Tests (Rust — Tauri shell incl. sidecar kill-sequence tests)
 cd desktop/src-tauri; cargo test
 
+# Tests (Office add-in — its OWN npm project, Node 22; the root `test:js` does
+# not reach it because office-addin/ has its own package.json + vitest.config.ts)
+cd office-addin; npm install; npm test; npm run typecheck; npm run validate:manifest
+
 # Lint + format (same two commands CI runs; config in pyproject.toml)
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format .
@@ -76,7 +94,7 @@ JS harness note: `extension/sites.js` carries an additive CommonJS export shim
 (`module.exports` — dead code in Chrome) exposing `selectFor(hostname)` + every
 site config so `extension/tests/` can pin selector behavior against the DOM
 fixtures in `extension/tests/fixtures/`. Playwright live-DOM checks and the
-selector-drift badge are roadmap (Horizon-2 #13 รอบถัดไป).
+selector-drift badge are future work (not yet implemented).
 
 **Browser extension** (primary UI): start the backend (above), then load `extension/`
 unpacked in Chrome (`chrome://extensions` → Developer mode → Load unpacked). See
@@ -87,18 +105,27 @@ localhost/127.0.0.1 (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
-One core pipeline (`pii_redactor/`) exposed via three storefronts over one shared backend:
+One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared backend:
 
 | Storefront | Entry point |
 |---|---|
 | Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback. Mask reports success only after re-reading the composer and matching the sanitized text (EXT-2); any mask failure raises a blocking overlay (EXT-3); the restored-PII overlay renders inside a closed shadow root so page scripts cannot read it — its styles live in `OVERLAY_CSS` in content.js, not content.css (EXT-4)) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
-| Queue worker (AI for Thai platform) | `app/worker/` (`python -m app.worker`; job → stateless core; transport is HTTP poll, a provisional guess until the platform spec is published — job schema is `provisional` per docstring in `handler.py`; no PII in logs per VAULT-4; `docker compose --profile worker`) |
+| Queue worker (provisional emulator) | `app/worker/` (`python -m app.worker`; job → stateless core; HTTP-poll transport and job schema are provisional local failure/retry fixtures, not the official AI for Thai delivery path; no PII in logs per VAULT-4; `docker compose --profile worker`) |
+| Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
+| Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
 
-Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
-product's front door; the backend is API-only (no web frontend) and runs on localhost.
-`/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
-CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
+The browser extension, desktop shell, and Office add-in use the local
+**FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
+that app. The CLI and provisional worker call shared `pii_redactor/` services
+through their own adapters rather than going through FastAPI. The official AI
+for Thai guide selects a separate hosted HTTP/FastAPI adapter behind its
+reverse proxy; it must preserve the local `/api/*` contract and expose only the
+approved hosted surface once route/auth details are confirmed. The extension
+is the product's front door; the normal local backend is API-only (no web
+frontend) and runs on localhost. `/` redirects to `/docs` (Swagger). The
+extension's service worker calls the backend; CORS allows only extension/Tauri
+origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
 token → original map lives in the backend's in-memory `SessionService` sessions
 (`pii_redactor/session_service.py`, one `SessionVault` per session).
 
@@ -146,7 +173,7 @@ Two parallel detection passes on the Normalized Document Model:
 - **Text-Based (TB)**: NER + context classifier
   - PyThaiNLP thainer-CRF (`NER(engine="thainer")`) — the default, fast, fully offline. An opt-in WangchanBERTa engine (`AIGUARD_NER_ENGINE=wangchanberta`, maps to `NER(engine="thainer-v2")`) is available for higher recall at a real cost: ~1.3s/sentence on CPU vs near-instant for CRF. Selected once per process via env var, not per-request; fails loudly (`NEREngineUnavailableError`) rather than silently falling back if `transformers` isn't installed. A third value `AIGUARD_NER_ENGINE=union` runs thainer (CRF) and WangchanBERTa together and unions their NER spans (highest recall per the strategy ADR `docs/decisions/2026-07-15-ner-engine-strategy-decision.md`); opt-in, needs `requirements-ml.txt`, and pays the WangchanBERTa cost on every sentence.
   - Name recall booster: `detectors/name_context.py` (`detect_name_context`, merged inside `detect_tb`) — token-level title/label cues (นาย/นาง/นางสาว/…, ผมชื่อ…, ลงชื่อ) capture names the CRF misses or clips; works on tokens so it ignores substrings like "นายก"/"คุณภาพ".
-  - **Stride-chunk windowing** (Horizon-2 #10): consecutive sentences are tagged as chunks (core ≤500 chars, `window_size=1` sentence margins each side, spans kept when they START in the core; tagged strings are slices of the ORIGINAL text, never sentence joins) — ~1.2x chars tagged vs the old ±3 sliding window's ~7x, which is what makes WangchanBERTa/union practical.
+  - **Stride-chunk windowing**: consecutive sentences are tagged as chunks (core ≤500 chars, `window_size=1` sentence margins each side, spans kept when they START in the core; tagged strings are slices of the ORIGINAL text, never sentence joins) — ~1.2x chars tagged vs the old ±3 sliding window's ~7x, which is what makes WangchanBERTa/union practical.
   - **Honest labels with cue upgrades**: PERSON→NAME; LOCATION→`LOCATION` (upgraded to `ADDRESS` when an address cue — ที่อยู่/บ้านเลขที่/เลขที่/ซอย/ถนน/ตำบล/แขวง/อำเภอ/เขต/จังหวัด — appears within 30 chars before OR inside the span); DATE→`DATE` (upgraded to `DATE_OF_BIRTH` on a preceding เกิด cue); ORGANIZATION→`ORGANIZATION` (kept and masked — quasi-identifier; spans with zero Thai characters are rejected because the CRF hallucinates ORGANIZATION on plain-English text, a deliberate boundary pinned by tests). FP side mirrors this: bare regex dates → `DATE`, bare 8-12 digit runs → `ID_NUMBER`, `STUDENT_ID`/general-`PASSPORT` only with their cues (Thai-format passport `[A-Z]{2}\d{7}` needs no cue). `STUDENT_ID` additionally requires its cue to be the *nearest* one: a competing number-introducer (ราคา/ยอด/ใบเสร็จ/สั่งซื้อ/invoice/order…) closer to the digits wins and the label falls back to `ID_NUMBER`, so "นักเรียนสั่งซื้อสินค้ารหัส 88910423" is an order number, not a student id. Same nearest-cue-wins rule as the bank/phone and bank/student pairs; measured to cost nothing on the gold set. Nothing previously masked became unmasked — labels and surrogates just stopped lying (business dates no longer become fake birthdays, invoice/PO numbers no longer become fake passports).
   - Span chokepoint: reject spans < 2 characters (prevents single-char NER false positives)
 - **Sensitive semantic (optional)**: `sensitive_detector.py` — MiniLM sentence-embedding similarity flags free-form PDPA Section 26 content (health, religion, etc.) the keyword scan misses. Non-generative (flags existing spans only). Requires `requirements-ml.txt`; degrades to no-op when absent.
@@ -232,7 +259,7 @@ Roadmap (not implemented): Presidio bridge.
 
 Both the web API and the CLI now run on the same core: `pii_redactor/session_service.py` (`SessionService`) wraps `detect_all` → `anonymize(mode=token|surrogate)` → `leak_guard.scan_outbound_leaks` for `/api/sanitize`, and `reverse_map` → `validate_output` (warnings only, inbound) for `/api/reidentify`. Sessions: cap 200 with LRU eviction by `last_access` (an old but active session survives), idle TTL 1800s, vault null-byte-cleared on drop/evict; every public `SessionService` entry point serializes on one `RLock` (FastAPI threadpool safety — a deliberate coarse lock, since only the single-user extension path uses this class). `/api/sanitize` accepts optional `session_id` for multi-turn token consistency and returns additive `warnings[]`; FP-grade residual leaks return HTTP 422.
 
-Control-plane boot token: the `AIGUARD_TOKEN` env var (generated by `launcher.py` when unset; the Tauri shell generates one and passes it to the sidecar it spawns — never logged) gates `POST /api/shutdown` and `DELETE /api/session/{id}` via the `X-AIGuard-Token` header (`secrets.compare_digest`). Unset token = legacy behavior byte-for-byte (`X-AIGuard-Local` for shutdown, open delete-session), so a from-source backend + extension keeps working. The data plane (`sanitize`/`reidentify`) is deliberately not token-gated until the extension gets a token channel (native messaging, roadmap Horizon-3 #16).
+Control-plane boot token: the `AIGUARD_TOKEN` env var (generated by `launcher.py` when unset; the Tauri shell generates one and passes it to the sidecar it spawns — never logged) gates `POST /api/shutdown` and `DELETE /api/session/{id}` via the `X-AIGuard-Token` header (`secrets.compare_digest`). Unset token = legacy behavior byte-for-byte (`X-AIGuard-Local` for shutdown, open delete-session), so a from-source backend + extension keeps working. The data plane (`sanitize`/`reidentify`) is deliberately not token-gated until the extension gets a token channel (native messaging, future work).
 
 ## Versioning
 
@@ -240,9 +267,9 @@ Single source of truth is the `VERSION` file at repo root (`app/server.py` deriv
 
 Packaging manifests (winget/scoop under `packaging/`) point at a *released* installer, not the in-repo version, so they are deliberately NOT in `bump_version.py`'s target set. After a release publishes its `SHA256SUMS` asset, bump all four with `scripts/update_packaging.py [vX.Y.Z]` (fail-loud, no partial writes), review the diff, then submit yourself — nothing is submitted automatically (see `packaging/README.md`).
 
-## Verifiable build (Horizon-2 #11)
+## Verifiable build
 
-Shipped unsigned by design — trust comes from verifiability, not a certificate. Build inputs are pinned: hash-pinned Python lockfiles (see Requirements Split), all GitHub Actions pinned by commit SHA with `.github/dependabot.yml` keeping them fresh, the PyThaiNLP NER model pinned by SHA256 in `scripts/build_sidecar.py` (it is fetched from an upstream host at build time and baked into the attested exe), and — since REL-12 — pip, the Rust toolchain and Node pinned to explicit versions instead of `latest`/`stable`/`lts/*` (`tests/test_workflow_pins.py` guards this). The one deliberate exception is apt packages, left unversioned because Ubuntu's archive drops superseded versions and a pin would break the build when it rotates. `release.yml`'s `checksums-and-attest` job publishes `SHA256SUMS` and GitHub build provenance for every release asset; users verify with `certutil`/`sha256sum -c` (integrity) and `gh attestation verify` (origin). This is origin+integrity verification, **not** bit-for-bit reproducibility (PyInstaller/NSIS embed timestamps). That job and the lock-based release build first run on a real `v*` tag — review the first tagged run's logs before relying on them.
+Shipped unsigned by design — trust comes from verifiability, not a certificate. Build inputs are pinned: hash-pinned Python lockfiles (see Requirements Split), all GitHub Actions pinned by commit SHA with `.github/dependabot.yml` keeping them fresh, the PyThaiNLP NER model pinned by SHA256 in `scripts/build_sidecar.py` (it is fetched from an upstream host at build time and baked into the attested exe), and — since REL-12 — pip, the Rust toolchain and Node pinned to explicit versions instead of `latest`/`stable`/`lts/*` (`tests/test_workflow_pins.py` guards this). The one deliberate exception is apt packages, left unversioned because Ubuntu's archive drops superseded versions and a pin would break the build when it rotates. `release.yml`'s `checksums-and-attest` job publishes `SHA256SUMS` and GitHub build provenance for every release asset; users verify with `certutil`/`sha256sum -c` (integrity) and `gh attestation verify` (origin). This is origin+integrity verification, **not** bit-for-bit reproducibility (PyInstaller/NSIS embed timestamps). The tagged release pipeline has run end to end on published `v*` tags, with checksums and attestations verified (see `docs/project-status.md`).
 
 ## Benchmark (`benchmark/`)
 
@@ -297,6 +324,6 @@ document text so a prompt or gold-set edit cannot silently reuse a stale answer.
 - `requirements-ml.txt` - sentence-transformers + torch/transformers (MiniLM sensitive detector + the opt-in WangchanBERTa/union NER engines, `AIGUARD_NER_ENGINE`). Install only when the semantic detector or the WangchanBERTa/union NER engine is needed.
 - `requirements-ocr.txt` - paddlepaddle + paddleocr/PaddleX (which supplies the single OpenCV contrib runtime) for scanned/hybrid PDF OCR. Do not add a second `opencv-python*` wheel beside PaddleX because both distributions own `cv2`. Install only when OCR-ing scanned PDFs is needed; excluded from the packaged `AIGuard.exe` (same treatment as `requirements-ml.txt`).
 
-Lockfiles (Horizon-2 #11, verifiable build): the `.txt` files keep loose `>=` floors for the end-user/library `pip install` path, but CI and the release/exe build install from hash-pinned lockfiles instead — `requirements.lock` (core+web) and `requirements-build.lock` (+ a pinned PyInstaller from `requirements-build.txt`), both compiled with `uv pip compile --universal --generate-hashes --python-version 3.13` and installed with `pip --require-hashes`. Regenerate after editing any `requirements*.txt` with `scripts/lock_deps.py` (it drives uv with the right flags) and review the diff; `tests/test_lock_coverage.py` fails if a source package is missing from a lock. `ml`/`ocr` extras are not locked (never in the exe or CI). The CI job `pytest-core-only` deliberately stays on the unpinned `requirements.txt` to keep guarding the end-user install path. `scripts/build_sidecar.py` installs PyInstaller from `requirements-build.lock` (build the exe on Python 3.13, matching CI).
+Lockfiles (verifiable build): the `.txt` files keep loose `>=` floors for the end-user/library `pip install` path, but CI and the release/exe build install from hash-pinned lockfiles instead — `requirements.lock` (core+web) and `requirements-build.lock` (+ a pinned PyInstaller from `requirements-build.txt`), both compiled with `uv pip compile --universal --generate-hashes --python-version 3.13` and installed with `pip --require-hashes`. Regenerate after editing any `requirements*.txt` with `scripts/lock_deps.py` (it drives uv with the right flags) and review the diff; `tests/test_lock_coverage.py` fails if a source package is missing from a lock. `ml`/`ocr` extras are not locked (never in the exe or CI). The CI job `pytest-core-only` deliberately stays on the unpinned `requirements.txt` to keep guarding the end-user install path. `scripts/build_sidecar.py` installs PyInstaller from `requirements-build.lock` (build the exe on Python 3.13, matching CI).
 
 Note: licensed under Apache-2.0 (see LICENSE/NOTICE). PDF handling uses the permissive pypdfium2 / reportlab / pdfplumber; PyMuPDF (AGPL) was removed in phase 3 (redaction is now flatten-to-image).

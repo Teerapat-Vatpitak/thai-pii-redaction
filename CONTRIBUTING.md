@@ -1,7 +1,7 @@
 # Contributing to AI Guard
 
 Thanks for considering a contribution. This is a maintainer-led OSS project
-with an active AI for Thai competition track. See [`ROADMAP.md`](ROADMAP.md)
+with an active AI for Thai platform-integration track. See [`ROADMAP.md`](ROADMAP.md)
 and [`docs/project-status.md`](docs/project-status.md) before starting large
 changes, then open an issue so the intended delivery gate is explicit.
 

@@ -58,15 +58,17 @@ a hosted service.
   side panel.
 - Desktop app: bundled Tauri shell and local FastAPI sidecar.
 - Microsoft 365 Add-in: one Thai task pane for Word, Excel, and PowerPoint.
-  Local XML acceptance and the three-host unified-manifest
-  acquisition/validation/package transport have passed with synthetic PII.
-  The packaged transport's custom ribbon activation was not independently
-  observable during Office client cache refresh; this is not a Marketplace or
-  broad Office-distribution claim.
+  Automated checks and a partial local XML real-host functional slice pass with
+  synthetic PII. Remaining host scenarios and exact packaged three-host
+  ribbon/task-pane activation are tracked separately; schema and acquisition
+  metadata are not a Marketplace or broad Office-distribution claim.
 - HTTP API: detection, sanitization, re-identification, analysis, reporting,
   guard, PDF, and demo endpoints.
-- Queue worker: stateless operations behind a replaceable transport adapter for
-  AI for Thai onboarding.
+- Hosted HTTP adapter: the official AI for Thai guide selects FastAPI behind a
+  reverse proxy and Docker Compose; its narrow platform adapter is pending the
+  remaining route/auth answers.
+- Provisional job worker: stateless operations retained as a local
+  failure/retry emulator, not the official platform delivery path.
 - CLI: scripted sanitize/report workflows and an end-to-end demo pipeline.
 
 All storefronts call the same core under `pii_redactor/`; they do not maintain
@@ -101,8 +103,9 @@ backend and does not ship in the current installer.
 docker compose up --build ai-guard
 ```
 
-The local Compose profile publishes only to `127.0.0.1:8000`. A hosted
-deployment must set its API key and platform-specific transport/configuration;
+The local Compose profile publishes only to `127.0.0.1:8000`. The official
+hosted profile still needs its stripped-prefix route adapter, fail-closed public
+surface/authentication, health check, secret mapping, limits, and bounded logs;
 do not treat the local Compose defaults as a production profile. See
 [AI for Thai integration](docs/platform/ai-for-thai.md).
 
@@ -123,10 +126,14 @@ reproducibility.
 
 ## Status
 
-The implemented feature set is being driven through acceptance before the next
-accuracy phase. The AI for Thai transport remains provisional until the
-platform supplies the account and wire specification. No public accuracy claim
-should be inferred from the current diagnostic corpus.
+Feature acceptance on the local storefronts is complete except the remaining
+Office real-host items tracked in the acceptance checklist. Current work
+focuses on detection accuracy against a hand-authored gold benchmark (see
+`benchmark/`); accuracy numbers live in generated benchmark reports with
+corpus size and limitations — do not infer a public accuracy claim from
+prose. On the hosted side, AI for Thai group access, the HTTP/Compose
+participant guide, and private LLM access have arrived; the deployment
+project and the exact public route/auth contract are still pending.
 
 - [Current feature status](docs/project-status.md)
 - [Roadmap](ROADMAP.md)

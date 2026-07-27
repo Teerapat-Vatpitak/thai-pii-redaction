@@ -1,28 +1,59 @@
 # Roadmap
 
-AI Guard has one product core and two delivery tracks:
+AI Guard is an open-source (Apache-2.0) Thai PII detection, anonymization, and
+redaction toolkit. It has one product core and two delivery contexts:
 
-1. a local-first desktop/extension product where the PII mapping never leaves
-   the user's device; and
-2. a hosted AI for Thai service where the platform receives the request, AI
-   Guard avoids persistence and PII-bearing logs, and downstream Pathumma calls
+1. a local-first product — browser extension, Windows desktop app, and
+   Microsoft 365 add-in — where the PII mapping never leaves the user's
+   device; and
+2. a hosted service shape where the platform receives the request, AI Guard
+   avoids persistence and PII-bearing logs, and downstream provider calls
    receive only masked text.
 
-The current ordering is deliberate: **make every committed feature work on its
-real delivery path first; measure and improve detection accuracy after feature
-acceptance**. A benchmark is evidence for a working product, not a substitute
-for one.
+This document answers one question: **what gets built next, in what order, and
+what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
+not the record of what is finished
+([docs/project-status.md](docs/project-status.md)). Keeping the three separate
+is deliberate — when each file carried a little of all three, they drifted and
+told different stories.
 
-Current truth lives in [docs/project-status.md](docs/project-status.md). Design
-history remains in [docs/decisions/](docs/decisions/), but an old decision record
-does not override this roadmap.
+Development is organized by delivery tracks, not by event dates. Dated,
+time-bounded plans (such as the AI for Thai onboarding window) live in
+[docs/decisions/](docs/decisions/) and never override this roadmap.
+
+Historical note: earlier versions of this roadmap were numbered Phase 0-4.
+Where a decision record references those numbers, Phase 0/1 are the completed
+reset-and-acceptance work (with the Office remainder below), Phase 2
+corresponds to the hosted platform track, and Phase 3 corresponds to the
+detection accuracy track. Phase 4 (a competition release gate) is retired;
+release rules live in [docs/release-process.md](docs/release-process.md).
+
+## Where the project stands
+
+- `v2.5.0` is released with checksums and build provenance. The release
+  pipeline (tag, CI, cross-platform builds, attestation, packaging metadata)
+  has run end to end on a real tag.
+- Feature acceptance on the real delivery paths is complete for the extension,
+  desktop app, CLI, API, container, and demo playground. The Microsoft 365
+  add-in is the one storefront still Acceptance pending: several host
+  scenarios and the packaged unified-manifest activation run remain open (see
+  below).
+- A detection benchmark exists: a seeded synthetic corpus plus a hand-authored
+  gold corpus with a negative (no-PII) slice, scored entity-level,
+  character-level, and exact-boundary, with an external LLM baseline. Numbers
+  live in generated benchmark reports, not in this file.
+- The AI for Thai participant guide has arrived and fixes the deployment shape
+  (HTTP/FastAPI behind a reverse proxy, Compose from GitLab `main`). The
+  deployment project and the exact public route/auth contract are still
+  pending; the queue worker is retained only as a local failure/retry
+  emulator, not the official delivery path.
 
 ## Definition of done for a feature
 
 A feature is not complete merely because its function exists. Before it moves
 to Done it must have:
 
-- a working caller-facing path (UI, API, CLI, or queue operation);
+- a working caller-facing path (UI, API, CLI, or hosted operation);
 - positive, invalid-input, provider-failure, and privacy/log tests appropriate
   to that path;
 - a container or packaged-runtime smoke test where that is how users run it;
@@ -30,153 +61,128 @@ to Done it must have:
 - a repeatable demo or acceptance fixture using synthetic PII; and
 - no known critical path that returns raw PII in logs or an unintended mapping.
 
-## Phase 0 - Project reset
+## Outstanding feature acceptance — Microsoft 365 add-in
 
-Goal: make the repository tell one accurate story before building more.
+The Office lane receives only blocker/security fixes and acceptance evidence
+until new scope is explicitly approved. Still open, per the
+[acceptance checklist](docs/acceptance/README.md):
 
-- Establish current-state architecture, feature status, AI for Thai integration,
-  and release-process documents.
-- Reconcile README, SECURITY, CHANGELOG, packaging docs, and roadmap with the
-  code on `main`.
-- Separate current documentation from historical ADRs and competition artifacts.
-- Record GitHub repository hygiene and branch-protection actions.
+- the remaining local host-functional scenarios (Word table and
+  missing-key/provider/expired-session cases; Excel changed-value/formula
+  cancellation and Pathumma Copy-only; PowerPoint full unselected-content
+  isolation, missing API 1.5, and Pathumma Copy-only); and
+- one real-host run proving the exact packaged three-host unified manifest
+  activates its ribbon/task pane. Schema validation, acquisition metadata, and
+  local XML transports do not close that distribution gate.
 
-Exit gate: a new contributor can identify what is shipped, what is implemented
-but awaiting acceptance, what is blocked externally, and what is deliberately
-deferred without reading commit history.
+## Track A - Detection accuracy (current focus)
 
-## Phase 1 - Feature acceptance before accuracy work
+Goal: improve what the accepted product demonstrably misses, with evidence
+that survives being checked.
 
-Goal: every feature committed in the proposal and the onboarding demo design
-works end to end.
+Ordered so that evaluation integrity comes before tuning:
 
-### Local product
-
-- Extension mask/restore on every declared site, including visible fail-closed
-  behavior when the composer cannot be updated.
-- Desktop text masking, restore, PDF redaction, PDPA report, settings, audit log,
-  hotkeys, sidecar lifecycle, and updater path.
-- CLI sanitize/report and one full pipeline roundtrip.
-- Token and surrogate consistency across turns; session expiry and recovery are
-  documented and tested.
-
-### AI Guard for Microsoft 365 (owner-approved feature lane)
-
-- One TypeScript task pane and host-adapter contract, delivered in the fixed
-  order Word -> Excel -> PowerPoint on Windows Desktop.
-- Word selection Detect/Analyze/Mask/Restore/Pathumma with Preview before Apply,
-  stale-selection cancellation, Copy-only mixed formatting, and explicit
-  response insertion.
-- Excel selected-range masking/restoration that changes text cells only and
-  proves every formula remains unchanged.
-- PowerPoint API 1.5 selected-text masking/restoration with capability and
-  formatting fail-closed behavior; no notes, images, or unselected shapes.
-- Node 22 build, mock tests, unified-manifest/version validation, and real-host
-  acceptance evidence before the lane is Done.
-
-Local acceptance evidence now records completed synthetic-PII Word, Excel, and
-PowerPoint XML-host runs, plus exact 2.5.0 three-host unified-manifest
-acquisition metadata, authoritative schema validation, and deterministic
-package verification. The candidate continues to describe the unified
-transport accurately: custom ribbon activation on the packaged distribution
-transport was not independently observable during client cache refresh, and
-this is not a Marketplace or broad Office-distribution claim.
-
-Exit gate for this lane: Word, Excel, and PowerPoint checklist items pass on the
-candidate build, then Office and the remaining storefront acceptance gates may
-be released together as `2.5.0`. Development does not bump `VERSION`.
-
-### Demo features
-
-- Three-panel playground: detect -> mask -> provider -> restore.
-- PDF before/after comparison and redacted-file download.
-- Live extension demonstration with a fixed synthetic fixture.
-- PII-free Thai PDPA PDF report.
-- Prompt-injection signal layer framed and tested as warn-only.
-
-### Platform-facing features
-
-- Detect, sanitize, and analyze operations as the core hosted service.
-- Protected Pathumma roundtrip without returning the transient mapping.
-- TNER as an explicit opt-in integration, never a silent replacement for the
-  offline engine.
-- Authentication, safe error responses, PII-free logs, health checks, and a
-  replaceable queue/HTTP adapter boundary.
-- Resource profile and configuration reference for the actual Docker image.
-
-Exit gate: the acceptance matrix in `docs/project-status.md` contains no
-"implemented but unverified" item in the committed scope. Optional OCR/ML extras
-may remain optional if their absence and HTTP failure are explicit.
-
-## Phase 2 - Official AI for Thai acceptance
-
-Goal: replace assumptions with evidence from the real platform.
-
-- Capture the official job envelope, authentication, registry, retry/ack,
-  timeout, payload, logging, network, and resource policies when the account is
-  issued.
-- Implement only the platform adapter/configuration delta; keep the core
-  operations stable.
-- Push the image, boot it, complete the first real job, and verify Thai UTF-8,
-  secrets, result delivery, and error behavior.
-- Run duplicate, timeout, malformed-input, crash-recovery, payload-limit, and
-  concurrent-job acceptance cases.
-- Run a PII honeytoken scan over application and platform-visible logs.
-
-Exit gate: an accepted platform job plus a repeatable soak with no crash,
-duplicate side effect, mapping export, or PII-bearing log.
-
-The account/spec delay is an external blocker only for the official adapter and
-acceptance. It does not block the emulator, feature tests, docs, image, resource
-measurement, or demo preparation.
-
-## Phase 3 - Benchmark and detection accuracy
-
-Goal: improve what the accepted product demonstrably misses.
-
-- Freeze a synthetic, document-like development corpus and a separately locked
-  blind corpus.
-- Measure type-aware recall/precision, character coverage, exact boundaries,
-  latency, and memory for each supported engine.
-- Fix in this order: scorer/boundaries, structured misses, NAME context,
-  ADDRESS coverage, then false positives.
-- Compare CRF, TNER, WangchanBERTa/union, and any future ONNX path on the same
-  corpus before changing a default.
-- Fine-tune a model only if the locked evidence shows rules/context cannot close
-  the remaining high-risk gap.
+1. **Lock a blind set before tuning.** Freeze a held-out corpus that is never
+   inspected during detector work. Without it, every fix tuned on the gold set
+   is unfalsifiable.
+2. **Harden the gold set as evidence.** Annotation is currently single-source;
+   add a label review/adjudication pass before treating gold-set scores as
+   release or CI evidence. Grow underrepresented types as gaps appear.
+3. **Fix in impact order:** scorer/boundary defects, structured (FP) misses,
+   NAME context coverage, ADDRESS coverage, then false-positive reduction.
+   Prefer recall over precision, but keep type labels honest.
+4. **Compare engines on the same corpus** before changing any default:
+   CRF, WangchanBERTa, union, and routed strategies via the benchmark CLI.
+   TNER is a remote service with a narrower label set; it gets a separate,
+   qualified comparison on the subset it can express, not a same-table row.
+5. **Fine-tune a model only if locked evidence** shows rules and context
+   cannot close the remaining high-risk gap. Fine-tuning is an accuracy
+   decision.
+6. **Evaluate an ONNX (or similar) runtime separately** as an
+   inference/deployment decision. It needs output-parity and resource
+   evidence, not accuracy claims.
 
 Exit gate: results are reproducible, the blind set has not been tuned against,
-all public claims include corpus size and limitations, and no accuracy number is
-copied into volatile prose without a generated source.
+and every public claim carries corpus size and limitations. No accuracy number
+is copied into volatile prose without a generated source.
 
-## Phase 4 - Competition release and presentation
+## Track B - Hosted platform integration (externally gated)
 
-Goal: ship one candidate that the demonstration, documentation, and platform all
-describe identically.
+Goal: adapt the accepted core to the official HTTP delivery path and replace
+the remaining assumptions with platform evidence. The first concrete instance
+is AI for Thai; the adapter stays replaceable so a second platform is a
+delta, not a rewrite.
 
-- Freeze features; only blocker and security fixes enter the candidate.
-- Prepare a release PR: version bump, changelog section, full CI, Docker smoke,
-  packaged-runtime smoke, and release notes.
-- Tag the exact green commit; never move or reuse a published tag.
-- Verify installers, signatures, `SHA256SUMS`, and build attestations before the
-  draft release is published.
-- Update packaging manifests only after the release exists.
-- Rehearse a fixed live demo and keep an offline fallback plus video.
+The participant guide fixes the deployment shape: FastAPI behind a same-origin
+reverse proxy whose public `/api/...` path reaches an unprefixed backend
+route, Compose deployed from GitLab `main`, loopback-only host publication, an
+unprefixed `/health`, masked CI variables, bounded log rotation, and CPU-only
+resource limits. GitLab group access and separate LLM service credentials have
+arrived. The group still has no deployment project, and the exact public
+operation/authentication contract plus LLM protocol and policy need
+confirmation.
 
-The next tag is chosen by delivered scope, not by elapsed time: additive
-platform/product capability is a minor release, compatible fixes are a patch,
-and a breaking public contract is a major release. See
-[docs/release-process.md](docs/release-process.md).
+- Capture the remaining official answers: project/template ownership, public
+  operations, caller authentication, payload/timeout/concurrency limits,
+  outbound network policy, LLM protocol/quota/logging policy, and acceptance
+  owner/evidence. Record unanswered fields as unknown; never convert
+  assumptions into a contract.
+- Implement only the hosted adapter/configuration delta: stripped path prefix
+  and `root_path`, unprefixed health check, trusted-host policy, a deliberately
+  allowlisted/authenticated public surface, and platform Compose/CI/logging.
+  Keep detection, masking, vault, provider, and restoration logic unchanged.
+- Obtain or initialize the approved deployment project, push the exact
+  candidate through the supplied GitLab path, boot it, and verify Thai UTF-8,
+  secret injection, health, responses, and safe failures.
+- Run malformed input, timeout, payload-limit, concurrent request, restart,
+  and duplicate-side-effect cases. Test retry ownership only if the official
+  HTTP contract defines retries.
+- Complete one protected LLM roundtrip and scan application plus
+  platform-visible logs with synthetic honeytokens.
 
-## Deferred until the four gates above
+Exit gate: the accepted HTTP service plus a repeatable soak with no crash,
+duplicate side effect, mapping export, credential exposure, or PII-bearing
+log.
 
-- New providers, dashboards, batch orchestration, multi-tenant/shared vaults,
-  mobile apps, and any storefront not explicitly approved above.
+The remaining external blockers are the deployment project, confirmed support
+channel, and unanswered contract fields. They do not block Track A, Track C,
+documentation, adapter seam tests, the provisional worker emulator, or
+image/resource measurement. Dated commitments for this program live in the
+[2026-07-24 execution plan](docs/decisions/2026-07-24-post-v2.5-execution-plan.md),
+whose freeze rules apply to that program's release candidate, not to the
+repository as a whole.
+
+## Track C - Open-source distribution and sustainability
+
+Goal: make the project usable, verifiable, and contributable without the
+maintainer in the room. Standing policies (release discipline, documentation
+honesty, PII-free evidence) are enforced by
+[docs/release-process.md](docs/release-process.md) and AGENTS.md; this track
+lists only decidable deliverables:
+
+- **Store distribution decision.** Decide, per storefront, whether to submit
+  the extension to the Chrome Web Store and the packaging manifests to
+  winget/Scoop upstreams, accepting the support surface that creates. Listing
+  copy and permission justifications are already drafted under
+  [docs/store/](docs/store/).
+- **Contributor path.** Issue templates, a labeled starter-issue set, and a
+  documented benchmark-contribution workflow (how to add gold documents and
+  what review they need).
+- **Signing decision.** Revisit unsigned-by-design once distribution widens;
+  record the outcome either way.
+
+Candidates, not commitments (each needs its own accepted design before any
+implementation): a policy-gateway integration contract for other applications,
+additional AI providers, and a community annotation effort for the gold
+corpus.
+
+## Deferred
+
+- Dashboards, batch orchestration, multi-tenant/shared vaults, and mobile
+  apps.
 - A default heavyweight NER engine without resource and accuracy evidence.
 - Broad OCR expansion beyond the existing optional scanned-PDF path.
-- Public benchmark leadership claims or a community dataset launch.
-- Package-store submissions that create a support surface before the candidate
-  is stable.
+- Public benchmark leadership claims.
 
 Security fixes, official platform requirements, and defects in a committed
 feature are never deferred by this list.

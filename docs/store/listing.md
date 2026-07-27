@@ -43,8 +43,7 @@ AI Guard เป็น extension ที่ช่วยปกปิด (mask) ข�
 - ตาราง mapping ข้อมูลจริง↔รหัสปลอมอยู่ในหน่วยความจำเท่านั้น ไม่เขียนลงดิสก์
 - รองรับ 2 โหมด: token (เช่น `[ชื่อ_1]`) หรือ surrogate (ข้อมูลปลอมที่สมจริง อ่านลื่นไหลสำหรับ AI)
 
-โปรเจกต์นี้พัฒนาโดยนักศึกษาสำหรับ PSU Future Tech Challenge 2026 (AI Innovation
-for Future Society, DIIS / PSU Cybersecurity & AI & Data Privacy Day) เป็นซอฟต์แวร์ระดับต้นแบบ (prototype)
+AI Guard เป็นโปรเจกต์ open source ภายใต้สัญญาอนุญาต Apache-2.0 ตรวจสอบซอร์สโค้ดทั้งหมดได้ที่ GitHub
 
 ดูนโยบายความเป็นส่วนตัวฉบับเต็มได้ที่: `docs/store/privacy-policy.md`
 
@@ -85,9 +84,8 @@ Privacy highlights:
 - Two modes: token (e.g. `[Name_1]`) or surrogate (realistic fake data that
   reads naturally to the AI).
 
-This project was built by students for the PSU Future Tech Challenge 2026
-(AI Innovation for Future Society, DIIS / PSU Cybersecurity & AI & Data
-Privacy Day). It is prototype-level software.
+AI Guard is an open-source project under the Apache-2.0 license. The full
+source code is available on GitHub.
 
 Full privacy policy: `docs/store/privacy-policy.md`
 
