@@ -116,14 +116,21 @@ One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared
 |---|---|
 | Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback. Mask reports success only after re-reading the composer and matching the sanitized text (EXT-2); any mask failure raises a blocking overlay (EXT-3); the restored-PII overlay renders inside a closed shadow root so page scripts cannot read it — its styles live in `OVERLAY_CSS` in content.js, not content.css (EXT-4)) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
-| Queue worker (AI for Thai platform) | `app/worker/` (`python -m app.worker`; job → stateless core; transport is HTTP poll, a provisional guess until the platform spec is published — job schema is `provisional` per docstring in `handler.py`; no PII in logs per VAULT-4; `docker compose --profile worker`) |
+| Queue worker (provisional emulator) | `app/worker/` (`python -m app.worker`; job → stateless core; HTTP-poll transport and job schema are provisional local failure/retry fixtures, not the official AI for Thai delivery path; no PII in logs per VAULT-4; `docker compose --profile worker`) |
 | Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
 | Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
 
-They all sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
-product's front door; the backend is API-only (no web frontend) and runs on localhost.
-`/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
-CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
+The browser extension, desktop shell, and Office add-in use the local
+**FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
+that app. The CLI and provisional worker call shared `pii_redactor/` services
+through their own adapters rather than going through FastAPI. The official AI
+for Thai guide selects a separate hosted HTTP/FastAPI adapter behind its
+reverse proxy; it must preserve the local `/api/*` contract and expose only the
+approved hosted surface once route/auth details are confirmed. The extension
+is the product's front door; the normal local backend is API-only (no web
+frontend) and runs on localhost. `/` redirects to `/docs` (Swagger). The
+extension's service worker calls the backend; CORS allows only extension/Tauri
+origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
 token → original map lives in the backend's in-memory `SessionService` sessions
 (`pii_redactor/session_service.py`, one `SessionVault` per session).
 

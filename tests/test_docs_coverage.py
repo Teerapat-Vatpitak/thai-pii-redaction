@@ -29,6 +29,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CODE_MAP = ROOT / "CLAUDE.md"
 ROADMAP = ROOT / "ROADMAP.md"
 STATUS = ROOT / "docs" / "project-status.md"
+ACCEPTANCE = ROOT / "docs" / "acceptance" / "README.md"
+PLATFORM = ROOT / "docs" / "platform" / "ai-for-thai.md"
 
 # Tracked top-level directories that carry no code a contributor navigates to,
 # so requiring them in the code map would add noise instead of removing it.
@@ -137,3 +139,33 @@ def test_the_three_documents_point_at_each_other():
                 f"{path.name} does not point at {reference}; a reader landing there "
                 f"cannot find the document that answers the other question."
             )
+
+
+def _flat(text: str) -> str:
+    """Collapse whitespace so a phrase assertion survives a markdown reflow.
+
+    These documents are hard-wrapped, so a phrase that reads as one sentence
+    often carries a newline in the middle of it. Matching raw text builds a
+    guard that fails when someone rewraps a paragraph without changing a single
+    word — which is exactly what happened to the worker-provisional assertion
+    below.
+    """
+    return " ".join(text.split())
+
+
+def test_office_acceptance_separates_local_and_packaged_evidence():
+    """Local XML evidence must not silently close the release transport gate."""
+    text = _flat(ACCEPTANCE.read_text(encoding="utf-8"))
+    assert "### Local host-functional acceptance" in text
+    assert "### Packaged unified-manifest acceptance" in text
+    assert "- [ ] Install the exact promoted package" in text
+    assert "Local XML runs, schema validation, and acquisition metadata do not close" in text
+
+
+def test_platform_truth_selects_http_and_keeps_worker_provisional():
+    """The official guide supersedes the old queue-delivery assumption."""
+    text = _flat(PLATFORM.read_text(encoding="utf-8"))
+    assert "HTTP/FastAPI application" in text
+    assert 'root_path="/api"' in text
+    assert "## Official HTTP adapter boundary" in text
+    assert "not the official delivery path" in text

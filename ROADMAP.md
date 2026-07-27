@@ -28,7 +28,7 @@ record does not override this roadmap.
 A feature is not complete merely because its function exists. Before it moves
 to Done it must have:
 
-- a working caller-facing path (UI, API, CLI, or queue operation);
+- a working caller-facing path (UI, API, CLI, or hosted operation);
 - positive, invalid-input, provider-failure, and privacy/log tests appropriate
   to that path;
 - a container or packaged-runtime smoke test where that is how users run it;
@@ -80,17 +80,18 @@ works end to end.
 - Node 22 build, mock tests, unified-manifest/version validation, and real-host
   acceptance evidence before the lane is Done.
 
-Local acceptance evidence now records completed synthetic-PII Word, Excel, and
-PowerPoint XML-host runs, plus exact 2.5.0 three-host unified-manifest
-acquisition metadata, authoritative schema validation, and deterministic
-package verification. The candidate continues to describe the unified
-transport accurately: custom ribbon activation on the packaged distribution
-transport was not independently observable during client cache refresh, and
-this is not a Marketplace or broad Office-distribution claim.
+Local acceptance evidence now records a partial synthetic-PII functional slice
+through the host-specific XML transports for Word, Excel, and PowerPoint.
+Schema validation, exact 2.5.0 three-host acquisition metadata, and
+deterministic package verification also pass. They do not prove packaged
+custom-ribbon/task-pane activation, and several host scenarios remain open in
+the [acceptance checklist](docs/acceptance/README.md).
 
-Exit gate for this lane: Word, Excel, and PowerPoint checklist items pass on the
-candidate build, then Office and the remaining storefront acceptance gates may
-be released together as `2.5.0`. Development does not bump `VERSION`.
+Exit gate for this lane: every remaining Word, Excel, and PowerPoint functional
+item passes, then the exact packaged unified manifest visibly activates its
+ribbon/task pane in all three real hosts. The already-published `v2.5.0` is
+release history, not evidence that this Office distribution gate passed.
+Development and acceptance work do not bump `VERSION`.
 
 ### Demo features
 
@@ -107,7 +108,7 @@ be released together as `2.5.0`. Development does not bump `VERSION`.
 - TNER as an explicit opt-in integration, never a silent replacement for the
   offline engine.
 - Authentication, safe error responses, PII-free logs, health checks, and a
-  replaceable queue/HTTP adapter boundary.
+  replaceable hosted HTTP adapter boundary.
 - Resource profile and configuration reference for the actual Docker image.
 
 Exit gate: the acceptance matrix in `docs/project-status.md` contains no
@@ -116,24 +117,41 @@ may remain optional if their absence and HTTP failure are explicit.
 
 ## Phase 2 - Official AI for Thai acceptance
 
-Goal: replace assumptions with evidence from the real platform.
+Goal: adapt the accepted core to the official HTTP delivery path and replace
+the remaining assumptions with platform evidence.
 
-- Capture the official job envelope, authentication, registry, retry/ack,
-  timeout, payload, logging, network, and resource policies when the account is
-  issued.
-- Implement only the platform adapter/configuration delta; keep the core
-  operations stable.
-- Push the image, boot it, complete the first real job, and verify Thai UTF-8,
-  secrets, result delivery, and error behavior.
-- Run duplicate, timeout, malformed-input, crash-recovery, payload-limit, and
-  concurrent-job acceptance cases.
-- Run a PII honeytoken scan over application and platform-visible logs.
+The participant guide now fixes the deployment shape: FastAPI behind a
+same-origin reverse proxy whose public `/api/...` path reaches an unprefixed
+backend route, Compose deployed from GitLab `main`, loopback-only host
+publication, an unprefixed `/health`, masked CI variables, bounded log
+rotation, and CPU-only resource limits. GitLab group access and separate LLM
+service credentials have also arrived. The group still has no deployment
+project, and the exact public operation/authentication contract plus LLM
+protocol and policy need confirmation.
 
-Exit gate: an accepted platform job plus a repeatable soak with no crash,
-duplicate side effect, mapping export, or PII-bearing log.
+- Capture the remaining official answers: project/template ownership, public
+  operations, caller authentication, payload/timeout/concurrency limits,
+  outbound network policy, LLM protocol/quota/logging policy, and acceptance
+  owner/evidence.
+- Implement only the hosted adapter/configuration delta: stripped path prefix
+  and `root_path`, unprefixed health check, trusted-host policy, a deliberately
+  allowlisted/authenticated public surface, and platform Compose/CI/logging.
+  Keep detection, masking, vault, provider, and restoration logic unchanged.
+- Obtain or initialize the approved deployment project, push the exact
+  candidate through the supplied GitLab path, boot it, and verify Thai UTF-8,
+  secret injection, health, responses, and safe failures.
+- Run malformed input, timeout, payload-limit, concurrent request, restart, and
+  duplicate-side-effect cases. Test retry ownership only if the official HTTP
+  contract defines retries.
+- Complete one protected LLM roundtrip and scan application plus
+  platform-visible logs with synthetic honeytokens.
 
-The account/spec delay is an external blocker only for the official adapter and
-acceptance. It does not block the emulator, feature tests, docs, image, resource
+Exit gate: the accepted HTTP service plus a repeatable soak with no crash,
+duplicate side effect, mapping export, credential exposure, or PII-bearing log.
+
+The remaining external blockers are the deployment project, confirmed support
+channel, and unanswered contract fields. They do not block documentation,
+adapter seam tests, the provisional worker emulator, image/resource
 measurement, or demo preparation.
 
 ## Phase 3 - Benchmark and detection accuracy
@@ -157,8 +175,8 @@ copied into volatile prose without a generated source.
 
 ## Phase 4 - Competition release and presentation
 
-Goal: ship one candidate that the demonstration, documentation, and platform all
-describe identically.
+Goal: ship the next candidate after the published `v2.5.0` baseline so that the
+demonstration, documentation, and platform all describe it identically.
 
 - Freeze features; only blocker and security fixes enter the candidate.
 - Prepare a release PR: version bump, changelog section, full CI, Docker smoke,

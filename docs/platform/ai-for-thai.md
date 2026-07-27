@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-07-24
+Updated: 2026-07-27
 
 ## Submitted service
 
@@ -21,44 +21,56 @@ Local session-based re-identification remains available to the desktop and
 extension product. It is not assumed to survive platform container restarts or
 cross-instance routing.
 
-## What onboarding has and has not provided
+## Official onboarding state
 
-The onboarding material received on 22 July is a general Docker, Docker
-Compose, and GitLab CI fundamentals deck. It demonstrates FastAPI containers,
-health checks, Compose networks/volumes, and CI runners. It does **not** define
-the AI for Thai queue envelope, registry, credentials, retry rules, resource
-ceilings, timeout, payload size, result size, logging retention, or outbound
-network policy.
+The platform delivery shape is no longer unknown. The participant guide and
+service-access messages received between 25 and 27 July establish that:
 
-On 24 July, onboarding staff stated in the deployment group that:
+- the service is an HTTP/FastAPI application behind a same-origin HTTPS reverse
+  proxy;
+- the public `/api/...` prefix is stripped before the request reaches the API
+  container, while FastAPI should use `root_path="/api"` so generated docs and
+  URLs remain correct;
+- the backend must expose an unprefixed `/health` route;
+- GitLab CI deploys Docker Compose from `main`; service ports published on the
+  host bind to `127.0.0.1` within the assigned range;
+- containers are CPU-only, declare service resource limits and health checks,
+  and use bounded log rotation;
+- application secrets are masked CI variables and are not committed or exposed
+  to frontend code; the deploy job materializes the runtime environment;
+- operational access is through CI and platform log tooling rather than SSH;
+  the documented CI job timeout is 20 minutes and team concurrency is three;
+  and
+- the guide examples contain both frontend and API services, but they do not
+  yet answer whether this API-only submission must add a frontend.
 
-- a GitLab user had been sent by email and the team was preparing the
-  deployment repository; and
-- the team would provide a separate LLM endpoint that is not subject to the
-  normal per-account service limit.
+GitLab sign-in and group membership are verified. The group currently contains
+no project or subgroup, so it is still unknown whether staff will provision a
+template/repository or the participant is expected to create one. No project
+has been created from this repository without that answer.
 
-The owner subsequently verified that the GitLab account can sign in to the
-NECTEC GitLab instance. The Home page did not yet show a project, merge
-request, work item, or pending to-do. This closes the account-login blocker but
-not project provisioning. The repository URL, membership/role, CI variables,
-and deployment instructions remain unverified. The separate LLM endpoint,
-request contract, authentication, and policy have not yet been received.
+The platform also issued a separate LLM endpoint, model identifier, and secret
+through a private channel. This repository records only that they exist.
+Request/response compatibility, authentication placement, timeout, quota,
+acceptable-use policy, logging policy, and a protected live acceptance run are
+still open. Credentials, account identifiers, and provider bodies must never
+be copied into this repository or its acceptance artifacts.
 
-The same discussion clarified that ordinary Pathumma, Arnthai, and Partii calls
-made with a participant account consume that account's limit. Rotating personal
-accounts may be useful during informal testing, but it is not an accepted
-production credential or retry design. Hosted acceptance should use the
-platform-issued endpoint and secret once provided.
+The automated access messages explicitly prohibit replies, while the guide says
+to contact staff without naming an official support address. A targeted
+[specification request](ai-for-thai-spec-request.md) is ready, but its recipient
+or support channel still needs confirmation.
 
-The existing HTTP-poll worker transport is therefore still an adapter
-placeholder, not a claim about the official wire protocol.
+The existing HTTP-poll worker and versioned job envelope are therefore retained
+only as a provisional local failure emulator. They are not the official
+delivery path.
 
 ## Measured container profile
 
 Measured from the production Dockerfile on 22 July 2026, using the default
 offline CRF engine:
 
-| Item | Observation | Request / policy |
+| Item | Observation | Local target / platform use |
 |---|---|---|
 | Model | PyThaiNLP `thainer-1.4` CRF, about 1.8 MB | CPU only; baked into image; runtime downloads disabled. |
 | Image | Current local image is 115,898,138 bytes after excluding non-service build context. | Pull from a registry; do not build optional ML/OCR extras into this image. |
@@ -68,8 +80,10 @@ offline CRF engine:
 | Disk | No database or persistent mapping volume | Request 10 GB for image/layer updates, bounded temp files, and rotated logs. |
 | GPU | Not used | Do not request a GPU for the default service. |
 
-These are operational observations, not platform limits. Re-measure inside the
-allocated environment.
+These are operational observations and the repository's initial request
+profile, not authority to exceed the team allocation in the participant guide.
+The official Compose file must declare per-service limits within that
+allocation, then the profile must be re-measured on the platform.
 
 The [2026-07-24 Docker record](../acceptance/2026-07-24-docker-run.md) contains
 the image ID, exact local constraints, endpoint latency, non-root check, and
@@ -89,31 +103,35 @@ hosted guarantees are:
 Do not use the local-product claim "PII never leaves the device" for this
 deployment.
 
-## Adapter boundary
+## Official HTTP adapter boundary
 
-The core handler accepts the internal versioned envelope:
+The shared core does not need a platform fork. The current local FastAPI server,
+however, is not ready to be exposed by the documented reverse proxy without a
+small, explicit hosted adapter/configuration layer:
 
-```json
-{
-  "contract_version": 1,
-  "job_id": "platform-job-id",
-  "operation": "detect|sanitize|analyze|roundtrip",
-  "payload": {}
-}
-```
+| Area | Official guide / current code | Required adapter delta |
+|---|---|---|
+| Route prefix | Public `/api/...` is stripped before the container; current routes are declared as `/api/*`. | Expose only the approved operations as unprefixed backend routes while preserving the local `/api/*` contract. |
+| FastAPI root | Generated platform URLs must understand the public prefix. | Set `root_path="/api"` only in the hosted configuration. |
+| Health | Platform expects backend `/health`; current health is `/api/health`. | Add the unprefixed hosted health route used by Compose/proxy checks. |
+| Host policy | Current trusted hosts are only `localhost` and `127.0.0.1`. | Add only the documented proxy host(s); do not broadly disable host validation. |
+| Public surface | The local server contains endpoints beyond the submitted hosted operations, and its declared API-key middleware does not cover every possible provider-backed route. | Confirm the official operation list and caller authentication, then fail closed with an explicit route allowlist and uniform protection. |
+| Frontend | Guide examples show frontend plus API; the submitted product is an API service. | Confirm that API-only deployment is accepted before adding any frontend service. |
+| Deployment | Local Compose is a developer profile. | Add platform-specific Compose/CI, loopback port mapping, health check, resource limits, masked-variable mapping, and bounded logs without weakening local defaults. |
 
-The missing `contract_version` field remains accepted as version 1 only for
-the original provisional fixtures. New fixtures and adapters must send it.
-Unsupported versions fail before an operation sees the payload. The provisional
-envelope defaults to a 1 MiB maximum; `AIGUARD_MAX_JOB_BYTES` may lower that
-local limit while the platform value remains unknown.
+Do not change detection, masking, transient mapping, residual leak checks,
+provider calls, or restoration to satisfy this layer. Do not expose
+`/api/reidentify`, mapping-return options, demo routes, shutdown/session
+controls, or PDF endpoints unless the official contract explicitly requires
+and protects them.
 
-The official adapter may translate a different queue message into this shape.
-Only the adapter owns platform polling/consumption, acknowledgement, retries,
-result submission, and authentication. Core operations must remain independent
-of those details.
+The remaining answers are narrow but security-sensitive: approved operations,
+caller-authentication/header rules, payload and timeout limits, proxy
+hostnames, frontend requirement, project/template ownership, and acceptance
+owner. Until those are confirmed, adapter code would encode guesses in a
+public boundary.
 
-## Local emulator evidence
+## Provisional worker emulator evidence
 
 The deterministic pre-platform runner is:
 
@@ -135,35 +153,37 @@ in the same process. It cannot prove exactly-once behavior after a process or
 container crash. That requires the official acknowledgement semantics and, if
 necessary, a platform-supported idempotency store.
 
-## Specification capture checklist
+## Remaining specification checklist
 
-Complete this table immediately when the platform account/spec arrives:
+Answered fields stay recorded here so a later message cannot silently return
+the design to the old queue assumption.
 
-| Area | Required answer |
-|---|---|
-| Account | Login verified; still need project membership/role and the support contact. |
-| Registry | Repository/registry URL, namespace, tag/digest rule, architecture, and pull credentials. |
-| Runtime | Docker/Compose/Kubernetes/runner, command, working directory, port or worker mode. |
-| Job delivery | Queue technology, envelope, content type, ordering, at-least/at-most-once semantics. |
-| Completion | Ack/nack timing, result endpoint/queue, duplicate job behavior, retry ownership. |
-| Limits | CPU, RAM, disk, image, request/result bytes, concurrency, timeout, max processing time. |
-| Networking | Inbound host/port, outbound allowlist for the platform LLM endpoint, Pathumma, and TNER; DNS and TLS policy. |
-| Secrets | Injection method, header names, rotation, separation of caller/provider keys, and the promised LLM endpoint credential. |
-| Logs | Capture destination, retention, access, redaction, stdout/stderr policy. |
-| Health | Probe protocol/path, interval, startup grace, restart policy. |
-| Acceptance | Required operations, fixtures, performance/SLA, owner and escalation path. |
+| Area | Known | Still required |
+|---|---|---|
+| Access | Login and group membership work. | Who creates the project/template, repository URL, and official support/escalation channel. |
+| Delivery | HTTP/FastAPI through the platform reverse proxy; Compose deploys from GitLab `main`. | Whether an API-only service is accepted and which files/template are mandatory. |
+| Routing | Public `/api` is stripped; backend health is `/health`; FastAPI docs use `root_path="/api"`. | Exact proxy Host header, approved public operations, and caller-authentication model/header. |
+| Registry | GitLab is the delivery control plane. | Image registry/repository rule, architecture, tag/digest rule, and whether CI builds or pulls. |
+| Limits | CPU-only, declared service limits, bounded logs, 20-minute CI jobs, and team CI concurrency of three. | Request/result bytes, API concurrency, request/overall timeout, and exact acceptance thresholds. |
+| Networking | Host ports bind to loopback; TLS and public routing are platform-owned. | Outbound DNS/TLS/allowlist policy for the issued LLM endpoint, Pathumma, and TNER. |
+| Secrets | Masked CI variables feed the runtime environment; provider access was issued privately. | Required variable names, caller/provider separation, rotation, and whether file-mounted secrets are allowed. |
+| LLM | Endpoint, model identifier, and secret have been issued. | Protocol/compatibility, auth placement, timeout, quota, acceptable use, logging, and live acceptance fixture. |
+| Logs | Bounded container rotation and platform log viewing are required. | Retention, audience/access, stdout/stderr fields, and platform-side redaction/incident procedure. |
+| Health | Backend `/health` plus container health checks are required. | Interval, startup grace, restart policy, and termination grace. |
+| Acceptance | Synthetic data and PII-free evidence remain mandatory. | Required operations, fixtures, soak/SLA, evidence format, approving owner, and sign-off path. |
 
 ## Acceptance sequence
 
 1. Build the exact commit and identify the image by immutable digest.
 2. Boot with no runtime model download and pass the platform health check.
-3. Complete a synthetic Thai detect job and validate UTF-8 spans.
-4. Complete sanitize and analyze jobs; confirm no mapping unless explicitly
+3. Complete a synthetic Thai detect request and validate UTF-8 spans.
+4. Complete sanitize and analyze requests; confirm no mapping unless explicitly
    required by an approved contract.
 5. Complete a protected Pathumma roundtrip if outbound access and credentials
    are approved.
-6. Inject malformed, duplicate, timeout, provider-failure, and oversized jobs.
-7. Restart during work and verify the platform retry/ack outcome.
+6. Inject malformed, timeout, provider-failure, and oversized requests.
+7. Restart during work and verify safe recovery. Test duplicate/retry behavior
+   only when the official HTTP contract defines it.
 8. Run the soak set and scan every application/platform-visible log for PII
    honeytokens.
 9. Record actual p50/p95 latency, peak RAM/CPU, image digest, and limits.

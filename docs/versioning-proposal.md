@@ -1,11 +1,13 @@
-# Versioning proposal
+# Versioning advisory
 
-Status: product patch approved; service-version split still awaits platform
-requirements.
+Updated: 2026-07-27
+
+Status: `v2.5.0` is the published product baseline; a separate service-version
+field still awaits an explicit platform requirement.
 
 ## Recommendation
 
-Do not reset the existing AI Guard product from `2.4.0` to `0.1.0` in this
+Do not reset the existing AI Guard product from `2.5.0` to `0.1.0` in this
 repository. Published `v1.x` and `v2.x` tags, desktop updater metadata, package
 manifests, extension versions, and download URLs already identify one monotonic
 product line. A lower version would look like a downgrade and some clients
@@ -13,16 +15,16 @@ would never offer it as an update.
 
 Use three independent numbers instead:
 
-| Scope | Recommended next value | Rule |
-|---|---:|---|
-| Desktop/extension/product `VERSION` | `2.4.2` for the accepted compatible surrogate and browser-editor fixes; the unpublished `v2.4.1` candidate is superseded, not retagged; `2.5.0` only when the additive Office scope passes | Monotonic SemVer; never reset, move, or reuse a tag. |
-| AI for Thai service deployment | `0.1.0` | New deployment line; `0.1.1`, `0.1.2` for compatible fixes, `0.2.0` for a new operation or platform contract change. |
-| Public API contract | current `1` | Change only for an actual incompatible caller contract; independent of both release lines. |
+| Scope | Current decision | Rule |
+|---|---|---|
+| Desktop/extension/product `VERSION` | Published `2.5.0`; choose the next value only from delivered scope. | Monotonic SemVer; compatible fixes are a patch, additive capability is a minor, and a breaking public contract is a major. Never reset, move, or reuse a tag. |
+| AI for Thai service deployment | `0.1.0` remains a possible first value, not an implemented source of truth. | Create a separate version only if the official platform requires it in an image tag, response, registry, or deployment manifest. |
+| Public API contract | Current `1`. | Change only for an incompatible caller contract; independent of either release line. |
 
 The service version should become a separate source such as
 `AIFORTHAI_SERVICE_VERSION` only after the platform confirms where it must
-appear (image tag, job result, registry metadata, or deployment manifest). Do
-not duplicate it across files before that requirement exists.
+appear. Do not duplicate it across files or bump the product version for
+documentation, acceptance, or adapter preparation.
 
 ## If every visible version must be `0.1.x`
 
