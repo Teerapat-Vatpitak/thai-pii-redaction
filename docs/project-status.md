@@ -5,6 +5,11 @@ Updated: 2026-07-24
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
 
+This document answers one question: **what is actually finished, and what is the
+evidence**. It is not the code map ([CLAUDE.md](../CLAUDE.md)) and it does not set
+priority or order ([ROADMAP.md](../ROADMAP.md)). Every storefront named in the
+code map must have a row here; `tests/test_docs_coverage.py` enforces that.
+
 ## Status vocabulary
 
 - **Verified** - implemented and covered on its intended automated/runtime path.
@@ -52,7 +57,7 @@ existence from evidence on the real delivery path.
 |---|---|---|
 | Docker image | Verified | Builds/boots non-root with the offline CRF model baked in. The 2026-07-24 local image was 115,898,138 bytes; non-service `tmp`, Office, output, and acceptance paths are excluded and pinned by a regression test. |
 | Resource profile | Verified locally | Under 1 CPU/1 GiB, the local workload completed with a 177.2 MiB post-workload sample; token sanitize plus restore was 29.8 ms and PDF redact 256.5 ms. Request profile remains 1 vCPU, 1 GB RAM, 10 GB disk, no GPU. Re-measure peak/p95 on official infrastructure. |
-| Queue handler operations | Verified | Detect, sanitize, analyze, restore, and roundtrip contract tests; the internal envelope is explicitly contract version 1 with safe identifier, serialization, version, and configurable provisional-size validation. |
+| Queue worker operations | Verified | Detect, sanitize, analyze, restore, and roundtrip contract tests; the internal envelope is explicitly contract version 1 with safe identifier, serialization, version, and configurable provisional-size validation. |
 | Queue transport/envelope | Blocked externally | HTTP-poll transport is an adapter placeholder until the platform sends its actual delivery/result contract. Onboarding staff reported that a GitLab user was emailed and the deployment repository was being prepared, but no wire specification has been verified. |
 | Official AI for Thai deployment | Blocked externally | The owner can sign in to the NECTEC GitLab instance. No project, pending to-do, or repository was visible on the verified Home page; project membership, repository URL, CI/deploy procedure, and official runtime contract remain pending. |
 | Platform LLM endpoint | Acceptance pending | Staff stated that a separate endpoint without the normal participant-account limit will be supplied. Endpoint URL, authentication, request/response shape, timeout, and acceptable-use/logging policy have not yet been received. Ordinary Pathumma/Arnthai/Partii calls still consume the participant account limit. |

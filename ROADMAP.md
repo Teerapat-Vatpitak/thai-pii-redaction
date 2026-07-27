@@ -2,8 +2,9 @@
 
 AI Guard has one product core and two delivery tracks:
 
-1. a local-first desktop/extension product where the PII mapping never leaves
-   the user's device; and
+1. a local-first product — browser extension, Windows desktop app, and
+   Microsoft 365 add-in — where the PII mapping never leaves the user's device;
+   and
 2. a hosted AI for Thai service where the platform receives the request, AI
    Guard avoids persistence and PII-bearing logs, and downstream Pathumma calls
    receive only masked text.
@@ -13,9 +14,14 @@ real delivery path first; measure and improve detection accuracy after feature
 acceptance**. A benchmark is evidence for a working product, not a substitute
 for one.
 
-Current truth lives in [docs/project-status.md](docs/project-status.md). Design
-history remains in [docs/decisions/](docs/decisions/), but an old decision record
-does not override this roadmap.
+This document answers one question: **what gets built next, in what order, and
+what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is not
+the record of what is finished ([docs/project-status.md](docs/project-status.md)).
+Keeping the three separate is deliberate — when each file carried a little of all
+three, they drifted and told different stories.
+
+Design history remains in [docs/decisions/](docs/decisions/), but an old decision
+record does not override this roadmap.
 
 ## Definition of done for a feature
 

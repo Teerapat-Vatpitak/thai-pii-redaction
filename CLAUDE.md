@@ -4,13 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Thai PII detection and redaction system for PSU Future Tech Challenge 2026 (AI Innovation for Future Society, DIIS / PSU Cybersecurity & AI & Data Privacy Day). Prototype-level entry; submission deadline 29 June 2026, poster presentation 10 July 2026.
+Thai PII detection and redaction system. Two modes:
 
-Two modes:
 - **True redaction**: permanently black-box PII at bbox level in PDF
 - **AI Guard**: pseudonymize PII with tokens before sending to external AI, re-identify locally from vault after response
 
-Deliverables are an MS Form, one-page A4 doc, <=5 min video, and A1 poster (source code not required).
+Originally scoped for PSU Future Tech Challenge 2026 (AI Innovation for Future
+Society, DIIS / PSU Cybersecurity & AI & Data Privacy Day); that event's dates
+(submission 29 June 2026, poster 10 July 2026) have passed. Current delivery
+tracks live in the roadmap, not here.
+
+### What this file is, and what it is not
+
+This file is the **code map**: where things live, what each module is for, and
+which invariants a change must not break. It deliberately carries no status and
+no schedule. Three documents each carrying a bit of all three is how the
+repository starts telling three different stories.
+
+| Question | Document |
+|---|---|
+| Where does this live, and what must I not break? | this file |
+| What gets built next, in what order, and what is the gate? | [ROADMAP.md](ROADMAP.md) |
+| What is actually finished, and what is the evidence? | [docs/project-status.md](docs/project-status.md) |
+
+`tests/test_docs_coverage.py` fails if a tracked top-level directory is absent
+from this map or a storefront named here has no status row, so a new lane cannot
+be added without appearing in both.
 
 ## Environment Setup
 
@@ -61,6 +80,10 @@ npm run test:js
 # Tests (Rust — Tauri shell incl. sidecar kill-sequence tests)
 cd desktop/src-tauri; cargo test
 
+# Tests (Office add-in — its OWN npm project, Node 22; the root `test:js` does
+# not reach it because office-addin/ has its own package.json + vitest.config.ts)
+cd office-addin; npm install; npm test; npm run typecheck; npm run validate:manifest
+
 # Lint + format (same two commands CI runs; config in pyproject.toml)
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format .
@@ -87,15 +110,17 @@ localhost/127.0.0.1 (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
-One core pipeline (`pii_redactor/`) exposed via three storefronts over one shared backend:
+One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared backend:
 
 | Storefront | Entry point |
 |---|---|
 | Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback. Mask reports success only after re-reading the composer and matching the sanitized text (EXT-2); any mask failure raises a blocking overlay (EXT-3); the restored-PII overlay renders inside a closed shadow root so page scripts cannot read it — its styles live in `OVERLAY_CSS` in content.js, not content.css (EXT-4)) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
 | Queue worker (AI for Thai platform) | `app/worker/` (`python -m app.worker`; job → stateless core; transport is HTTP poll, a provisional guess until the platform spec is published — job schema is `provisional` per docstring in `handler.py`; no PII in logs per VAULT-4; `docker compose --profile worker`) |
+| Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
+| Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
 
-Both sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
+They all sit on the **FastAPI backend** `app/server.py` (`/api/*`). The extension is the
 product's front door; the backend is API-only (no web frontend) and runs on localhost.
 `/` redirects to `/docs` (Swagger). The extension's service worker calls the backend;
 CORS allows only extension/Tauri origins (strict allowlist, see above). The browser never holds the vault — only the `session_id`; the
