@@ -3,7 +3,7 @@
 ## Supported versions
 
 Only the latest published release is supported with security fixes. The
-`main` branch may contain unreleased platform or competition work; a fix is
+`main` branch may contain unreleased work; a fix is
 considered shipped only when it appears in a published release or an explicitly
 identified hosted deployment.
 

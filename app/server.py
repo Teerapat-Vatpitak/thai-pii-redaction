@@ -96,7 +96,7 @@ __version__ = _read_version()
 
 app = FastAPI(
     title="AI Guard API",
-    description="Thai PII Redaction Pipeline — PSU FTC 2026",
+    description="Thai PII detection, anonymization, and redaction",
     version=__version__,
 )
 

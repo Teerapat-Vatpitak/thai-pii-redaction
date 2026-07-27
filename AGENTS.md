@@ -38,12 +38,14 @@ unrelated user changes and untracked files.
 
 ## Current delivery order
 
-Make committed features work on their real delivery path before expanding the
-benchmark or tuning accuracy. Current status and blockers live in
-`docs/project-status.md`; ordered gates live in `ROADMAP.md`.
+Committed features have passed acceptance on their real delivery paths. The
+current focus is the detection-accuracy track; the hosted platform track is
+externally gated. Current status and blockers live in
+`docs/project-status.md`; ordered tracks live in `ROADMAP.md`.
 
-The Microsoft 365 lane is Word -> Excel -> PowerPoint. Keep the release
-manifest Word-only until Excel and PowerPoint real-host acceptance passes.
+The Microsoft 365 lane shipped its accepted scope (three-host unified
+manifest, local acceptance only — not a Marketplace claim). It receives only
+blocker or security fixes until new Office scope is explicitly approved.
 Local XML manifests are acceptance transports, not release evidence.
 
 The AI for Thai job envelope and transport remain provisional until the

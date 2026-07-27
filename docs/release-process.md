@@ -79,7 +79,7 @@ The draft remains unpublished until the maintainer verifies:
 - checksums match downloaded artifacts;
 - `gh attestation verify` succeeds for representative artifacts;
 - release notes match the changelog and make no unsupported claim; and
-- an install/launch smoke has passed on the presentation platform.
+- an install/launch smoke has passed on the maintainer's primary platform.
 
 Only then publish the draft and mark it Latest. Delete stale duplicate **drafts**
 after verifying a published release for that tag already exists; never delete a

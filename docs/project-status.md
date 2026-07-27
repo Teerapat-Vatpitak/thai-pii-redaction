@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-07-24
+Updated: 2026-07-27
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -14,13 +14,15 @@ existence from evidence on the real delivery path.
   external state change.
 - **Optional** - supported only when an explicit extra is installed/configured;
   absence must fail clearly.
-- **Deferred** - intentionally after feature and platform acceptance.
+- **Deferred** - intentionally out of current scope; the list lives in
+  [ROADMAP.md](../ROADMAP.md).
 
 ## Core and API
 
 | Feature | Status | Evidence / remaining gate |
 |---|---|---|
-| Structured + Thai NER detection | Verified | Shared `detect_all` path, regression tests, Docker smoke. Accuracy improvement is deferred, not functional completion. |
+| Structured + Thai NER detection | Verified | Shared `detect_all` path, regression tests, Docker smoke. Accuracy improvement proceeds under the roadmap's detection-accuracy track (Track A). |
+| Detection benchmark | Verified | `python -m benchmark` scores synthetic and hand-authored gold corpora (including a negative slice) at entity, character, and exact-boundary level, plus an engine/strategy comparison and an external LLM baseline. Reports are generated locally and gitignored. |
 | Token and surrogate sanitization | Verified | Local session and stateless worker paths; residual structured-PII guard. A consistency-scan defect that could destroy an already-written pseudonym and lose the original text was found and fixed on 2026-07-26; the round-trip is covered by three non-random regression tests plus a 400-iteration repeat run. |
 | Local multi-turn re-identification | Verified | In-memory session vault, TTL/LRU, collision and concurrency tests. |
 | Stateless hosted sanitization | Verified | Worker operation; mapping omitted by default. |
@@ -68,5 +70,6 @@ existence from evidence on the real delivery path.
   the preferred restoration flow because it consumes the mapping inside one
   job.
 - The hosted service does not claim raw PII remains on the user's device.
-- Benchmark expansion and accuracy tuning are Deferred until the feature and
-  platform acceptance gates in [ROADMAP.md](../ROADMAP.md).
+- Benchmark and detection-accuracy work is active under the roadmap's Track A
+  in [ROADMAP.md](../ROADMAP.md); the remaining platform acceptance items are
+  externally blocked, not deferred.

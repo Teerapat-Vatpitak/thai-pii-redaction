@@ -123,10 +123,13 @@ reproducibility.
 
 ## Status
 
-The implemented feature set is being driven through acceptance before the next
-accuracy phase. The AI for Thai transport remains provisional until the
-platform supplies the account and wire specification. No public accuracy claim
-should be inferred from the current diagnostic corpus.
+Product-feature acceptance for the committed scope is complete on the real
+delivery paths; remaining acceptance items are externally blocked platform
+gates. Current work focuses on detection accuracy against a hand-authored
+gold benchmark (see `benchmark/`). Accuracy numbers live in generated
+benchmark reports with corpus size and limitations — do not infer a public
+accuracy claim from prose. The AI for Thai transport remains provisional
+until the platform supplies the account and wire specification.
 
 - [Current feature status](docs/project-status.md)
 - [Roadmap](ROADMAP.md)
