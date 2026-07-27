@@ -2,36 +2,43 @@
 
 AI Guard follows **one core, multiple storefronts**. Detection,
 pseudonymization, leak scanning, restoration, and validation live under
-`pii_redactor/`. The extension, desktop app, CLI, HTTP API, demo, and platform
-worker adapt user or platform input to that core; they must not create separate
-detection logic.
+`pii_redactor/`. The extension, desktop app, Microsoft 365 add-in, CLI, HTTP
+API, demo, and hosted adapters translate caller input to that core; they must
+not create separate detection logic.
 
 ## System shape
 
 ```text
 Browser extension ----\
-Desktop app -----------+--> FastAPI adapter ----\
-CLI -------------------/                        |
-                                                +--> pii_redactor core
-Demo playground -------> demo/API adapter ------|    detect -> mask -> guard
-Platform queue --------> worker adapter --------/    -> provider -> restore
+Desktop app -----------+--> local FastAPI adapter --------\
+Office add-in ---------/                                  |
+                                                           +--> pii_redactor core
+Hosted HTTP -----------> official HTTP adapter (pending) --|    detect -> mask
+Demo playground -------> demo/API adapter -----------------|    -> guard
+CLI -------------------> direct core adapter --------------|    -> provider
+Provisional job runner -> worker adapter ------------------/    -> restore
 ```
 
-The FastAPI session path and the queue worker serve different lifecycles:
+The adapters serve three deliberately different lifecycles:
 
 - Local HTTP sessions retain a mapping in process memory behind an opaque
   `session_id`, enabling multi-turn restoration on one device.
-- Stateless worker operations create a mapping only for the duration of the
-  operation. `roundtrip` consumes it before returning. `sanitize` does not
-  return it unless an exact explicit opt-in is supplied; the hosted product
-  should not enable that opt-in by default.
+- Hosted HTTP operations are stateless by default. A protected `roundtrip`
+  consumes its transient mapping before returning, and normal hosted responses
+  must not return the mapping.
+- The worker operations and internal versioned job envelope remain a local
+  emulator and replaceable compatibility boundary. The official participant
+  guide selects an HTTP/FastAPI service behind its reverse proxy, so the worker
+  is not the current delivery contract.
 
 ## Trust boundary A - local product
 
-The desktop sidecar binds to localhost and serves the extension/desktop shell.
-Detection and the token-to-original mapping stay on the device. When the user
-chooses an external AI provider, the outbound leak guard checks the masked text
-before it leaves. The external provider should see only masked values.
+The desktop sidecar binds to localhost and serves the browser, desktop, and
+Office paths (the Office task pane reaches it through an HTTPS localhost
+proxy). Detection and the token-to-original mapping stay on the device. When
+the user chooses an external AI provider, the outbound leak guard checks the
+masked text before it leaves. The external provider should see only masked
+values.
 
 The local claim is therefore: **the mapping and raw PII do not leave the user's
 device through the intended product flow**.
@@ -44,7 +51,7 @@ Guard container. The hosted guarantees are narrower:
 
 - no mapping persistence to disk;
 - no user text or raw PII in application logs or public error messages;
-- no mapping in the normal queue result;
+- no mapping in the normal hosted HTTP result;
 - a protected Pathumma roundtrip sends Pathumma only the masked prompt; and
 - container restart may intentionally discard transient restoration state.
 
@@ -75,9 +82,10 @@ PII detection and not a complete injection defense.
 |---|---|
 | `pii_redactor/` | Product core: ingest, detection, masking, vault, provider clients, restoration, validation, reports, and PDF redaction. |
 | `app/server.py` | Local/HTTP adapter and API contract. |
-| `app/worker/` | Stateless job operations plus a replaceable platform transport. |
+| `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
 | `extension/` | MV3 browser extension and supported-site adapters. |
 | `desktop/` | Tauri shell, static UI, updater, and sidecar lifecycle. |
+| `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters; it holds `session_id`, never the mapping. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
 | `tests/` | Contract, security, feature, benchmark, and packaging regression tests. |
@@ -98,5 +106,7 @@ is deferred unless a concrete dependency or ownership problem appears.
   Guard caller credential.
 - Optional ML/OCR dependencies are not silently installed or silently selected.
 
-Platform-specific queue envelopes, hostnames, and credentials belong in an
-adapter/configuration layer. They must not leak into detection or masking code.
+Platform-specific HTTP paths, reverse-proxy assumptions, hostnames,
+authentication, deployment configuration, and credentials belong in an
+adapter/configuration layer. The provisional job envelope stays replaceable.
+None of those details may leak into detection or masking code.

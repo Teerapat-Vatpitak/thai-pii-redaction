@@ -3,51 +3,77 @@
 AI Guard is an open-source (Apache-2.0) Thai PII detection, anonymization, and
 redaction toolkit. It has one product core and two delivery contexts:
 
-1. a local-first desktop/extension/Office product where the PII mapping never
-   leaves the user's device; and
+1. a local-first product — browser extension, Windows desktop app, and
+   Microsoft 365 add-in — where the PII mapping never leaves the user's
+   device; and
 2. a hosted service shape where the platform receives the request, AI Guard
    avoids persistence and PII-bearing logs, and downstream provider calls
    receive only masked text.
 
+This document answers one question: **what gets built next, in what order, and
+what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
+not the record of what is finished
+([docs/project-status.md](docs/project-status.md)). Keeping the three separate
+is deliberate — when each file carried a little of all three, they drifted and
+told different stories.
+
 Development is organized by delivery tracks, not by event dates. Dated,
 time-bounded plans (such as the AI for Thai onboarding window) live in
-[docs/decisions/](docs/decisions/) and never override this roadmap. Current
-truth lives in [docs/project-status.md](docs/project-status.md).
+[docs/decisions/](docs/decisions/) and never override this roadmap.
 
 Historical note: earlier versions of this roadmap were numbered Phase 0-4.
 Where a decision record references those numbers, Phase 0/1 are the completed
-reset-and-acceptance work, Phase 2 corresponds to the hosted platform track,
-and Phase 3 corresponds to the detection accuracy track below. Phase 4
-(a competition release gate) is retired; release rules live in
-[docs/release-process.md](docs/release-process.md).
+reset-and-acceptance work (with the Office remainder below), Phase 2
+corresponds to the hosted platform track, and Phase 3 corresponds to the
+detection accuracy track. Phase 4 (a competition release gate) is retired;
+release rules live in [docs/release-process.md](docs/release-process.md).
 
 ## Where the project stands
 
 - `v2.5.0` is released with checksums and build provenance. The release
   pipeline (tag, CI, cross-platform builds, attestation, packaging metadata)
   has run end to end on a real tag.
-- Product-feature acceptance for the committed scope is complete on the real
-  delivery paths: extension, desktop, Office task pane (local acceptance),
-  CLI, API, container, and worker emulator. Remaining acceptance items are
-  externally blocked platform gates, tracked in
-  [docs/project-status.md](docs/project-status.md).
+- Feature acceptance on the real delivery paths is complete for the extension,
+  desktop app, CLI, API, container, and demo playground. The Microsoft 365
+  add-in is the one storefront still Acceptance pending: several host
+  scenarios and the packaged unified-manifest activation run remain open (see
+  below).
 - A detection benchmark exists: a seeded synthetic corpus plus a hand-authored
   gold corpus with a negative (no-PII) slice, scored entity-level,
   character-level, and exact-boundary, with an external LLM baseline. Numbers
   live in generated benchmark reports, not in this file.
+- The AI for Thai participant guide has arrived and fixes the deployment shape
+  (HTTP/FastAPI behind a reverse proxy, Compose from GitLab `main`). The
+  deployment project and the exact public route/auth contract are still
+  pending; the queue worker is retained only as a local failure/retry
+  emulator, not the official delivery path.
 
 ## Definition of done for a feature
 
 A feature is not complete merely because its function exists. Before it moves
 to Done it must have:
 
-- a working caller-facing path (UI, API, CLI, or queue operation);
+- a working caller-facing path (UI, API, CLI, or hosted operation);
 - positive, invalid-input, provider-failure, and privacy/log tests appropriate
   to that path;
 - a container or packaged-runtime smoke test where that is how users run it;
 - documented configuration, trust boundary, limitations, and failure behavior;
 - a repeatable demo or acceptance fixture using synthetic PII; and
 - no known critical path that returns raw PII in logs or an unintended mapping.
+
+## Outstanding feature acceptance — Microsoft 365 add-in
+
+The Office lane receives only blocker/security fixes and acceptance evidence
+until new scope is explicitly approved. Still open, per the
+[acceptance checklist](docs/acceptance/README.md):
+
+- the remaining local host-functional scenarios (Word table and
+  missing-key/provider/expired-session cases; Excel changed-value/formula
+  cancellation and Pathumma Copy-only; PowerPoint full unselected-content
+  isolation, missing API 1.5, and Pathumma Copy-only); and
+- one real-host run proving the exact packaged three-host unified manifest
+  activates its ribbon/task pane. Schema validation, acquisition metadata, and
+  local XML transports do not close that distribution gate.
 
 ## Track A - Detection accuracy (current focus)
 
@@ -82,22 +108,46 @@ is copied into volatile prose without a generated source.
 
 ## Track B - Hosted platform integration (externally gated)
 
-Goal: replace assumptions with evidence from a real hosting platform. The
-first concrete instance is AI for Thai; the design keeps the platform adapter
-replaceable so a second platform is a delta, not a rewrite.
+Goal: adapt the accepted core to the official HTTP delivery path and replace
+the remaining assumptions with platform evidence. The first concrete instance
+is AI for Thai; the adapter stays replaceable so a second platform is a
+delta, not a rewrite.
 
-- Capture the official job envelope, authentication, registry, retry/ack,
-  timeout, payload, logging, network, and resource policies when the platform
-  issues them. Record unanswered fields as unknown; never convert assumptions
-  into a contract.
-- Implement only the transport/configuration delta; core operations stay
-  stable and shared with the local product.
-- Acceptance on the real platform: first accepted job, Thai UTF-8 integrity,
-  secrets handling, duplicate/timeout/malformed/crash/concurrency behavior,
-  and a PII honeytoken scan over platform-visible logs.
+The participant guide fixes the deployment shape: FastAPI behind a same-origin
+reverse proxy whose public `/api/...` path reaches an unprefixed backend
+route, Compose deployed from GitLab `main`, loopback-only host publication, an
+unprefixed `/health`, masked CI variables, bounded log rotation, and CPU-only
+resource limits. GitLab group access and separate LLM service credentials have
+arrived. The group still has no deployment project, and the exact public
+operation/authentication contract plus LLM protocol and policy need
+confirmation.
 
-This track blocks only on the external account/specification. It does not
-block Track A or Track C, and its dated commitments live in the
+- Capture the remaining official answers: project/template ownership, public
+  operations, caller authentication, payload/timeout/concurrency limits,
+  outbound network policy, LLM protocol/quota/logging policy, and acceptance
+  owner/evidence. Record unanswered fields as unknown; never convert
+  assumptions into a contract.
+- Implement only the hosted adapter/configuration delta: stripped path prefix
+  and `root_path`, unprefixed health check, trusted-host policy, a deliberately
+  allowlisted/authenticated public surface, and platform Compose/CI/logging.
+  Keep detection, masking, vault, provider, and restoration logic unchanged.
+- Obtain or initialize the approved deployment project, push the exact
+  candidate through the supplied GitLab path, boot it, and verify Thai UTF-8,
+  secret injection, health, responses, and safe failures.
+- Run malformed input, timeout, payload-limit, concurrent request, restart,
+  and duplicate-side-effect cases. Test retry ownership only if the official
+  HTTP contract defines retries.
+- Complete one protected LLM roundtrip and scan application plus
+  platform-visible logs with synthetic honeytokens.
+
+Exit gate: the accepted HTTP service plus a repeatable soak with no crash,
+duplicate side effect, mapping export, credential exposure, or PII-bearing
+log.
+
+The remaining external blockers are the deployment project, confirmed support
+channel, and unanswered contract fields. They do not block Track A, Track C,
+documentation, adapter seam tests, the provisional worker emulator, or
+image/resource measurement. Dated commitments for this program live in the
 [2026-07-24 execution plan](docs/decisions/2026-07-24-post-v2.5-execution-plan.md),
 whose freeze rules apply to that program's release candidate, not to the
 repository as a whole.

@@ -1,28 +1,30 @@
-# Versioning policy
+# Versioning advisory
 
-Status: decided and applied (the product line continued monotonically through
-`v2.5.0`); the service-version split still awaits platform requirements.
+Updated: 2026-07-27
 
-## Policy
+Status: `v2.5.0` is the published product baseline; a separate service-version
+field still awaits an explicit platform requirement.
 
-Do not reset the existing AI Guard product line to `0.1.0` in this repository.
-Published `v1.x` and `v2.x` tags, desktop updater metadata, package manifests,
-extension versions, and download URLs already identify one monotonic product
-line. A lower version would look like a downgrade and some clients would never
-offer it as an update.
+## Recommendation
 
-Three independent numbers are used instead:
+Do not reset the existing AI Guard product from `2.5.0` to `0.1.0` in this
+repository. Published `v1.x` and `v2.x` tags, desktop updater metadata, package
+manifests, extension versions, and download URLs already identify one monotonic
+product line. A lower version would look like a downgrade and some clients
+would never offer it as an update.
 
-| Scope | Rule |
-|---|---|
-| Desktop/extension/product `VERSION` | Monotonic SemVer; never reset, move, or reuse a tag. Additive capability is a minor release, compatible fixes are a patch, a breaking public contract is a major release. |
-| AI for Thai service deployment | A separate line starting at `0.1.0`; patch for compatible fixes, minor for a new operation or platform contract change. |
-| Public API contract | Currently `1`; change only for an actual incompatible caller contract, independent of both release lines. |
+Use three independent numbers instead:
+
+| Scope | Current decision | Rule |
+|---|---|---|
+| Desktop/extension/product `VERSION` | Published `2.5.0`; choose the next value only from delivered scope. | Monotonic SemVer; compatible fixes are a patch, additive capability is a minor, and a breaking public contract is a major. Never reset, move, or reuse a tag. |
+| AI for Thai service deployment | `0.1.0` remains a possible first value, not an implemented source of truth. | Create a separate version only if the official platform requires it in an image tag, response, registry, or deployment manifest. |
+| Public API contract | Current `1`. | Change only for an incompatible caller contract; independent of either release line. |
 
 The service version should become a separate source such as
 `AIFORTHAI_SERVICE_VERSION` only after the platform confirms where it must
-appear (image tag, job result, registry metadata, or deployment manifest). Do
-not duplicate it across files before that requirement exists.
+appear. Do not duplicate it across files or bump the product version for
+documentation, acceptance, or adapter preparation.
 
 ## If every visible version must be `0.1.x`
 
@@ -32,5 +34,5 @@ usually a new repository or explicitly named distribution channel. Existing
 `v2.x` releases remain archived; their tags must not be deleted or rewritten.
 
 The split above communicates the newer service line's prototype maturity
-(`0.1.x`) without breaking installed AI Guard clients or falsifying release
-history.
+(`AI for Thai service 0.1.x`) without breaking installed AI Guard clients or
+falsifying release history.

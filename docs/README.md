@@ -19,15 +19,16 @@ status page and does not silently override a newer current-state document.
   external blockers.
 - [AI for Thai integration](platform/ai-for-thai.md) - hosted service shape,
   resource profile, unknown platform fields, and acceptance checklist.
-- [AI for Thai specification request draft](platform/ai-for-thai-spec-request.md)
-  - ready-to-send account, registry, job, limits, secrets, logs, and acceptance
-  questions.
+- [AI for Thai specification request](platform/ai-for-thai-spec-request.md) -
+  narrowed HTTP adapter and acceptance questions, ready after the official
+  human recipient/support channel is confirmed.
 - [Release process](release-process.md) - version, tag, draft release, packaging,
   and hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
   Office, Playground, PDF, Pathumma, and TNER gates.
-- [Versioning policy](versioning-proposal.md) - why the existing product line
-  remains monotonic while a new AI for Thai service may start at `0.1.0`.
+- [Versioning advisory](versioning-proposal.md) - preserves the published
+  `v2.5.0` product line while any separate AI for Thai service version remains
+  provisional.
 - [Roadmap](../ROADMAP.md) - ordered delivery gates.
 - [Install from source](install-from-source.md) - local developer/runtime setup.
 

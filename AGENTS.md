@@ -38,19 +38,21 @@ unrelated user changes and untracked files.
 
 ## Current delivery order
 
-Committed features have passed acceptance on their real delivery paths. The
-current focus is the detection-accuracy track; the hosted platform track is
-externally gated. Current status and blockers live in
+Feature acceptance on the real delivery paths is complete except the open
+Microsoft 365 items. The current focus is the detection-accuracy track; the
+hosted platform track is externally gated. Current status and blockers live in
 `docs/project-status.md`; ordered tracks live in `ROADMAP.md`.
 
-The Microsoft 365 lane shipped its accepted scope (three-host unified
-manifest, local acceptance only — not a Marketplace claim). It receives only
-blocker or security fixes until new Office scope is explicitly approved.
-Local XML manifests are acceptance transports, not release evidence.
+The Microsoft 365 lane receives only blocker/security fixes and acceptance
+evidence until new scope is explicitly approved. Several host scenarios and
+the packaged unified-manifest activation run remain open; local XML manifests
+are acceptance transports, not release evidence, and none of this is a
+Marketplace claim.
 
-The AI for Thai job envelope and transport remain provisional until the
-platform issues the official account and specification. Keep the platform
-adapter replaceable and do not invent confirmed limits or policies.
+The official AI for Thai path is an HTTP/FastAPI adapter behind the platform's
+reverse proxy per the participant guide; the queue worker remains a local
+failure/retry emulator only. Keep the platform adapter replaceable and do not
+invent confirmed limits or policies beyond the guide.
 
 ## Environment and commands
 
