@@ -249,3 +249,24 @@ def test_blind_scores_log_is_not_gitignored():
         text=True,
     )
     assert proc.returncode == 1, "blind-scores.jsonl must be committable (audit log)"
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parents[1] / ".git").exists(),
+    reason="needs a git checkout",
+)
+def test_blind_blob_is_marked_binary_in_gitattributes():
+    """Line-ending normalization on checkout would change the blob's bytes and
+    break both the lock hash and the authentication MAC — silently, and only on
+    the machine that cloned it. The .gitattributes -text rule prevents that."""
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        ["git", "check-attr", "text", "--", "benchmark/data/blind-v1.enc"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout.strip().endswith("unset"), (
+        "benchmark/data/*.enc must have `-text` in .gitattributes; got: " + proc.stdout
+    )
