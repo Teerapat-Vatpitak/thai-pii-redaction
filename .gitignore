@@ -53,6 +53,13 @@ out/
 # load without it, so a fresh clone must carry it.
 !benchmark/data/gold.jsonl
 
+# The blind-set audit log is committed by design: every scoring run of the
+# blind holdout appends a hash-chained aggregate entry there, so how often the
+# holdout was consulted stays auditable (benchmark/blind.py). It contains only
+# metrics, never corpus text. The corpus itself is committed as
+# benchmark/data/blind-*.enc, which *.jsonl does not match.
+!benchmark/data/blind-scores.jsonl
+
 # .env alone does not match .env.local / .env.production, and AIGUARD_TOKEN is
 # a real secret in this project's threat model.
 .env.*

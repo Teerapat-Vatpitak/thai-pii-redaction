@@ -9,31 +9,35 @@ from .gold import load_gold
 from .scorer import score
 
 
-def run_benchmark(
-    engine: str = "crf", seed: int = 42, size: int = 200, source: str = "synthetic"
-) -> dict:
+def predict_samples(samples, engine: str = "crf") -> list[list[tuple[int, int, str]]]:
+    """Run detect_all over samples under the requested NER engine.
+
+    The NER engine is a process-global lazy singleton keyed off the env var at
+    first load. Reset it (and restore afterward) so switching engines in one
+    process actually takes effect and the benchmark never pollutes other tests.
+    """
     from pii_redactor.detectors import tb_detector
     from pii_redactor.detectors.aggregate import detect_all
 
-    # The NER engine is a process-global lazy singleton keyed off the env var at
-    # first load. Reset it (and restore afterward) so switching engines in one
-    # process actually takes effect and the benchmark never pollutes other tests.
     prev_env = os.environ.get("AIGUARD_NER_ENGINE")
     prev_ner = dict(tb_detector._ner_cache)
     os.environ["AIGUARD_NER_ENGINE"] = "wangchanberta" if engine == "wangchanberta" else "thainer"
     tb_detector._ner_cache = {}
     try:
-        samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
-        predictions = []
-        for s in samples:
-            ents = detect_all(s.text)
-            predictions.append([(e.span[0], e.span[1], e.data_type) for e in ents])
+        return [[(e.span[0], e.span[1], e.data_type) for e in detect_all(s.text)] for s in samples]
     finally:
         tb_detector._ner_cache = prev_ner
         if prev_env is None:
             os.environ.pop("AIGUARD_NER_ENGINE", None)
         else:
             os.environ["AIGUARD_NER_ENGINE"] = prev_env
+
+
+def run_benchmark(
+    engine: str = "crf", seed: int = 42, size: int = 200, source: str = "synthetic"
+) -> dict:
+    samples = load_gold() if source == "gold" else build_corpus(seed=seed, size=size)
+    predictions = predict_samples(samples, engine)
 
     report = score(samples, predictions)
     report["engine"] = engine

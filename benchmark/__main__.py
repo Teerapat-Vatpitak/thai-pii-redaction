@@ -10,14 +10,58 @@ from .runner import render_strategy_table, render_table, run_benchmark, run_stra
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="benchmark")
     ap.add_argument("--engine", default="crf", choices=["crf", "wangchanberta"])
-    ap.add_argument("--source", default="synthetic", choices=["synthetic", "gold"])
+    ap.add_argument("--source", default="synthetic", choices=["synthetic", "gold", "blind"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--size", type=int, default=200)
     ap.add_argument(
         "--compare-strategies", action="store_true", help="score crf/wcb/union/route on one corpus"
     )
+    ap.add_argument(
+        "--reason",
+        default="",
+        help="blind runs only: why this reveal is happening (recorded in the audit log)",
+    )
+    ap.add_argument(
+        "--verify-blind-log",
+        action="store_true",
+        help="verify the blind score log hash chain and exit",
+    )
     ap.add_argument("--json", default=None)
     args = ap.parse_args(argv)
+
+    if args.verify_blind_log:
+        from . import blind
+
+        n = blind.verify_log(blind.DATA_DIR / blind.LOG_NAME)
+        print(f"blind score log OK: {n} entries, chain intact")
+        return 0
+
+    if args.source == "blind":
+        import os
+
+        from . import blind
+
+        if args.compare_strategies:
+            print("--compare-strategies is not available for the blind set", file=sys.stderr)
+            return 2
+        try:
+            result = blind.run_blind(
+                engine=args.engine,
+                key_file=os.environ.get("AIGUARD_BLIND_KEY_FILE"),
+                reason=args.reason,
+            )
+        except blind.BlindError as exc:
+            print(f"blind: {exc}", file=sys.stderr)
+            return 2
+        print(blind.render_blind_table(result))
+        report_out = result
+        if args.json:
+            import os as _os
+
+            _os.makedirs(_os.path.dirname(args.json) or ".", exist_ok=True)
+            with open(args.json, "w", encoding="utf-8") as f:
+                json.dump(report_out, f, ensure_ascii=False, indent=2)
+        return 0
 
     if args.compare_strategies:
         reports = run_strategy_comparison(source=args.source, seed=args.seed, size=args.size)
