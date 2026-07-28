@@ -8,6 +8,7 @@ SECURITY-CRITICAL:
 """
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -16,6 +17,32 @@ from pathlib import Path
 # anything else (path separators, dots, ...) is replaced so a hostile
 # session_id cannot traverse out of output_dir.
 _SESSION_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+# Hosted mode: AIGUARD_AUDIT_STDOUT=1 emits each entry as one JSON line on
+# stdout instead of appending files. Container platforms rotate stdout
+# (Docker json-file max-size) and surface it in their log viewers, while a
+# bind-mounted file would grow unbounded with no rotation and stay invisible
+# to stdout-tailing tools. Entries are PII-free by this module's contract, so
+# stdout adds no exposure. Read dynamically so tests can flip it per-case.
+_STDOUT_ENV = "AIGUARD_AUDIT_STDOUT"
+
+
+def _stdout_mode() -> bool:
+    return os.environ.get(_STDOUT_ENV) == "1"
+
+
+def _emit(entry: dict, path: Path) -> Path:
+    """Write one audit entry to stdout (hosted) or append to `path` (default).
+
+    In stdout mode the returned path is where the entry WOULD have been
+    written; no file is created or touched.
+    """
+    if _stdout_mode():
+        print(json.dumps(entry, ensure_ascii=False), flush=True)
+        return path
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return path
 
 
 def _log_path(session_id: str, log_type: str, output_dir: str) -> Path:
@@ -71,10 +98,7 @@ def write_process_log(
         "flags": flags,
         "latency_ms": latency_ms,
     }
-    path = _log_path(session_id, "process", output_dir)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    return path
+    return _emit(entry, _log_path(session_id, "process", output_dir))
 
 
 def write_security_log(
@@ -116,7 +140,4 @@ def write_security_log(
         "error_type": error_type,
         "rollback_occurred": rollback_occurred,
     }
-    path = _log_path(session_id, "security", output_dir)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    return path
+    return _emit(entry, _log_path(session_id, "security", output_dir))

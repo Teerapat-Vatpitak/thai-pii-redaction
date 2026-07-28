@@ -118,9 +118,23 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False,
 )
+_DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+
+
+def _parse_csv_env(value: str | None) -> list[str]:
+    """Split a comma-separated env value into stripped, non-empty items."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+# Hosted deployments sit behind a reverse proxy whose public hostname must be
+# accepted (a Host of e.g. team08.aiforthai.in.th would otherwise 400). The
+# default stays the exact localhost pair so a from-source backend + extension
+# keeps working byte-for-byte when the env var is unset.
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1"],
+    allowed_hosts=_parse_csv_env(os.environ.get("AIGUARD_ALLOWED_HOSTS")) or _DEFAULT_ALLOWED_HOSTS,
 )
 
 
@@ -239,6 +253,29 @@ def shutdown(
     return {"status": "shutting_down"}
 
 
+def _check_audit_dir_writable() -> None:
+    """Fail at boot, not with a 500 on first use, when audit logs cannot be written.
+
+    pii_redactor/audit.py has no try/except around its file writes on purpose
+    (a silently lost audit trail is worse than a crash), so on a hosted
+    deployment a bad mount/permission would otherwise surface as a 500 the
+    first time a judge presses the button. Skipped in stdout audit mode
+    (AIGUARD_AUDIT_STDOUT=1), which never touches the filesystem.
+    """
+    if os.environ.get("AIGUARD_AUDIT_STDOUT") == "1":
+        return
+    log_dir = Path(_get_audit_log_dir())
+    probe = log_dir / f".write_probe_{os.getpid()}"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as e:
+        raise RuntimeError(
+            f"audit log directory {log_dir} is not writable ({type(e).__name__}); "
+            "fix the mount/permissions or set AIGUARD_AUDIT_STDOUT=1"
+        ) from e
+
+
 def _get_audit_log_dir() -> str:
     """Audit log directory. Frozen exe -> %APPDATA%/AI Guard/logs; source -> ./logs."""
     if getattr(sys, "frozen", False):
@@ -247,6 +284,9 @@ def _get_audit_log_dir() -> str:
         log_dir = Path.cwd() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return str(log_dir)
+
+
+_check_audit_dir_writable()
 
 
 _SESSION_CAP = 200
@@ -367,8 +407,7 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
 @app.post("/api/sanitize")
 def sanitize(request: SanitizeRequest):
     start = time.time()
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     if request.mode is not None and request.mode not in ("token", "surrogate"):
         raise HTTPException(
             status_code=400,
@@ -424,6 +463,7 @@ def sanitize(request: SanitizeRequest):
 def reidentify(request: ReidentifyRequest):
     """Restore original PII via the core reverse mapper + output validation."""
     start = time.time()
+    _validate_text_input(request.text)
     try:
         out = SERVICE.restore(request.session_id, request.text)
     except SessionExpiredError:
@@ -577,8 +617,7 @@ def _analyze_text(text: str) -> dict:
 @app.post("/api/analyze")
 def analyze(request: AnalyzeRequest):
     start = time.time()
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     text = clean(request.text).text
     result = _analyze_text(text)
     write_process_log(
@@ -603,8 +642,7 @@ def analyze_report(request: AnalyzeRequest):
     its source without embedding any of it.
     """
     start = time.time()
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     text = clean(request.text).text
     analysis = _analyze_text(text)
     source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
@@ -635,8 +673,7 @@ def detect(request: DetectRequest):
     clean_length_preserving (same contract as the redact-pdf path), never
     clean().
     """
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     entities = detect_all(clean_length_preserving(request.text))
     out = [
         {
@@ -653,7 +690,14 @@ def detect(request: DetectRequest):
     return {"entities": out, "entity_type_counts": counts}
 
 
-_PROVIDER_FACTORIES = get_provider_factories()
+# Hosted deployments narrow the provider surface (e.g. AIGUARD_PROVIDERS=
+# "tokenmind") so ollama/claude/fake cannot appear on a public service by
+# accident. Unset keeps the full registry — the local extension/desktop
+# behavior, byte-for-byte. An unknown name fails the boot loudly (the
+# registry's allowlist contract), never silently drops.
+_PROVIDER_FACTORIES = get_provider_factories(
+    allowed=_parse_csv_env(os.environ.get("AIGUARD_PROVIDERS")) or None
+)
 
 
 @app.post("/api/roundtrip")
@@ -665,8 +709,7 @@ def roundtrip(request: RoundtripRequest):
     always run offline.
     """
     start = time.time()
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     if request.mode not in ("token", "surrogate"):
         raise HTTPException(status_code=400, detail="Invalid mode: expected 'token' or 'surrogate'")
     factory = _PROVIDER_FACTORIES.get(request.provider)
@@ -748,8 +791,7 @@ def guard(request: GuardRequest):
     See pii_redactor/guard/injection.py: explicit rules plus bounded
     normalization/intent features in Thai and English; not airtight.
     """
-    if not request.text or not request.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
+    _validate_text_input(request.text)
     findings = to_wire(scan_injection(request.text))
     return {"guard": findings, "flagged": bool(findings)}
 
@@ -765,6 +807,65 @@ def _first_page_png(pdf_path: str) -> str:
 # Upload cap for /api/redact-pdf; enforced while streaming so an oversize
 # body is rejected before it is fully buffered in memory.
 _MAX_PDF_BYTES = 50 * 1024 * 1024
+
+# Work caps for a public deployment: byte size alone does not bound OCR work
+# (a small file can carry hundreds of pages, or one page with an enormous
+# MediaBox that renders to a gigapixel bitmap). Read at import; hosted
+# deployments tune via env, tests monkeypatch the module globals.
+_MAX_PDF_PAGES = int(os.environ.get("AIGUARD_PDF_MAX_PAGES", "100"))
+_MAX_PDF_PAGE_POINTS = float(os.environ.get("AIGUARD_PDF_MAX_PAGE_POINTS", "5000"))
+
+# Same idea for the text endpoints: NER/masking work scales with input length
+# and nothing bounded it before. The default is far above any legitimate chat
+# or document paste; hosted deployments tighten it via env.
+_MAX_TEXT_CHARS = int(os.environ.get("AIGUARD_MAX_TEXT_CHARS", "200000"))
+
+
+def _validate_text_input(text: str) -> None:
+    """400 on empty, 413 past the work cap — shared by every text endpoint."""
+    if not text or not text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    if len(text) > _MAX_TEXT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"text exceeds limit of {_MAX_TEXT_CHARS} characters",
+        )
+
+
+def _check_pdf_work_caps(pdf_path: Path) -> None:
+    """Reject page-count / page-size bombs before any render or OCR work.
+
+    Raises HTTPException 413 on a cap violation, 422 if the file cannot even
+    be opened (with a fixed category — never the parser's exception text).
+    """
+    import pypdfium2 as pdfium
+
+    try:
+        pdf = pdfium.PdfDocument(str(pdf_path))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Could not read PDF (unreadable file)")
+    try:
+        n_pages = len(pdf)
+        if n_pages > _MAX_PDF_PAGES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"PDF has {n_pages} pages (limit {_MAX_PDF_PAGES})",
+            )
+        for i in range(n_pages):
+            page = pdf.get_page(i)
+            try:
+                width, height = page.get_size()
+            finally:
+                page.close()
+            if width > _MAX_PDF_PAGE_POINTS or height > _MAX_PDF_PAGE_POINTS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"PDF page {i + 1} exceeds {_MAX_PDF_PAGE_POINTS:g}pt in width or height"
+                    ),
+                )
+    finally:
+        pdf.close()
 
 
 @app.post("/api/redact-pdf")
@@ -805,13 +906,23 @@ def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     out_path = tmp_dir / "redacted.pdf"
     try:
         in_path.write_bytes(contents)
+        _check_pdf_work_caps(in_path)
         try:
             source_type = detect_source_type(in_path)
             raw_text, word_bboxes, extract_meta = extract(in_path, source_type)
         except OCRUnavailableError as e:
+            # our own static message (install requirements-ocr.txt) — safe
             raise HTTPException(status_code=503, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Could not read PDF: {e}")
+            # Category + exception TYPE only. The message of an arbitrary
+            # parser error can quote file content, and this detail is public
+            # (no-PII-in-errors rule).
+            raise HTTPException(
+                status_code=422,
+                detail=f"Could not read PDF ({type(e).__name__})",
+            )
 
         detect_text = clean_length_preserving(raw_text)
         fp = detect_fp(detect_text)
