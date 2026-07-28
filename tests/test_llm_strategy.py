@@ -231,3 +231,25 @@ def test_missing_credential_fails_loudly(monkeypatch):
 def test_unknown_provider_spec_is_rejected():
     with pytest.raises(ValueError):
         build_caller("nope:model")
+
+
+def test_tokenmind_spec_uses_its_own_envs_and_disables_thinking(monkeypatch):
+    # `tokenmind` must read TOKENMIND_* -- never THAILLM_*, which points at a
+    # different service without thaillm-8b (conflating the two once already
+    # produced a wrong conclusion). Thinking is off to match the product's
+    # TokenmindProvider config, so the benchmark measures the deployed shape.
+    monkeypatch.setenv("TOKENMIND_BASE_URL", "https://tokenmind.invalid/v1")
+    monkeypatch.setenv("TOKENMIND_API_KEY", "sk-ok")
+    monkeypatch.delenv("THAILLM_BASE_URL", raising=False)
+    monkeypatch.delenv("THAILLM_API_KEY", raising=False)
+    caller = build_caller("tokenmind")
+    assert caller.name == "tokenmind:thaillm-8b"
+    assert caller.model == "thaillm-8b"
+    assert caller._extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_tokenmind_spec_missing_credential_fails_loudly(monkeypatch):
+    monkeypatch.setenv("TOKENMIND_BASE_URL", "https://tokenmind.invalid/v1")
+    monkeypatch.delenv("TOKENMIND_API_KEY", raising=False)
+    with pytest.raises(ProviderUnavailable, match="TOKENMIND_API_KEY"):
+        build_caller("tokenmind")
