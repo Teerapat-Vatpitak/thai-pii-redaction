@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
+from types import MappingProxyType
 
 import httpx
 
 from pii_redactor.leak_guard import scan_outbound_leaks
 from pii_redactor.models import AIResponse, EntityRegistry
+from pii_redactor.openai_compat import (
+    chat_completions_url,
+    extract_chat_content,
+    is_sse_response,
+    validate_header_value,
+)
 from pii_redactor.session_vault import SessionVault
 
 logger = logging.getLogger(__name__)
 
+# Module-level sleep function for testability (can be monkeypatched)
+_sleep = time.sleep
 
 DEFAULT_SYSTEM_PROMPT = (
     "คุณเป็น AI assistant ที่มีประสิทธิภาพ "
@@ -30,6 +41,10 @@ class PreSendValidationError(Exception):
 
 class AIProvider(ABC):
     """Abstract base class for AI providers."""
+
+    # Providers that run their own transient-error retry inside complete()
+    # set this True so send_to_ai() does not multiply attempts (3x3).
+    handles_retries: bool = False
 
     @abstractmethod
     def complete(self, system: str, user: str, *, timeout: float = 30.0) -> str:
@@ -117,6 +132,137 @@ class PathummaProvider(AIProvider):
         resp = httpx.post(self.API_URL, data=data, headers=headers, timeout=timeout)
         resp.raise_for_status()
         return resp.json()["content"]
+
+
+class ProviderProtocolError(ValueError):
+    """A 200 response that violates the provider protocol.
+
+    Subclasses ValueError so app/server.py's existing malformed-response
+    handler turns it into 502 and app/worker/handler.py into provider_failed
+    without either surface changing. The message carries a category only --
+    never the response body (VAULT-4: a body can contain anything).
+    """
+
+
+class TokenmindProvider(AIProvider):
+    """Official AIFT hackathon LiteLLM gateway (OpenAI-compatible).
+
+    Requires TOKENMIND_BASE_URL (must end in /v1; https unless
+    TOKENMIND_ALLOW_HTTP=1) and TOKENMIND_API_KEY. Model is hardcoded: the
+    gateway has exactly one text model, and an env override would invite
+    pointing it at the ptm-tts-1/ptm-asr-1 audio models. Spec:
+    docs/superpowers/specs/2026-07-27-tokenmind-provider-design.md.
+    """
+
+    MODEL = "thaillm-8b"
+    handles_retries = True
+
+    def __init__(self, *, sleep=time.sleep, clock=time.monotonic):
+        base = (os.environ.get("TOKENMIND_BASE_URL") or "").strip()
+        if not base:
+            raise ValueError("TOKENMIND_BASE_URL environment variable not set")
+        if not base.rstrip("/").endswith("/v1"):
+            raise ValueError(
+                "TOKENMIND_BASE_URL must include the /v1 suffix, "
+                "e.g. https://tokenmind.pathumma.in.th/v1"
+            )
+        if not base.startswith("https://") and os.environ.get("TOKENMIND_ALLOW_HTTP") != "1":
+            raise ValueError(
+                "TOKENMIND_BASE_URL must be https "
+                "(set TOKENMIND_ALLOW_HTTP=1 only for local development)"
+            )
+        self._url = chat_completions_url(base)
+        self._api_key = validate_header_value(
+            os.environ.get("TOKENMIND_API_KEY") or "", env_name="TOKENMIND_API_KEY"
+        )
+        self._sleep = sleep
+        self._clock = clock
+
+    def _client(self) -> httpx.Client:
+        return httpx.Client()
+
+    @staticmethod
+    def _retry_delay(attempt: int, retry_after: str | None) -> float:
+        delay = float(2**attempt)  # 1s, 2s
+        if retry_after is not None:
+            try:
+                parsed = int(retry_after.strip())
+            except ValueError:
+                parsed = -1
+            if parsed >= 0:
+                delay = float(parsed)
+        return delay
+
+    def _validated_content(self, resp: httpx.Response) -> str:
+        if is_sse_response(resp.headers.get("content-type")):
+            raise ProviderProtocolError(
+                "provider answered with an event stream despite stream=false"
+            )
+        try:
+            data = resp.json()
+        except ValueError:
+            raise ProviderProtocolError("provider response is not JSON") from None
+        try:
+            content, finish = extract_chat_content(data)
+        except ValueError:
+            raise ProviderProtocolError(
+                "provider response missing chat completion content"
+            ) from None
+        if not content or not content.strip():
+            raise ProviderProtocolError("provider returned empty content")
+        if finish != "stop":
+            raise ProviderProtocolError("provider stopped for a non-stop finish_reason")
+        lowered = content.lower()
+        if any(
+            marker in lowered
+            for marker in ("<think>", "</think>", "&lt;think&gt;", "&lt;/think&gt;")
+        ):
+            # enable_thinking was ignored upstream. Restoring tokens inside a
+            # thought block would write real PII into it -- refuse instead.
+            raise ProviderProtocolError("provider response contains reasoning-block markers")
+        return content
+
+    def complete(self, system: str, user: str, *, timeout: float = 60.0) -> str:
+        if not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        payload = {
+            "model": self.MODEL,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1024,
+            "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        deadline = self._clock() + timeout
+        last_error: Exception | None = None
+        with self._client() as client:
+            for attempt in range(3):  # initial + 2 retries, all under one deadline
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    break
+                try:
+                    resp = client.post(self._url, json=payload, headers=headers, timeout=remaining)
+                    resp.raise_for_status()
+                    return self._validated_content(resp)
+                except httpx.HTTPStatusError as e:
+                    status = e.response.status_code
+                    if status != 429 and status < 500:
+                        raise
+                    last_error = e
+                    delay = self._retry_delay(attempt, e.response.headers.get("Retry-After"))
+                except (httpx.TimeoutException, httpx.NetworkError) as e:
+                    last_error = e
+                    delay = float(2**attempt)
+                if attempt == 2 or self._clock() + delay >= deadline:
+                    break
+                self._sleep(delay)
+        if last_error is None:  # pragma: no cover - defensive; timeout>0 guarantees one attempt
+            raise RuntimeError("Tokenmind call made no attempt")
+        raise last_error
 
 
 class FakeLLMProvider(AIProvider):
@@ -230,9 +376,13 @@ def send_to_ai(
     # Snapshot for rollback
     snapshot = vault.snapshot()
 
+    # A provider that retries transient failures inside complete() gets ONE
+    # outer attempt -- otherwise a flaky endpoint costs 3x3 calls.
+    effective_attempts = 1 if getattr(provider, "handles_retries", False) else max_retries
+
     # Retry loop
     last_error = None
-    for attempt in range(max_retries):
+    for attempt in range(effective_attempts):
         try:
             start_time = time.monotonic()
             response_text = provider.complete(system, pseudonymized_text, timeout=60.0)
@@ -257,16 +407,16 @@ def send_to_ai(
                 vault.restore(snapshot)
                 raise
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < effective_attempts - 1:
                 backoff = 2**attempt  # 1s, 2s, 4s
-                time.sleep(backoff)
+                _sleep(backoff)
             continue
 
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < effective_attempts - 1:
                 backoff = 2**attempt  # 1s, 2s, 4s
-                time.sleep(backoff)
+                _sleep(backoff)
             continue
 
         except Exception:
@@ -276,4 +426,37 @@ def send_to_ai(
 
     # All retries exhausted - rollback
     vault.restore(snapshot)
-    raise RuntimeError(f"AI provider failed after {max_retries} attempts: {last_error}")
+    raise RuntimeError(f"AI provider failed after {effective_attempts} attempts: {last_error}")
+
+
+# Single registry -- app/server.py and app/worker/handler.py used to carry
+# byte-identical copies of this dict; the fourth copy was a comment and the
+# third a dropdown. Surfaces take a snapshot via get_provider_factories() so
+# a future hosted surface can pass an allowlist (public deployments must not
+# grow ollama/claude/fake by accident).
+PROVIDER_FACTORIES: MappingProxyType[str, Callable[[], AIProvider]] = MappingProxyType(
+    {
+        "fake": FakeLLMProvider,
+        "pathumma": PathummaProvider,
+        "tokenmind": TokenmindProvider,
+        "ollama": OllamaProvider,
+        "claude": ClaudeProvider,
+    }
+)
+
+
+def get_provider_factories(
+    *, allowed: Iterable[str] | None = None
+) -> dict[str, Callable[[], AIProvider]]:
+    """Snapshot of the registry, optionally filtered by an allowlist.
+
+    An unknown name in `allowed` raises instead of being dropped: a typo in a
+    deployment allowlist must fail the boot, not silently remove a provider.
+    """
+    if allowed is None:
+        return dict(PROVIDER_FACTORIES)
+    names = list(allowed)
+    unknown = sorted(set(names) - set(PROVIDER_FACTORIES))
+    if unknown:
+        raise ValueError(f"unknown provider names in allowlist: {unknown}")
+    return {name: PROVIDER_FACTORIES[name] for name in names}

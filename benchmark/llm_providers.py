@@ -14,6 +14,12 @@ import time
 
 import httpx
 
+from pii_redactor.openai_compat import (
+    chat_completions_url,
+    extract_chat_content,
+    validate_header_value,
+)
+
 
 class ProviderUnavailable(RuntimeError):
     """Credential or endpoint missing. Raised at construction, never mid-run."""
@@ -94,17 +100,15 @@ class OpenAICompatCaller:
         key = os.environ.get(api_key_env) or ""
         if not base:
             raise ProviderUnavailable(f"{base_url_env} is not set")
-        if not key:
-            raise ProviderUnavailable(f"{api_key_env} is not set")
-        if not key.isascii():
-            # httpx encodes headers as latin-1; a key carrying Thai text (a note
-            # pasted in beside it, say) fails deep inside the transport with a
-            # UnicodeEncodeError that names neither the variable nor the cause.
-            raise ProviderUnavailable(
-                f"{api_key_env} contains non-ASCII characters and cannot be sent "
-                "as an HTTP header -- set it to the bare key"
-            )
-        self._base = base
+        try:
+            # Intentionally stricter than the old ASCII-only check: also
+            # rejects CR/LF, other control characters, and leading/trailing
+            # whitespace (a key pasted with a stray newline used to reach
+            # httpx and fail deep inside the transport instead of here).
+            key = validate_header_value(key, env_name=api_key_env)
+        except ValueError as exc:
+            raise ProviderUnavailable(str(exc)) from None
+        self._url = chat_completions_url(base)
         self._key = key
         self.model = model
         self.name = name or model
@@ -113,7 +117,7 @@ class OpenAICompatCaller:
     def __call__(self, system: str, user: str, *, timeout: float = 120.0) -> str:
         def send():
             r = httpx.post(
-                f"{self._base}/chat/completions",
+                self._url,
                 json={
                     "model": self.model,
                     "messages": [
@@ -132,7 +136,10 @@ class OpenAICompatCaller:
                 timeout=timeout,
             )
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"] or ""
+            content, _finish = extract_chat_content(r.json())
+            # Benchmark policy: empty/null content is a countable result (zero
+            # predictions), not an error -- the product provider decides otherwise.
+            return content or ""
 
         return _retrying_post(send)
 
