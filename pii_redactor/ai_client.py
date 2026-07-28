@@ -8,6 +8,8 @@ import os
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable
+from types import MappingProxyType
 
 import httpx
 
@@ -425,3 +427,36 @@ def send_to_ai(
     # All retries exhausted - rollback
     vault.restore(snapshot)
     raise RuntimeError(f"AI provider failed after {effective_attempts} attempts: {last_error}")
+
+
+# Single registry -- app/server.py and app/worker/handler.py used to carry
+# byte-identical copies of this dict; the fourth copy was a comment and the
+# third a dropdown. Surfaces take a snapshot via get_provider_factories() so
+# a future hosted surface can pass an allowlist (public deployments must not
+# grow ollama/claude/fake by accident).
+PROVIDER_FACTORIES: MappingProxyType[str, Callable[[], AIProvider]] = MappingProxyType(
+    {
+        "fake": FakeLLMProvider,
+        "pathumma": PathummaProvider,
+        "tokenmind": TokenmindProvider,
+        "ollama": OllamaProvider,
+        "claude": ClaudeProvider,
+    }
+)
+
+
+def get_provider_factories(
+    *, allowed: Iterable[str] | None = None
+) -> dict[str, Callable[[], AIProvider]]:
+    """Snapshot of the registry, optionally filtered by an allowlist.
+
+    An unknown name in `allowed` raises instead of being dropped: a typo in a
+    deployment allowlist must fail the boot, not silently remove a provider.
+    """
+    if allowed is None:
+        return dict(PROVIDER_FACTORIES)
+    names = list(allowed)
+    unknown = sorted(set(names) - set(PROVIDER_FACTORIES))
+    if unknown:
+        raise ValueError(f"unknown provider names in allowlist: {unknown}")
+    return {name: PROVIDER_FACTORIES[name] for name in names}

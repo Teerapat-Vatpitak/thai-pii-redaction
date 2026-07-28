@@ -36,13 +36,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from pii_redactor.ai_client import (
-    DEFAULT_SYSTEM_PROMPT,
-    ClaudeProvider,
-    FakeLLMProvider,
-    OllamaProvider,
-    PathummaProvider,
-)
+from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -298,7 +292,7 @@ class DetectRequest(BaseModel):
 class RoundtripRequest(BaseModel):
     text: str
     mode: str = "token"  # "token" | "surrogate"
-    provider: str = "fake"  # "fake" | "pathumma" | "ollama" | "claude"
+    provider: str = "fake"  # any key of pii_redactor.ai_client.PROVIDER_FACTORIES
 
 
 class GuardRequest(BaseModel):
@@ -659,12 +653,7 @@ def detect(request: DetectRequest):
     return {"entities": out, "entity_type_counts": counts}
 
 
-_PROVIDER_FACTORIES = {
-    "fake": FakeLLMProvider,
-    "pathumma": PathummaProvider,
-    "ollama": OllamaProvider,
-    "claude": ClaudeProvider,
-}
+_PROVIDER_FACTORIES = get_provider_factories()
 
 
 @app.post("/api/roundtrip")

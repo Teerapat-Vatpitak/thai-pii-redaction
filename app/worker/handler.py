@@ -26,13 +26,7 @@ from __future__ import annotations
 import uuid
 
 from app.worker.contract import CONTRACT_VERSION, EnvelopeError, validate_envelope
-from pii_redactor.ai_client import (
-    DEFAULT_SYSTEM_PROMPT,
-    ClaudeProvider,
-    FakeLLMProvider,
-    OllamaProvider,
-    PathummaProvider,
-)
+from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
@@ -85,12 +79,7 @@ def _op_sanitize(payload: dict) -> dict:
     return result
 
 
-_PROVIDER_FACTORIES = {
-    "fake": FakeLLMProvider,
-    "pathumma": PathummaProvider,
-    "ollama": OllamaProvider,
-    "claude": ClaudeProvider,
-}
+_PROVIDER_FACTORIES = get_provider_factories()
 
 
 def _op_roundtrip(payload: dict) -> dict:
