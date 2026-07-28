@@ -52,10 +52,14 @@ has yet been pushed to GitLab; that step is owner-gated.
 
 The platform also issued a separate LLM endpoint, model identifier, and secret
 through a private channel. This repository records only that they exist.
-Request/response compatibility, authentication placement, timeout, quota,
-acceptable-use policy, logging policy, and a protected live acceptance run are
-still open. Credentials, account identifiers, and provider bodies must never
-be copied into this repository or its acceptance artifacts.
+Request/response compatibility and authentication placement are now settled in
+code — the gateway speaks an OpenAI-compatible `/v1` protocol, the `tokenmind`
+provider drives it through `pii_redactor/openai_compat.py`, and the 2026-07-28
+acceptance run reached the live model twice — while quota, acceptable-use
+policy, logging policy, timeout ownership, and an acceptance run originating
+from platform infrastructure rather than a developer machine are still open.
+Credentials, account identifiers, and provider bodies must never be copied into
+this repository or its acceptance artifacts.
 
 The automated access messages explicitly prohibit replies, while the guide says
 to contact staff without naming an official support address. A targeted
@@ -123,7 +127,9 @@ hosted guarantees are:
 - mappings remain transient and are not persisted;
 - normal sanitize/analyze results do not export mappings;
 - application logs and public errors do not contain request text or raw PII;
-- Pathumma receives the masked prompt on the protected roundtrip; and
+- the LLM receives only the masked prompt on the protected roundtrip — on the
+  port repo that is thaillm-8b through the tokenmind gateway, which is the only
+  provider the hosted allowlist enables; and
 - provider credentials and the AI Guard caller key are separate secrets.
 
 Do not use the local-product claim "PII never leaves the device" for this
