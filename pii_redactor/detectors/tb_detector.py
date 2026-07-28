@@ -90,6 +90,110 @@ def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
     return data_type
 
 
+def _name_hygiene(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """Shared NAME span hygiene for every neural engine (CRF and fine-tuned).
+
+    A person's name never spans a line break, so the span is TRIMMED at the
+    first newline — unless the next line opens with a name cue, in which case
+    the cue pass owns the person and keeping the pre-newline head would mint
+    a junk NAME out of glued ordinary words, which the leak guard would then
+    halt on. A span beginning with a document compound is a header, not a
+    person.
+    """
+    entity_text = text[start:end]
+    if "\n" in entity_text:
+        head, tail = entity_text.split("\n", 1)
+        if _NAME_CUE_AFTER_BREAK_RE.match(tail.lstrip()):
+            return None
+        head = head.rstrip()
+        if len(head) < 2:
+            return None
+        end = start + len(head)
+        entity_text = text[start:end]
+    if _NAME_DOC_COMPOUND_RE.match(entity_text):
+        return None
+    return start, end
+
+
+_FINETUNED_LABEL_MAP = {
+    "PERSON": "NAME",
+    "LOCATION": "LOCATION",
+    "ORGANIZATION": "ORGANIZATION",
+    "DATE": "DATE",
+    "STUDENT_ID": "STUDENT_ID",
+}
+_finetuned_cache: dict[str, object] = {}
+
+
+def _detect_tb_finetuned(text: str) -> list[Entity]:
+    """TB detection under the fine-tuned engine (AIGUARD_NER_ENGINE=finetuned).
+
+    Two deliberate differences from the CRF path, both from the reveal-3
+    evidence that the extended cue passes cost precision in registers gold
+    does not cover:
+
+    - model spans arrive as character offsets from the adapter (no word/BIO
+      reconstruction), with the same hygiene/cue-upgrade layers applied; and
+    - the extended name-cue passes are kept only when they OVERLAP a model
+      PERSON span (model-as-verifier). The strong passes (titles, explicit
+      name labels) stay unconditional — the pre-registered high-precision
+      fallback.
+    """
+    from pii_redactor.detectors.finetuned_engine import FinetunedEngine
+    from pii_redactor.detectors.name_context import detect_name_context_passes
+
+    if "engine" not in _finetuned_cache:
+        _finetuned_cache["engine"] = FinetunedEngine()
+    engine = _finetuned_cache["engine"]
+
+    candidates: list[Entity] = []
+    model_name_spans: list[tuple[int, int]] = []
+    for start, end, label, conf in engine.spans(text):
+        data_type = _FINETUNED_LABEL_MAP.get(label)
+        if data_type is None or end - start < 2:
+            continue
+        entity_text = text[start:end]
+        if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
+            continue
+        if data_type == "NAME":
+            trimmed = _name_hygiene(text, start, end)
+            if trimmed is None:
+                continue
+            start, end = trimmed
+            model_name_spans.append((start, end))
+        data_type = _apply_cue_upgrades(text, start, end, data_type)
+        candidates.append(
+            Entity(
+                entity_id=str(uuid.uuid4()),
+                redact_type="TB",
+                data_type=data_type,
+                span=(start, end),
+                score=round(min(0.99, max(0.5, conf)), 3),
+                original_text=text[start:end],
+            )
+        )
+
+    cue_kept: list[Entity] = []
+    for pass_name, e in detect_name_context_passes(text):
+        if pass_name == "strong" or any(
+            e.span[0] < me and ms < e.span[1] for ms, me in model_name_spans
+        ):
+            cue_kept.append(e)
+    # A verified cue span carries the full name boundary; a model span it
+    # contains is the same person clipped (the model said "someone is here",
+    # the cue says where the name starts and ends). Drop the contained model
+    # span so dedupe cannot prefer it and leak the surname.
+    if cue_kept:
+        contained = {
+            id(c)
+            for c in candidates
+            if c.data_type == "NAME"
+            and any(k.span[0] <= c.span[0] and c.span[1] <= k.span[1] for k in cue_kept)
+        }
+        candidates = [c for c in candidates if id(c) not in contained]
+    return _deduplicate(candidates + cue_kept)
+
+
 class NEREngineUnavailableError(RuntimeError):
     """AIGUARD_NER_ENGINE is set to an engine whose dependency isn't installed."""
 
@@ -332,22 +436,11 @@ def _ner_candidates(
                 # เลขครุภัณฑ์…) is a header, not a person. Compounds, never
                 # noun prefixes — เลขา, ใบเฟิร์น and ประกาศิต are real names.
                 if data_type == "NAME":
-                    if "\n" in entity_text:
-                        head, tail = entity_text.split("\n", 1)
-                        # If the next line opens with a name cue, the person is
-                        # on THAT side and the cue pass owns it — keeping the
-                        # pre-newline head would mint a junk NAME out of the
-                        # ordinary words the CRF glued on ("หน่อยครับ\nผมชื่อ
-                        # <name>"), which the leak guard would then halt on.
-                        if _NAME_CUE_AFTER_BREAK_RE.match(tail.lstrip()):
-                            continue
-                        head = head.rstrip()
-                        if len(head) < 2:
-                            continue
-                        orig_end = orig_start + len(head)
-                        entity_text = text[orig_start:orig_end]
-                    if _NAME_DOC_COMPOUND_RE.match(entity_text):
+                    trimmed = _name_hygiene(text, orig_start, orig_end)
+                    if trimmed is None:
                         continue
+                    orig_start, orig_end = trimmed
+                    entity_text = text[orig_start:orig_end]
                 data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
                 candidates.append(
                     Entity(
@@ -403,6 +496,8 @@ def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
 
     # Engine selection: union runs both, everything else is a single engine.
     name = _resolve_engine_name()
+    if name == "finetuned":
+        return _detect_tb_finetuned(text)
     if name == "union":
         ners = [_load_ner("thainer"), _load_ner("wangchanberta")]
     else:

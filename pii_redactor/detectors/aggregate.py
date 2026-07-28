@@ -136,9 +136,38 @@ def merge_address_spans(text: str, entities: list[Entity]) -> list[Entity]:
     return out
 
 
+def _relabel_student_ids(tb: list[Entity], kept: list[Entity]) -> list[Entity]:
+    """Give a TB STUDENT_ID span its honest label past the FP-first dedupe.
+
+    A cue-free student id is matched by the generic 8-12 digit FP pattern as
+    ID_NUMBER, and FP-first dedupe then discards the TB STUDENT_ID candidate
+    covering the same digits — so an engine that can actually recognize
+    student ids (the fine-tuned one) could never surface the label. The
+    masked span is identical either way; only the label (and therefore the
+    surrogate) changes. A no-op for engines that emit no TB STUDENT_ID.
+    """
+    student_spans = {e.span for e in tb if e.data_type == "STUDENT_ID"}
+    if not student_spans:
+        return kept
+    out = []
+    for e in kept:
+        if e.data_type == "ID_NUMBER" and e.span in student_spans:
+            e = Entity(
+                entity_id=e.entity_id,
+                redact_type=e.redact_type,
+                data_type="STUDENT_ID",
+                span=e.span,
+                score=e.score,
+                original_text=e.original_text,
+            )
+        out.append(e)
+    return out
+
+
 def detect_all(text: str) -> list[Entity]:
     """Run the full detection ensemble and return deduped entities."""
     fp = detect_fp(text)
     tb = detect_tb(text)
     fn = scan_fn(text, fp + tb)
-    return merge_address_spans(text, dedupe_spans(fp + tb + fn))
+    kept = merge_address_spans(text, dedupe_spans(fp + tb + fn))
+    return _relabel_student_ids(tb, kept)

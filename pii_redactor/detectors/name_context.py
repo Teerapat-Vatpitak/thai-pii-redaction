@@ -358,7 +358,19 @@ def _role_cue_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity
 
 def _line_label_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
     ents = []
-    for m in list(_LINE_NAME_LABEL_RE.finditer(text)) + list(_KINSHIP_NAME_LABEL_RE.finditer(text)):
+    for m in _LINE_NAME_LABEL_RE.finditer(text):
+        idx = _index_after(spans, m.end())
+        if idx is None:
+            continue
+        got = _collect_two_groups(spans, idx)
+        if got:
+            ents.append(_make_name(text, got[0], got[1], 0.88))
+    return ents
+
+
+def _kinship_label_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    ents = []
+    for m in _KINSHIP_NAME_LABEL_RE.finditer(text):
         idx = _index_after(spans, m.end())
         if idx is None:
             continue
@@ -413,20 +425,40 @@ def _latin_names(text: str) -> list[Entity]:
     return ents
 
 
-def detect_name_context(text: str) -> list[Entity]:
-    """Detect names introduced by a title, label, role word, or roster cue."""
+def detect_name_context_passes(text: str) -> list[tuple[str, Entity]]:
+    """All cue passes, tagged by provenance.
+
+    "strong" passes (title/intro token pass, line-start name labels) are
+    high-precision and always trusted. "extended" passes (roles, kinship,
+    rosters, passport adjacency, Latin cues) were measured on the blind set to
+    cost precision in registers gold does not cover (reveal 3), so the
+    fine-tuned engine path keeps them only when the model agrees a person is
+    there. The default CRF path keeps everything (recall-first).
+    """
     if not text or not text.strip():
         return []
 
     spans = _token_spans(text)
 
-    ents: list[Entity] = []
-    ents.extend(_role_cue_names(text, spans))
-    ents.extend(_line_label_names(text, spans))
-    ents.extend(_roster_names(text, spans))
-    ents.extend(_passport_roster_names(text))
-    ents.extend(_latin_names(text))
+    tagged: list[tuple[str, Entity]] = []
+    tagged.extend(("extended", e) for e in _role_cue_names(text, spans))
+    tagged.extend(("strong", e) for e in _line_label_names(text, spans))
+    tagged.extend(("extended", e) for e in _kinship_label_names(text, spans))
+    tagged.extend(("extended", e) for e in _roster_names(text, spans))
+    tagged.extend(("extended", e) for e in _passport_roster_names(text))
+    tagged.extend(("extended", e) for e in _latin_names(text))
+    tagged.extend(("strong", e) for e in _token_pass_names(text, spans))
+    return tagged
 
+
+def detect_name_context(text: str) -> list[Entity]:
+    """Detect names introduced by a title, label, role word, or roster cue."""
+    return [e for _pass, e in detect_name_context_passes(text)]
+
+
+def _token_pass_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    """The original token-level pass: titles and self-introduction labels."""
+    ents: list[Entity] = []
     n = len(spans)
     for idx, (tok, _s, _e) in enumerate(spans):
         is_title = tok in _TITLES

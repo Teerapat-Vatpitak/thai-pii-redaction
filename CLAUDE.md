@@ -241,6 +241,8 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/session_service.py` | Single brain behind the web API: session lifecycle + sanitize/restore over core components |
 | `pii_redactor/leak_guard.py` | Shared outbound leak scan used by `ai_client` pre-send guard and `SessionService` |
 | `pii_redactor/guard/injection.py` | ชั้นสัญญาณเตือน prompt injection แบบ dependency-light (explicit rules + bounded normalization/intent classifier แยกจาก PII detection และ leak_guard); `scan_injection` → `GuardFinding[]`; 5 bypass เดิมเป็น passing regression พร้อม negative controls |
+| `training/` | Fine-tuning lane (Track A #5): `lexicons.json` (gold-disjoint fabricated pools), `generate_data.py` (synthetic BIO data + ThaiNER rehearsal + hard negatives), `train.py` (HF Trainer). Weights live OUTSIDE the repo; the opt-in engine `AIGUARD_NER_ENGINE=finetuned` loads them via `AIGUARD_FINETUNED_MODEL_DIR` through `detectors/finetuned_engine.py` (char-offset adapter) with a model-as-verifier policy for the extended name-cue passes (strong cues stay unconditional). Needs `requirements-train.txt` on top of `requirements-ml.txt`. |
+
 
 Roadmap (not implemented): Presidio bridge.
 
