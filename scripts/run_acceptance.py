@@ -283,6 +283,65 @@ def pathumma_checks(client) -> list[CheckResult]:
     ]
 
 
+def tokenmind_checks(client) -> list[CheckResult]:
+    def _require_env() -> None:
+        if not os.environ.get("TOKENMIND_BASE_URL"):
+            raise BlockedError("TOKENMIND_BASE_URL is not set")
+        if not os.environ.get("TOKENMIND_API_KEY"):
+            raise BlockedError("TOKENMIND_API_KEY is not set")
+
+    def completion() -> dict[str, object]:
+        _require_env()
+        from pii_redactor.ai_client import TokenmindProvider
+
+        system = "ตอบกลับด้วยข้อความของผู้ใช้ตามตัวอักษรทุกตัว ห้ามเพิ่ม ลบ หรือแก้ไข โดยเฉพาะข้อความในวงเล็บเหลี่ยม"
+        user = "ยืนยันการทดสอบ " + MARKER
+        response = TokenmindProvider().complete(system, user, timeout=60.0)
+        _require(bool(response.strip()), "provider returned an empty completion")
+        return {
+            "marker_preserved": MARKER in response,
+            "exact_echo": response.strip() == user,
+            "response_length": len(response),
+        }
+
+    def protected_roundtrip() -> dict[str, object]:
+        _require_env()
+        status, body = _request_json(
+            client,
+            "POST",
+            "/api/roundtrip",
+            json={"text": SYNTHETIC_TEXT, "mode": "token", "provider": "tokenmind"},
+        )
+        _require(status == 200, "Tokenmind roundtrip failed")
+        sanitized = str(body.get("sanitized_text", ""))
+        outbound_response = str(body.get("ai_response_masked", ""))
+        restored = str(body.get("restored_text", ""))
+        for raw in (SYNTHETIC_NAME, SYNTHETIC_PHONE):
+            _require(raw not in sanitized, "raw PII remained before provider call")
+            _require(raw not in outbound_response, "raw PII appeared in provider response")
+        sent_tokens = set(re.findall(r"\[[^\]\r\n]+_\d+\]", sanitized))
+        returned_tokens = {token for token in sent_tokens if token in outbound_response}
+        _require(
+            not any(token in restored for token in returned_tokens),
+            "a returned pseudonym was not restored",
+        )
+        foreign_warnings = [
+            w for w in body.get("warnings", []) if str(w).startswith("foreign_tokens:")
+        ]
+        return {
+            "provider": str(body.get("provider_used", "")),
+            "entity_count": len(body.get("entities", [])),
+            "returned_token_count": len(returned_tokens),
+            "warning_count": len(body.get("warnings", [])),
+            "foreign_token_warnings": foreign_warnings,
+        }
+
+    return [
+        _checked("tokenmind.completion", completion),
+        _checked("tokenmind.protected_roundtrip", protected_roundtrip),
+    ]
+
+
 def tner_checks() -> list[CheckResult]:
     def live_tagging() -> dict[str, object]:
         key = os.environ.get("AIFORTHAI_API_KEY", "")
@@ -388,6 +447,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--live-pathumma", action="store_true")
+    parser.add_argument("--live-tokenmind", action="store_true")
     parser.add_argument("--live-tner", action="store_true")
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument(
@@ -411,6 +471,8 @@ def main() -> int:
         results = core_checks(client)
         if args.live_pathumma:
             results.extend(pathumma_checks(client))
+        if args.live_tokenmind:
+            results.extend(tokenmind_checks(client))
         if args.live_tner:
             results.extend(tner_checks())
 
