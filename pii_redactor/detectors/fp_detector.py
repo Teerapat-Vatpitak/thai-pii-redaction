@@ -150,6 +150,23 @@ def _disambiguate_bank_phone(text: str, candidates: list[Entity]) -> list[Entity
     return out
 
 
+def _bank_separators_nonstandard(raw: str) -> bool:
+    """True when the separator layout matches no Thai bank-account format.
+
+    Accepted layouts: bare digits, the fully separated xxx-x-xxxxx-x, and the
+    xxxxxxx-xxx shape. Anything else ("2569-004512") is a formatted document
+    number wearing ten digits.
+    """
+    positions: list[int] = []
+    digits = 0
+    for ch in raw:
+        if ch.isdigit():
+            digits += 1
+        else:
+            positions.append(digits)
+    return bool(positions) and positions != [3, 4, 9] and positions != [7]
+
+
 def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Entity]:
     """Resolve spans that are ambiguously STUDENT_ID and BANK_ACCOUNT.
 
@@ -454,6 +471,33 @@ _PLATE_CUE_WINDOW = 15
 # "ซอย N" (Soi/lane N) in addresses. Reject a match whose leading consonant run
 # is such a word; real plate prefixes (กข, ถขก, ...) are not words.
 _PLATE_STOPWORDS = frozenset({"ซอย", "ถนน"})
+# Ministry/agency abbreviations used in Thai government document references
+# ("ที่ ศธ 0521/..."). Uncued plate-shaped matches with these prefixes are
+# document numbers; an explicit plate cue overrides (they are also legal
+# plate letter pairs).
+_MINISTRY_DOC_CODES = frozenset(
+    {
+        "ศธ",
+        "กค",
+        "มท",
+        "นร",
+        "สธ",
+        "กษ",
+        "ตช",
+        "อว",
+        "คค",
+        "ทส",
+        "พณ",
+        "รง",
+        "วธ",
+        "พม",
+        "ยธ",
+        "ดศ",
+        "กต",
+        "กห",
+        "ปช",
+    }
+)
 _PLATE_LEAD_RE = re.compile(r"[ก-ฮ]{1,3}")
 # Look back this many characters. Thai runs words together with no spaces, and
 # the disambiguating cue can sit a whole clause before the number (e.g.
@@ -511,13 +555,21 @@ def detect_fp(text: str) -> list[Entity]:
     # produce nothing either, emit the honest ID_NUMBER instead. When the
     # student tiers DO fire, still emit BANK_ACCOUNT and let
     # _disambiguate_bank_student resolve the pair by cue distance.
+    # A partially separated match (separators in positions that are neither
+    # the full Thai xxx-x-xxxxx-x layout nor the xxxxxxx-xxx shape) is a
+    # formatted document number, not an account format — "2569-004512" is a
+    # year-prefixed receipt number. Without a bank cue it is demoted to the
+    # honest ID_NUMBER (still masked, per recall-first: an outright rejection
+    # would leave hand-separated real accounts completely unmasked).
     for pattern in (_RE_BANK_ACCOUNT_1, _RE_BANK_ACCOUNT_2):
         for m in pattern.finditer(text):
             start = m.start(1)
             line_start = text.rfind("\n", 0, start) + 1
             intro_ctx = text[max(line_start, start - _STUDENT_INTRO_WINDOW) : start]
             bank_cued = _rightmost_cue(_BANK_CUE_RE, text[max(0, start - _CUE_WINDOW) : start]) >= 0
-            if (
+            if not bank_cued and _bank_separators_nonstandard(m.group(1)):
+                candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
+            elif (
                 not bank_cued
                 and _STUDENT_INTRO_RE.search(intro_ctx)
                 and not _STUDENT_BLOCKER_RE.search(intro_ctx)
@@ -550,14 +602,25 @@ def detect_fp(text: str) -> list[Entity]:
     # 8. VEHICLE_PLATE
     # Reject matches where the Thai consonants are mid-word (preceded by a Thai
     # char) -- unless a plate cue (ทะเบียน...) just before it marks a real plate
-    # glued to the label text.
+    # glued to the label text. Uncued matches also reject government document
+    # references: a slash on either side ("ที่ ศธ 0521/ว 118") or a ministry
+    # abbreviation prefix — both are หนังสือราชการ numbering, not plates. The
+    # cue always wins because ministry codes are also legal plate prefixes
+    # ("ทะเบียนรถ กค 0409" is a real plate).
     for m in _RE_VEHICLE_PLATE.finditer(text):
         start = m.start(1)
         lead = _PLATE_LEAD_RE.match(m.group(1))
         if lead and lead.group() in _PLATE_STOPWORDS:
             continue
-        if start > 0 and _THAI_CHAR_RE.match(text[start - 1]):
-            if not _PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW) : start]):
+        plate_cued = bool(_PLATE_CUE_RE.search(text[max(0, start - _PLATE_CUE_WINDOW) : start]))
+        if start > 0 and _THAI_CHAR_RE.match(text[start - 1]) and not plate_cued:
+            continue
+        if not plate_cued:
+            before = text[:start].rstrip()
+            after = text[m.end(1) :].lstrip()
+            if before.endswith("/") or after.startswith("/"):
+                continue
+            if lead and lead.group() in _MINISTRY_DOC_CODES:
                 continue
         candidates.append(_make_entity("VEHICLE_PLATE", m, text, score=0.9))
 
@@ -598,7 +661,22 @@ def detect_fp(text: str) -> list[Entity]:
     # generic numeric catch-alls (0.8) so an address value keeps its honest
     # ADDRESS label instead of being swallowed as ID_NUMBER, but below the
     # checksum-backed types (1.0) which must always win an overlap.
-    for pattern in (_RE_HOUSE_NO, _RE_SOI_ROAD, _RE_MOO, _RE_ADMIN_AREA):
+    # House numbers behind a bare "เลขที่" reject N/<Buddhist year> — that is
+    # document numbering (คำสั่งที่ 27/2569); the explicit บ้านเลขที่/ที่อยู่
+    # labels keep the old behavior.
+    for m in _RE_HOUSE_NO.finditer(text):
+        if m.group(0).startswith("เลขที่") and "/" in m.group(1):
+            tail = m.group(1).split("/")[-1].strip()
+            if tail.isdigit() and 2400 <= int(tail) <= 2699:
+                continue
+        # A value that continues as "-<digit>" is the head of a larger
+        # formatted number ("เลขที่ 2569-004512", a receipt number), not a
+        # house number — leave the digits to the numeric detectors.
+        nxt = text[m.end(1) : m.end(1) + 2]
+        if len(nxt) == 2 and nxt[0] in "-/" and nxt[1].isdigit():
+            continue
+        candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
+    for pattern in (_RE_SOI_ROAD, _RE_MOO, _RE_ADMIN_AREA):
         for m in pattern.finditer(text):
             candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
 
