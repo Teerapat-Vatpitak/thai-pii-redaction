@@ -76,7 +76,9 @@ def _cache_identity(provider: str, prompt: str, text: str) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="run_llm_benchmark")
     ap.add_argument(
-        "--provider", required=True, help="pathumma | dotblue:<model> | thaillm:<model>"
+        "--provider",
+        required=True,
+        help="pathumma | tokenmind | dotblue:<model> | thaillm:<model>",
     )
     ap.add_argument("--limit", type=int, default=0, help="first N documents (0 = all)")
     ap.add_argument("--refresh", action="store_true", help="ignore cached responses")

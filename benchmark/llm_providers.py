@@ -95,6 +95,7 @@ class OpenAICompatCaller:
         api_key_env: str,
         name: str | None = None,
         max_tokens: int = 4096,
+        extra_body: dict | None = None,
     ):
         base = (os.environ.get(base_url_env) or "").rstrip("/")
         key = os.environ.get(api_key_env) or ""
@@ -113,6 +114,7 @@ class OpenAICompatCaller:
         self.model = model
         self.name = name or model
         self._max_tokens = max_tokens
+        self._extra_body = extra_body or {}
 
     def __call__(self, system: str, user: str, *, timeout: float = 120.0) -> str:
         def send():
@@ -131,6 +133,9 @@ class OpenAICompatCaller:
                     # r.json() dies on "data: " -- which looks like an auth or
                     # model error and is neither.
                     "stream": False,
+                    # Gateway-specific knobs (e.g. vLLM's chat_template_kwargs
+                    # that turns a reasoning model's <think> block off).
+                    **self._extra_body,
                 },
                 headers={"Authorization": f"Bearer {self._key}"},
                 timeout=timeout,
@@ -145,9 +150,23 @@ class OpenAICompatCaller:
 
 
 def build_caller(spec: str):
-    """`pathumma`, `dotblue:<model>`, or `thaillm:<model>`."""
+    """`pathumma`, `tokenmind`, `dotblue:<model>`, or `thaillm:<model>`."""
     if spec == "pathumma":
         return PathummaCaller()
+    if spec == "tokenmind":
+        # The hackathon LiteLLM gateway (TOKENMIND_BASE_URL), NOT the
+        # thaillm.or.th service behind THAILLM_BASE_URL -- different host,
+        # different model list; conflating them once already produced a wrong
+        # "the model does not exist" conclusion. Model fixed to thaillm-8b and
+        # thinking disabled to match the product's TokenmindProvider config,
+        # so the benchmark measures the model as it would actually be used.
+        return OpenAICompatCaller(
+            "thaillm-8b",
+            base_url_env="TOKENMIND_BASE_URL",
+            api_key_env="TOKENMIND_API_KEY",
+            name="tokenmind:thaillm-8b",
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
     if ":" not in spec:
         raise ValueError(f"unknown provider spec {spec!r}")
     provider, model = spec.split(":", 1)
