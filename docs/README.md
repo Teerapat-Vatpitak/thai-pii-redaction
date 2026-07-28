@@ -26,6 +26,8 @@ status page and does not silently override a newer current-state document.
   and hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
   Office, Playground, PDF, Pathumma, and TNER gates.
+- [Annotation guidelines](annotation-guidelines.md) - the standard for gold and
+  blind corpus labels, with the adjudicated precedents.
 - [Versioning advisory](versioning-proposal.md) - preserves the published
   `v2.5.0` product line while any separate AI for Thai service version remains
   provisional.

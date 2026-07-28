@@ -281,9 +281,10 @@ with `--source`:
   so a rule that agrees with the generator scores perfectly whether or not it is
   right. Every field is drawn from one shared `random.Random(seed)`, so editing
   any generator reshuffles unrelated values at a fixed seed.
-- `gold` — `data/gold.jsonl`, 252 hand-authored documents carrying 641 annotated
-  entities across 11 types, no type under 24 instances, plus a 45-document
-  `negative` slice containing no PII at all. Each record stores the document with
+- `gold` — `data/gold.jsonl`, 252 hand-authored documents carrying 648 annotated
+  entities across 11 types (v4, adjudicated 2026-07-28 against
+  `docs/annotation-guidelines.md`), no type under 24 instances, plus a
+  45-document `negative` slice containing no PII at all. Each record stores the document with
   entities marked inline (`[[NAME|สมชาย ใจดี]]`); `gold.py` strips the markup and
   derives the spans, so the text and its annotation cannot drift apart. All
   values are fabricated.

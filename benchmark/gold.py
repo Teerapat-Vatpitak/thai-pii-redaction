@@ -1,7 +1,12 @@
-"""Hand-authored Thai PII gold set (v3).
+"""Hand-authored Thai PII gold set (v4).
 
 Realistic, un-templated Thai documents with fake PII, labeled inline with
-[[TYPE|value]] markup that parse_gold() converts to exact-span Samples. The
+[[TYPE|value]] markup that parse_gold() converts to exact-span Samples.
+v4 is the 2026-07-28 adjudication pass (two independent reviewers against
+docs/annotation-guidelines.md; see the dated decision record): boundary
+normalization (address cues out of brackets), one missed annotation, one
+negative-slice look-alike fix, and a per-document long_form boundary
+guarantee. Annotation conventions live in docs/annotation-guidelines.md. The
 documents live in `data/gold.jsonl` (one JSON object per line) so the set can be
 released as a paper artifact without shipping Python; this module is only the
 parser and loader.
