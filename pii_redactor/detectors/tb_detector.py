@@ -146,11 +146,14 @@ def _detect_tb_finetuned(text: str) -> list[Entity]:
         _finetuned_cache["engine"] = FinetunedEngine()
     engine = _finetuned_cache["engine"]
 
+    thresholds = getattr(engine, "thresholds", {}) or {}
     candidates: list[Entity] = []
     model_name_spans: list[tuple[int, int]] = []
     for start, end, label, conf in engine.spans(text):
         data_type = _FINETUNED_LABEL_MAP.get(label)
         if data_type is None or end - start < 2:
+            continue
+        if conf < thresholds.get(label, 0.0):
             continue
         entity_text = text[start:end]
         if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
