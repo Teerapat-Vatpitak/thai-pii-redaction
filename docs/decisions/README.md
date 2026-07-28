@@ -11,6 +11,7 @@ by when the decision was made rather than continuously maintained.
 
 | Document | What it decides |
 |---|---|
+| [2026-07-28 ONNX evaluation](2026-07-28-onnx-runtime-evaluation.md) | ONNX fp32 gives an exact-parity 2.4x on the WangchanBERTa path and int8 breaks parity outright — nothing ships now, but fp32 is the deployment runtime if a fine-tuned model ever earns a default change |
 | [2026-07-28 engine comparison](2026-07-28-engine-comparison-after-campaigns.md) | Why the CRF stays the default after campaigns 1-2: union's old advantages were closed by cue/coalescing work, and its residual recall costs precision and 27x compute |
 | [2026-07-28 gold adjudication](2026-07-28-gold-adjudication.md) | The two-reviewer v3→v4 adjudication: 23 documents fixed, which reviewer findings became rule fixes instead, and which were rejected with precedents |
 | [2026-07-28 blind set protocol](2026-07-28-blind-set-protocol.md) | How the held-out blind corpus is authored, locked, scored aggregate-only under a reveal budget, and rotated — and why the blob is obfuscated against the repo's own coding agents |
