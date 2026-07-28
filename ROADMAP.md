@@ -117,10 +117,18 @@ The participant guide fixes the deployment shape: FastAPI behind a same-origin
 reverse proxy whose public `/api/...` path reaches an unprefixed backend
 route, Compose deployed from GitLab `main`, loopback-only host publication, an
 unprefixed `/health`, masked CI variables, bounded log rotation, and CPU-only
-resource limits. GitLab group access and separate LLM service credentials have
-arrived. The group still has no deployment project, and the exact public
-operation/authentication contract plus LLM protocol and policy need
-confirmation.
+resource limits. GitLab group access (Maintainer) and separate LLM service
+credentials have arrived.
+
+The deployment is built as a **separate port repo** (`aiguard-aift`), keeping
+this repo local-first: a vendored core slice + nginx adapter (prefix re-add,
+six-endpoint allowlist, key injection) + OCR-baked image, with a stateless
+roundtrip against thaillm-8b. It passed a full local Docker phase — the ก-ฌ
+checklist, fail-loud/503 failure modes, and a service-level soak — recorded in
+the [tokenmind detector + port ADR](docs/decisions/2026-07-28-tokenmind-detector-and-aift-port.md)
+and the port repo's `docs/evidence/`. Pushing to GitLab and the real platform
+run are owner-gated; the exact public operation/authentication contract plus
+LLM protocol and policy still need confirmation.
 
 - Capture the remaining official answers: project/template ownership, public
   operations, caller authentication, payload/timeout/concurrency limits,
