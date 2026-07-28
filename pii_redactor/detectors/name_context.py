@@ -48,7 +48,10 @@ _DIRECT_NAME_CUES = {"ข้าพเจ้า", "ผู้เสียหาย
 # Compound self-introductions newmm may keep as one token.
 _INTRO_COMPOUND = {"ผมชื่อ", "ดิฉันชื่อ", "ฉันชื่อ", "หนูชื่อ", "ลงชื่อ"}
 
-_THAI_WORD = re.compile(r"^[ก-๛]{2,}$")
+# {1,} not {2,}: newmm splits some real first names into single-char tokens
+# (สราวุธ -> ส|รา|วุธ), and the per-entity >=2-char chokepoint still applies.
+_THAI_WORD = re.compile(r"^[ก-๛]+$")
+_NEVER_NAME_CHARS = {"ๆ", "ฯ"}
 # Thai-script tokens that are not names even right after a cue.
 _NOT_NAME = {
     "ชื่อ",
@@ -95,17 +98,165 @@ _NOT_NAME = {
 }
 
 
+_NOT_NAME |= {"เลขที่", "หนังสือเดินทาง", "ลายมือชื่อ", "รายการ", "เงื่อนไข"}
+
+# Verbs/functional tokens that begin prose, never a Thai given name. Exact
+# whole-token matches only — a prefix rule would kill real names (การุณ).
+_LEAD_STOP = {
+    "ต้อง",
+    "ควร",
+    "จะ",
+    "ให้",
+    "โปรด",
+    "กรุณา",
+    "สามารถ",
+    "ขอ",
+    "กรอก",
+    "แนบ",
+    "แสดง",
+    "ชำระ",
+    "ดำเนิน",
+    "ดำเนินการ",
+    "ยอมรับ",
+    "ได้",
+    "ได้รับ",
+    "รับ",
+    "อยู่",
+    "เป็น",
+    "คือ",
+    "ประสงค์",
+    "ทุก",
+    "ราย",
+}
+_ACCOUNT_TYPES = {"ออมทรัพย์", "กระแสรายวัน", "ฝากประจำ"}
+
+# Role cues, matched at CHARACTER level over the raw text — newmm splits
+# ผู้-compounds (ผู้ป่วย -> ผู้|ป่วย), so token-level matching silently never
+# fires (the documented dead-code trap). Each cue carries the prose
+# continuations that must veto it when GLUED directly to the cue: the veto
+# list is what separates "ผู้ป่วย สมบูรณ์ ทรงศิริ" (a labeled person) from
+# "ผู้ป่วยใน ห้องพิเศษ" (a ward category). Longest cue first so
+# ผู้ยื่นอุทธรณ์ is not consumed as ผู้ยื่น + อุทธรณ์-as-name.
+_ROLE_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ผู้ค้ำประกันเงินกู้", ("ต้อง", "ควร", "มี", "ร่วม")),
+    ("ผู้รับมอบอำนาจ", ("ต้อง", "ควร", "ช่วง")),
+    ("ผู้รับการตรวจ", ("ต้อง", "ควร")),
+    ("ผู้ยื่นอุทธรณ์", ("ต้อง", "ควร")),
+    ("ผู้ยื่นคำร้อง", ("ต้อง", "ควร")),
+    ("ผู้ค้ำประกัน", ("ต้อง", "ควร", "มี", "ร่วม")),
+    ("ผู้เอาประกันภัย", ("ต้อง", "ควร")),
+    ("ผู้ปกครอง", ("ต้อง", "ควร", "ของ", "นักเรียน", "และ")),
+    ("ผู้สั่งซื้อ", ("สินค้า", "ต้อง", "ควร")),
+    ("ผู้ถือบัตร", ("ต้อง", "ควร", "สามารถ", "ทุก")),
+    ("ผู้เดินทาง", ("ต้อง", "ควร", "ทุก", "ที่")),
+    ("ผู้ขับขี่", ("ต้อง", "ควร", "ที่", "ทุก")),
+    ("ผู้ติดต่อ", ("หลัก", "สำรอง", "สอบถาม", "กลับ", "ได้", "ประสาน")),
+    ("ผู้สมัคร", ("งาน", "สอบ", "ทุก", "ที่", "สามารถ", "รหัส")),
+    ("ผู้แจ้ง", ("ความ", "เบาะแส", "เตือน")),
+    ("ผู้ยื่น", ("ภาษี", "แบบ")),
+    ("ผู้ป่วย", ("ใน", "นอก", "ราย", "ทุก", "ต้อง", "ควร", "ที่", "จะ", "ได้", "เรื้อรัง")),
+    ("ผู้กู้", ("ร่วม", "ยืม", "ต้อง", "ควร")),
+    ("มอบอำนาจให้", ("__require_space__",)),
+    ("ชื่อบัญชี", ("ผู้ใช้",)),
+)
+# Tokens that may sit between a role cue and the name ("ผู้ป่วยชื่อวิภาวดี",
+# "ผู้ค้ำประกันเงินกู้คือ สราวุธ").
+_ROLE_LINKERS = {"คือ", "ชื่อ", "ได้แก่"}
+
+# Bare "ชื่อ" as a field label: only at line start, only with a delimiter, so
+# it cannot fire inside ชื่อบัญชี/ชื่อบริษัท or mid-sentence prose.
+_LINE_NAME_LABEL_RE = re.compile(r"(?m)^[ \t]*ชื่อ(?:-นามสกุล)?[ \t:：]+")
+
+# "<kinship>ชื่อ <first> <last>" — คุณแม่ชื่อ สมหญิง รักไทย. The kinship word
+# is what makes bare ชื่อ a person label here; กรอกชื่อ/ระบุชื่อ stay form
+# instructions and never fire.
+_KINSHIP_NAME_LABEL_RE = re.compile(
+    r"(?:คุณแม่|คุณพ่อ|แม่|พ่อ|พี่สาว|พี่ชาย|พี่|น้องสาว|น้องชาย|น้อง|ลูกสาว|ลูกชาย|ลูก"
+    r"|ภรรยา|สามี|ป้า|ลุง|ย่า|ยาย|ปู่|ตา|หลาน|เพื่อน|แฟน)ชื่อ[ \t:：]*"
+)
+
+# Numbered rosters need header evidence — numbered lists are also agendas and
+# invoices, and "1. การชำระ เงินล่วงหน้า" is two Thai tokens shaped like a
+# name. The header is what says these lines enumerate PEOPLE.
+_ROSTER_HEADER_RE = re.compile(r"รายชื่อ|ผู้เข้าสอบ|ผู้เข้าพัก|ผู้มีสิทธิ์|ผู้ผ่านการ|ทะเบียนผู้")
+_ROSTER_CUE_RE = re.compile(r"(?m)(?:^|(?<=\s))(?:ลำดับที่[ \t]*\d+[ \t.]*|\d{1,3}\.[ \t]+)")
+_ROSTER_HEADER_WINDOW = 300
+
+# A two-group Thai name immediately followed by a passport-format value or
+# the word passport (hotel/visa/tour rosters).
+_NAME_BEFORE_PASSPORT_RE = re.compile(
+    r"([ก-๛]{2,25})[ \t]([ก-๛]{2,25})[ \t]+(?=passport|[A-Z]{2}\d{7})"
+)
+
+# Latin-script names: the Thai CRF never tags them. Cue-driven extraction
+# only (a global capitalized-bigram scan plus proximity is how "Name Bangkok
+# Bank" becomes a person), with an org/place component stoplist.
+_LATIN_CUE_RE = re.compile(
+    r"(?:(?:Name|ชื่อ)[ \t]*[:：=][ \t]*|(?:Name|ชื่อ)[ \t]+|contact person[ \t:：]*"
+    r"|Mr\.?[ \t]+|Ms\.?[ \t]+|Mrs\.?[ \t]+|ผู้ยื่น[ \t]+|ผู้แจ้ง[ \t]+"
+    r"|ที่นั่งสอบ[ \t]*[A-Za-z]?\d+[ \t]+)"
+)
+_LATIN_NAME_RE = re.compile(r"[A-Z][a-z]{1,20}(?:[ \t](?:[A-Z]\.|[A-Z][a-z]{1,20})){1,3}")
+_LATIN_TRAILING_PASSPORT_RE = re.compile(
+    r"([A-Z][a-z]{1,20}(?:[ \t](?:[A-Z]\.|[A-Z][a-z]{1,20})){1,2})[ \t]+(?=passport|[A-Z]{2}\d{7})"
+)
+_LATIN_ORG_STOP = {
+    "bank",
+    "company",
+    "limited",
+    "public",
+    "hospital",
+    "university",
+    "hotel",
+    "road",
+    "river",
+    "province",
+    "district",
+    "tower",
+    "office",
+    "department",
+    "faculty",
+    "school",
+    "service",
+    "customer",
+    "group",
+    "branch",
+    "building",
+    "resort",
+    "airport",
+    "station",
+    "palace",
+    "temple",
+    "market",
+    "mall",
+    "co",
+    "ltd",
+    "plc",
+}
+
+
 def _is_name_token(tok: str) -> bool:
-    return bool(_THAI_WORD.match(tok)) and tok not in _NOT_NAME and tok not in _TITLES
+    return (
+        bool(_THAI_WORD.match(tok))
+        and tok not in _NOT_NAME
+        and tok not in _TITLES
+        and tok not in _NEVER_NAME_CHARS
+    )
 
 
-def detect_name_context(text: str) -> list[Entity]:
-    """Detect names introduced by a title or an explicit name label."""
-    if not text or not text.strip():
-        return []
+def _make_name(text: str, start: int, end: int, score: float) -> Entity:
+    return Entity(
+        entity_id=str(uuid.uuid4()),
+        redact_type="TB",
+        data_type="NAME",
+        span=(start, end),
+        score=score,
+        original_text=text[start:end],
+    )
 
+
+def _token_spans(text: str) -> list[tuple[str, int, int]]:
     tokens = word_tokenize(text, keep_whitespace=True)
-    # map tokens to character offsets
     spans: list[tuple[str, int, int]] = []
     pos = 0
     for t in tokens:
@@ -114,9 +265,169 @@ def detect_name_context(text: str) -> list[Entity]:
             i = pos
         spans.append((t, i, i + len(t)))
         pos = i + len(t)
+    return spans
+
+
+def _collect_two_groups(
+    spans: list[tuple[str, int, int]], start_idx: int
+) -> tuple[int, int] | None:
+    """Collect exactly two horizontal-space-separated groups of name tokens.
+
+    Two groups (first + last name) are REQUIRED — a single Thai token after a
+    role word is far more often prose than a mononym. Whitespace containing a
+    newline ends the attempt; a leading _LEAD_STOP token aborts it (verbs
+    start sentences, not names).
+    """
+    n = len(spans)
+    collected: list[tuple[int, int]] = []
+    groups = 0
+    first_token_of_name = True
+    j = start_idx
+    while j < n:
+        tok, ts, te = spans[j]
+        if tok.strip() == "":
+            if any(ch in tok for ch in "\n\r"):
+                break
+            if not collected:
+                j += 1
+                continue
+            if groups == 1:
+                break
+            groups = 1
+            first_token_of_name = True  # next token starts the second group
+            j += 1
+            continue
+        if not _is_name_token(tok) or te - ts > 25:
+            break
+        if first_token_of_name and tok in _LEAD_STOP:
+            # a verb opening EITHER group means this is prose, not a name
+            return None
+        if first_token_of_name and groups == 0 and tok in _ACCOUNT_TYPES:
+            return None
+        first_token_of_name = False
+        collected.append((ts, te))
+        j += 1
+    if not collected or groups < 1:
+        return None
+    return collected[0][0], collected[-1][1]
+
+
+def _index_after(spans: list[tuple[str, int, int]], char_pos: int) -> int | None:
+    """First token index starting at or after char_pos; None if a token
+    straddles the boundary (cannot align a glued cue to token space)."""
+    for idx, (_t, s, e) in enumerate(spans):
+        if s >= char_pos:
+            return idx
+        if s < char_pos < e:
+            return None
+    return None
+
+
+def _role_cue_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    ents: list[Entity] = []
+    claimed: list[tuple[int, int]] = []
+    for cue, vetoes in _ROLE_CUES:
+        for pos in range(len(text)):
+            pos = text.find(cue, pos)
+            if pos == -1:
+                break
+            cue_end = pos + len(cue)
+            if any(pos < c_end and c_start < cue_end for c_start, c_end in claimed):
+                continue
+            after = text[cue_end : cue_end + 12]
+            if "__require_space__" in vetoes:
+                if not after[:1].isspace():
+                    continue
+            elif any(after.startswith(v) for v in vetoes):
+                continue
+            # optional linker token(s) between cue and name
+            idx = _index_after(spans, cue_end)
+            if idx is None:
+                continue
+            while idx < len(spans) and (
+                spans[idx][0] in _ROLE_LINKERS
+                or (spans[idx][0].strip() == "" and "\n" not in spans[idx][0])
+            ):
+                idx += 1
+            got = _collect_two_groups(spans, idx)
+            if got:
+                claimed.append((pos, got[1]))
+                ents.append(_make_name(text, got[0], got[1], 0.88))
+    return ents
+
+
+def _line_label_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    ents = []
+    for m in list(_LINE_NAME_LABEL_RE.finditer(text)) + list(_KINSHIP_NAME_LABEL_RE.finditer(text)):
+        idx = _index_after(spans, m.end())
+        if idx is None:
+            continue
+        got = _collect_two_groups(spans, idx)
+        if got:
+            ents.append(_make_name(text, got[0], got[1], 0.88))
+    return ents
+
+
+def _roster_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    ents = []
+    for m in _ROSTER_CUE_RE.finditer(text):
+        head_ctx = text[max(0, m.start() - _ROSTER_HEADER_WINDOW) : m.start()]
+        if not _ROSTER_HEADER_RE.search(head_ctx):
+            continue
+        idx = _index_after(spans, m.end())
+        if idx is None:
+            continue
+        got = _collect_two_groups(spans, idx)
+        if got:
+            ents.append(_make_name(text, got[0], got[1], 0.87))
+    return ents
+
+
+def _passport_roster_names(text: str) -> list[Entity]:
+    ents = []
+    for m in _NAME_BEFORE_PASSPORT_RE.finditer(text):
+        if _is_name_token(m.group(1)) and _is_name_token(m.group(2)):
+            ents.append(_make_name(text, m.start(1), m.end(2), 0.88))
+    return ents
+
+
+def _latin_names(text: str) -> list[Entity]:
+    ents = []
+    seen: set[tuple[int, int]] = set()
+
+    def _accept(m_start: int, value: str):
+        parts = re.split(r"[ \t]+", value)
+        if any(p.rstrip(".").lower() in _LATIN_ORG_STOP for p in parts):
+            return
+        span = (m_start, m_start + len(value))
+        if span not in seen:
+            seen.add(span)
+            ents.append(_make_name(text, span[0], span[1], 0.88))
+
+    for cue in _LATIN_CUE_RE.finditer(text):
+        m = _LATIN_NAME_RE.match(text, cue.end())
+        if m:
+            _accept(m.start(), m.group(0))
+    for m in _LATIN_TRAILING_PASSPORT_RE.finditer(text):
+        _accept(m.start(1), m.group(1))
+    return ents
+
+
+def detect_name_context(text: str) -> list[Entity]:
+    """Detect names introduced by a title, label, role word, or roster cue."""
+    if not text or not text.strip():
+        return []
+
+    spans = _token_spans(text)
+
+    ents: list[Entity] = []
+    ents.extend(_role_cue_names(text, spans))
+    ents.extend(_line_label_names(text, spans))
+    ents.extend(_roster_names(text, spans))
+    ents.extend(_passport_roster_names(text))
+    ents.extend(_latin_names(text))
 
     n = len(spans)
-    ents: list[Entity] = []
     for idx, (tok, _s, _e) in enumerate(spans):
         is_title = tok in _TITLES
         is_direct = tok in _DIRECT_NAME_CUES

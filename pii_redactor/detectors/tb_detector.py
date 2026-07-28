@@ -67,6 +67,15 @@ _TB_CUE_WINDOW = 30
 # _apply_cue_upgrades), so an all-Latin "organization" span is always this
 # degenerate guess rather than a real Thai employer/hospital name -- reject it.
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
+# Document/form compounds the CRF hallucinates as PERSON in header-heavy
+# registers. Anchored at span start; each entry is a compound so that real
+# given names sharing a prefix (เลขา, ใบเฟิร์น, ประกาศิต, นิคม) survive.
+_NAME_CUE_AFTER_BREAK_RE = re.compile(r"(?:[ก-๛]{0,12}ชื่อ|นาย|นางสาว|นาง|ด\.ช\.|ด\.ญ\.)")
+_NAME_DOC_COMPOUND_RE = re.compile(
+    r"ตารางสอบ|ตารางเรียน|ตารางนัด|รายงานการ|สถานีตำรวจ|ประวัติการ|นิคมอุตสาหกรรม"
+    r"|เลขครุภัณฑ์|เลขที่|เลขเอกสาร|ใบสมัคร|ใบคำร้อง|ใบเสร็จ|ใบกำกับ|ใบแจ้ง"
+    r"|บันทึกข้อความ|ประกาศรายชื่อ|ประกาศผล|กำหนดการ|ระเบียบวาระ"
+)
 
 
 def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
@@ -315,6 +324,30 @@ def _ner_candidates(
                 entity_text = text[orig_start:orig_end]
                 if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
                     continue
+                # NAME hygiene (blind-set precision classes): a person's name
+                # never spans a line break, so TRIM the span at the first
+                # newline (rejecting outright would drop the real name the CRF
+                # glued to the next line's label — the sample-PDF regression).
+                # A span BEGINNING with a document compound (ตารางสอบ…,
+                # เลขครุภัณฑ์…) is a header, not a person. Compounds, never
+                # noun prefixes — เลขา, ใบเฟิร์น and ประกาศิต are real names.
+                if data_type == "NAME":
+                    if "\n" in entity_text:
+                        head, tail = entity_text.split("\n", 1)
+                        # If the next line opens with a name cue, the person is
+                        # on THAT side and the cue pass owns it — keeping the
+                        # pre-newline head would mint a junk NAME out of the
+                        # ordinary words the CRF glued on ("หน่อยครับ\nผมชื่อ
+                        # <name>"), which the leak guard would then halt on.
+                        if _NAME_CUE_AFTER_BREAK_RE.match(tail.lstrip()):
+                            continue
+                        head = head.rstrip()
+                        if len(head) < 2:
+                            continue
+                        orig_end = orig_start + len(head)
+                        entity_text = text[orig_start:orig_end]
+                    if _NAME_DOC_COMPOUND_RE.match(entity_text):
+                        continue
                 data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
                 candidates.append(
                     Entity(
