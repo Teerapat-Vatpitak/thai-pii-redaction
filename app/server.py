@@ -702,7 +702,16 @@ def roundtrip(request: RoundtripRequest):
             detail=f"AI provider error: malformed response ({type(e).__name__})",
         )
 
-    restored = restore_stateless(ai_text, mapping=masked.mapping)
+    if not isinstance(ai_text, str):
+        raise HTTPException(
+            status_code=502, detail="AI provider error: malformed response (non-text)"
+        )
+    try:
+        restored = restore_stateless(ai_text, mapping=masked.mapping)
+    except Exception as e:
+        # A defect on OUR side after a successful provider call is a 500, not a
+        # 502 -- and its message is not for the wire. Type name only.
+        raise HTTPException(status_code=500, detail=f"restore failed ({type(e).__name__})")
 
     guard_findings = to_wire(scan_injection(request.text))
 

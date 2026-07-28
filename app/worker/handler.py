@@ -110,7 +110,13 @@ def _op_roundtrip(payload: dict) -> dict:
         # platform result. Preserve only a stable, non-sensitive category.
         raise _SafeJobError("provider_failed", "AI provider call failed") from e
 
-    restored = restore_stateless(ai_text, mapping=masked.mapping)
+    try:
+        restored = restore_stateless(ai_text, mapping=masked.mapping)
+    except Exception as e:
+        # Restoration defects get their own category; the outer poison barrier
+        # collapsing them into job_failed hides exactly the failures the
+        # roundtrip exists to prevent.
+        raise _SafeJobError("restore_failed", "restore failed") from e
     return {
         "sanitized_text": masked.sanitized_text,
         "ai_response_masked": ai_text,
@@ -124,7 +130,10 @@ def _op_roundtrip(payload: dict) -> dict:
 
 
 def _op_restore(payload: dict) -> dict:
-    out = restore_stateless(payload["text"], mapping=payload["mapping"])
+    try:
+        out = restore_stateless(payload["text"], mapping=payload["mapping"])
+    except Exception as e:
+        raise _SafeJobError("restore_failed", "restore failed") from e
     return {
         "restored_text": out.restored_text,
         "replaced_count": out.replaced_count,
