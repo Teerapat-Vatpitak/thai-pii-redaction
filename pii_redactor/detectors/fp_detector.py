@@ -158,11 +158,12 @@ def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Enti
     so dedup handed every 10-digit id to BANK_ACCOUNT even with an explicit
     student cue right in front of it -- on the gold set, 0 of 8 kept their type.
 
-    Same rule as _disambiguate_bank_phone: the cue nearest the number in the
-    preceding ~30 chars decides, and a bank cue at least as near as the student
-    cue keeps BANK (a student's own bank account is still a bank account). A
-    STUDENT_ID candidate only exists here when a student cue already matched, so
-    the no-cue case cannot reach this function.
+    Same rule as _disambiguate_bank_phone: the nearer cue decides, and a bank
+    cue at least as near as the student evidence keeps BANK (a student's own
+    bank account is still a bank account). The student side is measured by
+    _student_evidence's anchor distance — not the person-word regex alone —
+    because since the 2026-07-28 review a STUDENT_ID candidate can be created
+    by an id-introducer tier whose person word is absent or far away.
     """
     types_by_span: dict[tuple[int, int], set[str]] = {}
     for e in candidates:
@@ -175,8 +176,9 @@ def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Enti
             continue
         ctx = text[max(0, span[0] - _CUE_WINDOW) : span[0]]
         bank = _rightmost_cue(_BANK_CUE_RE, ctx)
-        student = _rightmost_cue(_STUDENT_CUE_RE, ctx)
-        if bank >= student:
+        bank_dist = len(ctx) - bank if bank >= 0 else None
+        student_dist = _student_evidence(text, span[0], span[1])
+        if bank_dist is not None and (student_dist is None or bank_dist <= student_dist):
             drop_student.add(span)
         else:
             drop_bank.add(span)
@@ -193,27 +195,72 @@ def _disambiguate_bank_student(text: str, candidates: list[Entity]) -> list[Enti
     return out
 
 
-def _student_cue_wins(text: str, start: int) -> bool:
-    """True if a student cue is the nearer cue to the digit run at `start`.
+def _student_evidence(text: str, start: int, end: int) -> int | None:
+    """Distance (chars) to the winning student cue for the digit run, or None.
 
-    A reviewer found that a bare person-word (นักเรียน/นิสิต/...) anywhere in
-    the preceding _CUE_WINDOW chars was enough to label any 8-12 digit run
-    STUDENT_ID, even when the number is plainly an order or invoice number
-    ("นักเรียนสั่งซื้อสินค้ารหัส 88910423"). Restricting _STUDENT_CUE_RE to
-    identifier phrases only (รหัสนักศึกษา/เลขประจำตัวนักเรียน/...) was measured
-    on the gold set and rejected: it cost 8 correct STUDENT_ID labels (recall
-    0.509 -> 0.368) and changed nothing else measurable. So the fix is scope,
-    not vocabulary -- same nearest-cue-wins rule as _disambiguate_bank_phone
-    and _disambiguate_bank_student above: a student cue wins only when no
-    competing number-introducing cue (order/price/invoice/...) sits at least
-    as close to the digits.
+    Three evidence tiers, adversarially reviewed 2026-07-28 (the blockers and
+    the tier shapes came out of that review; gold v4 measured the old
+    30-chars-before-only rule at 0.509 STUDENT_ID recall with every miss
+    mislabeled rather than unmasked):
+
+    - A compound code word directly before the digits (รหัสวิชา, รหัสพนักงาน,
+      รหัสชำระ, ...) names a DIFFERENT kind of code and blocks all tiers —
+      education words around a course code do not make it a student id.
+    - Tier 1: a person-word cue (นักศึกษา/นิสิต/... ) before the digits,
+      nearest-wins against commerce cues, window widened to 60 chars because
+      a name or heading routinely sits between the cue and the digits.
+    - Tier 2: a person-word cue up to 45 chars AFTER the digits
+      ("รหัสประจำตัว 65021178 เป็นนักศึกษา..."), only when no commerce cue
+      precedes it on that side and no bank/phone cue owns the digits from the
+      front (a following "นักศึกษา" must not outbid "เลขบัญชี").
+    - Tier 3: a bare id-introducer (รหัส/เลขประจำตัว/ID) ending within 20
+      chars before the digits on the SAME line, plus an education-context
+      token within ±100 chars, with no commerce cue earlier on that line —
+      the veto is line-bounded because a commerce word on a previous line is
+      about different digits ("ใบแจ้งหนี้ 77881122\\nรหัส 65014477 ...").
+
+    The pinned boundary survives: "นักเรียนสั่งซื้อสินค้ารหัส 88910423" fails
+    tier 1 (สินค้า nearer), tier 2 (no person word after), and tier 3
+    (commerce cue on the same line), so it stays the honest ID_NUMBER.
     """
-    ctx = text[max(0, start - _CUE_WINDOW) : start]
-    student = _rightmost_cue(_STUDENT_CUE_RE, ctx)
-    if student < 0:
-        return False
+    line_start = text.rfind("\n", 0, start) + 1
+
+    intro_ctx = text[max(line_start, start - _STUDENT_INTRO_WINDOW) : start]
+    if _STUDENT_BLOCKER_RE.search(intro_ctx):
+        return None
+
+    # Tier 1 — person cue before, nearest-wins vs commerce.
+    ctx = text[max(0, start - _STUDENT_PERSON_WINDOW) : start]
+    person = _rightmost_cue(_STUDENT_CUE_RE, ctx)
     competing = _rightmost_cue(_NON_STUDENT_NUM_CUE_RE, ctx)
-    return student > competing
+    if person >= 0 and person > competing:
+        return len(ctx) - person
+
+    # Tier 2 — person cue after the digits. Any commerce cue in the front
+    # window vetoes it ("ใบเสร็จเลขที่ 68123456 นักศึกษาต้องเก็บไว้" — the
+    # receipt label owns the digits), and so does a bank/phone cue in front.
+    if competing < 0:
+        front = text[max(0, start - _CUE_WINDOW) : start]
+        front_owned = (
+            _rightmost_cue(_BANK_CUE_RE, front) >= 0 or _rightmost_cue(_PHONE_CUE_RE, front) >= 0
+        )
+        if not front_owned:
+            after = text[end : end + _STUDENT_AFTER_WINDOW]
+            m_person = _STUDENT_CUE_RE.search(after)
+            if m_person:
+                m_commerce = _NON_STUDENT_NUM_CUE_RE.search(after)
+                if not m_commerce or m_person.start() < m_commerce.start():
+                    return m_person.start() + 1
+
+    # Tier 3 — id-introducer + education context.
+    intro = _rightmost_cue(_STUDENT_INTRO_RE, intro_ctx)
+    if intro >= 0:
+        veto_ctx = text[max(line_start, start - _CUE_WINDOW) : start]
+        if not _NON_STUDENT_NUM_CUE_RE.search(veto_ctx):
+            edu_ctx = text[max(0, start - _EDU_WINDOW) : min(len(text), end + _EDU_WINDOW)]
+            if _EDU_CONTEXT_RE.search(edu_ctx):
+                return len(intro_ctx) - intro
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +334,9 @@ _RE_VEHICLE_PLATE = re.compile(r"([ก-ฮ]{1,3}\s*\d{1,4})(?!\d)")
 _RE_PASSPORT_TH = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{2}\d{7})(?![A-Za-z0-9_])")
 _RE_PASSPORT = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{1,2}\d{6,9})(?![A-Za-z0-9_])")
 _RE_STUDENT_ID = re.compile(r"(?<!\d)(\d{8,12})(?!\d)")
+# Dashed student-id shape, label-gated at the call site (see step 10b).
+_RE_STUDENT_ID_DASHED = re.compile(r"(?<!\d)(\d{2}-\d{2}-\d{4})(?!\d)")
+_STUDENT_LABEL_RE = re.compile(r"(?:รหัส|เลขประจำตัว)(?:นักศึกษา|นิสิต|นักเรียน)")
 
 # Thai address components. The NER side only ever recognises place NAMES it has
 # seen (province, district), which is the LEAST identifying part of an address
@@ -353,6 +403,30 @@ _POSTAL_CUE_WINDOW = 45
 # still masked as ID_NUMBER anyway, so admitting them would buy no redaction
 # safety and cost an honest label.
 _STUDENT_CUE_RE = re.compile(r"รหัสนักศึกษา|รหัสนิสิต|นักศึกษา|นิสิต|นักเรียน|ผู้เรียน|student", re.IGNORECASE)
+# Compound code words: "รหัสX" names a non-student code and blocks every
+# student tier, even with education words nearby (a course code in a syllabus
+# is still a course code). Kept literal and short on purpose — each entry is a
+# distinct document-field name, not a topic word.
+_STUDENT_BLOCKER_RE = re.compile(
+    r"รหัส(?:ราย)?วิชา|รหัสหลักสูตร|รหัสเอกสาร|รหัสพนักงาน|รหัสอ้างอิง|รหัสชำระ"
+    r"|รหัสสินค้า|รหัสรายการ|รหัสสั่งซื้อ|รหัสโครงการ|รหัสครุภัณฑ์|รหัสผ่าน"
+)
+# Bare id-introducers for tier 3. \bid\b needs the ASCII boundary so it does
+# not fire inside "paid"/"provider".
+_STUDENT_INTRO_RE = re.compile(r"รหัสประจำตัว|เลขประจำตัว|รหัส|\bid\b", re.IGNORECASE)
+# Education-context tokens: deliberately the narrow list that survived the
+# adversarial review — no คณะ (คณะกรรมการ), no วิชา alone (วิชาชีพ/วิชาการ),
+# no สอบ family (civil-service exams), no มหาวิทยาลัย/โรงเรียน (ambient org
+# context), no ทะเบียน (vehicle/civil registries), no คัดเลือก (hiring).
+_EDU_CONTEXT_RE = re.compile(
+    r"นักศึกษา|นิสิต|นักเรียน|ผู้เรียน|student|ลงทะเบียนเรียน|ภาคเรียน|สหกิจศึกษา"
+    r"|หน่วยกิต|ขาดเรียน|ค่าเทอม|สำเร็จการศึกษา|อาจารย์ที่ปรึกษา|ชั้นปี|เกรดเฉลี่ย",
+    re.IGNORECASE,
+)
+_STUDENT_PERSON_WINDOW = 60  # tier 1: person cue before the digits
+_STUDENT_AFTER_WINDOW = 45  # tier 2: person cue after the digits
+_STUDENT_INTRO_WINDOW = 20  # tier 3: introducer must be this close, same line
+_EDU_WINDOW = 100  # tier 3: education token within this many chars either side
 # Words that introduce a number which is not a student identifier. A bare
 # person-word is weak evidence: "นักเรียนสั่งซื้อสินค้ารหัส 88910423" is an
 # order number in a sentence about a pupil. Same nearest-cue-wins rule as the
@@ -429,10 +503,29 @@ def detect_fp(text: str) -> list[Entity]:
         for m in pattern.finditer(text):
             candidates.append(_make_entity("PHONE", m, text, score=1.0))
 
-    # 6. BANK_ACCOUNT (two patterns)
+    # 6. BANK_ACCOUNT (two patterns). Both shapes match any contiguous
+    # 10-digit run, uncued, at 1.0 — which fabricated a bank account out of
+    # "รหัส <10 digits>" (a coded reference that is anything BUT an account:
+    # the writer just called it a code). When a bare id-introducer directly
+    # precedes the digits, no bank cue is in the window, and the student tiers
+    # produce nothing either, emit the honest ID_NUMBER instead. When the
+    # student tiers DO fire, still emit BANK_ACCOUNT and let
+    # _disambiguate_bank_student resolve the pair by cue distance.
     for pattern in (_RE_BANK_ACCOUNT_1, _RE_BANK_ACCOUNT_2):
         for m in pattern.finditer(text):
-            candidates.append(_make_entity("BANK_ACCOUNT", m, text, score=1.0))
+            start = m.start(1)
+            line_start = text.rfind("\n", 0, start) + 1
+            intro_ctx = text[max(line_start, start - _STUDENT_INTRO_WINDOW) : start]
+            bank_cued = _rightmost_cue(_BANK_CUE_RE, text[max(0, start - _CUE_WINDOW) : start]) >= 0
+            if (
+                not bank_cued
+                and _STUDENT_INTRO_RE.search(intro_ctx)
+                and not _STUDENT_BLOCKER_RE.search(intro_ctx)
+                and _student_evidence(text, start, m.end(1)) is None
+            ):
+                candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
+            else:
+                candidates.append(_make_entity("BANK_ACCOUNT", m, text, score=1.0))
 
     # 7. DATE (generic) / DATE_OF_BIRTH (only with a birth cue nearby)
     for m in _RE_DATE.finditer(text):
@@ -478,12 +571,28 @@ def detect_fp(text: str) -> list[Entity]:
         else:
             candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
 
-    # 10. STUDENT_ID only when a student cue is nearer the digits than any
-    # competing number-introducing cue; otherwise the honest generic
-    # ID_NUMBER (low priority; dedup handles overlap).
+    # 10. STUDENT_ID when the tiered evidence fires (person cue nearest-wins,
+    # person cue after the digits, or id-introducer + education context);
+    # otherwise the honest generic ID_NUMBER (low priority; dedup handles
+    # overlap).
     for m in _RE_STUDENT_ID.finditer(text):
-        dtype = "STUDENT_ID" if _student_cue_wins(text, m.start(1)) else "ID_NUMBER"
+        has_student = _student_evidence(text, m.start(1), m.end(1)) is not None
+        dtype = "STUDENT_ID" if has_student else "ID_NUMBER"
         candidates.append(_make_entity(dtype, m, text, score=0.8))
+
+    # 10b. Dashed student ids ("รหัสนักศึกษา 68-01-4429"): the bare \d{8,12}
+    # run cannot match a separated value, and the TB layer reads the shape as
+    # DATE. Only an explicit student label with nothing but whitespace/colon
+    # between it and the value qualifies — "รหัสนักศึกษา วันที่ 01-02-2568"
+    # must stay a date. The FP candidate then outranks the TB DATE in
+    # dedupe_spans (FP tier first).
+    for m in _RE_STUDENT_ID_DASHED.finditer(text):
+        lead = text[max(0, m.start(1) - 25) : m.start(1)]
+        label = None
+        for lm in _STUDENT_LABEL_RE.finditer(lead):
+            label = lm
+        if label is not None and re.fullmatch(r"[\s:]*", lead[label.end() :]):
+            candidates.append(_make_entity("STUDENT_ID", m, text, score=0.9))
 
     # 11. ADDRESS components (house number, soi/road, moo). Scored above the
     # generic numeric catch-alls (0.8) so an address value keeps its honest
