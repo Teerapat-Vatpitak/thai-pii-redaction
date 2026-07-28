@@ -23,6 +23,8 @@ from pii_redactor.session_vault import SessionVault
 
 logger = logging.getLogger(__name__)
 
+# Module-level sleep function for testability (can be monkeypatched)
+_sleep = time.sleep
 
 DEFAULT_SYSTEM_PROMPT = (
     "คุณเป็น AI assistant ที่มีประสิทธิภาพ "
@@ -372,9 +374,13 @@ def send_to_ai(
     # Snapshot for rollback
     snapshot = vault.snapshot()
 
+    # A provider that retries transient failures inside complete() gets ONE
+    # outer attempt -- otherwise a flaky endpoint costs 3x3 calls.
+    effective_attempts = 1 if getattr(provider, "handles_retries", False) else max_retries
+
     # Retry loop
     last_error = None
-    for attempt in range(max_retries):
+    for attempt in range(effective_attempts):
         try:
             start_time = time.monotonic()
             response_text = provider.complete(system, pseudonymized_text, timeout=60.0)
@@ -399,16 +405,16 @@ def send_to_ai(
                 vault.restore(snapshot)
                 raise
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < effective_attempts - 1:
                 backoff = 2**attempt  # 1s, 2s, 4s
-                time.sleep(backoff)
+                _sleep(backoff)
             continue
 
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < effective_attempts - 1:
                 backoff = 2**attempt  # 1s, 2s, 4s
-                time.sleep(backoff)
+                _sleep(backoff)
             continue
 
         except Exception:
@@ -418,4 +424,4 @@ def send_to_ai(
 
     # All retries exhausted - rollback
     vault.restore(snapshot)
-    raise RuntimeError(f"AI provider failed after {max_retries} attempts: {last_error}")
+    raise RuntimeError(f"AI provider failed after {effective_attempts} attempts: {last_error}")

@@ -231,3 +231,47 @@ class TestRetry:
         p = _provider(monkeypatch, lambda req: _ok())
         with pytest.raises(ValueError, match="timeout"):
             p.complete("s", "u", timeout=bad)
+
+
+class TestSendToAiRetryOwnership:
+    def test_send_to_ai_does_not_stack_retries_on_self_retrying_provider(self, monkeypatch):
+        from pii_redactor import ai_client
+        from pii_redactor.ai_client import AIProvider, send_to_ai
+        from pii_redactor.models import EntityRegistry
+        from pii_redactor.session_vault import SessionVault
+
+        monkeypatch.setattr(ai_client, "_sleep", lambda s: None)
+        calls = {"n": 0}
+
+        class SelfRetrying(AIProvider):
+            handles_retries = True
+
+            def complete(self, system, user, *, timeout=30.0):
+                calls["n"] += 1
+                raise httpx.ConnectError("down")
+
+        vault = SessionVault()
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        with pytest.raises(RuntimeError):
+            send_to_ai("ข้อความ", registry, vault, SelfRetrying())
+        assert calls["n"] == 1
+
+    def test_send_to_ai_still_retries_plain_providers(self, monkeypatch):
+        from pii_redactor import ai_client
+        from pii_redactor.ai_client import AIProvider, send_to_ai
+        from pii_redactor.models import EntityRegistry
+        from pii_redactor.session_vault import SessionVault
+
+        monkeypatch.setattr(ai_client, "_sleep", lambda s: None)
+        calls = {"n": 0}
+
+        class Plain(AIProvider):
+            def complete(self, system, user, *, timeout=30.0):
+                calls["n"] += 1
+                raise httpx.ConnectError("down")
+
+        vault = SessionVault()
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+        with pytest.raises(RuntimeError):
+            send_to_ai("ข้อความ", registry, vault, Plain(), max_retries=3)
+        assert calls["n"] == 3
