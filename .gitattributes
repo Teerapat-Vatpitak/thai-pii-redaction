@@ -1,0 +1,9 @@
+# The blind-set blob is byte-exact: its lock records a SHA-256 of the file and
+# an HMAC covers its lines, so any line-ending normalization on checkout breaks
+# both. Treat it as binary everywhere.
+benchmark/data/*.enc -text
+
+# The blind audit log and lock are hashed per-entry over JSON content (line
+# endings excluded), but keep them LF so every platform sees identical files.
+benchmark/data/blind-scores.jsonl text eol=lf
+benchmark/data/*.lock.json text eol=lf

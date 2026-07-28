@@ -308,6 +308,17 @@ forbids in acceptance artifacts — keyed by a hash of provider, prompt and
 document text so a prompt or gold-set edit cannot silently reuse a stale answer.
 `benchmark/reports/` is gitignored.
 
+`blind.py` — the held-out blind set (Track A). **NEVER decrypt, read, or print
+the blind corpus in a development session** — it exists to measure whether
+gold-set tuning generalizes, and reading it (by human or agent) burns it. The
+corpus is committed only as `data/blind-*.enc` (HMAC-keystream obfuscation +
+auth MAC; blinding, not security) with a lock file pinning hashes and counts;
+the key lives outside the repo, passed via `AIGUARD_BLIND_KEY_FILE`. Scoring
+(`python -m benchmark --source blind --reason "..."`) is aggregate-only and
+appends a hash-chained entry to the committed `data/blind-scores.jsonl` under
+a reveal budget; the LLM benchmark must never touch it (test-pinned). Protocol:
+`docs/decisions/2026-07-28-blind-set-protocol.md`.
+
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
