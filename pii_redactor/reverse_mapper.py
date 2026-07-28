@@ -3,6 +3,9 @@
 Restores original PII from pseudonymized AI response using the vault's reverse index.
 """
 
+import re
+from collections.abc import Iterable
+
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.models import AIResponse, EntityRegistry, ReverseResult
 from pii_redactor.session_vault import SessionVault
@@ -45,6 +48,48 @@ def _boundary_ok(text: str, start: int, end: int, pseudonym: str) -> bool:
     if left_glue and right_glue:
         return False
     return True
+
+
+# Foreign-token detector (spec 2026-07-27): bracket-shaped tokens in the raw
+# model reply that we never sent. The model translating [ชื่อ_1] to [Name_1]
+# leaves the original as a weak unused_pseudonyms signal while nothing at all
+# classifies the [Name_1] left in the text -- this does. Alert-only: guessing
+# that [Name_1] "means" [ชื่อ_1] and restoring would put the wrong person in.
+_BRACKET_CANDIDATE = re.compile(r"\[([^\[\]\r\n]{1,64})\]")
+# ASCII-only ordinal: str.isdigit() accepts Thai digits the generator never emits.
+_TOKEN_ORDINAL = re.compile(r"[1-9][0-9]*")
+
+
+def _is_token_shaped(inner: str) -> bool:
+    label, sep, ordinal = inner.rpartition("_")
+    if not sep or not label:
+        return False
+    return _TOKEN_ORDINAL.fullmatch(ordinal) is not None
+
+
+def count_foreign_tokens(raw_text: str, sent_pseudonyms: Iterable[str]) -> int:
+    """Occurrences of bracket tokens in `raw_text` that are not in the sent set.
+
+    Active only when at least one sent pseudonym is itself bracket-token-shaped
+    (token mode); in surrogate mode every match would be a false positive.
+    Returns a count, never the candidates: a bracket candidate is arbitrary
+    model output and flags can reach audit logs (VAULT-4).
+    """
+    sent = {p for p in sent_pseudonyms if p}
+
+    def _is_token(p: str) -> bool:
+        m = _BRACKET_CANDIDATE.fullmatch(p)
+        return bool(m) and _is_token_shaped(m.group(1))
+
+    if not any(_is_token(p) for p in sent):
+        return 0
+    count = 0
+    for match in _BRACKET_CANDIDATE.finditer(raw_text):
+        if match.group(0) in sent:
+            continue
+        if _is_token_shaped(match.group(1)):
+            count += 1
+    return count
 
 
 def _pre_reverse_validate(ai_response: AIResponse, vault: SessionVault) -> None:
@@ -211,12 +256,19 @@ def reverse_map(
     # Pre-validate
     _pre_reverse_validate(ai_response, vault)
 
+    # Scan the RAW reply, before splice: after restoration the sent tokens are
+    # gone and a restored original may itself contain bracket-looking text.
+    foreign_count = count_foreign_tokens(ai_response.text, vault._reverse.keys())
+
     # Core reverse
     restored_text, replaced = _do_reverse(ai_response.text, vault)
 
     # Post-validate
     flags, audit_summary = _post_reverse_validate(restored_text, replaced, entity_registry, vault)
     audit_summary["request_id"] = ai_response.request_id
+    if foreign_count:
+        flags.append(f"foreign_tokens:{foreign_count}")
+    audit_summary["foreign_token_count"] = foreign_count
 
     return ReverseResult(
         text=restored_text,
