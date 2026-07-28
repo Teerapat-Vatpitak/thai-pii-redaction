@@ -52,6 +52,16 @@ class FinetunedEngine:
         self._model = AutoModelForTokenClassification.from_pretrained(model_dir)
         self._model.eval()
         self._id2label = {int(k): v for k, v in self._model.config.id2label.items()}
+        # Per-label confidence floors, calibrated on the synthetic dev split
+        # (training/calibrate_thresholds.py) and stored WITH the weights —
+        # they are part of the model artifact, never of the repo.
+        self.thresholds: dict[str, float] = {}
+        thresholds_path = os.path.join(model_dir, "thresholds.json")
+        if os.path.exists(thresholds_path):
+            import json
+
+            with open(thresholds_path, encoding="utf-8") as f:
+                self.thresholds = {str(k): float(v) for k, v in json.load(f).items()}
 
     def spans(self, text: str) -> list[tuple[int, int, str, float]]:
         """(start, end, LABEL, confidence) spans over the raw text."""

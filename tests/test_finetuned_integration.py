@@ -15,8 +15,9 @@ from pii_redactor.models import Entity
 
 
 class _FakeEngine:
-    def __init__(self, spans):
+    def __init__(self, spans, thresholds=None):
         self._spans = spans
+        self.thresholds = thresholds or {}
 
     def spans(self, text):
         return self._spans
@@ -98,6 +99,30 @@ def test_relabel_is_noop_for_crf(monkeypatch):
     text = "อ้างอิง 66019901 ตามระบบ"
     ents = detect_all(text)
     assert not [e for e in ents if e.data_type == "STUDENT_ID"]
+
+
+def test_per_label_thresholds_filter_low_confidence_spans(monkeypatch):
+    # Calibrated floors (part of the model artifact) drop the low-confidence
+    # tail per label without touching other labels.
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "finetuned")
+    text = "พบ สมชาย ทดสอบ วันที่ 12 มีนาคม 2569"
+    name_lo = text.index("สมชาย")
+    date_lo = text.index("12 มีนาคม")
+    spans = [
+        (name_lo, name_lo + len("สมชาย ทดสอบ"), "PERSON", 0.80),  # below floor
+        (date_lo, date_lo + len("12 มีนาคม 2569"), "DATE", 0.80),  # no floor
+    ]
+    monkeypatch.setitem(
+        tb_detector._finetuned_cache,
+        "engine",
+        _FakeEngine(spans, thresholds={"PERSON": 0.92}),
+    )
+    try:
+        types = {e.data_type for e in tb_detector.detect_tb(text)}
+    finally:
+        tb_detector._finetuned_cache.pop("engine", None)
+    assert "NAME" not in types
+    assert "DATE" in types
 
 
 def test_relabel_helper_contract():
