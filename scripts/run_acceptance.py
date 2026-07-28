@@ -462,7 +462,10 @@ def main() -> int:
 
     headers = {}
     if os.environ.get("AIGUARD_API_KEY"):
-        headers["X-API-Key"] = os.environ["AIGUARD_API_KEY"]
+        # Must match app/server.py's gate header exactly; the previous
+        # (wrong) header name made every gated check 401 against a keyed
+        # deployment.
+        headers["X-AIGuard-Key"] = os.environ["AIGUARD_API_KEY"]
     with httpx.Client(
         base_url=args.base_url.rstrip("/"),
         headers=headers,
