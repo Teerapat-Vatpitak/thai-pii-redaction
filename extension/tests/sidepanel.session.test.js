@@ -82,3 +82,46 @@ describe("side panel sanitize session reuse (EXT-1)", () => {
     expect(sanitizes[1].session_id).toBe("SP1");
   });
 });
+
+describe("restore status surfaces foreign tokens", () => {
+  it("appends the count and switches to err styling", async () => {
+    setupDom();
+    setupChrome();
+    // restore reply carries a foreign_tokens warning from the backend
+    global.chrome.runtime.sendMessage = (message, cb) => {
+      sent.push(message);
+      if (message.type === "sanitize") {
+        cb({ ok: true, status: 200, data: { session_id: "SP1", sanitized_text: "[ชื่อ_1]", entities: [] } });
+      } else if (message.type === "health") {
+        cb({ ok: true, status: 200, data: { version: "test" } });
+      } else {
+        cb({
+          ok: true,
+          status: 200,
+          data: {
+            restored_text: "สมชาย",
+            replaced_count: 1,
+            leftover_tokens: [],
+            warnings: ["foreign_tokens:3"],
+          },
+        });
+      }
+    };
+    setupBrowserApis();
+    vi.resetModules();
+    await import("../sidepanel.js");
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    document.getElementById("input").value = "นาย ก";
+    document.getElementById("maskBtn").click();
+    await flush();
+    document.getElementById("reply").value = "[ชื่อ_1]";
+    document.getElementById("restoreBtn").click();
+    await flush();
+
+    const msg = document.getElementById("msg");
+    expect(msg.textContent).toContain("โทเคนแปลกปลอม 3");
+    // setMsg (sidepanel.js) sets: m.className = "msg" + (kind ? " " + kind : "")
+    expect(msg.className).toContain("err");
+  });
+});

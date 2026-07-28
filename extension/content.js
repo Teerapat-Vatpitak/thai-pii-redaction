@@ -245,11 +245,16 @@
     }
     const d = resp.data;
     const leftover = (d.leftover_tokens || []).length;
+    const foreign = (d.warnings || []).reduce((n, w) => {
+      const m = /^foreign_tokens:(\d+)$/.exec(w);
+      return m ? n + Number(m[1]) : n;
+    }, 0);
     const meta =
       "คืนค่า " + d.replaced_count + " รายการ" +
-      (leftover ? " เหลือ " + leftover + " รายการ" : "");
+      (leftover ? " เหลือ " + leftover + " รายการ" : "") +
+      (foreign ? " โทเคนแปลกปลอม " + foreign + " จุด" : "");
     showOverlay("คืนค่าแล้ว (" + sourceLabel + ")", d.restored_text, meta);
-    setStatus("คืนค่าแล้ว", "ok");
+    setStatus(foreign ? "คืนค่าแล้ว มีโทเคนแปลกปลอม" : "คืนค่าแล้ว", foreign ? "err" : "ok");
   }
 
   // Read an assistant message's text, minus the Restore button we injected

@@ -121,9 +121,15 @@ async function doRestore() {
   $("out").hidden = false;
   $("out").textContent = r.data.restored_text;
   const leftover = (r.data.leftover_tokens || []).length;
+  const foreign = (r.data.warnings || []).reduce((n, w) => {
+    const m = /^foreign_tokens:(\d+)$/.exec(w);
+    return m ? n + Number(m[1]) : n;
+  }, 0);
   setMsg(
-    "คืนค่า " + r.data.replaced_count + " รายการ" + (leftover ? " เหลือ " + leftover : ""),
-    leftover ? "err" : "ok"
+    "คืนค่า " + r.data.replaced_count + " รายการ" +
+      (leftover ? " เหลือ " + leftover : "") +
+      (foreign ? " โทเคนแปลกปลอม " + foreign : ""),
+    leftover || foreign ? "err" : "ok"
   );
 }
 

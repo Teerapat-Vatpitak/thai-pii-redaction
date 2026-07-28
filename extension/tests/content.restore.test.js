@@ -26,7 +26,7 @@ function makeSite() {
   };
 }
 
-function makeChrome() {
+function makeChrome(dataOverrides = {}) {
   return {
     runtime: {
       getURL: (p) => "chrome-extension://aiguard/" + p,
@@ -37,6 +37,7 @@ function makeChrome() {
             restored_text: `ติดต่อ ${SECRET_NAME} ที่ ${SECRET_PHONE}`,
             replaced_count: 2,
             leftover_tokens: [],
+            ...dataOverrides,
           },
         }),
     },
@@ -58,12 +59,12 @@ function captureAttachShadow() {
   });
 }
 
-async function loadAndRestore() {
+async function loadAndRestore(dataOverrides = {}) {
   const site = makeSite();
   document.documentElement.innerHTML = "<head></head><body></body>";
   document.body.appendChild(site._textarea);
   document.body.appendChild(site._reply);
-  global.chrome = makeChrome();
+  global.chrome = makeChrome(dataOverrides);
   window.AIGUARD_SITES = site;
   captureAttachShadow();
   vi.resetModules();
@@ -103,5 +104,19 @@ describe("restore overlay isolation (EXT-4)", () => {
     expect(document.querySelector(".aiguard-overlay-host")).not.toBeNull();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(document.querySelector(".aiguard-overlay-host")).toBeNull();
+  });
+});
+
+describe("foreign token warning surfaces in the status line", () => {
+  it("appends the count from foreign_tokens warnings", async () => {
+    await loadAndRestore({ warnings: ["foreign_tokens:2"] });
+    const shadowText = capturedShadows.map((s) => s.textContent).join(" ");
+    expect(shadowText).toContain("โทเคนแปลกปลอม 2");
+  });
+
+  it("stays silent without the warning", async () => {
+    await loadAndRestore();
+    const shadowText = capturedShadows.map((s) => s.textContent).join(" ");
+    expect(shadowText).not.toContain("โทเคนแปลกปลอม");
   });
 });
