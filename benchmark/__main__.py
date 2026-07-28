@@ -9,7 +9,7 @@ from .runner import render_strategy_table, render_table, run_benchmark, run_stra
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="benchmark")
-    ap.add_argument("--engine", default="crf", choices=["crf", "wangchanberta"])
+    ap.add_argument("--engine", default="crf", choices=["crf", "wangchanberta", "union"])
     ap.add_argument("--source", default="synthetic", choices=["synthetic", "gold", "blind"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--size", type=int, default=200)

@@ -19,9 +19,12 @@ def predict_samples(samples, engine: str = "crf") -> list[list[tuple[int, int, s
     from pii_redactor.detectors import tb_detector
     from pii_redactor.detectors.aggregate import detect_all
 
+    env_by_engine = {"crf": "thainer", "wangchanberta": "wangchanberta", "union": "union"}
+    if engine not in env_by_engine:
+        raise ValueError(f"unknown engine {engine!r}; supported: {sorted(env_by_engine)}")
     prev_env = os.environ.get("AIGUARD_NER_ENGINE")
     prev_ner = dict(tb_detector._ner_cache)
-    os.environ["AIGUARD_NER_ENGINE"] = "wangchanberta" if engine == "wangchanberta" else "thainer"
+    os.environ["AIGUARD_NER_ENGINE"] = env_by_engine[engine]
     tb_detector._ner_cache = {}
     try:
         return [[(e.span[0], e.span[1], e.data_type) for e in detect_all(s.text)] for s in samples]
