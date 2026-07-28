@@ -1,0 +1,13 @@
+{
+ "train": {
+  "docs": 6828,
+  "entities": 16310,
+  "sha256": "04bd929eda2caeb4a606ec5eab7b0f01deedfd57842773900b290ccb22218fc3"
+ },
+ "dev": {
+  "docs": 680,
+  "entities": 1720,
+  "sha256": "7c156477a8ccdb47c41aaf173cdaf5d856a50373cd3cb9fbed3cb4db29fd6202"
+ },
+ "seed": 20260728
+}

@@ -19,7 +19,12 @@ def predict_samples(samples, engine: str = "crf") -> list[list[tuple[int, int, s
     from pii_redactor.detectors import tb_detector
     from pii_redactor.detectors.aggregate import detect_all
 
-    env_by_engine = {"crf": "thainer", "wangchanberta": "wangchanberta", "union": "union"}
+    env_by_engine = {
+        "crf": "thainer",
+        "wangchanberta": "wangchanberta",
+        "union": "union",
+        "finetuned": "finetuned",
+    }
     if engine not in env_by_engine:
         raise ValueError(f"unknown engine {engine!r}; supported: {sorted(env_by_engine)}")
     prev_env = os.environ.get("AIGUARD_NER_ENGINE")

@@ -1,0 +1,4 @@
+# Fine-tuning lane only (training/). Never installed in CI, the exe, or the
+# hosted image; combine with requirements-ml.txt (torch/transformers).
+datasets>=2.19.0
+accelerate>=1.1.0
