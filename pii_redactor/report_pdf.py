@@ -16,7 +16,7 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
-from pii_redactor.exporter import _register_thai_font
+from pii_redactor.thai_pdf_text import draw_text, register_thai_font
 
 _TYPE_LABELS = {
     "NAME": "ชื่อบุคคล",
@@ -56,7 +56,7 @@ def render_pdpa_report(
     generated_at: str | None = None,
 ) -> bytes:
     """Draw the analysis dict onto an A4 PDF and return its bytes."""
-    font = _register_thai_font()
+    font = register_thai_font()
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     _width, height = A4
@@ -67,8 +67,7 @@ def render_pdpa_report(
         if y < 60:
             c.showPage()
             y = height - 56
-        c.setFont(font, size)
-        c.drawString(56, y, txt)
+        draw_text(c, 56, y, txt, font, size)
         y -= dy
 
     when = generated_at or _dt.datetime.now().strftime("%Y-%m-%d %H:%M")

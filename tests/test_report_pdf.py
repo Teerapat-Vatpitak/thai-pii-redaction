@@ -5,16 +5,14 @@ names), never raw text or entity values — the PII-free property is structural
 (the function is never handed PII) but pinned here anyway via text extraction.
 """
 
-import io
-
-import pdfplumber
+import pypdfium2 as pdfium
 import pytest
 
-from pii_redactor.exporter import _register_thai_font
 from pii_redactor.report_pdf import render_pdpa_report
+from pii_redactor.thai_pdf_text import register_thai_font
 
 requires_thai_font = pytest.mark.skipif(
-    _register_thai_font() == "Helvetica",
+    register_thai_font() == "Helvetica",
     reason="no Thai-capable font on this machine — Thai text cannot render or extract",
 )
 
@@ -47,8 +45,17 @@ ANALYSIS = {
 
 
 def _text_of(pdf_bytes: bytes) -> str:
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as doc:
-        return "\n".join(page.extract_text() or "" for page in doc.pages)
+    # pypdfium2, not pdfplumber: draw_text() (pii_redactor/thai_pdf_text.py) draws
+    # an invisible real-character layer plus the visible shaped glyphs on affected
+    # lines. pdfminer/pdfplumber discards text render mode entirely at the LTChar
+    # layer and re-sorts characters by x-position, so it interleaves the two
+    # near-identical-position layers character-by-character ("AAIIGGuuaarrdd"),
+    # corrupting every substring check. pypdfium2 preserves paint order instead,
+    # so the two layers extract sequentially and the original text stays intact
+    # as a contiguous substring -- the same library test_thai_shaping.py uses to
+    # verify draw_text() output for the same reason.
+    doc = pdfium.PdfDocument(pdf_bytes)
+    return "\n".join(page.get_textpage().get_text_range() for page in doc)
 
 
 def test_returns_pdf_magic_bytes():

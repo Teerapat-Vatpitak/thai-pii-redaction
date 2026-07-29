@@ -1,5 +1,14 @@
 pypdfium2>=4.30.0
-reportlab>=4.2.0
+# 4.4.0 is the floor, not a preference: pii_redactor/thai_pdf_text.py imports
+# `shapeStr` at module level, and that name first appears in 4.4.0 (4.2 has
+# neither it nor ShapedStr; 4.3 has ShapedStr only). Below this floor the
+# import fails and the whole backend and CLI die on startup. CI never catches
+# it because every job installs from requirements.lock, which pins 5.0.0.
+reportlab>=4.4.0
+# reportlab ships HarfBuzz shaping but disables it silently when uharfbuzz is
+# absent, which drops Thai tone marks that stack on an upper vowel (ที่, ผู้).
+# Core, not an extra: report_pdf.py and exporter.py are core modules.
+uharfbuzz>=0.55.0
 Pillow>=10.0.0
 pdfplumber>=0.11.0
 pythainlp>=5.0.0

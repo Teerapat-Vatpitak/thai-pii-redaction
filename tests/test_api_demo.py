@@ -7,7 +7,7 @@
 
 import pytest
 
-from pii_redactor.exporter import _register_thai_font
+from pii_redactor.thai_pdf_text import register_thai_font
 
 try:
     from fastapi.testclient import TestClient
@@ -21,7 +21,7 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not FASTAPI_AVAILABLE, reason="fastapi not installed")
 
 requires_thai_font = pytest.mark.skipif(
-    _register_thai_font() == "Helvetica",
+    register_thai_font() == "Helvetica",
     reason="no Thai-capable font on this machine — Thai text cannot render or extract",
 )
 

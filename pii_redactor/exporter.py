@@ -9,18 +9,7 @@ from pathlib import Path
 
 from pii_redactor.models import ReverseResult
 from pii_redactor.output_validator import ValidationResult
-
-# Thai-capable TrueType font for pdf_text export. Falls back to reportlab's
-# built-in Helvetica (Latin-only) if not found -- Thai glyphs simply won't
-# render in that case, same trade-off examples/make_sample_pdf.py accepts.
-_THAI_FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\sarabun-v17-latin_latin-ext_thai_vietnamese-regular.ttf",
-    "/usr/share/fonts/truetype/thai/Sarabun-Regular.ttf",
-    # fonts-thai-tlwg (Debian/Ubuntu, incl. CI + Docker): Laksaman is the
-    # TH Sarabun New derivative the package actually ships.
-    "/usr/share/fonts/truetype/tlwg/Laksaman.ttf",
-]
-_PDF_TEXT_FONT_NAME = "Sarabun"
+from pii_redactor.thai_pdf_text import draw_text, register_thai_font
 
 
 @dataclass
@@ -83,26 +72,12 @@ def _export_txt(text: str, output_path: Path) -> int:
     return len(encoded)
 
 
-def _register_thai_font() -> str:
-    """Register a Thai-capable TTF with reportlab; fall back to Helvetica."""
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-
-    font_path = next((f for f in _THAI_FONT_CANDIDATES if Path(f).exists()), None)
-    if font_path is None:
-        return "Helvetica"
-
-    if _PDF_TEXT_FONT_NAME not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont(_PDF_TEXT_FONT_NAME, font_path))
-    return _PDF_TEXT_FONT_NAME
-
-
 def _export_pdf_text(text: str, output_path: Path) -> int:
     """Create a simple text-based PDF using reportlab. Returns byte size."""
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
 
-    font_name = _register_thai_font()
+    font_name = register_thai_font()
 
     c = canvas.Canvas(str(output_path), pagesize=letter)
     page_width, page_height = letter
@@ -122,7 +97,7 @@ def _export_pdf_text(text: str, output_path: Path) -> int:
             c.showPage()
             c.setFont(font_name, 11)
             y = page_height - 72
-        c.drawString(x, y, line)
+        draw_text(c, x, y, line, font_name, 11)
         y -= line_height
 
     c.save()
