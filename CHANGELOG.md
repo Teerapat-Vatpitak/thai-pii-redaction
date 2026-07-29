@@ -12,6 +12,14 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+### Removed
+
+- The winget and Scoop packaging manifests and their `update_packaging.py`
+  generator. Distribution is the GitHub Release asset itself, linked for direct
+  download; nothing was ever submitted to a package manager, so no installed
+  copy is affected. See
+  [the distribution decision record](docs/decisions/2026-07-29-store-distribution-and-signing.md).
+
 ## [2.5.0] - 2026-07-24
 
 Microsoft 365 feature release. Word, Excel, and PowerPoint share one local

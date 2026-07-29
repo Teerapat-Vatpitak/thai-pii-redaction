@@ -101,7 +101,7 @@ Full architecture: [`docs/architecture.md`](docs/architecture.md). In brief:
 - `desktop/` — the Tauri desktop shell (Rust + static frontend).
 - `demo_cli.py`, `ai_guard.py` — the CLI storefront.
 - `tests/` — one file per pipeline step, plus API/hardening/benchmark tests.
-- `scripts/` — build, packaging, and release tooling (including
+- `scripts/` — build, version, and release tooling (including
   `bump_version.py` / `check_version.py`, see below).
 - `docs/` — current operating documents plus historical decision records.
 
@@ -119,7 +119,7 @@ a version string in any other file.
 - To bump the version everywhere at once (maintainer-only, part of a release):
   `python scripts/bump_version.py <new-version>`
 
-The complete tag/draft/publish/packaging sequence lives in
+The complete tag/draft/publish sequence lives in
 [`docs/release-process.md`](docs/release-process.md). Do not create or move a
 release tag from a feature branch.
 

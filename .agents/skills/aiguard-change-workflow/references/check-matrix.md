@@ -71,7 +71,7 @@ When network access is appropriate, run `npm run validate:manifest:local` for
 Microsoft XML schema validation. Schema validation does not replace Word,
 Excel, or PowerPoint real-host acceptance.
 
-## Version, CI, release, or packaging metadata
+## Version, CI, or release metadata
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_version.py
@@ -82,8 +82,9 @@ Excel, or PowerPoint real-host acceptance.
   tests\test_release_readiness.py -q
 ```
 
-Use `scripts\bump_version.py X.Y.Z` only for an approved release change. Update
-winget/scoop metadata only after the release publishes `SHA256SUMS`.
+Use `scripts\bump_version.py X.Y.Z` only for an approved release change. There
+is no package-manager metadata to update afterwards; releases are distributed as
+assets with `SHA256SUMS` and provenance.
 
 ## Documentation-only
 

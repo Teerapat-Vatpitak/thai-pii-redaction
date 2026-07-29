@@ -88,8 +88,8 @@ PII detection and not a complete injection defense.
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters; it holds `session_id`, never the mapping. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
-| `tests/` | Contract, security, feature, benchmark, and packaging regression tests. |
-| `scripts/` | Build, version, release, packaging, and smoke tooling. |
+| `tests/` | Contract, security, feature, benchmark, and release regression tests. |
+| `scripts/` | Build, version, release, and smoke tooling. |
 | `docs/` | Current operating docs plus historical ADRs. |
 
 This boundary is already test-covered. Moving modules for appearance alone
