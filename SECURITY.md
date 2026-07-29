@@ -81,7 +81,9 @@ platform owner when they are outside this repository's code.
 
 Desktop installers are currently unsigned by design, so SmartScreen or
 Gatekeeper warnings are expected. Releases publish `SHA256SUMS` and GitHub build
-provenance. Verify with the instructions in the README.
+provenance. Verify with the instructions in the README. The reasoning, and the
+conditions that would reverse it, are recorded in
+[docs/decisions/2026-07-29-store-distribution-and-signing.md](docs/decisions/2026-07-29-store-distribution-and-signing.md).
 
 Build inputs are pinned where the project can reliably pin them. Verification
 proves artifact origin and integrity, not bit-for-bit reproducibility. A finding

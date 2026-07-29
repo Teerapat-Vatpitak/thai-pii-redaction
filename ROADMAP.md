@@ -168,11 +168,14 @@ honesty, PII-free evidence) are enforced by
 [docs/release-process.md](docs/release-process.md) and AGENTS.md; this track
 lists only decidable deliverables:
 
-- **Store distribution decision.** Decide, per storefront, whether to submit
-  the extension to the Chrome Web Store and the packaging manifests to
-  winget/Scoop upstreams, accepting the support surface that creates. Listing
-  copy and permission justifications are already drafted under
-  [docs/store/](docs/store/).
+- **Store distribution decision.** Decided 2026-07-29
+  ([record](docs/decisions/2026-07-29-store-distribution-and-signing.md)):
+  submit to winget, run a project-owned Scoop bucket rather than the shared
+  Extras one, and hold the Chrome Web Store until an easy backend-install path
+  exists for a reviewer to follow. Listing copy and permission justifications
+  stay ready under [docs/store/](docs/store/). The submissions themselves are
+  outward-facing and remain owner-operated per
+  [packaging/README](packaging/README.md).
 - **Contributor path.** Issue forms (wrong detection result, bug, proposal,
   benchmark document), a pull-request template, and the
   [benchmark-contribution workflow](docs/benchmark-contribution.md) are in
@@ -180,8 +183,13 @@ lists only decidable deliverables:
   (fabricated data only, private reporting for vulnerabilities, the blind set
   untouched). What remains is a labeled starter-issue set drawn from real open
   work rather than invented tasks.
-- **Signing decision.** Revisit unsigned-by-design once distribution widens;
-  record the outcome either way.
+- **Signing decision.** Decided 2026-07-29 (same record): stay unsigned. The
+  cheapest managed option (Azure Artifact Signing) is not open to developers
+  based in Thailand, a CA certificate costs a few hundred dollars a year for a
+  project with no revenue, and since August 2024 no certificate class clears
+  SmartScreen on first download anyway — reputation is earned by download
+  history either way. Verifiability keeps carrying the trust: `SHA256SUMS` plus
+  build provenance on every release. The record lists what would reopen it.
 
 Candidates, not commitments (each needs its own accepted design before any
 implementation): a policy-gateway integration contract for other applications,
