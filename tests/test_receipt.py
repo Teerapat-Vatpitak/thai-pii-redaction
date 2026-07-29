@@ -229,6 +229,39 @@ def test_verify_rejects_a_different_document(tmp_path):
     assert any("sha256" in d for d in result.differences)
 
 
+@pytest.mark.parametrize(
+    "section,key,forged",
+    [
+        ("result", "entity_count", 0),
+        ("result", "fp_count", 0),
+        ("result", "tb_count", 0),
+        ("result", "type_counts", {}),
+        ("source", "bytes", 999999),
+        ("source", "source_type", "pdf_text"),
+    ],
+)
+def test_verify_rejects_a_receipt_whose_numbers_were_edited(tmp_path, section, key, forged):
+    """The figures a person actually reads have to be attested, not decorative.
+
+    The first version compared only the two digests, so every one of these
+    fields could be edited to anything and `verify` still printed that the
+    document and the result matched — while holding the real numbers in its own
+    recomputation and discarding them. A receipt claiming zero entities found,
+    over a document full of them, verified clean.
+    """
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+
+    receipt = build_receipt(doc)
+    assert receipt[section][key] != forged, "fixture no longer forges anything"
+    receipt[section][key] = forged
+
+    result = verify_receipt(receipt, doc)
+    assert not result.ok
+    assert result.outcome == "result_mismatch"
+    assert any(f"{section}.{key}" in d for d in result.differences)
+
+
 def test_verify_reports_a_changed_result_separately_from_a_changed_file(tmp_path):
     """Same bytes, different findings — that is a system change, not a swapped
     document, and telling the two apart is the point of two digests."""
@@ -268,6 +301,42 @@ def test_verify_notes_an_environment_difference_that_did_not_change_the_result(t
     assert result.ok
     assert result.outcome == "match"
     assert any("product_version" in d for d in result.differences)
+
+
+def test_verify_names_the_detector_version_when_it_differs(tmp_path):
+    """A version difference is the likeliest cause of a mismatch, so it cannot
+    be the one thing the receipt fails to record. requirements.txt carries a
+    loose `>=` floor for PyThaiNLP, so two machines on the same product version
+    can run different CRF models."""
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+
+    receipt = build_receipt(doc)
+    assert receipt["environment"]["detector_version"].startswith("pythainlp ")
+    receipt["environment"]["detector_version"] = "pythainlp 0.0.1"
+
+    result = verify_receipt(receipt, doc)
+    assert result.ok  # the result itself still reproduces
+    assert any("detector_version" in d for d in result.differences)
+
+
+def test_verify_says_it_could_not_reprocess_rather_than_looking_broken(tmp_path):
+    """Same bytes, wrong extension. `detect_source_type` routes on the suffix,
+    so a PDF copied to .txt cannot be decoded — which used to escape as a raw
+    'Verification failed to run' and read like the tool was broken rather than
+    the filename."""
+    import shutil
+
+    pdf = ROOT / "examples" / "sample_document.pdf"
+    receipt = build_receipt(pdf)
+
+    renamed = tmp_path / "same_bytes.txt"
+    shutil.copyfile(pdf, renamed)
+
+    result = verify_receipt(receipt, renamed)
+    assert not result.ok
+    assert result.outcome == "recompute_failed"
+    assert any("bytes match" in d for d in result.differences)
 
 
 def test_verify_refuses_an_unknown_schema(tmp_path):
@@ -324,6 +393,29 @@ def test_receipt_pdf_carries_no_value_from_the_document(tmp_path):
     text = _text_of(render_receipt(build_receipt(doc)))
     for secret in ("สมชาย", "081-234-5678", "somchai@example.com", "1101700230708"):
         assert secret not in text, f"receipt PDF leaked {secret!r}"
+
+
+@requires_thai_font
+def test_receipt_pdf_does_not_promise_more_than_it_can_keep(tmp_path):
+    """`--purpose` and `--controller` are operator free text drawn verbatim, so
+    the page must not carry a blanket "no personal data here" claim. It used to:
+    the note printed unconditionally, directly above whatever was typed."""
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+
+    receipt = build_receipt(
+        doc,
+        purpose="ตรวจเวชระเบียนของ สมหญิง รักไทย",
+        controller="นายสมชาย ใจดี",
+    )
+    text = _text_of(render_receipt(receipt))
+
+    # What the operator typed is on the page — that is their choice, not a leak.
+    assert "สมหญิง รักไทย" in text
+    # ...so the page must scope its claim to the source document, and say that
+    # these two fields are unfiltered.
+    assert "ไม่ได้คัดลอกค่าข้อมูลส่วนบุคคลใดจากเอกสารต้นทาง" in text
+    assert "ยกเว้นสองช่องที่ผู้ใช้พิมพ์เอง" in text
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────
@@ -427,6 +519,30 @@ def test_cli_verify_exits_1_when_the_document_does_not_match(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         ai_guard.cmd_receipt_verify(_args(receipt=str(out), file=str(doc)))
     assert exc.value.code == 1
+
+
+def test_cli_issue_writes_nothing_when_a_destination_is_unwritable(tmp_path, capsys):
+    """A bad --pdf path used to surface only after the JSON had landed, so the
+    run ended with a success line, a raw traceback, and half a receipt."""
+    import ai_guard
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+    out = tmp_path / "receipt.json"
+
+    with pytest.raises(SystemExit) as exc:
+        ai_guard.cmd_receipt_issue(
+            _args(
+                file=str(doc),
+                output=str(out),
+                pdf=str(tmp_path / "nodir" / "receipt.pdf"),
+                purpose=None,
+                controller=None,
+            )
+        )
+    assert exc.value.code == 1
+    assert not out.exists(), "the JSON landed even though the run failed"
+    assert "Receipt written" not in capsys.readouterr().out
 
 
 def test_cli_verify_exits_1_on_an_unreadable_receipt(tmp_path):

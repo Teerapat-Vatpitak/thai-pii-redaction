@@ -126,13 +126,22 @@ def cmd_receipt_issue(args):
     """Issue a PDPA มาตรา 39 processing receipt for a file."""
     from pii_redactor.receipt import build_receipt
 
-    # Checked before the pipeline runs, not after: failing fast costs the user
-    # nothing, and a receipt is the evidence someone kept on purpose, so
-    # clobbering one silently would be the odd behaviour. `sanitize
-    # --overwrite` already sets the convention for this CLI.
+    # Both destinations are checked before the pipeline runs, not after.
+    # Failing fast costs the user nothing, and it keeps a bad --pdf path from
+    # being discovered once the JSON is already on disk — a run that leaves
+    # half a receipt behind is worse than one that refuses to start. A receipt
+    # is evidence someone kept on purpose, so clobbering one silently would be
+    # the odd behaviour; `sanitize --overwrite` already sets that convention.
     for path in (args.output, args.pdf):
-        if path and Path(path).exists() and not args.overwrite:
+        if not path:
+            continue
+        target = Path(path)
+        if target.exists() and not args.overwrite:
             print(f"Error: {path} already exists (use --overwrite)", file=sys.stderr)
+            sys.exit(1)
+        parent = target.parent
+        if not parent.is_dir():
+            print(f"Error: {parent} is not a directory", file=sys.stderr)
             sys.exit(1)
 
     try:
@@ -148,17 +157,30 @@ def cmd_receipt_issue(args):
         print(f"Failed to issue receipt: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Both artifacts are rendered before either is written. A bad --pdf path
+    # used to surface after the JSON had already landed, so the run ended with
+    # a success line, a raw traceback, and half a receipt on disk.
     blob = json.dumps(receipt, ensure_ascii=False, indent=2)
-    if args.output:
-        Path(args.output).write_text(blob + "\n", encoding="utf-8")
-        print(f"Receipt written: {args.output}")
-    else:
-        print(blob)
-
+    pdf_bytes = None
     if args.pdf:
         from pii_redactor.receipt_pdf import render_receipt
 
-        Path(args.pdf).write_bytes(render_receipt(receipt))
+        pdf_bytes = render_receipt(receipt)
+
+    try:
+        if args.output:
+            Path(args.output).write_text(blob + "\n", encoding="utf-8")
+        if pdf_bytes is not None:
+            Path(args.pdf).write_bytes(pdf_bytes)
+    except OSError as e:
+        print(f"Error: cannot write receipt: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.output:
+        print(f"Receipt written: {args.output}")
+    else:
+        print(blob)
+    if pdf_bytes is not None:
         print(f"Receipt PDF written: {args.pdf}")
 
 
