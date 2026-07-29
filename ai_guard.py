@@ -126,6 +126,15 @@ def cmd_receipt_issue(args):
     """Issue a PDPA มาตรา 39 processing receipt for a file."""
     from pii_redactor.receipt import build_receipt
 
+    # Checked before the pipeline runs, not after: failing fast costs the user
+    # nothing, and a receipt is the evidence someone kept on purpose, so
+    # clobbering one silently would be the odd behaviour. `sanitize
+    # --overwrite` already sets the convention for this CLI.
+    for path in (args.output, args.pdf):
+        if path and Path(path).exists() and not args.overwrite:
+            print(f"Error: {path} already exists (use --overwrite)", file=sys.stderr)
+            sys.exit(1)
+
     try:
         receipt = build_receipt(
             args.file,
@@ -221,6 +230,7 @@ def main():
     issue_parser.add_argument("--pdf", help="Also render the receipt as a PDF at this path")
     issue_parser.add_argument("--purpose", help="Purpose of processing (PDPA s.39)")
     issue_parser.add_argument("--controller", help="Data controller (PDPA s.39)")
+    issue_parser.add_argument("--overwrite", action="store_true")
     issue_parser.set_defaults(func=cmd_receipt_issue)
 
     verify_parser = receipt_sub.add_parser("verify", help="Verify a receipt against its file")

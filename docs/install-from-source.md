@@ -95,7 +95,8 @@ runs the same pipeline again and compares digests, so it exits 0 only when the
 file is the same file and the system still finds the same things in it. A
 version or engine change is reported alongside the result, because that is
 usually the explanation. `--purpose` and `--controller` are yours to state;
-the tool leaves them out rather than inventing them.
+the tool leaves them out rather than inventing them. `issue` will not write
+over an existing receipt unless you pass `--overwrite`.
 
 Sample inputs live in `examples/`.
 

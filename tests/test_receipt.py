@@ -375,6 +375,44 @@ def test_cli_issue_prints_the_receipt_when_no_output_given(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["schema"] == RECEIPT_SCHEMA
 
 
+def test_cli_issue_refuses_to_overwrite_an_existing_receipt(tmp_path):
+    """A receipt is evidence someone kept; clobbering one needs to be asked for."""
+    import ai_guard
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+    out = tmp_path / "receipt.json"
+    out.write_text("earlier receipt", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        ai_guard.cmd_receipt_issue(
+            _args(file=str(doc), output=str(out), pdf=None, purpose=None, controller=None)
+        )
+    assert exc.value.code == 1
+    assert out.read_text(encoding="utf-8") == "earlier receipt"
+
+
+def test_cli_issue_overwrites_when_asked(tmp_path, capsys):
+    import ai_guard
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text(PII_TEXT, encoding="utf-8")
+    out = tmp_path / "receipt.json"
+    out.write_text("earlier receipt", encoding="utf-8")
+
+    ai_guard.cmd_receipt_issue(
+        _args(
+            file=str(doc),
+            output=str(out),
+            pdf=None,
+            purpose=None,
+            controller=None,
+            overwrite=True,
+        )
+    )
+    assert json.loads(out.read_text(encoding="utf-8"))["schema"] == RECEIPT_SCHEMA
+
+
 def test_cli_verify_exits_1_when_the_document_does_not_match(tmp_path, capsys):
     import ai_guard
 
@@ -415,7 +453,9 @@ def test_cli_parser_exposes_receipt_issue_and_verify():
 
 
 def _args(**kwargs):
-    return type("Args", (), kwargs)()
+    # `overwrite` defaults the way argparse's store_true does, so every call
+    # site reads as the command a user would actually type.
+    return type("Args", (), {"overwrite": False, **kwargs})()
 
 
 def _sha256_of(path: Path) -> str:
