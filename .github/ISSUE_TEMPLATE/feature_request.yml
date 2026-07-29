@@ -1,0 +1,50 @@
+name: Feature or change proposal
+description: Propose new behavior, a new integration, or a change to an existing contract.
+title: "proposal: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Large changes are designed before they are built here. If the area already
+        has a decision record under `docs/decisions/`, reply to that reasoning
+        rather than restating the goal.
+
+        Write in Thai or English.
+  - type: checkboxes
+    id: homework
+    attributes:
+      label: Before filing
+      options:
+        - label: I checked ROADMAP.md — this is not already scheduled, and not on the Deferred list with a reason I am ignoring.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What breaks, or what is impossible today. Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What you want to exist, and roughly where it would live in the tree.
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Effect on the design invariants
+      description: |
+        The invariants in CLAUDE.md are recall over precision, the vault never
+        leaving the device, the pre-send leak guard, Section 26 categories being
+        flagged rather than auto-redacted, non-generative sensitive detection, and
+        the sub-2-character span filter. Say which ones this touches and why the
+        trade is acceptable — "none" is a fine answer when it is true.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered

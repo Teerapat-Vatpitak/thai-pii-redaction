@@ -173,9 +173,13 @@ lists only decidable deliverables:
   winget/Scoop upstreams, accepting the support surface that creates. Listing
   copy and permission justifications are already drafted under
   [docs/store/](docs/store/).
-- **Contributor path.** Issue templates, a labeled starter-issue set, and a
-  documented benchmark-contribution workflow (how to add gold documents and
-  what review they need).
+- **Contributor path.** Issue forms (wrong detection result, bug, proposal,
+  benchmark document), a pull-request template, and the
+  [benchmark-contribution workflow](docs/benchmark-contribution.md) are in
+  place; each form makes the project's non-negotiables explicit at filing time
+  (fabricated data only, private reporting for vulnerabilities, the blind set
+  untouched). What remains is a labeled starter-issue set drawn from real open
+  work rather than invented tasks.
 - **Signing decision.** Revisit unsigned-by-design once distribution widens;
   record the outcome either way.
 
