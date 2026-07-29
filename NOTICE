@@ -26,12 +26,18 @@ attribution:
   scripts/build_sidecar.py.
 
 Bundled fonts (self-hosted WOFF2 in desktop/src/fonts/ and extension/fonts/,
-used for the application UI):
+used for the application UI; TrueType in pii_redactor/fonts/, used to draw Thai
+text into generated PDFs):
 - IBM Plex Sans Thai Looped (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
 - IBM Plex Mono (SIL Open Font License 1.1) — Copyright 2017 IBM Corp.
   Source: https://github.com/IBM/plex
   License text: licenses/OFL-1.1.txt (OFL-1.1 requires the license to travel
   with the font files).
+  pii_redactor/fonts/IBMPlexSansThaiLooped-Regular.ttf is the same face in a
+  container reportlab can read, converted from the WOFF2 already vendored here
+  (desktop/src/fonts/IBMPlexSansThaiLooped-Regular.woff2, SHA-256
+  893f879fdc6ad2a1e4d09a6210f161bf0b132d9d266078f322441ec289572905). Container
+  change only — the design, the name table and all 520 glyphs are unmodified.
 
 Optional components (installed separately, not part of the core distribution):
 - sentence-transformers / torch — optional semantic Section-26 detector.

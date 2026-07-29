@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from pathlib import Path
 
 from reportlab.pdfbase import pdfmetrics
@@ -40,15 +41,39 @@ from reportlab.pdfgen import canvas
 
 logger = logging.getLogger(__name__)
 
+
+def _bundled_font() -> str:
+    """Path to the Thai font that travels with the product.
+
+    Looked up next to a PyInstaller-frozen executable first (the exe carries it
+    via `--add-data`), then beside this source file. Returned as a plain string
+    whether or not it exists, because `FONT_CANDIDATES` is a list of paths to
+    try and a missing one simply falls through -- the same as every other entry.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        frozen = Path(meipass) / "pii_redactor" / "fonts" / _BUNDLED_FONT_FILE
+        if frozen.exists():
+            return str(frozen)
+    return str(Path(__file__).resolve().parent / "fonts" / _BUNDLED_FONT_FILE)
+
+
+_BUNDLED_FONT_FILE = "IBMPlexSansThaiLooped-Regular.ttf"
+
 # Thai-capable TrueType candidates, in preference order. Falls back to
 # reportlab's Latin-only Helvetica when none exists -- Thai glyphs then do not
 # render at all, the same trade-off examples/make_sample_pdf.py accepts.
 #
-# Order is load-bearing here, not cosmetic: see the note on the second entry.
-# Nothing on this list is bundled -- `scripts/build_sidecar.py` ships no font
-# at all, so what a packaged user gets depends entirely on what their machine
-# already has.
+# The bundled font comes first, and that ordering is the point. A PDPA report
+# is a document someone files, and it should not look different depending on
+# which fonts the machine that produced it happened to have installed. It is
+# also the only entry that is guaranteed to be there: everything below it is a
+# path that may or may not exist, which is how every Windows machine except
+# this developer's ended up rendering Thai as black boxes.
+#
+# The rest are kept as a net for a source checkout whose data file is missing.
 FONT_CANDIDATES = [
+    _bundled_font(),
     r"C:\Windows\Fonts\sarabun-v17-latin_latin-ext_thai_vietnamese-regular.ttf",
     # Leelawadee UI ships with every Windows edition -- it is the shell's own
     # Thai/Lao/Khmer UI face -- while the Sarabun path above is hand-installed.
@@ -78,7 +103,11 @@ FONT_CANDIDATES = [
 # away from it. Tahoma and leelawad.ttf are deliberately absent: both leak rise
 # the same way and neither covers a case Leelawadee UI does not.
 WINDOWS_STOCK_FONT_FILES = frozenset({"leelawui.ttf", "leelauib.ttf", "leeluisl.ttf"})
-THAI_FONT_NAME = "Sarabun"
+# The key reportlab registers the face under, not the name of a font. It said
+# "Sarabun" back when that was the only candidate; whichever file wins the
+# search below gets registered under this name, so a literal font name here
+# would be a lie on most machines.
+THAI_FONT_NAME = "AIGuardThai"
 
 # Whether a given vowel-plus-tone-mark cluster actually needs its mark
 # re-glyphed is a question about the FONT's glyph inventory (a tall-ascender

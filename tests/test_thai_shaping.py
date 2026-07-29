@@ -330,6 +330,38 @@ def test_the_reportlab_rise_defect_is_repaired():
     )
 
 
+def test_the_thai_font_travels_with_the_product():
+    """No machine may have to supply its own Thai font.
+
+    Every candidate below the first is a path that may or may not exist, which
+    is exactly how a Windows-only Sarabun path went unnoticed while every other
+    Windows machine rendered Thai as black boxes — the packaged exe carried no
+    font at all. The bundled file is the one entry that cannot be missing, so
+    it is first, and a document looks the same wherever it was produced.
+    """
+    from pathlib import Path
+
+    from pii_redactor.thai_pdf_text import FONT_CANDIDATES, register_thai_font
+
+    bundled = Path(FONT_CANDIDATES[0])
+    assert bundled.is_file(), f"the bundled font is not on disk: {bundled}"
+    assert bundled.suffix == ".ttf", "reportlab cannot read a WOFF2"
+    assert register_thai_font() != "Helvetica"
+
+
+def test_the_build_bundles_the_font_into_the_exe():
+    """A font present in a source checkout but absent from the exe would leave
+    packaged users exactly where they started, with the suite green."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    build = (root / "scripts" / "build_sidecar.py").read_text(encoding="utf-8")
+    assert "IBMPlexSansThaiLooped-Regular.ttf" in build, (
+        "scripts/build_sidecar.py does not bundle the Thai font; the exe will "
+        "render Thai as boxes on any machine without a Thai TTF of its own"
+    )
+
+
 def test_windows_has_a_candidate_font_windows_itself_ships():
     """The Windows list must not consist only of hand-installed fonts.
 

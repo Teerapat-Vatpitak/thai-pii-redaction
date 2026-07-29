@@ -53,6 +53,13 @@ packages = [
   "app.worker",
 ]
 
+# The Thai font travels with the package, not just with the exe: a from-source
+# or `pip install` user renders the PDPA report and the processing receipt too,
+# and without it Thai comes out as black boxes wherever the machine has no
+# Thai-capable TTF of its own.
+[tool.setuptools.package-data]
+pii_redactor = ["fonts/*.ttf"]
+
 # ---------------------------------------------------------------------------
 # pytest (moved here from pytest.ini so tool config lives in one file)
 # ---------------------------------------------------------------------------
