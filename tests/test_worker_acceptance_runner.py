@@ -38,24 +38,28 @@ def _core_only_install():
         sys.modules.update(saved)
 
 
-def test_acceptance_runner_exercises_analyze_when_the_web_extra_is_present():
-    # This test IS the optional-dependency case it describes: without fastapi
-    # the premise is false, so it must skip rather than assert a claim the
-    # environment cannot support.
-    pytest.importorskip("fastapi")
-
+def test_acceptance_runner_exercises_every_operation():
     operations = run_acceptance()["checks"]["operations"]
 
     assert operations["skipped"] == []
     assert set(operations["exercised"]) == {"detect", "sanitize", "analyze", "roundtrip"}
 
 
-def test_acceptance_runner_skips_analyze_without_the_web_extra():
+def test_analyze_runs_on_a_core_only_install():
+    """The inverse of what this file used to assert.
+
+    `analyze` used to be skipped without the web extra, because the worker
+    reached into `app.server` for it and that module needs FastAPI. The
+    assembly now lives in `pii_redactor.report`, where it always belonged — it
+    never touched the web layer — so the operation runs with fastapi and
+    starlette blocked. Kept as the inverse rather than deleted: this is the
+    test that pins what the move bought.
+    """
     with _core_only_install():
         operations = run_acceptance()["checks"]["operations"]
 
-    assert operations["skipped"] == ["analyze"]
-    assert set(operations["exercised"]) == {"detect", "sanitize", "roundtrip"}
+    assert operations["skipped"] == []
+    assert set(operations["exercised"]) == {"detect", "sanitize", "analyze", "roundtrip"}
 
 
 def test_worker_acceptance_runner_is_repeatable_and_pii_free():

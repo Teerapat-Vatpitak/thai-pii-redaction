@@ -1,5 +1,5 @@
 from pii_redactor.reid_risk import ReidRiskResult, assess_reid_risk
-from pii_redactor.report import PDPAReport, generate_report
+from pii_redactor.report import PDPAReport, analyze_text, generate_report
 
 
 def test_reid_risk_no_qi():
@@ -74,3 +74,29 @@ def test_generate_report_no_pii_no_s26_grade_a():
     assert result.overall_grade == "A"
     assert result.direct_pii_count == 0
     assert result.section26_flags == []
+
+
+def test_analyze_text_assembles_the_shared_analysis_without_the_web_layer():
+    """The one function three callers share, tested where it now lives.
+
+    It sat in `app/server.py` until 2026-07-29, so it was only ever reached
+    through the FastAPI TestClient and was invisible to the core-only CI job.
+    Nothing in it needs the web layer — this test is what says so.
+    """
+    result = analyze_text("ผมชื่อ นายสมชาย ใจดี โทร 081-234-5678 เลขบัตร 1101700230708")
+
+    assert result["direct_pii_count"] >= 1
+    assert result["overall_grade"] in {"A", "B", "C", "D", "F"}
+    assert result["risk_label"].endswith("Risk")
+    assert sum(row["count"] for row in result["breakdown"]) >= 1
+    assert result["recommendations"], "an analysis always says something"
+    assert set(result["reid"]) == {"score", "grade", "qi_found", "high_risk_combo"}
+
+
+def test_analyze_text_still_answers_on_a_document_with_nothing_in_it():
+    result = analyze_text("Hello world.")
+
+    assert result["direct_pii_count"] == 0
+    assert result["overall_grade"] == "A"
+    assert result["breakdown"] == []
+    assert result["recommendations"], "a clean document still gets a verdict"
