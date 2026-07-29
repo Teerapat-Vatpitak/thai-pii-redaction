@@ -1,7 +1,9 @@
 """AI Guard — Thai PII redaction pipeline CLI."""
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 
 def cmd_sanitize(args):
@@ -120,6 +122,69 @@ def cmd_report(args):
     print(f"\nRisk Level: {risk}")
 
 
+def cmd_receipt_issue(args):
+    """Issue a PDPA มาตรา 39 processing receipt for a file."""
+    from pii_redactor.receipt import build_receipt
+
+    try:
+        receipt = build_receipt(
+            args.file,
+            purpose=args.purpose,
+            controller=args.controller,
+        )
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Failed to issue receipt: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    blob = json.dumps(receipt, ensure_ascii=False, indent=2)
+    if args.output:
+        Path(args.output).write_text(blob + "\n", encoding="utf-8")
+        print(f"Receipt written: {args.output}")
+    else:
+        print(blob)
+
+    if args.pdf:
+        from pii_redactor.receipt_pdf import render_receipt
+
+        Path(args.pdf).write_bytes(render_receipt(receipt))
+        print(f"Receipt PDF written: {args.pdf}")
+
+
+def cmd_receipt_verify(args):
+    """Re-run a file and report whether it still matches its receipt."""
+    from pii_redactor.receipt import verify_receipt
+
+    try:
+        receipt = json.loads(Path(args.receipt).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"Error: cannot read receipt {args.receipt}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        result = verify_receipt(receipt, args.file)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Verification failed to run: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if result.ok:
+        print("ยืนยันได้ เอกสารและผลการตรวจตรงกับใบรับรอง")
+    else:
+        print(f"ยืนยันไม่ได้ ({result.outcome})")
+    # Printed on both paths: on a match these lines are the environment that
+    # differed anyway, which is the more interesting half of a passing check.
+    for difference in result.differences:
+        print(f"  - {difference}")
+
+    if not result.ok:
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ai_guard",
@@ -140,6 +205,28 @@ def main():
     report_parser = subparsers.add_parser("report", help="Generate PII risk report")
     report_parser.add_argument("file", help="Input file path")
     report_parser.set_defaults(func=cmd_report)
+
+    # receipt subcommand — issue and verify, deliberately one command apart.
+    # A receipt nobody can check is a claim, not a record.
+    receipt_parser = subparsers.add_parser(
+        "receipt", help="Issue or verify a PDPA มาตรา 39 processing receipt"
+    )
+    receipt_sub = receipt_parser.add_subparsers(dest="receipt_command", required=True)
+
+    issue_parser = receipt_sub.add_parser("issue", help="Issue a receipt for a file")
+    issue_parser.add_argument("file", help="Input file path")
+    issue_parser.add_argument(
+        "--output", "-o", help="Write the receipt JSON here (default: stdout)"
+    )
+    issue_parser.add_argument("--pdf", help="Also render the receipt as a PDF at this path")
+    issue_parser.add_argument("--purpose", help="Purpose of processing (PDPA s.39)")
+    issue_parser.add_argument("--controller", help="Data controller (PDPA s.39)")
+    issue_parser.set_defaults(func=cmd_receipt_issue)
+
+    verify_parser = receipt_sub.add_parser("verify", help="Verify a receipt against its file")
+    verify_parser.add_argument("receipt", help="Receipt JSON path")
+    verify_parser.add_argument("file", help="The original file the receipt was issued for")
+    verify_parser.set_defaults(func=cmd_receipt_verify)
 
     args = parser.parse_args()
     args.func(args)

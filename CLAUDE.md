@@ -61,6 +61,10 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py report examples\prom
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py sanitize examples\prompts\01_sick_leave_email.txt
 # (token/surrogate `mode` is a web-API concept — POST /api/sanitize — not a CLI flag)
 
+# PDPA มาตรา 39 processing receipt (issue, then verify by rerunning)
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py receipt issue examples\prompts\01_sick_leave_email.txt -o receipt.json --pdf receipt.pdf
+$env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe ai_guard.py receipt verify receipt.json examples\prompts\01_sick_leave_email.txt
+
 # Tests (Python)
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
 $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest tests/test_foo.py::test_name -v
@@ -229,6 +233,8 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/redactor.py` | True PDF redaction via bbox black boxes (wired through `/api/redact-pdf`) |
 | `pii_redactor/reid_risk.py` | Quasi-identifier re-identification risk score (Sweeney model), 0-100 + grade |
 | `pii_redactor/report.py` | PDPA risk report; `scan_section26` keyword flags (not auto-redacted) |
+| `pii_redactor/receipt.py` | PDPA มาตรา 39 processing receipt — one slip per run (not a cumulative RoPA; the vault is in-memory and the hosted path stateless, so a register would mean retaining what the product promises not to). `build_receipt()` records source sha256 + a digest over the detection result + counts/types + version/engine; `verify_receipt()` re-runs the same input through the shared `process_for_receipt()` and compares, so authenticity comes from recomputation rather than a signature (no key to keep). The digest excludes `entity_id` (fresh UUID4 per run) and `score` (a detector's internal float), and no entity value is ever read. Wired through `ai_guard.py receipt issue|verify`; deliberately no API endpoint in v1 |
+| `pii_redactor/receipt_pdf.py` | The receipt rendered as a Thai PDF slip (reportlab + `thai_pdf_text.draw_text`), including the command that verifies it. PII-free by the same structural argument as `report_pdf.py` — a receipt dict has no values in it to begin with; shares that module's `_TYPE_LABELS` so both documents name a data type the same way |
 | `pii_redactor/sensitive_detector.py` | Optional MiniLM semantic Section-26 detector (non-generative); no-op without `requirements-ml.txt` |
 | `pii_redactor/session_vault.py` | Step 4: in-memory `SessionVault` (pseudonym↔original), idle timeout, snapshot/restore rollback |
 | `pii_redactor/ai_client.py` | Step 5: AI providers (Fake/Ollama/Claude/Pathumma/Tokenmind + `PROVIDER_FACTORIES` registry) + pre-send leak guard (`detect_fp`+`detect_tb`) + retry/rollback |

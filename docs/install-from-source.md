@@ -81,6 +81,22 @@ python ai_guard.py sanitize examples/prompts/01_sick_leave_email.txt
 python demo_cli.py
 ```
 
+Issue a PDPA section 39 processing receipt for a file, then check it later:
+
+```bash
+python ai_guard.py receipt issue mydoc.pdf -o mydoc.receipt.json --pdf mydoc.receipt.pdf \
+  --purpose "screening before sending to an AI assistant" --controller "HR department"
+python ai_guard.py receipt verify mydoc.receipt.json mydoc.pdf
+```
+
+The receipt records what was processed — counts, types, the file's hash, the
+system version and NER engine — and never a value from the document. `verify`
+runs the same pipeline again and compares digests, so it exits 0 only when the
+file is the same file and the system still finds the same things in it. A
+version or engine change is reported alongside the result, because that is
+usually the explanation. `--purpose` and `--controller` are yours to state;
+the tool leaves them out rather than inventing them.
+
 Sample inputs live in `examples/`.
 
 ## Optional: semantic sensitive detector
