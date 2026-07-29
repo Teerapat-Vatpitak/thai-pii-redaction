@@ -48,6 +48,8 @@ from pathlib import Path
 
 from .types import GoldSpan, Sample
 
+GOLD_VERSION = "gold-v4"
+
 # slice -> layer. `negative` is its own layer because it is scored differently
 # (no gold spans, so recall is undefined and only false positives count).
 SLICE_LAYERS: dict[str, str] = {

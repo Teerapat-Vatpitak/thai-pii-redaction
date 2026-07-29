@@ -11,7 +11,7 @@ import re
 
 from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.detectors.fp_detector import detect_fp
-from pii_redactor.detectors.tb_detector import detect_tb
+from pii_redactor.detectors.tb_detector import NERChunkDiagnostics, detect_tb
 from pii_redactor.models import Entity
 
 
@@ -164,10 +164,17 @@ def _relabel_student_ids(tb: list[Entity], kept: list[Entity]) -> list[Entity]:
     return out
 
 
-def detect_all(text: str) -> list[Entity]:
+def detect_all(
+    text: str,
+    *,
+    ner_diagnostics: NERChunkDiagnostics | None = None,
+) -> list[Entity]:
     """Run the full detection ensemble and return deduped entities."""
     fp = detect_fp(text)
-    tb = detect_tb(text)
+    if ner_diagnostics is None:
+        tb = detect_tb(text)
+    else:
+        tb = detect_tb(text, diagnostics=ner_diagnostics)
     fn = scan_fn(text, fp + tb)
     kept = merge_address_spans(text, dedupe_spans(fp + tb + fn))
     return _relabel_student_ids(tb, kept)

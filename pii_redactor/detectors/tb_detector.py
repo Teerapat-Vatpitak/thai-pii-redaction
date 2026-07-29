@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import uuid
+from dataclasses import dataclass
 
 from pythainlp import sent_tokenize
 from pythainlp.tag import NER
@@ -14,6 +15,21 @@ from pythainlp.tag import NER
 from pii_redactor.models import Entity
 
 _LOG = logging.getLogger(__name__)
+
+
+@dataclass
+class NERChunkDiagnostics:
+    attempted: int = 0
+    succeeded: int = 0
+    skipped: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "attempted": self.attempted,
+            "succeeded": self.succeeded,
+            "skipped": self.skipped,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Label mapping: actual thainer labels -> PDPA data_type (None = skip)
@@ -360,7 +376,11 @@ _CHUNK_CORE_CHARS = 500
 
 
 def _ner_candidates(
-    text: str, ner: NER, sentence_offsets: list[tuple[str, int]], margin_sentences: int
+    text: str,
+    ner: NER,
+    sentence_offsets: list[tuple[str, int]],
+    margin_sentences: int,
+    diagnostics: NERChunkDiagnostics | None = None,
 ) -> list[Entity]:
     """Run one NER engine over stride chunks and return TB Entity candidates
     mapped to original-text offsets (pre-dedup).
@@ -400,22 +420,21 @@ def _ner_candidates(
         ctx_end = _sent_end(min(n - 1, chunk_last + margin_sentences))
         context_text = text[ctx_begin:ctx_end]
 
+        if diagnostics is not None:
+            diagnostics.attempted += 1
         try:
             tagged: list[tuple[str, str]] = ner.tag(context_text)
         except Exception:
             # Dropping a whole chunk is recall-negative (violates recall >
             # precision). Never silence it — a repeatedly failing engine must
             # be visible, not quietly eat ~500 chars of PII.
-            _LOG.warning(
-                "NER tagging failed on chunk chars %d-%d (%d chars); skipping "
-                "— PII in this chunk may be missed",
-                core_begin,
-                core_end,
-                len(context_text),
-                exc_info=True,
-            )
+            if diagnostics is not None:
+                diagnostics.skipped += 1
+            _LOG.warning("NER chunk skipped after a tagging failure")
             chunk_first = chunk_last + 1
             continue
+        if diagnostics is not None:
+            diagnostics.succeeded += 1
 
         if tagged:
             for ent_text, ctx_start, ctx_end_pos, label in _bio_to_spans(tagged, context_text):
@@ -466,7 +485,12 @@ def _ner_candidates(
 # ---------------------------------------------------------------------------
 
 
-def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
+def detect_tb(
+    text: str,
+    *,
+    window_size: int = 1,
+    diagnostics: NERChunkDiagnostics | None = None,
+) -> list[Entity]:
     """
     Detect text-based PII entities using PyThaiNLP NER (thainer CRF).
 
@@ -508,7 +532,15 @@ def detect_tb(text: str, *, window_size: int = 1) -> list[Entity]:
 
     candidates: list[Entity] = []
     for ner in ners:
-        candidates.extend(_ner_candidates(text, ner, sentence_offsets, window_size))
+        candidates.extend(
+            _ner_candidates(
+                text,
+                ner,
+                sentence_offsets,
+                window_size,
+                diagnostics=diagnostics,
+            )
+        )
 
     # Recall booster: title/label-cued names the NER missed or clipped
     # (engine-independent, added once).

@@ -628,16 +628,43 @@ def test_tb_ner_failure_is_logged_not_silent(monkeypatch, caplog):
 
     import pii_redactor.detectors.tb_detector as tbd
 
+    secret = "SYNTHETIC-PII-DO-NOT-LOG"
+
     class BoomNER:
         def tag(self, chunk):
-            raise RuntimeError("boom")
+            raise RuntimeError(secret)
 
     monkeypatch.setitem(tbd._ner_cache, "thainer", BoomNER())
     monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
     with caplog.at_level(logging.WARNING, logger="pii_redactor.detectors.tb_detector"):
         # must not raise — detection degrades, does not crash
-        tbd.detect_tb("วันนี้อากาศดีมากเลยครับ ไปเที่ยวกันเถอะ")
-    assert any("NER" in r.getMessage() for r in caplog.records)
+        diagnostics = tbd.NERChunkDiagnostics()
+        tbd.detect_tb("วันนี้อากาศดีมากเลยครับ ไปเที่ยวกันเถอะ", diagnostics=diagnostics)
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "NER" in joined
+    assert secret not in joined
+    assert diagnostics.attempted == 1
+    assert diagnostics.succeeded == 0
+    assert diagnostics.skipped == 1
+
+
+def test_tb_chunk_diagnostics_count_success_without_global_state(monkeypatch):
+    import pii_redactor.detectors.tb_detector as tbd
+
+    class EmptyNER:
+        def tag(self, chunk):
+            return []
+
+    monkeypatch.setitem(tbd._ner_cache, "thainer", EmptyNER())
+    monkeypatch.setenv("AIGUARD_NER_ENGINE", "thainer")
+    first = tbd.NERChunkDiagnostics()
+    second = tbd.NERChunkDiagnostics()
+
+    tbd.detect_tb("วันนี้อากาศดี", diagnostics=first)
+    tbd.detect_tb("พรุ่งนี้อากาศดี", diagnostics=second)
+
+    assert first.as_dict() == {"attempted": 1, "succeeded": 1, "skipped": 0}
+    assert second.as_dict() == {"attempted": 1, "succeeded": 1, "skipped": 0}
 
 
 def test_tb_organization_is_kept_and_labeled(monkeypatch):

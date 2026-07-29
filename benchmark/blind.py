@@ -43,8 +43,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .gold import SLICE_LAYERS, parse_gold
-from .scorer import _prf, _score_group, score
-from .types import Sample
+from .scorer import score
+from .types import SHARED_ENTITY_TYPE_SET, Sample
 
 BLIND_VERSION = "blind-v1"
 DATA_DIR = Path(__file__).with_name("data")
@@ -65,7 +65,7 @@ STRUCTURED_TYPES = (
     "STUDENT_ID",
 )
 CONTEXTUAL_TYPES = ("NAME", "ADDRESS", "DATE_OF_BIRTH")
-ALLOWED_TYPES = set(STRUCTURED_TYPES) | set(CONTEXTUAL_TYPES)
+ALLOWED_TYPES = set(SHARED_ENTITY_TYPE_SET)
 
 # Per-type counts below this are reported but labeled descriptive: a single
 # entity flips recall by more than a benchmark-worthy delta.
@@ -423,43 +423,6 @@ def verify_log(log_path: Path) -> int:
     return len(entries)
 
 
-def _bootstrap_f2_ci(
-    samples: list[Sample],
-    predictions: list[list[tuple[int, int, str]]],
-    iters: int = 1000,
-    seed: int = 0,
-) -> tuple[float, float]:
-    """Percentile bootstrap over DOCUMENTS for overall entity-level F2.
-
-    Documents are the resampling unit because entities inside one document are
-    correlated; resampling entities would overstate precision.
-    """
-    import random
-
-    per_doc: list[tuple[int, int, int]] = []
-    for s, p in zip(samples, predictions):
-        by_type, overall = _score_group([s], [p])
-        if overall.get("gold_entities") == 0:
-            tp = fn = 0
-            fp = overall["false_positives"]
-        else:
-            tp, fp, fn = overall["tp"], overall["fp"], overall["fn"]
-        per_doc.append((tp, fp, fn))
-    rng = random.Random(seed)
-    n = len(per_doc)
-    f2s = []
-    for _ in range(iters):
-        tp = fp = fn = 0
-        for _ in range(n):
-            a, b, c = per_doc[rng.randrange(n)]
-            tp += a
-            fp += b
-            fn += c
-        f2s.append(_prf(tp, fp, fn)["f2"])
-    f2s.sort()
-    return f2s[int(0.025 * iters)], f2s[int(0.975 * iters)]
-
-
 def _macro(by_type: dict, types: tuple[str, ...], metric: str) -> float | None:
     vals = [by_type[t][metric] for t in types if t in by_type]
     return sum(vals) / len(vals) if vals else None
@@ -480,13 +443,18 @@ def run_blind(
     if not reason.strip():
         raise BlindError("a blind run must state --reason (it is recorded in the audit log)")
 
+    from pii_redactor.detectors.tb_detector import NERChunkDiagnostics
+
     from .runner import predict_samples
 
     samples, lock = load_blind(key_file, data_dir=data_dir)
-    predictions = predict_samples(samples, engine)
-    report = score(samples, predictions)
+    diagnostics = NERChunkDiagnostics()
+    predictions = predict_samples(samples, engine, diagnostics=diagnostics)
+    if diagnostics.skipped:
+        raise BlindError("benchmark integrity failure: one or more NER chunks were skipped")
+    report = score(samples, predictions, bootstrap_iters=bootstrap_iters)
 
-    ci_lo, ci_hi = _bootstrap_f2_ci(samples, predictions, iters=bootstrap_iters)
+    ci = report["confidence_intervals"]["overall_f2"]
     negative = report["by_slice"].get("negative")
     result = {
         "version": lock["version"],
@@ -494,7 +462,10 @@ def run_blind(
         "documents": report["corpus"]["samples"],
         "entities": report["corpus"]["entities"],
         "overall": report["overall"],
-        "overall_f2_ci95": [round(ci_lo, 4), round(ci_hi, 4)],
+        "overall_f2_ci95": [round(ci["lower"], 4), round(ci["upper"], 4)],
+        "confidence_intervals": report["confidence_intervals"],
+        "shared_11": report["shared_11"],
+        "ner_chunks": diagnostics.as_dict(),
         "families": {
             "structured_macro_f2": _macro(report["by_type"], STRUCTURED_TYPES, "f2"),
             "structured_macro_recall": _macro(report["by_type"], STRUCTURED_TYPES, "recall"),
@@ -528,6 +499,9 @@ def run_blind(
         "metrics": {
             "overall": report["overall"],
             "overall_f2_ci95": result["overall_f2_ci95"],
+            "confidence_intervals": result["confidence_intervals"],
+            "shared_11": result["shared_11"],
+            "ner_chunks": result["ner_chunks"],
             "families": result["families"],
             "by_type": result["by_type"],
             "negative": negative,

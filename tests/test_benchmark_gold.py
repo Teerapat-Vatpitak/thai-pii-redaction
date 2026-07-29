@@ -14,6 +14,7 @@ from benchmark.gold import (
     GOLD_DOCS,
     GOLD_LAYERS,
     GOLD_SLICES,
+    GOLD_VERSION,
     LONG_FORM_MIN_CHARS,
     SLICE_LAYERS,
     load_gold,
@@ -231,7 +232,9 @@ def test_negative_slice_is_scored_as_false_positives_not_recall():
 def test_run_benchmark_source_gold():
     r = run_benchmark(engine="crf", source="gold")
     assert r["source"] == "gold"
+    assert r["gold_version"] == GOLD_VERSION
     assert r["corpus"]["samples"] == len(load_gold())
+    assert r["confidence_intervals"]["overall_f2"]["unit"] == "document"
     for sl in GOLD_SLICES:
         assert sl in r["by_slice"]
 
