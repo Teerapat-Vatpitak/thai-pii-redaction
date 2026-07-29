@@ -225,6 +225,14 @@ def main() -> None:
     # Bundle the demo playground page so app/server.py's _demo_page_path() can
     # find it under sys._MEIPASS/demo/playground.html when AIGUARD_DEMO=1.
     cmd += ["--add-data", f"{ROOT / 'demo' / 'playground.html'}{os.pathsep}demo"]
+    # Bundle the Thai font. Without it the exe renders every Thai glyph in the
+    # PDPA report and the processing receipt as a black box on any machine that
+    # has no Thai-capable TTF of its own -- which is a stock Windows install,
+    # since the only face Windows supplies was not on the candidate list until
+    # 2026-07-29 and the exe carried no font at all. thai_pdf_text._bundled_font()
+    # looks for it here first.
+    font = ROOT / "pii_redactor" / "fonts" / "IBMPlexSansThaiLooped-Regular.ttf"
+    cmd += ["--add-data", f"{font}{os.pathsep}pii_redactor/fonts"]
     cmd += data_args()
     # Absolute paths so we never depend on / mutate the caller's working directory.
     cmd += [

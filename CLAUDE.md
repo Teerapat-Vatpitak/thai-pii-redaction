@@ -42,7 +42,14 @@ Use the venv directly (activation does not persist across tool calls):
 .\.venv\Scripts\python.exe -m pip install -r requirements-ml.txt    # WangchanBERTa (torch)
 ```
 
-Thai font: `C:\Windows\Fonts\sarabun-v17-...-regular.ttf`
+Thai font: bundled. `pii_redactor/fonts/IBMPlexSansThaiLooped-Regular.ttf`
+(OFL-1.1, converted from the WOFF2 already vendored for the UI) is the first
+entry in `FONT_CANDIDATES` and ships in the wheel via `package-data` and in the
+exe via `--add-data`, so a generated PDF looks the same everywhere. System
+paths below it (`sarabun-v17-…`, `leelawui.ttf`, the Debian tlwg paths) are a
+net for a checkout whose data file is missing. `thai_pdf_text.py` also repairs a
+reportlab `setRise` defect that strands text above the baseline for any font
+positioning Thai marks by offset rather than glyph substitution.
 
 ## Running
 

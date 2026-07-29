@@ -308,6 +308,87 @@ def test_pdf_modules_never_draw_unshaped_text():
     )
 
 
+def test_the_reportlab_rise_defect_is_repaired():
+    """After importing this module, setRise must agree with what it emitted.
+
+    reportlab's "optimize out r0 Ts r1 Ts" branch rewrote the operator without
+    storing the new rise, which stranded runs of Thai above the baseline for
+    any font that positions marks by offset rather than substitution — that is,
+    for Leelawadee UI, the only Thai face Windows ships and therefore the only
+    fallback a stock machine has.
+
+    Written as a behavioural probe rather than a source check, so it keeps
+    working when reportlab moves the code, and goes red if an upgrade changes
+    the shape of what is being patched.
+    """
+    from pii_redactor.thai_pdf_text import _rise_state_is_lost
+
+    assert not _rise_state_is_lost(), (
+        "setRise no longer agrees with the operator it emitted — either the "
+        "patch in thai_pdf_text._install_rise_fix() stopped applying, or "
+        "reportlab changed underneath it"
+    )
+
+
+def test_the_thai_font_travels_with_the_product():
+    """No machine may have to supply its own Thai font.
+
+    Every candidate below the first is a path that may or may not exist, which
+    is exactly how a Windows-only Sarabun path went unnoticed while every other
+    Windows machine rendered Thai as black boxes — the packaged exe carried no
+    font at all. The bundled file is the one entry that cannot be missing, so
+    it is first, and a document looks the same wherever it was produced.
+    """
+    from pathlib import Path
+
+    from pii_redactor.thai_pdf_text import FONT_CANDIDATES, register_thai_font
+
+    bundled = Path(FONT_CANDIDATES[0])
+    assert bundled.is_file(), f"the bundled font is not on disk: {bundled}"
+    assert bundled.suffix == ".ttf", "reportlab cannot read a WOFF2"
+    assert register_thai_font() != "Helvetica"
+
+
+def test_the_build_bundles_the_font_into_the_exe():
+    """A font present in a source checkout but absent from the exe would leave
+    packaged users exactly where they started, with the suite green."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    build = (root / "scripts" / "build_sidecar.py").read_text(encoding="utf-8")
+    assert "IBMPlexSansThaiLooped-Regular.ttf" in build, (
+        "scripts/build_sidecar.py does not bundle the Thai font; the exe will "
+        "render Thai as boxes on any machine without a Thai TTF of its own"
+    )
+
+
+def test_windows_has_a_candidate_font_windows_itself_ships():
+    """The Windows list must not consist only of hand-installed fonts.
+
+    It used to. The single Windows entry was a Sarabun path that no Windows
+    edition ships, so every Windows machine except this developer's fell through
+    to Helvetica and rendered Thai as black boxes in the PDPA report and the
+    processing receipt — including every user of the packaged exe, which bundles
+    no font at all.
+
+    This cannot be caught by looking at the filesystem. The developer's machine
+    has Sarabun, so `register_thai_font()` returns it here no matter what else
+    is on the list, and every test that goes through that function stays green
+    either way. So this reads the list instead, and pins the one fact a test
+    cannot discover for itself: which of these filenames Windows supplies.
+    """
+    from pathlib import PureWindowsPath
+
+    from pii_redactor.thai_pdf_text import FONT_CANDIDATES, WINDOWS_STOCK_FONT_FILES
+
+    windows = [c for c in FONT_CANDIDATES if c.lower().startswith("c:\\windows\\fonts")]
+    assert windows, "no Windows font candidate at all"
+    assert any(PureWindowsPath(c).name.lower() in WINDOWS_STOCK_FONT_FILES for c in windows), (
+        "every Windows candidate is a hand-installed font, so a stock Windows "
+        "machine falls back to Helvetica and renders Thai as boxes: " + str(windows)
+    )
+
+
 @no_thai_font
 def test_the_tone_mark_is_actually_lifted_above_the_vowel():
     """The one assertion that measures what this whole feature exists to do.
