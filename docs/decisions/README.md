@@ -11,6 +11,7 @@ by when the decision was made rather than continuously maintained.
 
 | Document | What it decides |
 |---|---|
+| [2026-07-29 store distribution + signing](2026-07-29-store-distribution-and-signing.md) | Ship through winget and a project-owned Scoop bucket, hold the Chrome Web Store until a reviewer has an easy backend-install path, and stay unsigned — the cheapest managed signing service excludes developers based in Thailand, and since August 2024 no certificate class clears SmartScreen on first download anyway |
 | [2026-07-28 tokenmind detector + AIFT port](2026-07-28-tokenmind-detector-and-aift-port.md) | tokenmind's thaillm-8b scores F2 0.951 as a detector on gold v4 — above the default rule+CRF's 0.908 on documents that carry PII, worse on the PII-free negative slice — confirming the pre-send guard must cover what the model itself sees; and the AIFT deployment moves to a separate port repo (aiguard-aift) that passed the local checklist + soak phase, deploy owner-gated |
 | [2026-07-28 fine-tuned NER results](2026-07-28-finetuned-ner-results.md) | Campaign 3 verdict: the fine-tuned engine fixes blind NAME precision 0.700 → 0.922 and becomes the certified heavyweight opt-in, displacing union; CRF stays the default on latency |
 | [2026-07-28 ONNX evaluation](2026-07-28-onnx-runtime-evaluation.md) | ONNX fp32 gives an exact-parity 2.4x on the WangchanBERTa path and int8 breaks parity outright — nothing ships now, but fp32 is the deployment runtime if a fine-tuned model ever earns a default change |

@@ -10,6 +10,12 @@ do not duplicate the hash in this prose.
 These files are prepared here for review. Nothing is submitted automatically — submitting to
 winget-pkgs or a Scoop bucket publishes the app outward, so do those steps yourself.
 
+The distribution decision is recorded in
+[docs/decisions/2026-07-29-store-distribution-and-signing.md](../docs/decisions/2026-07-29-store-distribution-and-signing.md):
+submit to winget, run a project-owned Scoop bucket instead of sending the manifest to the shared
+Extras bucket, and keep shipping unsigned. That record also lists what would reopen the signing
+question.
+
 ## winget (`winget/`)
 
 Three manifest files (schema 1.6.0): version, installer, and en-US locale, for
@@ -48,8 +54,10 @@ the NSIS leftovers (`$PLUGINSDIR`, `uninstall.exe`).
   equals the winget `InstallerSha256`.
 - `checkver`/`autoupdate` track GitHub releases and rewrite the URL for future `$version`s.
 
-To publish: either add `aiguard.json` to a Scoop bucket repo (e.g. a `scoop-aiguard` repo), or keep it
-here and let users install directly:
+To publish: add `aiguard.json` to a project-owned bucket repo (a `scoop-aiguard` repo) — the decided
+route, since it keeps removal and correction in this project's hands rather than a shared bucket's
+maintainers. Direct install from this repo keeps working for anyone who would rather not add a
+bucket:
 
 ```
 scoop install https://raw.githubusercontent.com/Teerapat-Vatpitak/thai-pii-redaction/main/packaging/scoop/aiguard.json
