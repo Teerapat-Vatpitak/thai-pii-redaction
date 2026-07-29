@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-07-27
+Updated: 2026-07-28
 
 ## Submitted service
 
@@ -44,17 +44,22 @@ service-access messages received between 25 and 27 July establish that:
 - the guide examples contain both frontend and API services, but they do not
   yet answer whether this API-only submission must add a frontend.
 
-GitLab sign-in and group membership are verified. The group currently contains
-no project or subgroup, so it is still unknown whether staff will provision a
-template/repository or the participant is expected to create one. No project
-has been created from this repository without that answer.
+GitLab sign-in and group membership are verified, with Maintainer rights in the
+team subgroup, so the team creates its own project rather than waiting for a
+staff-provisioned template. The deployment is built as a separate port
+repository, not pushed from this repo (see "Port repository" below). No project
+has yet been pushed to GitLab; that step is owner-gated.
 
 The platform also issued a separate LLM endpoint, model identifier, and secret
 through a private channel. This repository records only that they exist.
-Request/response compatibility, authentication placement, timeout, quota,
-acceptable-use policy, logging policy, and a protected live acceptance run are
-still open. Credentials, account identifiers, and provider bodies must never
-be copied into this repository or its acceptance artifacts.
+Request/response compatibility and authentication placement are now settled in
+code — the gateway speaks an OpenAI-compatible `/v1` protocol, the `tokenmind`
+provider drives it through `pii_redactor/openai_compat.py`, and the 2026-07-28
+acceptance run reached the live model twice — while quota, acceptable-use
+policy, logging policy, timeout ownership, and an acceptance run originating
+from platform infrastructure rather than a developer machine are still open.
+Credentials, account identifiers, and provider bodies must never be copied into
+this repository or its acceptance artifacts.
 
 The automated access messages explicitly prohibit replies, while the guide says
 to contact staff without naming an official support address. A targeted
@@ -64,6 +69,31 @@ or support channel still needs confirmation.
 The existing HTTP-poll worker and versioned job envelope are therefore retained
 only as a provisional local failure emulator. They are not the official
 delivery path.
+
+## Port repository (deployment vehicle)
+
+The AI for Thai deployment is built in a **separate port repository**
+(`aiguard-aift`, targeted at the event's GitLab), not pushed from this repo.
+This repo keeps its local-first role (extension, desktop, CLI, Office add-in);
+the port is a thin service shell around a vendored slice of the core:
+
+- a vendored `core/` slice — a per-file SHA-256 manifest pins the upstream
+  commit, which now includes the hosted-readiness knobs from PR #101 — plus an
+  OCR-baked image;
+- an nginx `api/` layer that re-adds the `/api` prefix the platform proxy
+  strips, exposes only a six-endpoint exact-match allowlist, injects the service
+  key, and logs without the query string; and
+- a five-scene product page and a stateless roundtrip (mask → thaillm-8b →
+  restore within one request; the mapping returns to the caller and no vault is
+  held server-side).
+
+The port passed a full local Docker phase: the ก-ฌ checklist, fail-loud and 503
+failure modes, and a service-level soak (an 8-way 10-minute run with no 5xx, a
+429 under overload rather than a crash, PII-free logs, and restart recovery).
+Evidence lives in the port repo's `docs/evidence/`. Pushing to GitLab and the
+real platform run remain owner-gated. The
+[tokenmind detector + port ADR](../decisions/2026-07-28-tokenmind-detector-and-aift-port.md)
+records the decision and the thaillm-8b detector numbers.
 
 ## Measured container profile
 
@@ -97,7 +127,9 @@ hosted guarantees are:
 - mappings remain transient and are not persisted;
 - normal sanitize/analyze results do not export mappings;
 - application logs and public errors do not contain request text or raw PII;
-- Pathumma receives the masked prompt on the protected roundtrip; and
+- the LLM receives only the masked prompt on the protected roundtrip — on the
+  port repo that is thaillm-8b through the tokenmind gateway, which is the only
+  provider the hosted allowlist enables; and
 - provider credentials and the AI Guard caller key are separate secrets.
 
 Do not use the local-product claim "PII never leaves the device" for this
@@ -130,6 +162,14 @@ caller-authentication/header rules, payload and timeout limits, proxy
 hostnames, frontend requirement, project/template ownership, and acceptance
 owner. Until those are confirmed, adapter code would encode guesses in a
 public boundary.
+
+Update (2026-07-28): this adapter is realized in the port repo's nginx layer —
+prefix re-add, exact six-endpoint allowlist, key injection, unprefixed
+`/health` — not by forking the main server. PR #101 added the env-gated pieces
+the server itself owns (host allowlist via `AIGUARD_ALLOWED_HOSTS`, provider
+allowlist via `AIGUARD_PROVIDERS`, audit-to-stdout, and public-input caps),
+while the main server keeps its local `/api/*` contract unchanged. The open
+contract questions above still gate the real platform run.
 
 ## Provisional worker emulator evidence
 
