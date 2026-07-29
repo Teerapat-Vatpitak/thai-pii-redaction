@@ -1,0 +1,97 @@
+name: Detection result is wrong
+description: PII was missed, something harmless was flagged, or the label or span is wrong.
+title: "detect: "
+labels: ["detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful issue you can file. Thai PII detection is measured,
+        not asserted, so a concrete wrong result usually becomes a benchmark
+        document and a regression test.
+
+        Write in Thai or English, whichever is more precise for you.
+
+        **Never paste real personal data.** Reproduce with fabricated values that
+        keep the same shape (same digit count, same cue words, same layout). A
+        report with real PII in it has to be deleted rather than fixed.
+  - type: checkboxes
+    id: synthetic
+    attributes:
+      label: Data check
+      options:
+        - label: Every value below is fabricated. No real person's data appears in this issue.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - Missed PII (false negative)
+        - Flagged something that is not PII (false positive)
+        - Right span, wrong type label
+        - Right type, wrong span boundary (too greedy or clipped)
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input text (fabricated)
+      description: The smallest text that still reproduces it. Paste it verbatim, including spacing.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: |
+        What the detector should return and what it actually returned. Entity type
+        names come from the 11 the project uses (NAME, ADDRESS, PHONE, EMAIL,
+        THAI_ID, CREDIT_CARD, DATE_OF_BIRTH, VEHICLE_PLATE, STUDENT_ID, PASSPORT,
+        BANK_ACCOUNT), plus LOCATION / ORGANIZATION / ID_NUMBER where they apply.
+      placeholder: |
+        Expected: NAME over "สมชาย ใจดี"
+        Actual: nothing returned / NAME over "นายสมชาย" only
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where you saw it
+      options:
+        - Browser extension
+        - Desktop app
+        - Microsoft 365 add-in
+        - CLI (ai_guard.py / demo_cli.py)
+        - Local API (/api/*)
+        - Benchmark run
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From `GET /api/health`, the app's about screen, or the VERSION file if running from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: NER engine
+      description: Set by AIGUARD_NER_ENGINE. Leave as default unless you changed it.
+      options:
+        - default (thainer CRF)
+        - wangchanberta
+        - union
+        - finetuned
+      default: 0
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: |
+        Optional. Whether it reproduces every time, whether a nearby cue word
+        changes the outcome, or a link to a related issue or gold document.

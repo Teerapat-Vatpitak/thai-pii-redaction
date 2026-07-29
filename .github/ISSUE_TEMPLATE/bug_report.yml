@@ -1,0 +1,74 @@
+name: Bug report
+description: Something crashes, hangs, or behaves differently from the documented contract.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a wrong detection result, use the "Detection result is wrong" form instead.
+        For a vulnerability, use private reporting (see SECURITY.md) rather than this form.
+
+        Write in Thai or English.
+  - type: checkboxes
+    id: synthetic
+    attributes:
+      label: Data check
+      options:
+        - label: Any text, screenshot, or log excerpt below uses fabricated data only.
+          required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it happens
+      options:
+        - Browser extension
+        - Desktop app
+        - Microsoft 365 add-in
+        - CLI (ai_guard.py / demo_cli.py)
+        - Local API (/api/*)
+        - Build, packaging, or install
+        - Benchmark or training tooling
+      default: 0
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release version, or the commit SHA if you run from source.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python
+      placeholder: Windows 11 / Python 3.13.1, or Ubuntu 24.04 / Python 3.11.9
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command where one applies. Windows callers should show whether PYTHONUTF8=1 was set.
+      placeholder: |
+        1. $env:PYTHONUTF8='1'
+        2. .\.venv\Scripts\python.exe -m uvicorn app.server:app --port 8000
+        3. POST /api/sanitize with ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: |
+        Traceback or console output. Logs in this project are PII-free by design,
+        so if you find request text or entity values in one, say so explicitly —
+        that is itself the bug, and it should go through private reporting.
+      render: text

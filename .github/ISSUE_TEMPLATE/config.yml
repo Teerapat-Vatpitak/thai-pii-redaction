@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (private)
+    url: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/security/advisories/new
+    about: Never open a public issue with exploit details or real PII. See SECURITY.md.
+  - name: Contributing guide
+    url: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/CONTRIBUTING.md
+    about: Dev setup, the exact test and lint commands CI runs, and PR conventions.
+  - name: Roadmap and delivery gates
+    url: https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/ROADMAP.md
+    about: Check whether an idea is already scheduled, already accepted, or deliberately deferred.

@@ -5,6 +5,13 @@ with an active AI for Thai platform-integration track. See [`ROADMAP.md`](ROADMA
 and [`docs/project-status.md`](docs/project-status.md) before starting large
 changes, then open an issue so the intended delivery gate is explicit.
 
+Issues use forms: a wrong detection result, a bug, a proposal, and a benchmark
+document each have their own, and the detection form is the one that most often
+becomes a regression test. Write in Thai or English. Every report, reproduction,
+and fixture uses fabricated data — a report containing real personal data has to
+be deleted rather than fixed. Vulnerabilities go through private reporting
+([`SECURITY.md`](SECURITY.md)), never a public issue.
+
 ## Dev setup
 
 Prerequisites: Python 3.11+, git. Windows is the primary target platform;
@@ -115,6 +122,19 @@ a version string in any other file.
 The complete tag/draft/publish/packaging sequence lives in
 [`docs/release-process.md`](docs/release-process.md). Do not create or move a
 release tag from a feature branch.
+
+## Contributing to the benchmark
+
+Accuracy here is measured, not asserted, so the gold set is governed rather than
+open: fabricated values only, labels that follow
+[`docs/annotation-guidelines.md`](docs/annotation-guidelines.md), and a version
+bump plus a decision record for every change. The route — propose in an issue
+first, then open the PR — and the exact local validation commands are in
+[`docs/benchmark-contribution.md`](docs/benchmark-contribution.md).
+
+The held-out blind set (`benchmark/data/blind-*.enc`) is never decrypted, read,
+or printed. It exists to check whether gold-set tuning generalizes, and reading
+it destroys the only property that makes it worth having.
 
 ## Pull request conventions
 

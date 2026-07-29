@@ -1,0 +1,86 @@
+name: Benchmark document proposal
+description: Propose a document for the gold set, or challenge how an existing one is labeled.
+title: "gold: "
+labels: ["benchmark"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The gold set is what makes accuracy claims here checkable, so it is
+        governed rather than open: every value is fabricated, every label follows
+        [docs/annotation-guidelines.md](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/annotation-guidelines.md),
+        and a change lands with its own record. The full workflow is in
+        [docs/benchmark-contribution.md](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/benchmark-contribution.md).
+
+        Propose the document here first. Do not open a pull request against
+        `benchmark/data/gold.jsonl` before the slice and labels are agreed.
+
+        Write in Thai or English.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Required confirmations
+      options:
+        - label: Every value is fabricated. This is not a real document, a redacted real document, or a real document with names swapped.
+          required: true
+        - label: I read the annotation guidelines and the slice contract for the slice I am proposing.
+          required: true
+        - label: Checksum-bearing values (THAI_ID, CREDIT_CARD) are valid under mod-11 / Luhn, or I am asking for help generating them.
+          required: true
+        - label: I have not tried to open, decrypt, or read the blind set, and nothing here was derived from it.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What this is
+      options:
+        - A new document for an existing slice
+        - A label challenge against an existing document
+        - A case no current slice covers
+      default: 0
+    validations:
+      required: true
+  - type: dropdown
+    id: slice
+    attributes:
+      label: Slice
+      options:
+        - gov_form
+        - medical
+        - finance
+        - education
+        - long_form
+        - name_no_cue
+        - address_varied
+        - messy
+        - bank_phone
+        - id_docs
+        - student_id_varied
+        - negative
+        - none of these fit
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: document
+    attributes:
+      label: The document, with inline markup
+      description: |
+        Use the same `[[TYPE|value]]` markup the set stores, so the text and its
+        annotation cannot drift apart. A `negative` document carries no markup at
+        all and must contain no maximal token of exactly 13 digits.
+      render: text
+      placeholder: |
+        เรียน [[NAME|สมชาย ใจดี]] ติดต่อกลับที่ [[PHONE|081-234-5678]]
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What this document measures
+      description: |
+        The useful answer is a detector behavior nothing currently probes — a cue
+        distance, a format variant, a layout. "More data" is not a reason on its
+        own; the set is a diagnostic, not a volume target.
+    validations:
+      required: true
