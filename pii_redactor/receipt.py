@@ -32,8 +32,12 @@ Two things are deliberately outside the result digest:
   receipt attests to is which spans of what type were treated as personal
   data — the thing that decides what gets masked.
 
-Nothing here reads an entity's text. A receipt carries counts, types, offsets'
-digest and hashes; never a value.
+Nothing here reads an entity's text. Everything this module derives from the
+document is a count, a type name, a hash, or a digest over offsets — never a
+value. The one exception is not derived from the document at all: `purpose` and
+`controller` are free text the operator typed, and if they type a person's name
+there it is on the slip because they put it there. No filter is applied to
+them, and no document in this project may claim otherwise.
 """
 
 from __future__ import annotations
@@ -59,12 +63,22 @@ RECEIPT_SCHEMA = "aiguard.processing-receipt/1"
 _REQUIRED_PATHS = (
     ("source", "sha256"),
     ("source", "bytes"),
+    ("source", "source_type"),
     ("result", "digest"),
+    ("result", "entity_count"),
+    ("result", "fp_count"),
+    ("result", "tb_count"),
+    ("result", "type_counts"),
     ("environment", "product_version"),
     ("environment", "ner_engine"),
+    ("environment", "detector_version"),
 )
 
-_ENVIRONMENT_KEYS = ("product_version", "ner_engine")
+_ENVIRONMENT_KEYS = ("product_version", "ner_engine", "detector_version")
+
+
+class SourceChangedError(RuntimeError):
+    """The input file changed while the receipt was being issued."""
 
 
 @dataclass
@@ -134,12 +148,75 @@ def result_digest(entities: list[Entity]) -> str:
     return "sha256:" + hashlib.sha256(preimage.encode("utf-8")).hexdigest()
 
 
-def _source_sha256(path: Path) -> str:
+def _source_fingerprint(path: Path) -> tuple[str, int]:
+    """Hash and size from ONE pass over the bytes.
+
+    Together rather than separately so the two can never describe different
+    reads of a file that is changing underneath us.
+    """
     digest = hashlib.sha256()
+    size = 0
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             digest.update(chunk)
-    return digest.hexdigest()
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def _detector_version() -> str:
+    """The PyThaiNLP release that produced the detection result.
+
+    `requirements.txt` carries a loose `>=` floor, so two machines reporting
+    the same `product_version` can be running different CRF models. Without
+    this field a genuine version difference surfaces as a `result_mismatch`
+    with an EMPTY list of differences -- the likeliest explanation would be
+    the one thing the receipt could not see.
+    """
+    try:
+        from importlib.metadata import version
+
+        return f"pythainlp {version('pythainlp')}"
+    except Exception:
+        return "unknown"
+
+
+def _environment() -> dict:
+    return {
+        "product_version": _read_version(),
+        "ner_engine": _resolve_engine_name(),
+        "detector_version": _detector_version(),
+    }
+
+
+def _claims(processed: ProcessedSource, sha256: str, size: int) -> dict:
+    """The factual half of a receipt — everything `verify` recomputes.
+
+    Built in one place and used by BOTH `build_receipt` and `verify_receipt`,
+    which is the point. The first version of this module compared only the two
+    digests, so `entity_count`, the per-type counts, the file size and the
+    source type rode along unverified: a receipt could be edited to claim zero
+    entities found and still verify clean, while the verifier had the real
+    numbers in hand and discarded them. Anything that goes in here from now on
+    is checked by construction rather than by someone remembering to add a
+    comparison.
+    """
+    type_counts: dict[str, int] = {}
+    for entity in processed.entities:
+        type_counts[entity.data_type] = type_counts.get(entity.data_type, 0) + 1
+    return {
+        "source": {
+            "sha256": sha256,
+            "bytes": size,
+            "source_type": processed.source_type,
+        },
+        "result": {
+            "digest": result_digest(processed.entities),
+            "entity_count": len(processed.entities),
+            "fp_count": sum(1 for e in processed.entities if e.redact_type == "FP"),
+            "tb_count": sum(1 for e in processed.entities if e.redact_type != "FP"),
+            "type_counts": dict(sorted(type_counts.items())),
+        },
+    }
 
 
 def build_receipt(
@@ -155,13 +232,28 @@ def build_receipt(
     `purpose` and `controller` are Section 39 fields only the operator can
     answer, so they appear only when supplied. Inventing a plausible default
     for either would put a claim in a compliance document that nobody made.
+    Note that both are free text the operator typed: they are the one part of
+    a receipt that is not derived from the document, and nothing here inspects
+    them.
+
+    Raises:
+        SourceChangedError: the file's bytes changed while it was being read.
     """
     path = Path(path)
+    # Fingerprinted on both sides of the pipeline. Detection takes real time on
+    # a large document, and a file rewritten in that window would otherwise
+    # produce a receipt whose hash describes the new bytes and whose findings
+    # describe the old ones -- internally inconsistent, unverifiable forever,
+    # and diagnosed later as `result_mismatch`, which would be a lie about what
+    # went wrong.
+    before, _ = _source_fingerprint(path)
     processed = process_for_receipt(path)
-
-    type_counts: dict[str, int] = {}
-    for entity in processed.entities:
-        type_counts[entity.data_type] = type_counts.get(entity.data_type, 0) + 1
+    after, size = _source_fingerprint(path)
+    if before != after:
+        raise SourceChangedError(
+            f"{path} changed while the receipt was being issued; nothing can be "
+            f"attested about a file that moved under the reader"
+        )
 
     activity: dict = {"operation": operation}
     if purpose:
@@ -173,22 +265,8 @@ def build_receipt(
         "schema": RECEIPT_SCHEMA,
         "issued_at": issued_at or _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "activity": activity,
-        "source": {
-            "sha256": _source_sha256(path),
-            "bytes": path.stat().st_size,
-            "source_type": processed.source_type,
-        },
-        "result": {
-            "digest": result_digest(processed.entities),
-            "entity_count": len(processed.entities),
-            "fp_count": sum(1 for e in processed.entities if e.redact_type == "FP"),
-            "tb_count": sum(1 for e in processed.entities if e.redact_type != "FP"),
-            "type_counts": dict(sorted(type_counts.items())),
-        },
-        "environment": {
-            "product_version": _read_version(),
-            "ner_engine": _resolve_engine_name(),
-        },
+        **_claims(processed, after, size),
+        "environment": _environment(),
     }
 
 
@@ -201,13 +279,32 @@ def _missing_fields(receipt: dict) -> list[str]:
     return missing
 
 
+def _diff_claims(receipt: dict, actual: dict) -> list[str]:
+    """Every field of the recomputation that the receipt disagrees with."""
+    differences = []
+    for section, fields in actual.items():
+        for key, value in fields.items():
+            claimed = receipt[section].get(key)
+            if claimed != value:
+                differences.append(f"{section}.{key}: receipt {claimed!r}, now {value!r}")
+    return differences
+
+
 def verify_receipt(receipt: dict, path: str | Path) -> VerifyResult:
     """Re-run `path` and report whether it still produces this receipt.
 
-    The two digests are kept apart so the answer distinguishes "this is not the
-    document the receipt was issued for" from "same document, the system now
-    sees something different in it". Collapsing them into one pass/fail would
-    make a version upgrade look like a swapped file.
+    EVERY factual field is compared, not just the two digests. That distinction
+    is the whole difference between a receipt and a decorated guess: the digest
+    covers which spans of what type were found, but what a person reads off the
+    page is "7 entities, 3 of them names" — and until this compared the counts
+    too, those numbers could be edited to anything at all and the tool would
+    still print that the document and the result matched. `_claims()` is the
+    single source for both sides so a field cannot be added on one side only.
+
+    The source hash is checked first and on its own, so the answer distinguishes
+    "this is not the document the receipt was issued for" from "same document,
+    the system now sees something different in it". Collapsing them would make a
+    version upgrade look like a swapped file.
 
     A mismatch is reported with whatever changed in the environment alongside
     it, because that is almost always the explanation. An environment
@@ -230,11 +327,8 @@ def verify_receipt(receipt: dict, path: str | Path) -> VerifyResult:
         )
 
     path = Path(path)
-    actual_sha = _source_sha256(path)
-    environment = {
-        "product_version": _read_version(),
-        "ner_engine": _resolve_engine_name(),
-    }
+    actual_sha, actual_size = _source_fingerprint(path)
+    environment = _environment()
     env_differences = [
         f"{key}: receipt {receipt['environment'][key]!r}, now {environment[key]!r}"
         for key in _ENVIRONMENT_KEYS
@@ -252,21 +346,33 @@ def verify_receipt(receipt: dict, path: str | Path) -> VerifyResult:
             recomputed={"source_sha256": actual_sha},
         )
 
-    processed = process_for_receipt(path)
-    actual_digest = result_digest(processed.entities)
-    recomputed = {
-        "source_sha256": actual_sha,
-        "result_digest": actual_digest,
-        "entity_count": len(processed.entities),
-    }
-    if actual_digest != receipt["result"]["digest"]:
+    try:
+        processed = process_for_receipt(path)
+    except Exception as e:
+        # The bytes are right but the pipeline cannot read them again. The
+        # ordinary cause is a renamed file -- `detect_source_type` routes on the
+        # extension, so a PDF copied to `.txt` fails to decode. Reported as its
+        # own outcome, because letting this surface as a raw error made a
+        # correct file look like a broken tool.
+        return VerifyResult(
+            ok=False,
+            outcome="recompute_failed",
+            differences=[
+                f"the file's bytes match the receipt but it could not be processed "
+                f"again as {receipt['source']['source_type']!r}: {e}"
+            ]
+            + env_differences,
+            recomputed={"source_sha256": actual_sha, "source_bytes": actual_size},
+        )
+
+    actual = _claims(processed, actual_sha, actual_size)
+    recomputed = {**actual["source"], **actual["result"]}
+    claim_differences = _diff_claims(receipt, actual)
+    if claim_differences:
         return VerifyResult(
             ok=False,
             outcome="result_mismatch",
-            differences=[
-                f"result digest: receipt {receipt['result']['digest']}, now {actual_digest}"
-            ]
-            + env_differences,
+            differences=claim_differences + env_differences,
             recomputed=recomputed,
         )
     return VerifyResult(

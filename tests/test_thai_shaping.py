@@ -291,7 +291,11 @@ def test_pdf_modules_never_draw_unshaped_text():
     root = Path(__file__).resolve().parents[1]
     draw = re.compile(r"\.draw(?:Centred|Right)?String\s*\(")
     offenders = []
-    for rel in ("pii_redactor/report_pdf.py", "pii_redactor/exporter.py"):
+    for rel in (
+        "pii_redactor/report_pdf.py",
+        "pii_redactor/exporter.py",
+        "pii_redactor/receipt_pdf.py",
+    ):
         src = (root / rel).read_text(encoding="utf-8")
         for n, line in enumerate(src.splitlines(), 1):
             if draw.search(line):

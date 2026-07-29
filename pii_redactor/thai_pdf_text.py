@@ -17,9 +17,9 @@ real characters invisibly (for search/copy) and the shaped glyphs visibly (for
 correct rendering) on the same line. The accepted cost is that copying an
 affected line out of the finished PDF yields it twice.
 
-Both PRODUCT modules that draw Thai into a PDF -- report_pdf.py and
-exporter.py -- route through here, and tests/test_thai_shaping.py fails the
-build if either ever calls drawString directly again. `examples/make_sample_pdf.py`
+Every PRODUCT module that draws Thai into a PDF -- report_pdf.py, exporter.py
+and receipt_pdf.py -- routes through here, and tests/test_thai_shaping.py fails
+the build if any of them ever calls drawString directly again. `examples/make_sample_pdf.py`
 is deliberately outside that net: it is a developer fixture generator, it still
 draws Thai with a raw drawString, and the sample PDF committed beside it still
 carries the unfixed rendering.

@@ -1,9 +1,16 @@
 """The processing receipt rendered as a PDF slip.
 
 Same whitelist discipline as `report_pdf.py`: this module is handed a receipt
-dict, and a receipt dict has no PII in it to begin with (see `receipt.py`), so
-the PII-free property is structural rather than a filter applied here. What it
-draws is counts, type labels, hashes and the operator's own declarations.
+dict, and nothing in a receipt is copied out of the source document (see
+`receipt.py`), so that half of the PII-free property is structural rather than
+a filter applied here. What it draws is counts, type labels and hashes.
+
+The half that is NOT structural: `purpose` and `controller` are free text the
+operator typed, drawn verbatim. An operator who writes a patient's name into
+`--purpose` has put a name on the slip. The page says so in its own notes
+rather than carrying a blanket claim it cannot honour — the first version
+printed "no personal data value appears in this document" unconditionally,
+directly above whatever the operator had typed.
 
 The slip carries its own verification command. A compliance artifact that can
 be checked but does not say how gets filed and never checked.
@@ -30,10 +37,10 @@ _OPERATION_LABELS = {
 
 _NOTES = [
     "ข้อจำกัดและวิธีอ่านใบนี้",
-    "ใบนี้บันทึกการประมวลผลหนึ่งครั้ง ไม่ใช่ทะเบียนสะสม และไม่มีค่าข้อมูลส่วนบุคคลใดอยู่ในเอกสาร",
+    "ใบนี้บันทึกการประมวลผลหนึ่งครั้ง ไม่ใช่ทะเบียนสะสม ระบบไม่ได้คัดลอกค่าข้อมูลส่วนบุคคลใดจากเอกสารต้นทางมาไว้ในใบนี้",
+    "ยกเว้นสองช่องที่ผู้ใช้พิมพ์เอง คือวัตถุประสงค์และผู้ควบคุมข้อมูล ระบบไม่เติมให้และไม่กรองให้ ถ้าพิมพ์ชื่อบุคคลลงไป ชื่อนั้นจะอยู่บนใบ",
     "ความถูกต้องยืนยันด้วยการรันซ้ำ ไม่ใช่ลายเซ็นดิจิทัล ถ้าเวอร์ชันระบบหรือ engine เปลี่ยน ผลอาจต่างจากเดิม",
     "การตรวจจับไม่ครบถ้วนร้อยเปอร์เซ็นต์ จำนวนที่พบคือสิ่งที่ระบบเห็น ไม่ใช่สิ่งที่มีอยู่ทั้งหมด",
-    "หัวข้อผู้ควบคุมข้อมูลและวัตถุประสงค์มาจากผู้ใช้ ระบบไม่เติมให้เอง",
 ]
 
 
