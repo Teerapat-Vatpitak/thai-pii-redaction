@@ -4,7 +4,13 @@
 # version drift check (Horizon-1 #5 -- VERSION is the single source of truth),
 # and a Windows packaged-exe smoke that boots the shipped sidecar end-to-end --
 # the only platform users actually run, which release.yml/smoke-crossplatform.yml
-# never boot. Runs on every push to main and every PR.
+# never boot.
+#
+# Runs on every push to any branch, not just main and PRs. The maintainer works
+# through short-lived branches and squashes into main without opening a pull
+# request, so branch pushes are where the gate has to fire; a PR-only trigger
+# would mean opening a PR purely to get CI, which is the ceremony this setup
+# removes. `pull_request` stays for contributions from forks.
 name: CI
 
 permissions:
@@ -12,7 +18,7 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 

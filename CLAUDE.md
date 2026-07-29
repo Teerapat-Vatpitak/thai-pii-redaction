@@ -322,6 +322,16 @@ appends a hash-chained entry to the committed `data/blind-scores.jsonl` under
 a reveal budget; the LLM benchmark must never touch it (test-pinned). Protocol:
 `docs/decisions/2026-07-28-blind-set-protocol.md`.
 
+## Performance baseline (`perf/`)
+
+`scripts/measure_perf.py` times detect, sanitize, restore, and PDF redaction
+in-process (deliberately not over HTTP, so the numbers describe the pipeline
+rather than the network stack) and samples resident memory, then compares
+against the committed `perf/baseline.json`. A change touching `pii_redactor/`
+or `app/` runs it and reports the numbers; the budget is 20% on time and 15% on
+memory, and moving the baseline needs a reason in the same commit. It is a
+local gate, not a CI job — shared runners are too noisy to gate timings on.
+
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
