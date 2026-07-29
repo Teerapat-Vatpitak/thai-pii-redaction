@@ -1,7 +1,53 @@
 :root {
+  /* MD3 colour roles — light scheme only. This file has never had a dark
+     scheme, so none is added here (see demo/playground.html for a file that
+     already was dark and keeps that as its scheme). Declared locally because
+     the add-in builds to its own bundle and cannot @import
+     desktop/src/tokens.css across packages. */
+  --md-sys-color-surface: #fbf8fd;
+  --md-sys-color-surface-container-low: #f5f3f7;
+  --md-sys-color-surface-container: #efedf1;
+  --md-sys-color-surface-container-high: #e9e7ec;
+  --md-sys-color-on-surface: #1b1b1f;
+  --md-sys-color-on-surface-variant: #45464f;
+  --md-sys-color-outline: #757680;
+  --md-sys-color-outline-variant: #c5c6d0;
+  --md-sys-color-primary: #0053db;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-secondary-container: #dde1f9;
+  --md-sys-color-on-secondary-container: #161b2c;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+  --md-sys-color-tertiary: #745470;
+
+  /* shape + state-layer constants, matching desktop/src/tokens.css */
+  --md-sys-shape-corner-full: 9999px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-state-hover-state-layer-opacity: 0.08;
+  --md-sys-state-focus-state-layer-opacity: 0.12;
+  --md-sys-state-pressed-state-layer-opacity: 0.12;
+
+  /* type scale (rem values from the MD3 spec) */
+  --md-sys-typescale-label-large-size: 0.875rem;
+  --md-sys-typescale-label-large-line-height: 1.25rem;
+  --md-sys-typescale-label-large-weight: 500;
+  --md-sys-typescale-body-medium-size: 0.875rem;
+  --md-sys-typescale-body-medium-line-height: 1.25rem;
+  --md-sys-typescale-body-medium-weight: 400;
+  --md-sys-typescale-body-small-size: 0.75rem;
+  --md-sys-typescale-body-small-line-height: 1rem;
+  --md-sys-typescale-body-small-weight: 400;
+  --md-sys-typescale-title-medium-size: 1rem;
+  --md-sys-typescale-title-medium-line-height: 1.5rem;
+  --md-sys-typescale-title-medium-weight: 500;
+  --md-sys-typescale-headline-small-size: 1.5rem;
+  --md-sys-typescale-headline-small-line-height: 2rem;
+  --md-sys-typescale-headline-small-weight: 400;
+
   font-family: "Segoe UI", "Noto Sans Thai", sans-serif;
-  color: #17212b;
-  background: #f4f7fa;
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-low);
   font-synthesis: none;
 }
 
@@ -9,28 +55,127 @@
 body { margin: 0; min-width: 280px; }
 .shell { padding: 16px; display: grid; gap: 12px; }
 header { display: flex; align-items: center; gap: 10px; }
-header h1, header p, h2 { margin: 0; }
-header p { color: #65717e; font-size: 13px; }
-.brand-mark { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: #3157d5; color: white; font-weight: 700; }
-.card { background: white; border: 1px solid #dce3ea; border-radius: 12px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 2px 8px rgb(21 37 55 / 5%); }
+header h1 {
+  margin: 0;
+  font-size: var(--md-sys-typescale-headline-small-size);
+  line-height: var(--md-sys-typescale-headline-small-line-height);
+  font-weight: var(--md-sys-typescale-headline-small-weight);
+}
+header p {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+}
+h2 {
+  margin: 0;
+  font-size: var(--md-sys-typescale-title-medium-size);
+  line-height: var(--md-sys-typescale-title-medium-line-height);
+  font-weight: var(--md-sys-typescale-title-medium-weight);
+}
+.brand-mark {
+  width: 38px; height: 38px; border-radius: var(--md-sys-shape-corner-medium);
+  display: grid; place-items: center;
+  background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  font-weight: 700;
+}
+
+/* ---------- card (outlined) ---------- */
+.card {
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
+  padding: 12px; display: grid; gap: 10px;
+}
+
 .row { display: flex; align-items: center; gap: 8px; }
 .spread { justify-content: space-between; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .primary-actions button { flex: 1 1 44%; }
-button, select, textarea { font: inherit; }
-button { border: 1px solid #b8c3cf; background: white; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
-button:hover:not(:disabled) { border-color: #3157d5; }
-button.primary { background: #3157d5; color: white; border-color: #3157d5; }
+
+/* ---------- buttons ----------
+   Filled (primary/on-primary) or outlined (1px outline, primary text); the
+   ::before pseudo-element is the MD3 state layer — a translucent overlay of
+   --state-color at 8% hover / 12% focus / 12% pressed, same mechanic as
+   desktop/src/styles.css's .btn. */
+button, select, textarea { font-family: inherit; }
+button {
+  position: relative; isolation: isolate;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+  font-weight: var(--md-sys-typescale-label-large-weight);
+  height: 40px; padding: 0 24px;
+  border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-full);
+  background: transparent; color: var(--md-sys-color-primary);
+  cursor: pointer;
+  --state-color: var(--md-sys-color-primary);
+}
+button::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--state-color, var(--md-sys-color-on-surface)); opacity: 0;
+  transition: opacity .2s cubic-bezier(0.2,0,0,1); pointer-events: none; z-index: -1;
+}
+button:hover:not(:disabled)::before { opacity: var(--md-sys-state-hover-state-layer-opacity); }
+button:focus-visible::before { opacity: var(--md-sys-state-focus-state-layer-opacity); }
+button:active:not(:disabled)::before { opacity: var(--md-sys-state-pressed-state-layer-opacity); }
+button:focus-visible { outline: 3px solid var(--md-sys-color-primary); outline-offset: 2px; }
+button.primary {
+  background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+  border-color: transparent; --state-color: var(--md-sys-color-on-primary);
+}
 button.wide { width: 100%; }
-button:disabled { opacity: .45; cursor: not-allowed; }
-select, textarea { border: 1px solid #b8c3cf; border-radius: 7px; padding: 7px; background: white; }
+button:disabled {
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+  border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+}
+button:disabled::before { opacity: 0; }
+
+/* ---------- text fields (outlined) ---------- */
+select, textarea {
+  border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-extra-small);
+  padding: 7px; background: transparent; color: var(--md-sys-color-on-surface);
+  transition: border-color .2s cubic-bezier(0.2,0,0,1);
+}
+select:hover, textarea:hover { border-color: var(--md-sys-color-on-surface); }
+select:focus, textarea:focus { outline: none; border-color: var(--md-sys-color-primary); border-width: 2px; padding: 6px; }
 textarea { width: 100%; resize: vertical; }
-.banner { padding: 9px 11px; border-radius: 8px; font-size: 13px; }
-.banner.checking { background: #eef2f6; }
-.banner.ok { background: #e6f5ec; color: #176a3a; }
-.banner.error { background: #fdeaea; color: #992525; }
-.muted, .privacy-note { color: #65717e; font-size: 12px; margin: 0; }
-.pill { background: #eef2f6; border-radius: 999px; padding: 3px 8px; font-size: 11px; }
-pre { min-height: 76px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; padding: 10px; border-radius: 8px; background: #f5f7f9; font: 12px/1.5 Consolas, "Noto Sans Thai", monospace; }
-.warnings { color: #8b5b00; font-size: 12px; margin: 0; padding-left: 20px; }
+
+/* ---------- banners ---------- */
+.banner {
+  padding: 9px 11px; border-radius: var(--md-sys-shape-corner-medium);
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+.banner.checking { background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface); }
+.banner.ok { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.banner.error { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+
+.muted, .privacy-note {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  line-height: var(--md-sys-typescale-body-small-line-height);
+  margin: 0;
+}
+
+/* ---------- status chip ---------- */
+.pill {
+  background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-sys-shape-corner-full); padding: 3px 8px;
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+pre {
+  min-height: 76px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0;
+  padding: 10px; border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+  font-family: Consolas, "Noto Sans Thai", monospace;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+/* MD3 has no "warning" role. Advisory text uses tertiary, the role reserved for
+   accents that are neither the primary action nor an error. */
+.warnings { color: var(--md-sys-color-tertiary); font-size: var(--md-sys-typescale-body-small-size); margin: 0; padding-left: 20px; }
 .privacy-note { text-align: center; padding: 4px 8px 12px; }

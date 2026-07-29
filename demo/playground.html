@@ -6,51 +6,177 @@
 <title>AI Guard — สนามทดลอง</title>
 <style>
   :root{
-    --bg:#0f172a; --panel:#1e293b; --line:#334155; --text:#e2e8f0; --dim:#94a3b8;
-    --c-name:#f9a8d4; --c-id:#fca5a5; --c-phone:#fdba74; --c-email:#fde047;
-    --c-addr:#86efac; --c-date:#93c5fd; --c-org:#c4b5fd; --c-other:#a5b4fc;
+    /* MD3 colour roles — dark scheme. This page has always been dark-styled
+       with no light variant to switch from, so the dark roles below are its
+       only palette, declared directly rather than gated behind a media query
+       (no light/dark toggle exists here, and none is being added).
+       Declared locally: the playground is served standalone by FastAPI and
+       cannot @import desktop/src/tokens.css across packages.
+       --dim and --c-* keep their original names — the inline style="" spans
+       in the body and the COLORS map in the page's inline script reference
+       them by name and are out of scope for this change (style block only),
+       so the names must keep resolving. (Deliberately not writing that
+       element's opening tag literally anywhere in this comment block: the JS
+       test harness for this page locates it by matching the raw markup, and
+       an extra occurrence earlier in the file would be matched instead.) */
+    --md-sys-color-surface:#131316;
+    --md-sys-color-surface-container:#1f1f23;
+    --md-sys-color-on-surface:#e4e2e6;
+    --md-sys-color-on-surface-variant:#c5c6d0;
+    --md-sys-color-outline:#8f909a;
+    --md-sys-color-outline-variant:#45464f;
+    --md-sys-color-primary:#b4c5ff;
+    --md-sys-color-on-primary:#002a78;
+    --md-sys-color-secondary-container:#414659;
+    --md-sys-color-on-secondary-container:#dde1f9;
+    --md-sys-color-error-container:#93000a;
+    --md-sys-color-on-error-container:#ffdad6;
+
+    /* shape + state-layer constants, matching desktop/src/tokens.css */
+    --md-sys-shape-corner-full:9999px;
+    --md-sys-shape-corner-medium:12px;
+    --md-sys-shape-corner-small:8px;
+    --md-sys-shape-corner-extra-small:4px;
+    --md-sys-state-hover-state-layer-opacity:0.08;
+    --md-sys-state-focus-state-layer-opacity:0.12;
+    --md-sys-state-pressed-state-layer-opacity:0.12;
+
+    /* type scale (rem values from the MD3 spec) */
+    --md-sys-typescale-label-large-size:0.875rem; --md-sys-typescale-label-large-line-height:1.25rem; --md-sys-typescale-label-large-weight:500;
+    --md-sys-typescale-body-medium-size:0.875rem; --md-sys-typescale-body-medium-line-height:1.25rem; --md-sys-typescale-body-medium-weight:400;
+    --md-sys-typescale-body-small-size:0.75rem; --md-sys-typescale-body-small-line-height:1rem; --md-sys-typescale-body-small-weight:400;
+    --md-sys-typescale-title-medium-size:1rem; --md-sys-typescale-title-medium-line-height:1.5rem; --md-sys-typescale-title-medium-weight:500;
+    --md-sys-typescale-headline-small-size:1.5rem; --md-sys-typescale-headline-small-line-height:2rem; --md-sys-typescale-headline-small-weight:400;
+
+    --dim:var(--md-sys-color-on-surface-variant);
+    /* MD3 has no warning role; advisory text takes tertiary, which this page
+       therefore has to declare — it is not inherited from anywhere. */
+    --md-sys-color-tertiary:#e2bbdb;
+    --warn:var(--md-sys-color-tertiary);
+
+    /* Per-type highlights are MD3 extended custom colours: the hues readers
+       already associate with each type, but put through the same tonal process
+       as the core roles. This page ships dark, so containers are tone 30 and
+       their on-colours tone 90, matching how the core dark roles are built.
+       Generated with @material/material-color-utilities, not picked by eye. */
+    --c-name:#762a5b; --c-name-on:#ffd8ea;
+    --c-id:#7e2a2f; --c-id-on:#ffdad9;
+    --c-phone:#683c00; --c-phone-on:#ffdcbd;
+    --c-email:#524600; --c-email-on:#ffe24c;
+    --c-addr:#00522d; --c-addr-on:#8ff8b4;
+    --c-date:#00497b; --c-date-on:#d0e4ff;
+    --c-org:#4a388c; --c-org-on:#e7deff;
+    --c-other:#2c4090; --c-other-on:#dde1ff;
   }
   *{box-sizing:border-box;margin:0}
-  body{background:var(--bg);color:var(--text);font-family:'Sarabun','Leelawadee UI',system-ui,sans-serif;padding:24px;min-height:100vh}
-  h1{font-size:22px;margin-bottom:4px}
-  .sub{color:var(--dim);font-size:14px;margin-bottom:20px}
+  body{background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-family:'Sarabun','Leelawadee UI',system-ui,sans-serif;padding:24px;min-height:100vh}
+  h1{
+    font-size:var(--md-sys-typescale-headline-small-size);
+    line-height:var(--md-sys-typescale-headline-small-line-height);
+    font-weight:var(--md-sys-typescale-headline-small-weight);
+    margin-bottom:4px;
+  }
+  .sub{color:var(--md-sys-color-on-surface-variant);font-size:var(--md-sys-typescale-body-medium-size);line-height:var(--md-sys-typescale-body-medium-line-height);margin-bottom:20px}
   .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-  .controls label{font-size:14px;color:var(--dim)}
-  select,button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-family:inherit;font-size:14px;cursor:pointer}
-  button.primary{background:#2563eb;border-color:#2563eb;font-weight:600}
-  button:disabled{opacity:.5;cursor:wait}
+  .controls label{font-size:var(--md-sys-typescale-body-medium-size);color:var(--md-sys-color-on-surface-variant)}
+
+  /* ---- text field (outlined select) ---- */
+  select{
+    background:transparent;color:var(--md-sys-color-on-surface);
+    border:1px solid var(--md-sys-color-outline);border-radius:var(--md-sys-shape-corner-extra-small);
+    height:40px;padding:0 14px;font-family:inherit;font-size:var(--md-sys-typescale-body-medium-size);cursor:pointer;
+    transition:border-color .2s cubic-bezier(0.2,0,0,1);
+  }
+  select:hover{border-color:var(--md-sys-color-on-surface)}
+  select:focus{outline:none;border-color:var(--md-sys-color-primary);border-width:2px;padding:0 13px}
+
+  /* ---- buttons ----
+     Filled (primary/on-primary) or outlined (1px outline, primary text); the
+     ::before pseudo-element is the MD3 state layer, same mechanic as
+     desktop/src/styles.css's .btn (hover .08 / focus .12 / pressed .12 of
+     --state-color). */
+  button{
+    position:relative;isolation:isolate;
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    background:transparent;color:var(--md-sys-color-primary);
+    border:1px solid var(--md-sys-color-outline);border-radius:var(--md-sys-shape-corner-full);
+    height:40px;padding:0 24px;font-family:inherit;
+    font-size:var(--md-sys-typescale-label-large-size);
+    line-height:var(--md-sys-typescale-label-large-line-height);
+    font-weight:var(--md-sys-typescale-label-large-weight);
+    cursor:pointer;
+    --state-color:var(--md-sys-color-primary);
+  }
+  button::before{
+    content:"";position:absolute;inset:0;border-radius:inherit;
+    background:var(--state-color, var(--md-sys-color-on-surface));opacity:0;
+    transition:opacity .2s cubic-bezier(0.2,0,0,1);pointer-events:none;z-index:-1;
+  }
+  button:hover:not(:disabled)::before{opacity:var(--md-sys-state-hover-state-layer-opacity)}
+  button:focus-visible::before{opacity:var(--md-sys-state-focus-state-layer-opacity)}
+  button:active:not(:disabled)::before{opacity:var(--md-sys-state-pressed-state-layer-opacity)}
+  button:focus-visible{outline:3px solid var(--md-sys-color-primary);outline-offset:2px}
+  button.primary{background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary);border-color:transparent;--state-color:var(--md-sys-color-on-primary)}
+  button:disabled{
+    cursor:wait;
+    background:color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+    color:color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+    border-color:transparent;
+  }
+  button:disabled::before{opacity:0}
+
+  /* ---- sample chips ---- */
   .samples{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-  .samples button{font-size:13px;padding:6px 10px}
+  .samples button{
+    background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);
+    border-color:transparent;--state-color:var(--md-sys-color-on-secondary-container);
+    height:32px;padding:0 16px;border-radius:var(--md-sys-shape-corner-small);
+  }
+
   .panes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;min-height:340px}
   @media(max-width:900px){.panes{grid-template-columns:1fr}}
-  .pane{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;overflow:hidden}
-  .pane h2{font-size:14px;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--dim);font-weight:600}
+  .pane{
+    background:var(--md-sys-color-surface-container);
+    border:1px solid var(--md-sys-color-outline-variant);border-radius:var(--md-sys-shape-corner-medium);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  .pane h2{
+    font-size:var(--md-sys-typescale-title-medium-size);
+    line-height:var(--md-sys-typescale-title-medium-line-height);
+    font-weight:var(--md-sys-typescale-title-medium-weight);
+    padding:10px 14px;border-bottom:1px solid var(--md-sys-color-outline-variant);color:var(--md-sys-color-on-surface-variant);
+  }
   .pane .body{padding:12px 14px;flex:1;position:relative;font-size:15px;line-height:1.9;white-space:pre-wrap;word-break:break-word;overflow:auto}
   /* ช่องซ้าย: textarea โปร่งใสทับ div ไฮไลต์ */
   #editorWrap{position:relative;flex:1}
+  #editorWrap:focus-within{outline:2px solid var(--md-sys-color-primary);outline-offset:-2px}
   #highlight,#editor{position:absolute;inset:0;padding:12px 14px;font:inherit;font-size:15px;line-height:1.9;white-space:pre-wrap;word-break:break-word;overflow:auto}
-  #highlight{pointer-events:none;color:var(--text)}
-  #editor{background:transparent;color:transparent;caret-color:var(--text);border:0;outline:0;resize:none;width:100%;height:100%}
-  mark{border-radius:4px;padding:0 1px;color:#0f172a;font-weight:600}
-  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:13px;color:var(--dim)}
+  #highlight{pointer-events:none;color:var(--md-sys-color-on-surface)}
+  #editor{background:transparent;color:transparent;caret-color:var(--md-sys-color-on-surface);border:0;outline:0;resize:none;width:100%;height:100%}
+  mark{border-radius:4px;padding:0 1px;color:var(--md-sys-color-surface);font-weight:600}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:var(--md-sys-typescale-body-small-size);color:var(--md-sys-color-on-surface-variant)}
   .legend span{display:inline-flex;align-items:center;gap:5px}
   .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
-  .meta{margin-top:10px;font-size:13px;color:var(--dim);min-height:20px}
-  .warn{color:#fbbf24}
-  .provider-tag{font-size:12px;background:var(--line);border-radius:6px;padding:2px 8px;margin-left:8px}
+  .meta{margin-top:10px;font-size:var(--md-sys-typescale-body-small-size);color:var(--md-sys-color-on-surface-variant);min-height:20px}
+  .warn{color:var(--warn)}
+  .provider-tag{
+    font-size:var(--md-sys-typescale-body-small-size);
+    background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);
+    border-radius:var(--md-sys-shape-corner-small);padding:2px 8px;margin-left:8px;
+  }
   .tabs{display:flex;gap:8px;margin-bottom:14px}
-  .tabs button.active{background:#2563eb;border-color:#2563eb;font-weight:600}
+  .tabs button.active{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);border-color:transparent;--state-color:var(--md-sys-color-on-secondary-container)}
   .tabpage{display:none}
   .tabpage.active{display:block}
-  #cmpWrap{position:relative;max-width:860px;margin-top:14px;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+  #cmpWrap{position:relative;max-width:860px;margin-top:14px;overflow:hidden;border-radius:var(--md-sys-shape-corner-medium);border:1px solid var(--md-sys-color-outline-variant)}
   #cmpWrap img{display:block;width:100%;user-select:none;pointer-events:none}
   #imgAfter{position:absolute;inset:0;clip-path:inset(0 0 0 50%)}
   #cmpSlider{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
-  #cmpBar{position:absolute;top:0;bottom:0;left:50%;width:3px;background:#2563eb;pointer-events:none}
-  .pdfmeta{margin-top:10px;font-size:14px;color:var(--dim)}
-  #guardBar{margin-top:10px;font-size:13px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .guard-chip{background:#7f1d1d;color:#fecaca;border-radius:6px;padding:2px 8px}
-  .guard-ok{color:var(--dim)}
+  #cmpBar{position:absolute;top:0;bottom:0;left:50%;width:3px;background:var(--md-sys-color-primary);pointer-events:none}
+  .pdfmeta{margin-top:10px;font-size:var(--md-sys-typescale-body-medium-size);color:var(--md-sys-color-on-surface-variant)}
+  #guardBar{margin-top:10px;font-size:var(--md-sys-typescale-body-small-size);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .guard-chip{background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);border-radius:var(--md-sys-shape-corner-small);padding:2px 8px}
+  .guard-ok{color:var(--md-sys-color-on-surface-variant)}
 </style>
 </head>
 <body>
@@ -129,11 +255,22 @@
 
 <script>
 "use strict";
+// A highlight needs the container and its on-container together, so each entry
+// carries both. The var() names are written out in full rather than assembled
+// at runtime: a name built from a template string cannot be checked against the
+// declarations, and tests/test_ui_tokens_sync.py checks exactly that.
 const COLORS = {
-  NAME: "var(--c-name)", THAI_ID: "var(--c-id)", PHONE: "var(--c-phone)",
-  EMAIL: "var(--c-email)", ADDRESS: "var(--c-addr)", LOCATION: "var(--c-addr)",
-  DATE: "var(--c-date)", DATE_OF_BIRTH: "var(--c-date)", ORGANIZATION: "var(--c-org)",
+  NAME: { bg: "var(--c-name)", on: "var(--c-name-on)" },
+  THAI_ID: { bg: "var(--c-id)", on: "var(--c-id-on)" },
+  PHONE: { bg: "var(--c-phone)", on: "var(--c-phone-on)" },
+  EMAIL: { bg: "var(--c-email)", on: "var(--c-email-on)" },
+  ADDRESS: { bg: "var(--c-addr)", on: "var(--c-addr-on)" },
+  LOCATION: { bg: "var(--c-addr)", on: "var(--c-addr-on)" },
+  DATE: { bg: "var(--c-date)", on: "var(--c-date-on)" },
+  DATE_OF_BIRTH: { bg: "var(--c-date)", on: "var(--c-date-on)" },
+  ORGANIZATION: { bg: "var(--c-org)", on: "var(--c-org-on)" },
 };
+const OTHER_COLOR = { bg: "var(--c-other)", on: "var(--c-other-on)" };
 const THAI_LABELS = {
   NAME: "ชื่อบุคคล", THAI_ID: "เลขบัตรประชาชน", PHONE: "เบอร์โทรศัพท์",
   EMAIL: "อีเมล", ADDRESS: "ที่อยู่", LOCATION: "สถานที่", DATE: "วันที่",
@@ -141,7 +278,7 @@ const THAI_LABELS = {
   CREDIT_CARD: "บัตรเครดิต", PASSPORT: "หนังสือเดินทาง", ID_NUMBER: "เลขอ้างอิง",
   STUDENT_ID: "รหัสนักศึกษา", VEHICLE_PLATE: "ทะเบียนรถ", IBAN: "IBAN",
 };
-const colorFor = t => COLORS[t] || "var(--c-other)";
+const colorFor = t => COLORS[t] || OTHER_COLOR;
 const labelFor = t => THAI_LABELS[t] || t;
 const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
@@ -165,7 +302,7 @@ function renderHighlight(text, entities) {
   }
   parts.unshift({text: text.slice(0, cursor)});
   html = parts.map(p => p.type
-    ? `<mark style="background:${colorFor(p.type)}" title="${esc(labelFor(p.type))}">${esc(p.text)}</mark>`
+    ? `<mark style="background:${colorFor(p.type).bg};color:${colorFor(p.type).on}" title="${esc(labelFor(p.type))}">${esc(p.text)}</mark>`
     : esc(p.text)).join("");
   highlight.innerHTML = html + "\n"; // กัน scroll ท้ายเพี้ยนตอนบรรทัดสุดท้ายว่าง
 }
@@ -173,7 +310,7 @@ function renderHighlight(text, entities) {
 function renderLegend(counts) {
   const legend = document.getElementById("legend");
   legend.innerHTML = Object.entries(counts).map(([t, n]) =>
-    `<span><i class="dot" style="background:${colorFor(t)}"></i>${esc(labelFor(t))} (${n})</span>`
+    `<span><i class="dot" style="background:${colorFor(t).bg}"></i>${esc(labelFor(t))} (${n})</span>`
   ).join("");
 }
 

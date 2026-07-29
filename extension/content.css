@@ -4,47 +4,85 @@
    page's color scheme. The bar uses a system Thai font stack -- no @font-face is
    injected into the host page. The restored-text overlay is NOT styled here:
    it renders inside a closed shadow root (EXT-4) that page CSS cannot reach,
-   so its styles live in OVERLAY_CSS inside content.js. */
+   so its styles live in OVERLAY_CSS inside content.js.
+
+   Values mirror the MD3 system-color roles in desktop/src/tokens.css
+   (--md-sys-color-*), redeclared here as literal --ag-* custom properties
+   because this stylesheet is injected into someone else's page and cannot
+   @import tokens.css. Only the roles this file's own components use are
+   declared -- OVERLAY_CSS in content.js is a separate closed-shadow-root
+   stylesheet (:host { all: initial } cuts inheritance) and keeps its own
+   independent copy of whichever roles it needs. */
 
 .aiguard-bar,
 .aiguard-msg-btn {
-  --ag-surface: #ffffff;
-  --ag-ink: #0f172a;
-  --ag-muted: #64748b;
-  --ag-line: #eceff3;
-  --ag-primary: #2563eb;
-  --ag-primary-ink: #ffffff;
-  --ag-primary-soft: #f1f5fe;
-  --ag-well: #fafbfc;
-  --ag-ok: #15803d;
-  --ag-warn: #b45309;
-  --ag-err: #b91c1c;
-  --ag-scrim: rgba(15, 23, 42, 0.5);
-  /* The bar genuinely floats over someone else's page, so it keeps a shadow --
-     but a soft one that reads as lift, not as a card dropped on top. */
-  --ag-shadow-1: 0 2px 8px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.06);
-  --ag-shadow-2: 0 12px 40px rgba(15, 23, 42, 0.18);
+  --ag-surface: #fbf8fd;
+  --ag-on-surface: #1b1b1f;
+  --ag-on-surface-variant: #45464f;
+  --ag-outline: #757680;
+  --ag-outline-variant: #c5c6d0;
+  --ag-primary: #0053db;
+  --ag-on-primary: #ffffff;
+  --ag-primary-container: #dbe1ff;
+  --ag-on-primary-container: #00174b;
+  --ag-error: #ba1a1a;
+  /* MD3 elevation level1 -- the bar genuinely floats over someone else's
+     page, so it keeps a shadow, but a soft one that reads as lift, not as a
+     card dropped on top. */
+  --ag-elevation-1: 0px 1px 2px 0px rgba(0, 0, 0, .3), 0px 1px 3px 1px rgba(0, 0, 0, .15);
   --ag-font: "Leelawadee UI", "Thonburi", "Noto Sans Thai", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   .aiguard-bar,
   .aiguard-msg-btn {
-    --ag-surface: #151c29;
-    --ag-ink: #e8ecf3;
-    --ag-muted: #98a2b3;
-    --ag-line: rgba(232, 236, 243, 0.14);
-    --ag-primary: #6d9bff;
-    --ag-primary-ink: #0b0f17;
-    --ag-primary-soft: rgba(109, 155, 255, 0.14);
-    --ag-well: #0e141f;
-    --ag-ok: #3fb26f;
-    --ag-warn: #d98f2b;
-    --ag-err: #e5636b;
+    --ag-surface: #131316;
+    --ag-on-surface: #e4e2e6;
+    --ag-on-surface-variant: #c5c6d0;
+    --ag-outline: #8f909a;
+    --ag-outline-variant: #45464f;
+    --ag-primary: #b4c5ff;
+    --ag-on-primary: #002a78;
+    --ag-primary-container: #003ea8;
+    --ag-on-primary-container: #dbe1ff;
+    --ag-error: #ffb4ab;
   }
 }
 
-/* ---- floating bar ---- */
+/* Shared state-layer mechanic (same mechanic as desktop/src/styles.css): the
+   host sets --ag-state-color to whichever on-colour belongs on top of it. */
+.aiguard-btn,
+.aiguard-msg-btn {
+  position: relative;
+  isolation: isolate;
+}
+.aiguard-btn::before,
+.aiguard-msg-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ag-state-color, var(--ag-on-surface));
+  opacity: 0;
+  transition: opacity 100ms cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+  z-index: -1;
+}
+.aiguard-btn:hover::before,
+.aiguard-msg-btn:hover::before { opacity: .08; }
+.aiguard-btn:focus-visible::before,
+.aiguard-msg-btn:focus-visible::before { opacity: .12; }
+.aiguard-btn:active::before,
+.aiguard-msg-btn:active::before { opacity: .12; }
+.aiguard-btn:disabled::before { opacity: 0; }
+
+.aiguard-btn:focus-visible,
+.aiguard-msg-btn:focus-visible {
+  outline: 2px solid var(--ag-primary);
+  outline-offset: 2px;
+}
+
+/* ---- floating bar (MD3 elevated surface) ---- */
 .aiguard-bar {
   position: fixed;
   right: 16px;
@@ -53,63 +91,74 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: var(--ag-surface);
-  color: var(--ag-ink);
-  border: 1px solid var(--ag-line);
-  border-radius: 12px;
-  box-shadow: var(--ag-shadow-1);
+  color: var(--ag-on-surface);
+  border: 1px solid var(--ag-outline-variant);
+  border-radius: 9999px;
+  box-shadow: var(--ag-elevation-1);
   font-family: var(--ag-font);
 }
 
 .aiguard-logo { width: 20px; height: 20px; display: block; flex: none; }
 
+/* filled (MD3 filled button) */
 .aiguard-btn {
-  border: 1px solid var(--ag-primary);
+  border: none;
   background: var(--ag-primary);
-  color: var(--ag-primary-ink);
+  color: var(--ag-on-primary);
+  --ag-state-color: var(--ag-on-primary);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 0.875rem;      /* label-large */
+  line-height: 1.25rem;
   font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 6px;
+  letter-spacing: 0.00625rem;
+  height: 40px;
+  padding-inline: 16px;
+  border-radius: 9999px;
   cursor: pointer;
-  line-height: 1.2;
 }
-.aiguard-btn:hover { filter: brightness(0.96); }
-.aiguard-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.aiguard-btn:disabled {
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--ag-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--ag-on-surface) 38%, transparent);
+}
 
-/* ghost keeps a visible 1px hairline border in BOTH light and dark hosts */
+/* outlined (MD3 outlined button) -- keeps a visible 1px hairline border in
+   BOTH light and dark hosts */
 .aiguard-btn.aiguard-ghost {
   background: transparent;
   color: var(--ag-primary);
-  border: 1px solid var(--ag-line);
+  border: 1px solid var(--ag-outline);
+  --ag-state-color: var(--ag-primary);
 }
-.aiguard-btn.aiguard-ghost:hover { background: var(--ag-primary-soft); }
 
 .aiguard-status {
-  font-size: 12px;
-  color: var(--ag-muted);
+  font-size: 0.75rem;      /* body-small */
+  line-height: 1rem;
+  letter-spacing: 0.025rem;
+  color: var(--ag-on-surface-variant);
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.aiguard-status.aiguard-ok { color: var(--ag-ok); }
-.aiguard-status.aiguard-err { color: var(--ag-err); }
+.aiguard-status.aiguard-ok { color: var(--ag-primary); }
+.aiguard-status.aiguard-err { color: var(--ag-error); }
 
-/* ---- per-message restore chip ---- */
+/* ---- per-message restore chip (MD3 tonal/container button) ---- */
 .aiguard-msg-btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 8px;
   border: none;
-  background: var(--ag-primary-soft);
-  color: var(--ag-primary);
+  background: var(--ag-primary-container);
+  color: var(--ag-on-primary-container);
+  --ag-state-color: var(--ag-on-primary-container);
   font-family: var(--ag-font);
-  font-size: 12px;
+  font-size: 0.75rem;      /* body-small, weight bumped for button emphasis */
   font-weight: 500;
-  padding: 2px 10px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;      /* small */
   cursor: pointer;
 }
-.aiguard-msg-btn:hover { filter: brightness(0.97); }
