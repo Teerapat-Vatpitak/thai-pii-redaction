@@ -1,7 +1,10 @@
-/* AI Guard desktop — "Vault Door". All values from tokens.css (var(--*)).
-   Shared component classes live here; per-screen files reuse them. Legacy
-   classes (.primary, .card, .mono, .err, .row) are kept token-styled so screens
-   stay coherent until each is rewritten. Light theme only this pass. */
+/* AI Guard desktop — clean, white, minimal. All values from tokens.css
+   (var(--*)). Shared component classes live here; per-screen files reuse them.
+   Legacy classes (.primary, .card, .mono, .err, .row) stay token-styled so
+   screens remain coherent until each is rewritten.
+
+   Structure comes from hairlines and whitespace. Fills mark state, not layout,
+   and shadow is reserved for the two things that actually float. */
 
 * { box-sizing: border-box; }
 
@@ -35,30 +38,33 @@ body {
 .app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
 
 .sidebar {
-  background: var(--vault-bg); color: var(--vault-ink);
+  background: var(--rail-bg); color: var(--rail-ink);
+  border-right: 1px solid var(--line);
   display: flex; flex-direction: column; padding: var(--s4) var(--s3); gap: 2px;
 }
 .brand {
   display: flex; align-items: center; gap: var(--s2);
-  font-weight: 600; font-size: 16px; color: var(--vault-ink);
+  font-weight: 600; font-size: 15px; color: var(--rail-ink);
   padding: var(--s2) var(--s2) var(--s5);
 }
-.brand__mark { flex: none; }
+.brand__mark { flex: none; color: var(--primary); }
 
 .nav-item {
-  text-align: left; background: transparent; color: var(--vault-muted);
-  border: 0; padding: 10px 12px; border-radius: var(--r-sm);
+  text-align: left; background: transparent; color: var(--rail-muted);
+  border: 0; padding: 9px 12px; border-radius: var(--r-sm);
   cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500;
   transition: background var(--t-fast), color var(--t-fast);
 }
-.nav-item:hover { color: var(--vault-ink); background: rgba(255,255,255,.04); }
+.nav-item:hover { color: var(--rail-ink); background: var(--rail-active-bg); }
+/* The accent edge carries the selection; on a white rail a fill alone is too
+   quiet to find at a glance. */
 .nav-item.active {
-  color: var(--vault-ink); background: var(--vault-active-bg);
+  color: var(--primary); background: var(--rail-active-bg);
   box-shadow: inset 2px 0 0 var(--primary);
 }
 
 .status {
-  margin-top: auto; font-size: 12px; color: var(--vault-muted);
+  margin-top: auto; font-size: 12px; color: var(--rail-muted);
   padding: 10px var(--s2) 4px; display: flex; align-items: center; gap: var(--s2);
 }
 .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
@@ -108,14 +114,16 @@ textarea:focus, input:focus { outline: 2px solid var(--primary); outline-offset:
 ::placeholder { color: var(--ink-faint); }
 
 /* ---------- surfaces ---------- */
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); margin: var(--s3) 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s5); margin: var(--s4) 0; }
 .well {
   background: var(--well); border: 1px solid var(--line); border-radius: var(--r-md);
   padding: 12px 14px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
   white-space: pre-wrap; word-break: break-word;
 }
-.row { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin: var(--s3) 0; }
-.meta { font-size: 12px; color: var(--ink-faint); }
+.row { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin: var(--s4) 0; }
+/* --ink-faint is 3.0:1 on white — fine for a placeholder, not for text someone
+   is meant to read. Secondary copy uses --ink-muted. */
+.meta { font-size: 12px; color: var(--ink-muted); }
 .muted { color: var(--ink-muted); font-size: 13px; }
 
 /* legacy alias: old screens use .mono */
@@ -159,7 +167,7 @@ h2 { margin: 0 0 var(--s3); font-size: 20px; font-weight: 600; }
   background: transparent; color: var(--ink-muted); padding: 6px 14px; border-radius: 7px;
   transition: background var(--t-fast), color var(--t-fast);
 }
-.seg__opt[aria-selected="true"] { background: var(--surface); color: var(--primary); box-shadow: 0 1px 2px rgba(21,35,59,.08); }
+.seg__opt[aria-selected="true"] { background: var(--surface); color: var(--primary); border: 1px solid var(--line-strong); padding-block: 5px; }
 
 /* ---------- stat band ---------- */
 .stat-band { display: flex; gap: var(--s6); flex-wrap: wrap; align-items: flex-end; }

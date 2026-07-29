@@ -1,8 +1,16 @@
-/* AI Guard design tokens — "Vault Door" system.
-   Canonical source. This file is copied byte-identical into extension/tokens.css;
-   the two packages ship separately and cannot @import across each other, so keep
-   them in sync. Font src paths are relative ("fonts/...") and resolve inside each
-   package. Spec: docs/decisions/2026-07-07-ui-redesign-aiguard-design.md */
+/* AI Guard design tokens — clean, white, minimal.
+   Canonical source. This file is copied byte-identical into extension/tokens.css
+   (tests/test_ui_tokens_sync.py enforces that); the two packages ship separately
+   and cannot @import across each other. Font src paths are relative
+   ("fonts/...") and resolve inside each package.
+
+   The palette is deliberately narrow: one accent, three ink weights, two line
+   weights, and status colours used only where a state has to be read at a
+   glance. Surfaces are white and separated by hairlines rather than by fill or
+   shadow — depth is reserved for things that actually float (toast, overlay).
+   Supersedes the "Vault Door" palette from
+   docs/decisions/2026-07-07-ui-redesign-aiguard-design.md; that record stands
+   as written, this is the palette that ships. */
 
 @font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:400; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Regular.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Sans Thai Looped"; font-weight:500; font-style:normal; font-display:swap; src:url("fonts/IBMPlexSansThaiLooped-Medium.woff2") format("woff2"); }
@@ -14,49 +22,53 @@
   --font-ui:"IBM Plex Sans Thai Looped","Leelawadee UI","Thonburi","Noto Sans Thai","Segoe UI",sans-serif;
   --font-mono:"IBM Plex Mono","IBM Plex Sans Thai Looped",Consolas,monospace;
 
-  /* surfaces */
-  --bg:#F6F7F9; --surface:#FFFFFF; --surface-raised:#FFFFFF; --well:#F1F4F8;
-  /* ink */
-  --ink:#15233B; --ink-muted:#5B6B85; --ink-faint:#8A97AD;
-  /* lines */
-  --line:#E3E9F2; --line-strong:#C6D0DF;
-  /* primary */
-  --primary:#2563EB; --primary-ink:#FFFFFF; --primary-soft:#EDF3FE;
+  /* surfaces — white first; --well is a whisper, not a panel */
+  --bg:#FFFFFF; --surface:#FFFFFF; --surface-raised:#FFFFFF; --well:#FAFBFC;
+  /* ink — 15.9:1, 5.1:1, 3.0:1 on white. --ink-faint is for placeholders and
+     icons only; anything that must be read uses --ink-muted. */
+  --ink:#0F172A; --ink-muted:#64748B; --ink-faint:#94A3B8;
+  /* lines carry the structure this palette no longer gets from fills */
+  --line:#ECEFF3; --line-strong:#DCE1E9;
+  /* the single accent */
+  --primary:#2563EB; --primary-ink:#FFFFFF; --primary-soft:#F1F5FE;
   /* state */
-  --ok:#15803D; --ok-soft:#E8F5EC;
-  --warn:#B45309; --warn-soft:#FDF3E4;
-  --err:#B91C1C; --err-soft:#FBEAEA;
+  --ok:#15803D; --ok-soft:#F0F8F3;
+  --warn:#B45309; --warn-soft:#FDF6EC;
+  --err:#B91C1C; --err-soft:#FCF1F1;
   /* semantic security roles */
-  --pii:#B91C1C; --pii-soft:#FBEAEA; --redact:#0B1220;
-  --token:#2563EB; --token-soft:#EDF3FE;
-  --surrogate:#0D9488; --surrogate-soft:#E6F4F2;
-  /* vault rail (already dark; same in both schemes) */
-  --vault-bg:#0F1D33; --vault-ink:#D5DEED; --vault-muted:#8DA0BF; --vault-active-bg:rgba(255,255,255,.07);
+  --pii:#B91C1C; --pii-soft:#FCF1F1; --redact:#0F172A;
+  --token:#2563EB; --token-soft:#F1F5FE;
+  --surrogate:#0D9488; --surrogate-soft:#F0F8F7;
+  /* navigation rail — white, marked by an accent edge instead of a dark slab */
+  --rail-bg:#FFFFFF; --rail-ink:#0F172A; --rail-muted:#64748B; --rail-active-bg:#F5F8FE;
 
   /* spacing / radii / elevation / motion */
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
-  --r-sm:6px; --r-md:10px; --r-lg:14px;
-  --shadow-1:0 4px 16px rgba(21,35,59,.10);
-  --shadow-2:0 16px 48px rgba(21,35,59,.22);
+  --r-sm:6px; --r-md:8px; --r-lg:12px;
+  --shadow-1:0 1px 2px rgba(15,23,42,.05);
+  --shadow-2:0 12px 32px rgba(15,23,42,.10);
   --t-fast:120ms ease-out;
   --t-med:180ms cubic-bezier(.2,0,0,1);
   --t-slow:240ms cubic-bezier(.2,0,0,1);
 }
 
-/* Dark values are defined for the in-page bar/overlay media-query swap and for
-   future app theming. The desktop app and popup ship light-only this pass and
-   do NOT set data-theme. */
+/* Dark keeps the same restraint: neutral greys, no navy, hairlines instead of
+   fills. Used by the desktop theme toggle and by the in-page bar's media-query
+   swap. */
 :root[data-theme="dark"] {
-  --bg:#0D1524; --surface:#131E31; --surface-raised:#18253C; --well:#0F1A2C;
-  --ink:#E4EAF4; --ink-muted:#97A6BF; --ink-faint:#6B7B96;
-  --line:rgba(151,166,191,.16); --line-strong:rgba(151,166,191,.32);
-  --primary:#6D9BFF; --primary-ink:#0D1524; --primary-soft:rgba(109,155,255,.14);
-  --ok:#3FB26F; --ok-soft:rgba(63,178,111,.14);
-  --warn:#D98F2B; --warn-soft:rgba(217,143,43,.14);
-  --err:#E5636B; --err-soft:rgba(229,99,107,.14);
-  --pii:#F08085; --pii-soft:rgba(240,128,133,.14); --redact:#000000;
-  --token:#7AA5FF; --token-soft:rgba(122,165,255,.14);
-  --surrogate:#3FBFB2; --surrogate-soft:rgba(63,191,178,.14);
+  --bg:#0B0F17; --surface:#111722; --surface-raised:#151C29; --well:#0E141F;
+  --ink:#E8ECF3; --ink-muted:#98A2B3; --ink-faint:#6B7686;
+  --line:rgba(232,236,243,.10); --line-strong:rgba(232,236,243,.20);
+  --primary:#6D9BFF; --primary-ink:#0B0F17; --primary-soft:rgba(109,155,255,.12);
+  --ok:#3FB26F; --ok-soft:rgba(63,178,111,.12);
+  --warn:#D98F2B; --warn-soft:rgba(217,143,43,.12);
+  --err:#E5636B; --err-soft:rgba(229,99,107,.12);
+  --pii:#F08085; --pii-soft:rgba(240,128,133,.12); --redact:#000000;
+  --token:#7AA5FF; --token-soft:rgba(122,165,255,.12);
+  --surrogate:#3FBFB2; --surrogate-soft:rgba(63,191,178,.12);
+  --rail-bg:#0B0F17; --rail-ink:#E8ECF3; --rail-muted:#98A2B3; --rail-active-bg:rgba(232,236,243,.06);
+  --shadow-1:0 1px 2px rgba(0,0,0,.30);
+  --shadow-2:0 12px 32px rgba(0,0,0,.45);
 }
 
 @media (prefers-reduced-motion: reduce) {

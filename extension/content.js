@@ -78,16 +78,16 @@
   const OVERLAY_CSS = `
 :host { all: initial; }
 .aiguard-overlay-back {
-  --ag-surface: #ffffff; --ag-ink: #15233b; --ag-muted: #5b6b85;
-  --ag-line: #e3e9f2; --ag-well: #f1f4f8; --ag-err: #b91c1c;
-  --ag-scrim: rgba(11, 18, 32, 0.55);
-  --ag-shadow-2: 0 16px 48px rgba(21, 35, 59, 0.22);
+  --ag-surface: #ffffff; --ag-ink: #0f172a; --ag-muted: #64748b;
+  --ag-line: #eceff3; --ag-well: #fafbfc; --ag-err: #b91c1c;
+  --ag-scrim: rgba(15, 23, 42, 0.5);
+  --ag-shadow-2: 0 12px 40px rgba(15, 23, 42, 0.18);
   --ag-font: "Leelawadee UI", "Thonburi", "Noto Sans Thai", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   .aiguard-overlay-back {
-    --ag-surface: #18253c; --ag-ink: #e4eaf4; --ag-muted: #97a6bf;
-    --ag-line: rgba(255, 255, 255, 0.12); --ag-well: #0f1a2c; --ag-err: #e5636b;
+    --ag-surface: #151c29; --ag-ink: #e8ecf3; --ag-muted: #98a2b3;
+    --ag-line: rgba(232, 236, 243, 0.14); --ag-well: #0e141f; --ag-err: #e5636b;
   }
 }
 .aiguard-overlay-back {
@@ -98,8 +98,8 @@
 .aiguard-overlay {
   position: relative; width: min(680px, 92vw); max-height: 80vh; overflow: auto;
   background: var(--ag-surface); color: var(--ag-ink);
-  border: 1px solid var(--ag-line); border-radius: 14px;
-  box-shadow: var(--ag-shadow-2); padding: 20px 22px; font-family: var(--ag-font);
+  border: 1px solid var(--ag-line); border-radius: 12px;
+  box-shadow: var(--ag-shadow-2); padding: 22px 24px; font-family: var(--ag-font);
   animation: aiguard-pop 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 .aiguard-overlay.aiguard-overlay-warn { border: 2px solid var(--ag-err); }
