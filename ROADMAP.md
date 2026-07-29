@@ -195,6 +195,35 @@ implementation): a policy-gateway integration contract for other applications,
 additional AI providers, and a community annotation effort for the gold
 corpus.
 
+## Track D - PDPA compliance surface
+
+Goal: turn what the product already does into artifacts an organization can put
+in front of a regulator. Each item is a separate design; none of them may
+introduce retention the rest of the product refuses to have.
+
+Ordered as agreed, and deliberately narrow — a compliance feature that stores
+more than the tool needs would trade the project's central promise for a
+document.
+
+1. **Processing receipt (section 39).** Delivered 2026-07-29
+   ([record](docs/decisions/2026-07-29-processing-receipt.md)): a per-run slip
+   rather than a cumulative register, verified by rerunning the input and
+   comparing digests rather than by a signature. Core plus a CLI that both
+   issues and verifies, plus a Thai PDF. No API endpoint in v1.
+2. **Breach assessment mode.** Scan a set of leaked documents and summarize
+   type, count and affected-subject estimates, so a controller can draft the
+   72-hour PDPC notification from evidence rather than memory. Needs its own
+   accepted design; the estimate methodology is the hard part, not the scan.
+3. **DSAR helper.** Support a data-subject access request against documents the
+   controller already holds. Blocked on the same question the receipt answered
+   for itself — what may be retained, and for how long.
+4. **Standards mapping.** Document how the de-identification this tool performs
+   maps to ISO/IEC 20889 and มรด. 6:2566. A document, not code, and it must
+   describe what is implemented rather than what the standards recommend.
+
+Exit gate for each item: a caller-facing path, tests covering the failure and
+privacy behavior, and no artifact that carries a personal-data value.
+
 ## Deferred
 
 - Dashboards, batch orchestration, multi-tenant/shared vaults, and mobile
