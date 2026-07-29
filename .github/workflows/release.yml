@@ -84,7 +84,7 @@ jobs:
       # REL-1: fail before anything is built or published if the pushed tag does
       # not match the tree's VERSION. ci.yml's drift gate never runs on a tag
       # ref, so without this a v2.3.0 tag on a 2.2.0 tree shipped installers
-      # named 2.2.0 and broke the packaging/updater URL templates (which assume
+      # named 2.2.0 and broke the download/updater URL templates (which assume
       # tag == "v" + VERSION).
       # The tag goes through env, never inline ${{ }} in run:, so a hostile tag
       # name cannot inject shell. bash on every matrix OS for one syntax.

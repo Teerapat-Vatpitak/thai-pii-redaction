@@ -15,8 +15,8 @@ contract.
 - GitHub Release for that tag - downloadable artifacts, checksums, signatures,
   and attestations.
 
-Packaging manifests are downstream consumers of a published release. They are
-intentionally not version sources.
+Release assets are the distribution surface. The repository carries no package-
+manager manifest, so nothing downstream needs a version bump after publication.
 
 ## Semantic version policy
 
@@ -87,12 +87,10 @@ published release as routine cleanup.
 
 ## After publication
 
-1. Run `python scripts/update_packaging.py vX.Y.Z`.
-2. Review and validate the winget/Scoop diff in a separate PR.
-3. Verify README's Latest link and updater `latest.json` resolve correctly.
-4. Record any manual store/package submission separately; the repository script
-   does not publish externally.
-5. Return new work to `CHANGELOG.md` under `Unreleased`.
+1. Verify README's Latest link and updater `latest.json` resolve correctly.
+2. Update wherever the installer is linked for download; the repository
+   publishes release assets and does not push to any package manager.
+3. Return new work to `CHANGELOG.md` under `Unreleased`.
 
 ## Hotfix
 

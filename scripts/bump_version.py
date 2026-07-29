@@ -8,9 +8,9 @@ Add-in unified and host-specific local manifests plus package/lock files, `deskt
 `desktop/package.json` (if it has a `version` field), and both root-version
 fields in `desktop/package-lock.json`.
 
-Deliberately does NOT touch `packaging/` (winget/scoop manifests carry a
-release-specific hash that must be regenerated at release time, not by this
-script -- see `packaging/README.md`).
+Only files that carry the in-repo product version are targets. Anything that
+points at a *published* artifact (release URLs, checksums) is out of scope by
+design; the project ships no package-manager manifest.
 
 Pure stdlib, no dependencies.
 
@@ -88,10 +88,6 @@ def main() -> int:
 
     for path in touched:
         print(f"updated {path.relative_to(root)}")
-    print(
-        "\nNote: packaging/ (winget/scoop) was NOT touched -- regenerate its "
-        "hashes at release time."
-    )
     return 0
 
 

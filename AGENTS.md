@@ -106,8 +106,7 @@ unavailable.
 `VERSION` is the product source of truth. Use
 `scripts/bump_version.py <X.Y.Z>`; do not hand-edit synchronized version
 targets. The fallback literal in `app/server.py` must be updated deliberately
-at release. Update packaging manifests only after the release publishes
-`SHA256SUMS`.
+at release.
 
 Development and acceptance work does not bump the version. Follow
 `docs/release-process.md` before creating a tag or publishing a release.

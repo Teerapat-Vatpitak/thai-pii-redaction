@@ -22,8 +22,8 @@ status page and does not silently override a newer current-state document.
 - [AI for Thai specification request](platform/ai-for-thai-spec-request.md) -
   narrowed HTTP adapter and acceptance questions, ready after the official
   human recipient/support channel is confirmed.
-- [Release process](release-process.md) - version, tag, draft release, packaging,
-  and hotfix rules.
+- [Release process](release-process.md) - version, tag, draft release, and
+  hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,
   Office, Playground, PDF, Pathumma, and TNER gates.
 - [Annotation guidelines](annotation-guidelines.md) - the standard for gold and
@@ -44,7 +44,6 @@ status page and does not silently override a newer current-state document.
 - [Store listing](store/listing.md)
 - [Extension permissions](store/permissions-justification.md)
 - [Privacy policy](store/privacy-policy.md)
-- [Packaging manifests](../packaging/README.md)
 
 ## Historical records
 

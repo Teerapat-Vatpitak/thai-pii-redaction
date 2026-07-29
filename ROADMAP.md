@@ -31,8 +31,8 @@ release rules live in [docs/release-process.md](docs/release-process.md).
 ## Where the project stands
 
 - `v2.5.0` is released with checksums and build provenance. The release
-  pipeline (tag, CI, cross-platform builds, attestation, packaging metadata)
-  has run end to end on a real tag.
+  pipeline (tag, CI, cross-platform builds, attestation) has run end to end on
+  a real tag.
 - Feature acceptance on the real delivery paths is complete for the extension,
   desktop app, CLI, API, container, and demo playground. The Microsoft 365
   add-in is the one storefront still Acceptance pending: several host
@@ -168,14 +168,13 @@ honesty, PII-free evidence) are enforced by
 [docs/release-process.md](docs/release-process.md) and AGENTS.md; this track
 lists only decidable deliverables:
 
-- **Store distribution decision.** Decided 2026-07-29
-  ([record](docs/decisions/2026-07-29-store-distribution-and-signing.md)):
-  submit to winget, run a project-owned Scoop bucket rather than the shared
-  Extras one, and hold the Chrome Web Store until an easy backend-install path
-  exists for a reviewer to follow. Listing copy and permission justifications
-  stay ready under [docs/store/](docs/store/). The submissions themselves are
-  outward-facing and remain owner-operated per
-  [packaging/README](packaging/README.md).
+- **Store distribution decision.** Decided 2026-07-29 and revised the same day
+  ([record](docs/decisions/2026-07-29-store-distribution-and-signing.md)): no
+  package manager at all. Installers are published as release assets and linked
+  for direct download, so the winget and Scoop manifests were removed rather
+  than submitted. The Chrome Web Store stays on hold until a reviewer has a
+  workable path to a running backend; listing copy and permission
+  justifications stay ready under [docs/store/](docs/store/).
 - **Contributor path.** Issue forms (wrong detection result, bug, proposal,
   benchmark document), a pull-request template, and the
   [benchmark-contribution workflow](docs/benchmark-contribution.md) are in

@@ -363,11 +363,13 @@ def test_bump_version_prevalidates_every_target_before_writing(tmp_path):
     assert {rel_path: (repo / rel_path).read_bytes() for rel_path in _TRACKED_FILES} == before
 
 
-def test_bump_version_never_targets_packaging_dir():
-    # packaging/ (winget/scoop manifests) carries release-specific hashes that
-    # must be regenerated at release time -- bump_version must never write there.
+def test_bump_version_only_targets_tracked_version_files():
+    # Every bump target must be a file the repo actually version-stamps. A stray
+    # target (a generated artifact, a downstream manifest) would be rewritten to
+    # the in-repo version and silently disagree with what was published.
     sys.path.insert(0, str(ROOT / "scripts"))
     from _version_targets import targets
 
     tracked_paths = [str(rel_path) for rel_path, *_ in targets(ROOT)]
-    assert not any(p.startswith("packaging") for p in tracked_paths)
+    assert tracked_paths
+    assert all((ROOT / p).exists() for p in tracked_paths)
