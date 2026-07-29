@@ -7,7 +7,6 @@ official AI for Thai deployment evidence.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import io
 import json
 import logging
@@ -54,21 +53,6 @@ def _check(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
-def _web_extra_available() -> bool:
-    """The analyze operation late-imports app.server, which needs fastapi.
-
-    The hosted image installs core+web from requirements.lock, so analyze runs
-    on the real deployment path. A core-only `pip install -r requirements.txt`
-    leaves it unimportable, and asserting it succeeds there would fail a job
-    that exists to keep that install path honest.
-    """
-
-    try:
-        return importlib.util.find_spec("fastapi") is not None
-    except ModuleNotFoundError:
-        return False
-
-
 def _run_contract_operations() -> dict:
     planned = [
         ("detect", {"text": SYNTHETIC_TEXT}),
@@ -76,7 +60,10 @@ def _run_contract_operations() -> dict:
         ("analyze", {"text": SYNTHETIC_TEXT}),
         ("roundtrip", {"text": SYNTHETIC_TEXT, "mode": "token", "provider": "fake"}),
     ]
-    skipped = [] if _web_extra_available() else ["analyze"]
+    # Nothing is conditional any more: analyze moved into the core, so every
+    # operation runs on a core-only install. The key stays in the record
+    # shape so consumers of this JSON do not have to change.
+    skipped: list[str] = []
     exercised = [operation for operation, _ in planned if operation not in skipped]
     jobs = [
         _job(f"accept-{operation}", operation, payload)

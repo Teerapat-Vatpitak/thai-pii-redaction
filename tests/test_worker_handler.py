@@ -9,18 +9,6 @@ import pytest
 from app.worker.contract import CONTRACT_VERSION
 from app.worker.handler import handle_job
 
-# The `analyze` op late-imports app.server (fastapi); on a core-only install
-# (the CI job that guards the end-user path with the unpinned requirements.txt)
-# fastapi is absent, so analyze legitimately returns an error there. Guard the
-# analyze assertion behind fastapi availability instead of asserting it works
-# in an environment where the web layer it needs was never installed.
-try:
-    import fastapi
-
-    FASTAPI_AVAILABLE = True
-except ImportError:
-    FASTAPI_AVAILABLE = False
-
 THAI_TEXT = "ผมชื่อ นายสมชาย ใจดี เลขบัตรประชาชน 1101700230708 โทร 081-234-5678"
 
 
@@ -174,10 +162,6 @@ def test_detect_operation():
     assert d["result"]["entities"], "expected entities"
 
 
-@pytest.mark.skipif(
-    not FASTAPI_AVAILABLE,
-    reason="analyze op needs the web layer (app.server); absent on core-only installs",
-)
 def test_analyze_operation():
     a = handle_job({"job_id": "j3", "operation": "analyze", "payload": {"text": THAI_TEXT}})
     assert a["status"] == "ok"

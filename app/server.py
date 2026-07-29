@@ -48,7 +48,7 @@ from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import EntityRegistry
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
-from pii_redactor.report import generate_report, scan_section26
+from pii_redactor.report import analyze_text, scan_section26
 from pii_redactor.report_pdf import render_pdpa_report
 from pii_redactor.stateless import (
     StatelessLeakError,
@@ -502,124 +502,12 @@ def delete_session(
     return {"deleted": SERVICE.drop(session_id)}
 
 
-def _risk_label(score: float) -> str:
-    return (
-        "Very Low Risk"
-        if score <= 20
-        else "Low Risk"
-        if score <= 40
-        else "Medium Risk"
-        if score <= 60
-        else "High Risk"
-        if score <= 80
-        else "Very High Risk"
-    )
-
-
-def _analyze_text(text: str) -> dict:
-    """Assemble the full PDPA analysis for already-cleaned text.
-
-    Shared by /api/analyze (JSON) and /api/analyze-report (PDF) so the two
-    can never drift. Returns the exact response dict /api/analyze serves.
-    """
-    report = generate_report(text)
-    reid = report.reid_risk
-
-    fp = detect_fp(text)
-    tb = detect_tb(text)
-
-    # entity breakdown per data_type
-    breakdown_map: dict[str, dict] = {}
-    for e in fp + tb:
-        key = e.data_type
-        if key not in breakdown_map:
-            breakdown_map[key] = {"data_type": key, "redact_type": e.redact_type, "count": 0}
-        breakdown_map[key]["count"] += 1
-    breakdown = sorted(breakdown_map.values(), key=lambda x: -x["count"])
-
-    section26 = scan_section26(text)
-    # Semantic pass: flag free-form sensitive content the keywords miss.
-    # No-op (empty) when sentence-transformers is not installed.
-    try:
-        from pii_redactor.sensitive_detector import detect_sensitive
-
-        have = {s["category"] for s in section26}
-        for hit in detect_sensitive(text):
-            if hit["category"] not in have:
-                section26 = section26 + [{**hit, "source": "semantic"}]
-                have.add(hit["category"])
-    except Exception:  # pragma: no cover - defensive; model issues never block analyze
-        pass
-
-    # structured recommendations with severity levels
-    recs = []
-    if report.direct_pii_count > 0:
-        recs.append(
-            {
-                "level": "high",
-                "title": f"Remove or pseudonymize {report.direct_pii_count} direct PII entities",
-                "desc": "ใช้ AI Guard เพื่อปกปิดข้อมูลทั้งหมดก่อนส่งให้ AI ภายนอก",
-            }
-        )
-    if section26:
-        cats = ", ".join(s["category"] for s in section26)
-        recs.append(
-            {
-                "level": "high",
-                "title": f"Section 26 sensitive data found ({cats})",
-                "desc": "ต้องได้รับความยินยอมโดยชัดแจ้งจากเจ้าของข้อมูลก่อนประมวลผล ตาม PDPA มาตรา 26",
-            }
-        )
-    if reid.high_risk_combo:
-        recs.append(
-            {
-                "level": "medium",
-                "title": "Remove quasi-identifier combinations to reduce re-identification risk",
-                "desc": "การรวม gender + district + age สามารถระบุตัวบุคคลได้แม้ไม่มี PII โดยตรง",
-            }
-        )
-    if report.overall_score >= 60:
-        recs.append(
-            {
-                "level": "info",
-                "title": "Consider data minimization",
-                "desc": "เก็บเฉพาะข้อมูลที่จำเป็นตามวัตถุประสงค์ที่กำหนด ตาม PDPA มาตรา 22",
-            }
-        )
-    if not recs:
-        recs.append(
-            {
-                "level": "info",
-                "title": "No significant PDPA risk detected",
-                "desc": "ไม่พบข้อมูลส่วนบุคคลที่มีความเสี่ยงสูงในข้อความนี้",
-            }
-        )
-
-    return {
-        "overall_score": report.overall_score,
-        "overall_grade": report.overall_grade,
-        "risk_label": _risk_label(report.overall_score),
-        "direct_pii_count": report.direct_pii_count,
-        "fp_count": report.fp_count,
-        "tb_count": report.tb_count,
-        "section26": section26,
-        "reid": {
-            "score": reid.score,
-            "grade": reid.grade,
-            "qi_found": reid.qi_found,
-            "high_risk_combo": reid.high_risk_combo,
-        },
-        "breakdown": breakdown,
-        "recommendations": recs,
-    }
-
-
 @app.post("/api/analyze")
 def analyze(request: AnalyzeRequest):
     start = time.time()
     _validate_text_input(request.text)
     text = clean(request.text).text
-    result = _analyze_text(text)
+    result = analyze_text(text)
     write_process_log(
         session_id=str(uuid.uuid4()),
         step="api_analyze",
@@ -636,7 +524,7 @@ def analyze(request: AnalyzeRequest):
 def analyze_report(request: AnalyzeRequest):
     """PDPA risk report as a downloadable PDF — the compliance artifact.
 
-    Same assembly as /api/analyze (via _analyze_text), rendered by
+    Same assembly as /api/analyze (via report.analyze_text), rendered by
     pii_redactor/report_pdf.py which draws whitelist fields only; the source
     text itself never reaches the canvas. The sha256 prefix ties a report to
     its source without embedding any of it.
@@ -644,7 +532,7 @@ def analyze_report(request: AnalyzeRequest):
     start = time.time()
     _validate_text_input(request.text)
     text = clean(request.text).text
-    analysis = _analyze_text(text)
+    analysis = analyze_text(text)
     source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     pdf_bytes = render_pdpa_report(analysis, version=__version__, source_sha256_12=source_hash)
     write_process_log(

@@ -30,6 +30,7 @@ from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
+from pii_redactor.report import analyze_text
 from pii_redactor.stateless import (
     StatelessLeakError,
     restore_stateless,
@@ -143,14 +144,10 @@ def _op_restore(payload: dict) -> dict:
 
 
 def _op_analyze(payload: dict) -> dict:
-    # late import: app.server pulls fastapi, which stays optional for a
-    # worker-only deployment until the real spec says otherwise
-    from app.server import _analyze_text
-
     text = payload["text"]
     if not text or not text.strip():
         raise ValueError("empty text")
-    return _analyze_text(clean(text).text)
+    return analyze_text(clean(text).text)
 
 
 def _op_detect(payload: dict) -> dict:
