@@ -42,7 +42,11 @@ Use the venv directly (activation does not persist across tool calls):
 .\.venv\Scripts\python.exe -m pip install -r requirements-ml.txt    # WangchanBERTa (torch)
 ```
 
-Thai font: `C:\Windows\Fonts\sarabun-v17-...-regular.ttf`
+Thai font: `C:\Windows\Fonts\sarabun-v17-...-regular.ttf` (hand-installed and
+preferred; `leelawui.ttf` is the fallback Windows itself ships. Nothing is
+bundled into the exe — `FONT_CANDIDATES` in `pii_redactor/thai_pdf_text.py` is
+the whole story, and that module also repairs a reportlab `setRise` defect the
+fallback font would otherwise trip.)
 
 ## Running
 
