@@ -593,3 +593,20 @@ def test_tokenmind_spec_missing_credential_fails_loudly(monkeypatch):
     monkeypatch.delenv("TOKENMIND_API_KEY", raising=False)
     with pytest.raises(ProviderUnavailable, match="TOKENMIND_API_KEY"):
         build_caller("tokenmind")
+
+
+def test_out_of_scheme_row_cannot_steal_a_typed_rows_span():
+    """A longer out-of-scheme row covering the same text must not claim the
+    characters a correctly-typed row named: that would turn the typed row's
+    TP into FP+FN (unrestricted) and a bare FN (shared-11), under-scoring a
+    model that answered correctly. Shared-scheme rows claim first."""
+    text = "ที่อยู่ 45/12 หมู่ 3 บางนา กรุงเทพฯ"
+    scored = score_values(
+        text,
+        [("LOCATION", "45/12 หมู่ 3 บางนา"), ("ADDRESS", "45/12 หมู่ 3")],
+    )
+    start = text.index("45/12 หมู่ 3")
+    assert (start, start + len("45/12 หมู่ 3"), "ADDRESS") in scored["spans"]
+    assert all(etype != "LOCATION" for _, _, etype in scored["spans"])
+    # The untyped view has no types to protect and keeps longest-first.
+    assert (start, start + len("45/12 หมู่ 3 บางนา"), UNTYPED) in scored["untyped_spans"]

@@ -424,13 +424,22 @@ def _ner_candidates(
             diagnostics.attempted += 1
         try:
             tagged: list[tuple[str, str]] = ner.tag(context_text)
-        except Exception:
+        except Exception as exc:
             # Dropping a whole chunk is recall-negative (violates recall >
             # precision). Never silence it — a repeatedly failing engine must
-            # be visible, not quietly eat ~500 chars of PII.
+            # be visible, not quietly eat ~500 chars of PII. Offsets and the
+            # exception class are safe integers/names; the message and
+            # traceback are NOT logged because they can embed the input text.
             if diagnostics is not None:
                 diagnostics.skipped += 1
-            _LOG.warning("NER chunk skipped after a tagging failure")
+            _LOG.warning(
+                "NER tagging failed on chunk chars %d-%d (%d chars; %s); "
+                "skipping — PII in this chunk may be missed",
+                core_begin,
+                core_end,
+                len(context_text),
+                type(exc).__name__,
+            )
             chunk_first = chunk_last + 1
             continue
         if diagnostics is not None:

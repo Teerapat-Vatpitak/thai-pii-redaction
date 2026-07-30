@@ -335,6 +335,11 @@ appends a hash-chained entry to the committed `data/blind-scores.jsonl` under
 a reveal budget; the LLM benchmark must never touch it (test-pinned). Protocol:
 `docs/decisions/2026-07-28-blind-set-protocol.md`.
 
+Top-level `research/` holds frozen paper evidence: `research/stt52/` pins the
+STT52 study at gold-v3 and a fixed system commit so the paper's numbers stay
+reproducible while the detector moves on. Its prediction files carry offsets
+and types only — never document text or entity values (see its README).
+
 ## Performance baseline (`perf/`)
 
 `scripts/measure_perf.py` times detect, sanitize, restore, and PDF redaction

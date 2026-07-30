@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -224,6 +225,16 @@ def test_reference_provenance_must_match():
 
 def test_frozen_paper_gold_can_be_loaded_from_git():
     repo = Path(__file__).resolve().parents[1]
+    shallow = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--is-shallow-repository"],
+        capture_output=True,
+        text=True,
+    )
+    if shallow.stdout.strip() == "true":
+        # CI checks out depth 1, which cannot reach the frozen commit. A FULL
+        # clone that cannot resolve it must still fail below: that is a
+        # rewritten history, not a shallow one.
+        pytest.skip("shallow clone carries no history to load the frozen gold from")
 
     samples, provenance = load_gold_at_commit(repo)
 

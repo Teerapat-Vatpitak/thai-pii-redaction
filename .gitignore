@@ -53,6 +53,10 @@ out/
 # load without it, so a fresh clone must carry it.
 !benchmark/data/gold.jsonl
 
+# STT52 paper evidence is committed by design: prediction files carry offsets
+# and types only, never document text or entity values (research/stt52/README.md).
+!research/stt52/evidence/*.jsonl
+
 # The blind-set audit log is committed by design: every scoring run of the
 # blind holdout appends a hash-chained aggregate entry there, so how often the
 # holdout was consulted stays auditable (benchmark/blind.py). It contains only

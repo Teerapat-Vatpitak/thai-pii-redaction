@@ -165,22 +165,35 @@ def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]]
 
 def locate(text: str, items: list[tuple[str, str]]) -> list[tuple[int, int, str]]:
     """Map returned values onto character spans, longest-first, non-overlapping."""
+    return locate_tiered(text, [items])
+
+
+def locate_tiered(text: str, tiers: list[list[tuple[str, str]]]) -> list[tuple[int, int, str]]:
+    """locate() with priority tiers over one shared claim map: every item in
+    an earlier tier claims before any item in a later tier is looked at.
+
+    score_values puts shared-scheme rows in the first tier so an out-of-scheme
+    row whose value is merely longer cannot steal the very characters a
+    correctly-typed row named — that theft would turn one TP into an FP plus
+    an FN in the unrestricted view and into a bare FN in the shared-11 view,
+    under-scoring a model that answered correctly."""
     claimed = [False] * len(text)
     spans: list[tuple[int, int, str]] = []
-    # Longest first so "45/12 หมู่ 3 ..." claims its range before a bare "45/12"
-    # inside it can, mirroring reverse_mapper's rule.
-    for etype, value in sorted(items, key=lambda it: len(it[1]), reverse=True):
-        start = 0
-        while True:
-            i = text.find(value, start)
-            if i < 0:
-                break
-            j = i + len(value)
-            if not any(claimed[i:j]):
-                for k in range(i, j):
-                    claimed[k] = True
-                spans.append((i, j, etype))
-            start = i + 1
+    for items in tiers:
+        # Longest first so "45/12 หมู่ 3 ..." claims its range before a bare
+        # "45/12" inside it can, mirroring reverse_mapper's rule.
+        for etype, value in sorted(items, key=lambda it: len(it[1]), reverse=True):
+            start = 0
+            while True:
+                i = text.find(value, start)
+                if i < 0:
+                    break
+                j = i + len(value)
+                if not any(claimed[i:j]):
+                    for k in range(i, j):
+                        claimed[k] = True
+                    spans.append((i, j, etype))
+                start = i + 1
     spans.sort()
     return spans
 
@@ -191,7 +204,13 @@ def score_values(text: str, values: list[tuple[str, str]]) -> dict:
     response body kept around to re-score from."""
     typed = [(etype or OUT_OF_SCHEME_TYPE, value) for etype, value in values]
     untyped = [(UNTYPED, value) for _, value in values]
-    typed_spans = locate(text, typed)
+    typed_spans = locate_tiered(
+        text,
+        [
+            [row for row in typed if row[0] in SHARED_ENTITY_TYPE_SET],
+            [row for row in typed if row[0] not in SHARED_ENTITY_TYPE_SET],
+        ],
+    )
     untyped_spans = locate(text, untyped)
     shared_rows = sum(1 for etype, _ in typed if etype in SHARED_ENTITY_TYPE_SET)
     return {
