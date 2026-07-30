@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "document": "examples/sample_document.pdf",
+    "provenance": "values transcribed from examples/make_sample_pdf.py LINES; all fabricated",
+    "note": "This is the pre-form fixture the probe harness was proven on, NOT a government form. It is single-column prose, so measurement 2 is not meaningful here and the harness says so.",
+    "value_boundaries": "field labels stay outside the value, per docs/annotation-guidelines.md (the ADDRESS value starts at the house number, and its postal code is inside it, not a separate field)"
+  },
+  "layout": "single_column",
+  "fields": [
+    { "field": "ชื่อ-นามสกุล", "value": "สมชาย ใจดี", "type": "NAME" },
+    { "field": "เลขบัตรประชาชน", "value": "3-1009-02845-17-2", "type": "THAI_ID" },
+    { "field": "เบอร์โทรศัพท์", "value": "081-234-5678", "type": "PHONE" },
+    { "field": "อีเมล", "value": "somchai.j@example.co.th", "type": "EMAIL" },
+    { "field": "เลขที่บัญชี", "value": "123-4-56789-0", "type": "BANK_ACCOUNT" },
+    { "field": "ที่อยู่", "value": "99 ถนนพหลโยธิน แขวงจตุจักร กรุงเทพฯ 10900", "type": "ADDRESS" }
+  ],
+  "decoys": [
+    "ปรีชา มั่นคง",
+    "089-765-4321",
+    "pridi.k@example.or.th",
+    "1-2345-67890-12-3"
+  ]
+}
