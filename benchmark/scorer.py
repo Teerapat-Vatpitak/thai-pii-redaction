@@ -10,7 +10,10 @@ F2 (beta=2) is the headline: recall > precision.
 
 from __future__ import annotations
 
+import random
 from collections import defaultdict
+
+from .types import OUT_OF_SCHEME_TYPE, SHARED_ENTITY_TYPE_SET, SHARED_ENTITY_TYPES
 
 
 def _overlap(a, b) -> int:
@@ -116,6 +119,8 @@ def _score_group(samples, predictions):
         }
 
     overall = {"tp": tp, "fp": fp, "fn": fn, **_prf(tp, fp, fn)}
+    overall["gold_entities"] = gold_total
+    overall["documents"] = len(samples)
     overall["coverage_recall"] = cov_covered / cov_total if cov_total else 0.0
     # No prediction means no wrongly-masked character, so 1.0 rather than 0.0:
     # this measures the quality of what was masked, and nothing was.
@@ -124,7 +129,20 @@ def _score_group(samples, predictions):
     return by_type, overall
 
 
-def score(samples, predictions) -> dict:
+def _prepare_predictions(predictions, *, shared_only: bool):
+    prepared = []
+    for document in predictions:
+        rows = []
+        for start, end, entity_type in document:
+            if entity_type in SHARED_ENTITY_TYPE_SET:
+                rows.append((start, end, entity_type))
+            elif not shared_only:
+                rows.append((start, end, OUT_OF_SCHEME_TYPE))
+        prepared.append(rows)
+    return prepared
+
+
+def _score_view(samples, predictions) -> dict:
     by_type, overall = _score_group(samples, predictions)
     corpus_by_type = defaultdict(int)
     for s in samples:
@@ -136,12 +154,128 @@ def score(samples, predictions) -> dict:
         _, ov = _score_group([samples[i] for i in idx], [predictions[i] for i in idx])
         by_slice[sl] = ov
     return {
-        "corpus": {
-            "samples": len(samples),
-            "entities": sum(corpus_by_type.values()),
-            "by_type": dict(corpus_by_type),
-        },
         "overall": overall,
         "by_type": by_type,
         "by_slice": by_slice,
+        "corpus_by_type": dict(corpus_by_type),
+    }
+
+
+def bootstrap_f2_ci(
+    samples,
+    predictions,
+    *,
+    iterations: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+    shared_only: bool = False,
+) -> dict:
+    """Return a deterministic percentile CI with documents as the sample unit."""
+    if len(samples) != len(predictions):
+        raise ValueError("samples and predictions must have the same length")
+    if not samples:
+        raise ValueError("bootstrap needs at least one document")
+    if iterations < 1:
+        raise ValueError("bootstrap iterations must be positive")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("bootstrap confidence must be between 0 and 1")
+
+    prepared = _prepare_predictions(predictions, shared_only=shared_only)
+    per_document: list[tuple[int, int, int]] = []
+    for sample, document_predictions in zip(samples, prepared):
+        _, overall = _score_group([sample], [document_predictions])
+        if overall.get("gold_entities") == 0:
+            per_document.append((0, overall["false_positives"], 0))
+        else:
+            per_document.append((overall["tp"], overall["fp"], overall["fn"]))
+
+    rng = random.Random(seed)
+    count = len(per_document)
+    values: list[float] = []
+    for _ in range(iterations):
+        tp = fp = fn = 0
+        for _ in range(count):
+            doc_tp, doc_fp, doc_fn = per_document[rng.randrange(count)]
+            tp += doc_tp
+            fp += doc_fp
+            fn += doc_fn
+        values.append(_prf(tp, fp, fn)["f2"])
+    values.sort()
+
+    tail = (1.0 - confidence) / 2.0
+    lower_index = min(iterations - 1, int(tail * iterations))
+    upper_index = min(iterations - 1, max(0, int((1.0 - tail) * iterations) - 1))
+    return {
+        "metric": "f2",
+        "method": "percentile",
+        "unit": "document",
+        "scope": "shared_11" if shared_only else "unrestricted",
+        "confidence": confidence,
+        "iterations": iterations,
+        "seed": seed,
+        "lower": values[lower_index],
+        "upper": values[upper_index],
+    }
+
+
+def score(
+    samples,
+    predictions,
+    *,
+    bootstrap_iters: int = 1000,
+    bootstrap_seed: int = 0,
+) -> dict:
+    """Score unrestricted product output and the shared 11-type view."""
+    if len(samples) != len(predictions):
+        raise ValueError("samples and predictions must have the same length")
+
+    unrestricted_predictions = _prepare_predictions(predictions, shared_only=False)
+    shared_predictions = _prepare_predictions(predictions, shared_only=True)
+    unrestricted = _score_view(samples, unrestricted_predictions)
+    shared = _score_view(samples, shared_predictions)
+    corpus_by_type = unrestricted.pop("corpus_by_type")
+    shared.pop("corpus_by_type")
+    excluded = sum(
+        1
+        for document in predictions
+        for _, _, entity_type in document
+        if entity_type not in SHARED_ENTITY_TYPE_SET
+    )
+
+    confidence_intervals = {}
+    shared_confidence_intervals = {}
+    if samples and bootstrap_iters:
+        confidence_intervals["overall_f2"] = bootstrap_f2_ci(
+            samples,
+            predictions,
+            iterations=bootstrap_iters,
+            seed=bootstrap_seed,
+        )
+        shared_confidence_intervals["overall_f2"] = bootstrap_f2_ci(
+            samples,
+            predictions,
+            iterations=bootstrap_iters,
+            seed=bootstrap_seed,
+            shared_only=True,
+        )
+
+    return {
+        "corpus": {
+            "samples": len(samples),
+            "entities": sum(corpus_by_type.values()),
+            "by_type": corpus_by_type,
+        },
+        **unrestricted,
+        "confidence_intervals": confidence_intervals,
+        "shared_11": {
+            **shared,
+            "excluded_predictions": excluded,
+            "confidence_intervals": shared_confidence_intervals,
+        },
+        "out_of_scheme_predictions": excluded,
+        "type_scheme": {
+            "name": "shared-11",
+            "types": list(SHARED_ENTITY_TYPES),
+            "out_of_scheme_bucket": OUT_OF_SCHEME_TYPE,
+        },
     }

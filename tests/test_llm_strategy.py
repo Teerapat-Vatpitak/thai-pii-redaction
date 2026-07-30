@@ -6,13 +6,27 @@ measured by scripts/run_llm_benchmark.py, not pinned here.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from benchmark.llm_providers import ProviderUnavailable, build_caller
-from benchmark.llm_strategy import UNTYPED, locate, parse_items, score_raw
+from benchmark.gold import GOLD_VERSION
+from benchmark.llm_providers import (
+    ProviderUnavailable,
+    build_caller,
+    provider_request_config,
+)
+from benchmark.llm_strategy import UNTYPED, locate, parse_items, score_raw, score_values
+from benchmark.types import OUT_OF_SCHEME_TYPE, GoldSpan, Sample
 
 
 # ── parsing ────────────────────────────────────────────────────────────
+def test_prompt_uses_the_gold_name_boundary():
+    from benchmark.llm_strategy import SYSTEM_PROMPT
+
+    assert "NAME ชื่อบุคคล ไม่รวมคำนำหน้า" in SYSTEM_PROMPT
+
+
 def test_parse_plain_json_array():
     items, rejected = parse_items('[{"type": "NAME", "value": "สมชาย ใจดี"}]')
     assert items == [("NAME", "สมชาย ใจดี")]
@@ -130,9 +144,10 @@ def test_score_raw_produces_both_views_from_one_response():
     text = "ผู้ป่วย สมชาย ใจดี ที่อยู่ 12 ถนนสุขุมวิท"
     raw = '[{"type": "NAME", "value": "สมชาย ใจดี"}, {"type": "ที่อยู่ปัจจุบัน", "value": "12 ถนนสุขุมวิท"}]'
     rec = score_raw(text, raw)
-    assert [t for _, _, t in rec["spans"]] == ["NAME"]
+    assert [t for _, _, t in rec["spans"]] == ["NAME", "ที่อยู่ปัจจุบัน"]
     assert [t for _, _, t in rec["untyped_spans"]] == [UNTYPED, UNTYPED]
     assert rec["meta"]["kept_typed"] == 1
+    assert rec["meta"]["typed_rows"] == 2
     assert rec["meta"]["returned"] == 2
     assert rec["meta"]["unlocatable"] == 0
 
@@ -191,6 +206,39 @@ def test_score_values_reproduces_score_raw_without_the_body():
     assert from_values["untyped_spans"] == from_raw["untyped_spans"]
 
 
+def test_score_values_locates_known_and_out_of_scheme_typed_rows():
+    text = "ชื่อ สมชาย ฉายา เสือ"
+    rec = score_values(text, [("NAME", "สมชาย"), ("NICKNAME", "เสือ")])
+
+    assert [(text[a:b], t) for a, b, t in rec["spans"]] == [
+        ("สมชาย", "NAME"),
+        ("เสือ", "NICKNAME"),
+    ]
+    assert rec["meta"]["out_of_scheme_types"] == 1
+    assert "rejected_types" not in rec["meta"]
+
+    from benchmark.scorer import score
+
+    sample = Sample(
+        text=text,
+        spans=[GoldSpan(text.index("สมชาย"), text.index("สมชาย") + len("สมชาย"), "NAME")],
+        template_id="llm-1",
+        slice="core",
+    )
+    report = score([sample], [rec["spans"]], bootstrap_iters=50)
+    assert report["by_type"][OUT_OF_SCHEME_TYPE]["fp"] == 1
+    assert report["shared_11"]["overall"]["fp"] == 0
+
+
+def test_score_values_maps_blank_type_to_out_of_scheme():
+    text = "โทร 0812345678"
+
+    rec = score_values(text, [("", "0812345678")])
+
+    assert rec["spans"] == [(4, 14, OUT_OF_SCHEME_TYPE)]
+    assert rec["meta"]["out_of_scheme_types"] == 1
+
+
 def test_cache_entry_holds_no_provider_body(tmp_path):
     import json
 
@@ -209,6 +257,289 @@ def test_cache_entry_holds_no_provider_body(tmp_path):
     # carry the actual detection, or "no body" is indistinguishable from "no
     # content at all".
     assert entry["values"] != []
+
+
+def test_cache_only_rescores_complete_cache_without_provider(monkeypatch, tmp_path):
+    from scripts import run_llm_benchmark as script
+
+    provider = "thaillm:test"
+    sample = Sample(
+        text="โทร 0812345678",
+        spans=[GoldSpan(4, 14, "PHONE")],
+        template_id="cache-1",
+        slice="core",
+    )
+    monkeypatch.setattr(script, "load_gold", lambda: [sample])
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: tmp_path)
+
+    config = script.provider_request_config(provider)
+    cache_path = script._cache_path(tmp_path, sample, config)
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema": script.CACHE_SCHEMA,
+                "provenance": script._cache_provenance(config, script.PROMPT_IDENTITY),
+                "values": [["PHONE", "0812345678"]],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def no_provider(_spec):
+        raise AssertionError("cache-only must not construct a provider")
+
+    monkeypatch.setattr(script, "build_caller", no_provider)
+    out = tmp_path / "report.json"
+
+    assert (
+        script.main(
+            [
+                "--provider",
+                provider,
+                "--cache-only",
+                "--delay",
+                "0",
+                "--bootstrap-iterations",
+                "20",
+                "--bootstrap-seed",
+                "7",
+                "--json",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["gold_version"] == GOLD_VERSION
+    assert report["run"]["cached"] == 1
+    assert report["run"]["called"] == 0
+    assert report["shared_11"]["overall"]["f2"] == 1.0
+    assert report["untyped"]["overall"]["f2"] == 1.0
+    assert report["confidence_intervals"]["overall_f2"]["unit"] == "document"
+    assert report["confidence_intervals"]["overall_f2"]["iterations"] == 20
+    assert report["confidence_intervals"]["overall_f2"]["seed"] == 7
+
+
+def test_cache_only_uses_the_preloaded_record_once(monkeypatch, tmp_path):
+    from scripts import run_llm_benchmark as script
+
+    sample = Sample(
+        text="โทร 0812345678",
+        spans=[GoldSpan(4, 14, "PHONE")],
+        template_id="cache-once",
+        slice="core",
+    )
+    monkeypatch.setattr(script, "load_gold", lambda: [sample])
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: tmp_path)
+    calls = 0
+
+    def read_once(_path, text, _provenance):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return None
+        return score_values(text, [("PHONE", "0812345678")])
+
+    monkeypatch.setattr(script, "_read_cached", read_once)
+    monkeypatch.setattr(
+        script,
+        "build_caller",
+        lambda _spec: (_ for _ in ()).throw(AssertionError("network path used")),
+    )
+
+    assert (
+        script.main(
+            [
+                "--provider",
+                "thaillm:test",
+                "--cache-only",
+                "--bootstrap-iterations",
+                "20",
+            ]
+        )
+        == 0
+    )
+    assert calls == 1
+
+
+def test_cache_only_rejects_mismatched_provenance(monkeypatch, tmp_path, capsys):
+    from scripts import run_llm_benchmark as script
+
+    provider = "thaillm:test"
+    sample = Sample(
+        text="โทร 0812345678",
+        spans=[GoldSpan(4, 14, "PHONE")],
+        template_id="wrong-config",
+        slice="core",
+    )
+    monkeypatch.setattr(script, "load_gold", lambda: [sample])
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: tmp_path)
+    config = script.provider_request_config(provider)
+    path = script._cache_path(tmp_path, sample, config)
+    wrong = {**config, "model": "other-model"}
+    path.write_text(
+        json.dumps(
+            {
+                "schema": script.CACHE_SCHEMA,
+                "provenance": script._cache_provenance(wrong, script.PROMPT_IDENTITY),
+                "values": [["PHONE", "0812345678"]],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert script.main(["--provider", provider, "--cache-only"]) == 3
+    assert "cache-only failed" in capsys.readouterr().err
+
+
+def test_cache_only_fails_clearly_on_cache_miss(monkeypatch, tmp_path, capsys):
+    from scripts import run_llm_benchmark as script
+
+    provider = "thaillm:test"
+    sample = Sample(
+        text="โทร 0812345678",
+        spans=[GoldSpan(4, 14, "PHONE")],
+        template_id="cache-miss",
+        slice="core",
+    )
+    monkeypatch.setattr(script, "load_gold", lambda: [sample])
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: tmp_path)
+    monkeypatch.setattr(
+        script,
+        "build_caller",
+        lambda _spec: (_ for _ in ()).throw(AssertionError("network path used")),
+    )
+
+    assert script.main(["--provider", provider, "--cache-only"]) == 3
+    err = capsys.readouterr().err
+    assert "cache-only" in err
+    assert "1" in err
+
+
+def test_cache_only_can_rescore_an_explicit_frozen_gold(monkeypatch, tmp_path):
+    from scripts import run_llm_benchmark as script
+
+    provider = "thaillm:test"
+    gold_path = tmp_path / "paper-gold.jsonl"
+    gold_path.write_text(
+        json.dumps(
+            {
+                "doc_id": "paper-1",
+                "slice": "finance",
+                "annotated": "โทร [[PHONE|0812345678]]",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    sample = script._load_frozen_gold(gold_path)[0][0]
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: cache)
+    config = script.provider_request_config(provider)
+    cache_path = script._cache_path(cache, sample, config)
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema": script.CACHE_SCHEMA,
+                "provenance": script._cache_provenance(config, script.PROMPT_IDENTITY),
+                "values": [["PHONE", "0812345678"]],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "paper-report.json"
+
+    assert (
+        script.main(
+            [
+                "--provider",
+                provider,
+                "--cache-only",
+                "--gold-jsonl",
+                str(gold_path),
+                "--gold-version",
+                "gold-v3-paper",
+                "--json",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["gold_version"] == "gold-v3-paper"
+    assert report["corpus_sha256"] == script.hashlib.sha256(gold_path.read_bytes()).hexdigest()
+    assert report["overall"]["f2"] == 1.0
+
+
+def test_frozen_gold_network_needs_explicit_flag(monkeypatch, tmp_path, capsys):
+    from scripts import run_llm_benchmark as script
+
+    gold_path = tmp_path / "paper-gold.jsonl"
+    gold_path.write_text(
+        '{"doc_id":"paper-1","slice":"finance","annotated":"โทร [[PHONE|0812345678]]"}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        script,
+        "build_caller",
+        lambda _spec: (_ for _ in ()).throw(AssertionError("network path used")),
+    )
+
+    result = script.main(
+        [
+            "--provider",
+            "thaillm:test",
+            "--gold-jsonl",
+            str(gold_path),
+            "--gold-version",
+            "gold-v3",
+        ]
+    )
+
+    assert result == 2
+    assert "allow-frozen-network" in capsys.readouterr().err
+
+
+def test_frozen_gold_can_fill_cache_with_explicit_network_flag(monkeypatch, tmp_path):
+    from scripts import run_llm_benchmark as script
+
+    gold_path = tmp_path / "paper-gold.jsonl"
+    gold_path.write_text(
+        '{"doc_id":"paper-1","slice":"finance","annotated":"โทร [[PHONE|0812345678]]"}\n',
+        encoding="utf-8",
+    )
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(script, "_cache_dir", lambda _spec: cache)
+    monkeypatch.setattr(
+        script,
+        "build_caller",
+        lambda _spec: lambda _system, _user: '[{"type":"PHONE","value":"0812345678"}]',
+    )
+    output = tmp_path / "report.json"
+
+    result = script.main(
+        [
+            "--provider",
+            "thaillm:test",
+            "--gold-jsonl",
+            str(gold_path),
+            "--gold-version",
+            "gold-v3",
+            "--allow-frozen-network",
+            "--delay",
+            "0",
+            "--json",
+            str(output),
+        ]
+    )
+
+    assert result == 0
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["run"]["called"] == 1
+    assert report["run"]["cached"] == 0
+    assert report["overall"]["f2"] == 1.0
 
 
 # ── provider construction ──────────────────────────────────────────────
@@ -246,6 +577,15 @@ def test_tokenmind_spec_uses_its_own_envs_and_disables_thinking(monkeypatch):
     assert caller.name == "tokenmind:thaillm-8b"
     assert caller.model == "thaillm-8b"
     assert caller._extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert provider_request_config("tokenmind") == {
+        "provider_spec": "tokenmind",
+        "protocol": "openai-compatible",
+        "model": "thaillm-8b",
+        "max_output_tokens": 4096,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        "temperature": 0.0,
+        "stream": False,
+    }
 
 
 def test_tokenmind_spec_missing_credential_fails_loudly(monkeypatch):
@@ -253,3 +593,20 @@ def test_tokenmind_spec_missing_credential_fails_loudly(monkeypatch):
     monkeypatch.delenv("TOKENMIND_API_KEY", raising=False)
     with pytest.raises(ProviderUnavailable, match="TOKENMIND_API_KEY"):
         build_caller("tokenmind")
+
+
+def test_out_of_scheme_row_cannot_steal_a_typed_rows_span():
+    """A longer out-of-scheme row covering the same text must not claim the
+    characters a correctly-typed row named: that would turn the typed row's
+    TP into FP+FN (unrestricted) and a bare FN (shared-11), under-scoring a
+    model that answered correctly. Shared-scheme rows claim first."""
+    text = "ที่อยู่ 45/12 หมู่ 3 บางนา กรุงเทพฯ"
+    scored = score_values(
+        text,
+        [("LOCATION", "45/12 หมู่ 3 บางนา"), ("ADDRESS", "45/12 หมู่ 3")],
+    )
+    start = text.index("45/12 หมู่ 3")
+    assert (start, start + len("45/12 หมู่ 3"), "ADDRESS") in scored["spans"]
+    assert all(etype != "LOCATION" for _, _, etype in scored["spans"])
+    # The untyped view has no types to protect and keeps longest-first.
+    assert (start, start + len("45/12 หมู่ 3 บางนา"), UNTYPED) in scored["untyped_spans"]

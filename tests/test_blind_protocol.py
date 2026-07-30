@@ -148,6 +148,8 @@ def test_run_blind_is_aggregate_only_and_logs_chain(frozen_blind, capsys):
     assert result["reveal_index"] == 1
     assert result["over_budget"] is False
     assert result["negative"]["documents"] == 1
+    assert result["ner_chunks"]["skipped"] == 0
+    assert result["confidence_intervals"]["overall_f2"]["unit"] == "document"
     assert blind.verify_log(log_path) == 1
 
     # Second run exceeds the fixture budget of 1 and must say so, permanently.

@@ -7,9 +7,14 @@ import importlib.util
 import pytest
 
 from benchmark.corpus import ENTITY_TYPES, build_corpus
-from benchmark.runner import render_table, run_benchmark
-from benchmark.scorer import score
-from benchmark.types import GoldSpan, Sample
+from benchmark.runner import BenchmarkIntegrityError, render_table, run_benchmark
+from benchmark.scorer import bootstrap_f2_ci, score
+from benchmark.types import (
+    OUT_OF_SCHEME_TYPE,
+    SHARED_ENTITY_TYPES,
+    GoldSpan,
+    Sample,
+)
 from pii_redactor.detectors.aggregate import detect_all
 
 
@@ -122,9 +127,88 @@ def test_scorer_wrong_type_is_fp_and_fn():
     assert r["overall"]["coverage_recall"] == 1.0
 
 
+def test_positive_slice_reports_document_and_gold_counts():
+    samples = [
+        _s("0812345678", [(0, 10, "PHONE")]),
+        _s("a@b.com", [(0, 7, "EMAIL")]),
+    ]
+
+    report = score(samples, [[(0, 10, "PHONE")], [(0, 7, "EMAIL")]])
+
+    assert report["by_slice"]["core"]["documents"] == 2
+    assert report["by_slice"]["core"]["gold_entities"] == 2
+
+
 def test_f2_weights_recall():
     r = score([_s("0812345678 x", [(0, 10, "PHONE")])], [[(0, 10, "PHONE"), (11, 12, "PHONE")]])
     assert abs(r["overall"]["f2"] - (2.5 / 3)) < 1e-9
+
+
+def test_shared_type_scheme_has_one_canonical_source():
+    assert tuple(ENTITY_TYPES) == SHARED_ENTITY_TYPES
+    assert len(SHARED_ENTITY_TYPES) == 11
+    assert len(set(SHARED_ENTITY_TYPES)) == 11
+
+
+def test_scorer_collapses_out_of_scheme_predictions_and_reports_shared_11():
+    sample = _s("0812345678 เชียงใหม่", [(0, 10, "PHONE")])
+    predictions = [[(0, 10, "PHONE"), (11, 20, "LOCATION")]]
+
+    report = score([sample], predictions, bootstrap_iters=50)
+
+    assert report["overall"]["tp"] == 1
+    assert report["overall"]["fp"] == 1
+    assert "LOCATION" not in report["by_type"]
+    assert report["by_type"][OUT_OF_SCHEME_TYPE]["fp"] == 1
+    assert report["out_of_scheme_predictions"] == 1
+    assert report["shared_11"]["overall"]["tp"] == 1
+    assert report["shared_11"]["overall"]["fp"] == 0
+    assert report["shared_11"]["excluded_predictions"] == 1
+
+
+def test_document_bootstrap_is_deterministic_and_self_describing():
+    samples = [
+        _s("0812345678", [(0, 10, "PHONE")]),
+        _s("a@b.com", [(0, 7, "EMAIL")]),
+        _s("clean", []),
+    ]
+    predictions = [[(0, 10, "PHONE")], [], [(0, 2, "NAME")]]
+
+    first = bootstrap_f2_ci(samples, predictions, iterations=200, seed=19)
+    second = bootstrap_f2_ci(samples, predictions, iterations=200, seed=19)
+
+    assert first == second
+    assert first["metric"] == "f2"
+    assert first["method"] == "percentile"
+    assert first["unit"] == "document"
+    assert first["confidence"] == 0.95
+    assert first["iterations"] == 200
+    assert first["seed"] == 19
+    assert 0.0 <= first["lower"] <= first["upper"] <= 1.0
+
+
+def test_benchmark_report_records_zero_skipped_ner_chunks():
+    report = run_benchmark(engine="crf", seed=42, size=12)
+
+    chunks = report["ner_chunks"]
+    assert chunks["attempted"] > 0
+    assert chunks["succeeded"] == chunks["attempted"]
+    assert chunks["skipped"] == 0
+    assert report["integrity"]["ok"] is True
+
+
+def test_benchmark_fails_if_any_ner_chunk_was_skipped(monkeypatch):
+    from benchmark import runner
+
+    def fake_predict(samples, engine="crf", *, diagnostics=None):
+        diagnostics.attempted = 1
+        diagnostics.skipped = 1
+        return [[] for _ in samples]
+
+    monkeypatch.setattr(runner, "predict_samples", fake_predict)
+
+    with pytest.raises(BenchmarkIntegrityError, match="NER chunk"):
+        runner.run_benchmark(engine="crf", seed=42, size=1)
 
 
 # ── runner ─────────────────────────────────────────────────────────────

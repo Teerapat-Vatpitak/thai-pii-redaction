@@ -1,0 +1,674 @@
+{
+  "schema": 1,
+  "paper_title": "Negative Controls and Complementary Span Metrics for Thai PII Redaction",
+  "corpus": {
+    "gold_version": "gold-v3",
+    "commit": "d93d10b17be6783d5c684cb47f25d4156ed6fb4b",
+    "path": "benchmark/data/gold.jsonl",
+    "sha256": "d2591229e0bae20d27e5a8a20aa5b41ee3cc18622a54dd39b2a2c363f761fd5d",
+    "documents": 252,
+    "entities": 641
+  },
+  "system": {
+    "commit": "d93d10b17be6783d5c684cb47f25d4156ed6fb4b",
+    "engine": "thainer-crf"
+  },
+  "score": {
+    "corpus": {
+      "samples": 252,
+      "entities": 641,
+      "by_type": {
+        "NAME": 199,
+        "ADDRESS": 58,
+        "PHONE": 75,
+        "EMAIL": 46,
+        "THAI_ID": 51,
+        "CREDIT_CARD": 24,
+        "DATE_OF_BIRTH": 45,
+        "VEHICLE_PLATE": 26,
+        "STUDENT_ID": 57,
+        "PASSPORT": 25,
+        "BANK_ACCOUNT": 35
+      }
+    },
+    "overall": {
+      "tp": 561,
+      "fp": 378,
+      "fn": 80,
+      "precision": 0.597444089456869,
+      "recall": 0.875195007800312,
+      "f1": 0.7101265822784809,
+      "f2": 0.8007422209534685,
+      "gold_entities": 641,
+      "documents": 252,
+      "coverage_recall": 0.8001022494887525,
+      "coverage_precision": 0.7567698259187621,
+      "exact_recall": 0.625585023400936
+    },
+    "by_type": {
+      "NAME": {
+        "tp": 154,
+        "fp": 6,
+        "fn": 45,
+        "precision": 0.9625,
+        "recall": 0.7738693467336684,
+        "f1": 0.8579387186629527,
+        "f2": 0.805439330543933
+      },
+      "ADDRESS": {
+        "tp": 58,
+        "fp": 183,
+        "fn": 0,
+        "precision": 0.24066390041493776,
+        "recall": 1.0,
+        "f1": 0.3879598662207358,
+        "f2": 0.6131078224101479
+      },
+      "OUT_OF_SCHEME": {
+        "tp": 0,
+        "fp": 163,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "f2": 0.0
+      },
+      "PHONE": {
+        "tp": 74,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9866666666666667,
+        "recall": 0.9866666666666667,
+        "f1": 0.9866666666666668,
+        "f2": 0.9866666666666666
+      },
+      "EMAIL": {
+        "tp": 46,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "f2": 1.0
+      },
+      "THAI_ID": {
+        "tp": 51,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.9807692307692307,
+        "recall": 1.0,
+        "f1": 0.9902912621359222,
+        "f2": 0.9960937499999999
+      },
+      "CREDIT_CARD": {
+        "tp": 24,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "f2": 1.0
+      },
+      "DATE_OF_BIRTH": {
+        "tp": 40,
+        "fp": 1,
+        "fn": 5,
+        "precision": 0.975609756097561,
+        "recall": 0.8888888888888888,
+        "f1": 0.9302325581395349,
+        "f2": 0.9049773755656108
+      },
+      "VEHICLE_PLATE": {
+        "tp": 25,
+        "fp": 11,
+        "fn": 1,
+        "precision": 0.6944444444444444,
+        "recall": 0.9615384615384616,
+        "f1": 0.8064516129032258,
+        "f2": 0.8928571428571429
+      },
+      "STUDENT_ID": {
+        "tp": 29,
+        "fp": 0,
+        "fn": 28,
+        "precision": 1.0,
+        "recall": 0.5087719298245614,
+        "f1": 0.6744186046511628,
+        "f2": 0.5642023346303502
+      },
+      "PASSPORT": {
+        "tp": 25,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.9615384615384616,
+        "recall": 1.0,
+        "f1": 0.9803921568627451,
+        "f2": 0.9920634920634919
+      },
+      "BANK_ACCOUNT": {
+        "tp": 35,
+        "fp": 11,
+        "fn": 0,
+        "precision": 0.7608695652173914,
+        "recall": 1.0,
+        "f1": 0.8641975308641976,
+        "f2": 0.9408602150537635
+      }
+    },
+    "by_slice": {
+      "address_varied": {
+        "tp": 16,
+        "fp": 58,
+        "fn": 0,
+        "precision": 0.21621621621621623,
+        "recall": 1.0,
+        "f1": 0.35555555555555557,
+        "f2": 0.5797101449275363,
+        "gold_entities": 16,
+        "documents": 16,
+        "coverage_recall": 0.5402985074626866,
+        "coverage_precision": 0.9627659574468085,
+        "exact_recall": 0.0
+      },
+      "bank_phone": {
+        "tp": 16,
+        "fp": 4,
+        "fn": 0,
+        "precision": 0.8,
+        "recall": 1.0,
+        "f1": 0.888888888888889,
+        "f2": 0.9523809523809523,
+        "gold_entities": 16,
+        "documents": 16,
+        "coverage_recall": 1.0,
+        "coverage_precision": 0.7207207207207207,
+        "exact_recall": 1.0
+      },
+      "education": {
+        "tp": 52,
+        "fp": 31,
+        "fn": 17,
+        "precision": 0.6265060240963856,
+        "recall": 0.7536231884057971,
+        "f1": 0.6842105263157895,
+        "f2": 0.7242339832869081,
+        "gold_entities": 69,
+        "documents": 18,
+        "coverage_recall": 0.8542372881355932,
+        "coverage_precision": 0.7730061349693251,
+        "exact_recall": 0.5072463768115942
+      },
+      "finance": {
+        "tp": 50,
+        "fp": 24,
+        "fn": 4,
+        "precision": 0.6756756756756757,
+        "recall": 0.9259259259259259,
+        "f1": 0.7812500000000001,
+        "f2": 0.8620689655172413,
+        "gold_entities": 54,
+        "documents": 18,
+        "coverage_recall": 0.8470474346563408,
+        "coverage_precision": 0.7889990982867449,
+        "exact_recall": 0.6851851851851852
+      },
+      "gov_form": {
+        "tp": 40,
+        "fp": 40,
+        "fn": 9,
+        "precision": 0.5,
+        "recall": 0.8163265306122449,
+        "f1": 0.6201550387596899,
+        "f2": 0.7246376811594203,
+        "gold_entities": 49,
+        "documents": 17,
+        "coverage_recall": 0.7007104795737122,
+        "coverage_precision": 0.7292051756007394,
+        "exact_recall": 0.4897959183673469
+      },
+      "id_docs": {
+        "tp": 86,
+        "fp": 21,
+        "fn": 12,
+        "precision": 0.8037383177570093,
+        "recall": 0.8775510204081632,
+        "f1": 0.8390243902439024,
+        "f2": 0.8617234468937877,
+        "gold_entities": 98,
+        "documents": 29,
+        "coverage_recall": 0.800844475721323,
+        "coverage_precision": 0.8794435857805255,
+        "exact_recall": 0.7448979591836735
+      },
+      "long_form": {
+        "tp": 216,
+        "fp": 114,
+        "fn": 8,
+        "precision": 0.6545454545454545,
+        "recall": 0.9642857142857143,
+        "f1": 0.779783393501805,
+        "f2": 0.8809135399673734,
+        "gold_entities": 224,
+        "documents": 20,
+        "coverage_recall": 0.8472022955523673,
+        "coverage_precision": 0.7693811074918567,
+        "exact_recall": 0.6875
+      },
+      "medical": {
+        "tp": 33,
+        "fp": 20,
+        "fn": 5,
+        "precision": 0.6226415094339622,
+        "recall": 0.868421052631579,
+        "f1": 0.7252747252747254,
+        "f2": 0.8048780487804879,
+        "gold_entities": 38,
+        "documents": 14,
+        "coverage_recall": 0.7928057553956834,
+        "coverage_precision": 0.7386058981233244,
+        "exact_recall": 0.5789473684210527
+      },
+      "messy": {
+        "tp": 23,
+        "fp": 7,
+        "fn": 5,
+        "precision": 0.7666666666666667,
+        "recall": 0.8214285714285714,
+        "f1": 0.793103448275862,
+        "f2": 0.8098591549295774,
+        "gold_entities": 28,
+        "documents": 16,
+        "coverage_recall": 0.8162162162162162,
+        "coverage_precision": 0.7885117493472585,
+        "exact_recall": 0.6428571428571429
+      },
+      "name_no_cue": {
+        "tp": 16,
+        "fp": 0,
+        "fn": 5,
+        "precision": 1.0,
+        "recall": 0.7619047619047619,
+        "f1": 0.8648648648648648,
+        "f2": 0.7999999999999999,
+        "gold_entities": 21,
+        "documents": 18,
+        "coverage_recall": 0.7224080267558528,
+        "coverage_precision": 0.7012987012987013,
+        "exact_recall": 0.42857142857142855
+      },
+      "negative": {
+        "gold_entities": 0,
+        "documents": 45,
+        "false_positives": 43,
+        "clean_docs": 16,
+        "clean_doc_rate": 0.35555555555555557,
+        "coverage_precision": 0.0
+      },
+      "student_id_varied": {
+        "tp": 13,
+        "fp": 16,
+        "fn": 15,
+        "precision": 0.4482758620689655,
+        "recall": 0.4642857142857143,
+        "f1": 0.456140350877193,
+        "f2": 0.4609929078014184,
+        "gold_entities": 28,
+        "documents": 25,
+        "coverage_recall": 1.0,
+        "coverage_precision": 0.9498207885304659,
+        "exact_recall": 0.4642857142857143
+      }
+    },
+    "confidence_intervals": {
+      "overall_f2": {
+        "metric": "f2",
+        "method": "percentile",
+        "unit": "document",
+        "scope": "unrestricted",
+        "confidence": 0.95,
+        "iterations": 10000,
+        "seed": 5252,
+        "lower": 0.769788344447666,
+        "upper": 0.8287629494210847
+      }
+    },
+    "shared_11": {
+      "overall": {
+        "tp": 561,
+        "fp": 215,
+        "fn": 80,
+        "precision": 0.7229381443298969,
+        "recall": 0.875195007800312,
+        "f1": 0.7918136908962596,
+        "f2": 0.8398203592814371,
+        "gold_entities": 641,
+        "documents": 252,
+        "coverage_recall": 0.7527266530334015,
+        "coverage_precision": 0.8196325848951568,
+        "exact_recall": 0.625585023400936
+      },
+      "by_type": {
+        "NAME": {
+          "tp": 154,
+          "fp": 6,
+          "fn": 45,
+          "precision": 0.9625,
+          "recall": 0.7738693467336684,
+          "f1": 0.8579387186629527,
+          "f2": 0.805439330543933
+        },
+        "ADDRESS": {
+          "tp": 58,
+          "fp": 183,
+          "fn": 0,
+          "precision": 0.24066390041493776,
+          "recall": 1.0,
+          "f1": 0.3879598662207358,
+          "f2": 0.6131078224101479
+        },
+        "PHONE": {
+          "tp": 74,
+          "fp": 1,
+          "fn": 1,
+          "precision": 0.9866666666666667,
+          "recall": 0.9866666666666667,
+          "f1": 0.9866666666666668,
+          "f2": 0.9866666666666666
+        },
+        "EMAIL": {
+          "tp": 46,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "f2": 1.0
+        },
+        "THAI_ID": {
+          "tp": 51,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.9807692307692307,
+          "recall": 1.0,
+          "f1": 0.9902912621359222,
+          "f2": 0.9960937499999999
+        },
+        "CREDIT_CARD": {
+          "tp": 24,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "f2": 1.0
+        },
+        "DATE_OF_BIRTH": {
+          "tp": 40,
+          "fp": 1,
+          "fn": 5,
+          "precision": 0.975609756097561,
+          "recall": 0.8888888888888888,
+          "f1": 0.9302325581395349,
+          "f2": 0.9049773755656108
+        },
+        "VEHICLE_PLATE": {
+          "tp": 25,
+          "fp": 11,
+          "fn": 1,
+          "precision": 0.6944444444444444,
+          "recall": 0.9615384615384616,
+          "f1": 0.8064516129032258,
+          "f2": 0.8928571428571429
+        },
+        "STUDENT_ID": {
+          "tp": 29,
+          "fp": 0,
+          "fn": 28,
+          "precision": 1.0,
+          "recall": 0.5087719298245614,
+          "f1": 0.6744186046511628,
+          "f2": 0.5642023346303502
+        },
+        "PASSPORT": {
+          "tp": 25,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.9615384615384616,
+          "recall": 1.0,
+          "f1": 0.9803921568627451,
+          "f2": 0.9920634920634919
+        },
+        "BANK_ACCOUNT": {
+          "tp": 35,
+          "fp": 11,
+          "fn": 0,
+          "precision": 0.7608695652173914,
+          "recall": 1.0,
+          "f1": 0.8641975308641976,
+          "f2": 0.9408602150537635
+        }
+      },
+      "by_slice": {
+        "address_varied": {
+          "tp": 16,
+          "fp": 43,
+          "fn": 0,
+          "precision": 0.2711864406779661,
+          "recall": 1.0,
+          "f1": 0.4266666666666667,
+          "f2": 0.6504065040650407,
+          "gold_entities": 16,
+          "documents": 16,
+          "coverage_recall": 0.4646766169154229,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.0
+        },
+        "bank_phone": {
+          "tp": 16,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "f2": 1.0,
+          "gold_entities": 16,
+          "documents": 16,
+          "coverage_recall": 1.0,
+          "coverage_precision": 1.0,
+          "exact_recall": 1.0
+        },
+        "education": {
+          "tp": 52,
+          "fp": 12,
+          "fn": 17,
+          "precision": 0.8125,
+          "recall": 0.7536231884057971,
+          "f1": 0.7819548872180452,
+          "f2": 0.7647058823529412,
+          "gold_entities": 69,
+          "documents": 18,
+          "coverage_recall": 0.7491525423728813,
+          "coverage_precision": 0.7673611111111112,
+          "exact_recall": 0.5072463768115942
+        },
+        "finance": {
+          "tp": 50,
+          "fp": 14,
+          "fn": 4,
+          "precision": 0.78125,
+          "recall": 0.9259259259259259,
+          "f1": 0.847457627118644,
+          "f2": 0.892857142857143,
+          "gold_entities": 54,
+          "documents": 18,
+          "coverage_recall": 0.8083252662149081,
+          "coverage_precision": 0.8122568093385214,
+          "exact_recall": 0.6851851851851852
+        },
+        "gov_form": {
+          "tp": 40,
+          "fp": 29,
+          "fn": 9,
+          "precision": 0.5797101449275363,
+          "recall": 0.8163265306122449,
+          "f1": 0.6779661016949153,
+          "f2": 0.7547169811320755,
+          "gold_entities": 49,
+          "documents": 17,
+          "coverage_recall": 0.6696269982238011,
+          "coverage_precision": 0.7631578947368421,
+          "exact_recall": 0.4897959183673469
+        },
+        "id_docs": {
+          "tp": 86,
+          "fp": 14,
+          "fn": 12,
+          "precision": 0.86,
+          "recall": 0.8775510204081632,
+          "f1": 0.8686868686868686,
+          "f2": 0.8739837398373983,
+          "gold_entities": 98,
+          "documents": 29,
+          "coverage_recall": 0.7797325826882477,
+          "coverage_precision": 0.9000812347684809,
+          "exact_recall": 0.7448979591836735
+        },
+        "long_form": {
+          "tp": 216,
+          "fp": 68,
+          "fn": 8,
+          "precision": 0.7605633802816901,
+          "recall": 0.9642857142857143,
+          "f1": 0.8503937007874015,
+          "f2": 0.9152542372881357,
+          "gold_entities": 224,
+          "documents": 20,
+          "coverage_recall": 0.8122907699665232,
+          "coverage_precision": 0.8281326182350073,
+          "exact_recall": 0.6875
+        },
+        "medical": {
+          "tp": 33,
+          "fp": 13,
+          "fn": 5,
+          "precision": 0.717391304347826,
+          "recall": 0.868421052631579,
+          "f1": 0.7857142857142858,
+          "f2": 0.8333333333333334,
+          "gold_entities": 38,
+          "documents": 14,
+          "coverage_recall": 0.7712230215827338,
+          "coverage_precision": 0.8023952095808383,
+          "exact_recall": 0.5789473684210527
+        },
+        "messy": {
+          "tp": 23,
+          "fp": 4,
+          "fn": 5,
+          "precision": 0.8518518518518519,
+          "recall": 0.8214285714285714,
+          "f1": 0.8363636363636364,
+          "f2": 0.827338129496403,
+          "gold_entities": 28,
+          "documents": 16,
+          "coverage_recall": 0.8162162162162162,
+          "coverage_precision": 0.8507042253521127,
+          "exact_recall": 0.6428571428571429
+        },
+        "name_no_cue": {
+          "tp": 16,
+          "fp": 0,
+          "fn": 5,
+          "precision": 1.0,
+          "recall": 0.7619047619047619,
+          "f1": 0.8648648648648648,
+          "f2": 0.7999999999999999,
+          "gold_entities": 21,
+          "documents": 18,
+          "coverage_recall": 0.7224080267558528,
+          "coverage_precision": 0.7012987012987013,
+          "exact_recall": 0.42857142857142855
+        },
+        "negative": {
+          "gold_entities": 0,
+          "documents": 45,
+          "false_positives": 14,
+          "clean_docs": 32,
+          "clean_doc_rate": 0.7111111111111111,
+          "coverage_precision": 0.0
+        },
+        "student_id_varied": {
+          "tp": 13,
+          "fp": 4,
+          "fn": 15,
+          "precision": 0.7647058823529411,
+          "recall": 0.4642857142857143,
+          "f1": 0.5777777777777777,
+          "f2": 0.5038759689922481,
+          "gold_entities": 28,
+          "documents": 25,
+          "coverage_recall": 0.660377358490566,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.4642857142857143
+        }
+      },
+      "excluded_predictions": 163,
+      "confidence_intervals": {
+        "overall_f2": {
+          "metric": "f2",
+          "method": "percentile",
+          "unit": "document",
+          "scope": "shared_11",
+          "confidence": 0.95,
+          "iterations": 10000,
+          "seed": 5252,
+          "lower": 0.8106083308360802,
+          "upper": 0.866047347917291
+        }
+      }
+    },
+    "out_of_scheme_predictions": 163,
+    "type_scheme": {
+      "name": "shared-11",
+      "types": [
+        "THAI_ID",
+        "PHONE",
+        "EMAIL",
+        "BANK_ACCOUNT",
+        "CREDIT_CARD",
+        "PASSPORT",
+        "VEHICLE_PLATE",
+        "STUDENT_ID",
+        "DATE_OF_BIRTH",
+        "NAME",
+        "ADDRESS"
+      ],
+      "out_of_scheme_bucket": "OUT_OF_SCHEME"
+    }
+  },
+  "ner_chunks": {
+    "attempted": 272,
+    "succeeded": 272,
+    "skipped": 0
+  },
+  "integrity": {
+    "ok": true,
+    "no_ner_chunks_skipped": true
+  },
+  "address_posthoc": {
+    "unmatched_predictions": 183,
+    "inside_gold_address": 175,
+    "outside_gold_address": 8
+  },
+  "evaluator": {
+    "commit": "56350dad65a7949248241326ebab3b7cac4c32be",
+    "scorer_sha256": "d7914c48d2a7f7740d1912f5e928bb745193cdeb91d3a86af6d1f2ba92726bdf",
+    "evidence_builder_sha256": "25d7e6201bb56a9fb1d2cbb76db94f39eb386bbef45fcf6e47f595a193b94bd6",
+    "exporter_sha256": "43b579bca60dd9a6d070252e54854f7d0f9af0158893c7db279deed11a9f67d4"
+  },
+  "predictions": {
+    "path": "research/stt52/evidence/gold-v3-crf-predictions.jsonl",
+    "sha256": "b9760636e713d2f8618b84684fc2228bfef8c39ba91c1c7e294245a5aa8de39e",
+    "contains_text": false
+  }
+}

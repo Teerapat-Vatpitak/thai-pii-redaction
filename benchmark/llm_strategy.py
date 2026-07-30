@@ -17,28 +17,17 @@ from __future__ import annotations
 import json
 import re
 
-# Exactly the gold set's vocabulary. Anything else the model invents is dropped
-# before scoring, and the drop is counted so the run can report it.
-GOLD_TYPES = (
-    "NAME",
-    "ADDRESS",
-    "PHONE",
-    "EMAIL",
-    "THAI_ID",
-    "BANK_ACCOUNT",
-    "CREDIT_CARD",
-    "PASSPORT",
-    "VEHICLE_PLATE",
-    "STUDENT_ID",
-    "DATE_OF_BIRTH",
-)
+from .types import OUT_OF_SCHEME_TYPE, SHARED_ENTITY_TYPE_SET, SHARED_ENTITY_TYPES
+
+# Backward-compatible name for callers that imported the old local constant.
+GOLD_TYPES = SHARED_ENTITY_TYPES
 
 SYSTEM_PROMPT = """คุณคือระบบตรวจจับข้อมูลส่วนบุคคล (PII) ในข้อความภาษาไทย
 
 หน้าที่ของคุณคือหาข้อมูลส่วนบุคคลทุกชิ้นในข้อความที่ได้รับ แล้วตอบกลับเป็น JSON array เท่านั้น
 
 ชนิดข้อมูลที่ต้องหา ใช้ชื่อชนิดตามนี้เป๊ะ ห้ามคิดชื่อใหม่
-- NAME ชื่อบุคคล รวมคำนำหน้าถ้ามี เช่น นาย นาง นางสาว ด.ช. ด.ญ.
+- NAME ชื่อบุคคล ไม่รวมคำนำหน้า เช่น นาย นาง นางสาว ด.ช. ด.ญ.
 - ADDRESS ที่อยู่ ตั้งแต่บ้านเลขที่หรือเลขที่ ไปจนจบรหัสไปรษณีย์ นับเป็นชิ้นเดียว
 - PHONE เบอร์โทรศัพท์ ทั้งมือถือและบ้าน
 - EMAIL อีเมล
@@ -165,7 +154,7 @@ def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]]
     items: list[tuple[str, str]] = []
     rejected: list[str] = []
     for etype, value in parse_values(raw):
-        if etype not in GOLD_TYPES:
+        if etype not in SHARED_ENTITY_TYPE_SET:
             rejected.append(etype)
             if not strict:
                 items.append((UNTYPED, value))
@@ -176,22 +165,35 @@ def parse_items(raw: str, *, strict: bool = True) -> tuple[list[tuple[str, str]]
 
 def locate(text: str, items: list[tuple[str, str]]) -> list[tuple[int, int, str]]:
     """Map returned values onto character spans, longest-first, non-overlapping."""
+    return locate_tiered(text, [items])
+
+
+def locate_tiered(text: str, tiers: list[list[tuple[str, str]]]) -> list[tuple[int, int, str]]:
+    """locate() with priority tiers over one shared claim map: every item in
+    an earlier tier claims before any item in a later tier is looked at.
+
+    score_values puts shared-scheme rows in the first tier so an out-of-scheme
+    row whose value is merely longer cannot steal the very characters a
+    correctly-typed row named — that theft would turn one TP into an FP plus
+    an FN in the unrestricted view and into a bare FN in the shared-11 view,
+    under-scoring a model that answered correctly."""
     claimed = [False] * len(text)
     spans: list[tuple[int, int, str]] = []
-    # Longest first so "45/12 หมู่ 3 ..." claims its range before a bare "45/12"
-    # inside it can, mirroring reverse_mapper's rule.
-    for etype, value in sorted(items, key=lambda it: len(it[1]), reverse=True):
-        start = 0
-        while True:
-            i = text.find(value, start)
-            if i < 0:
-                break
-            j = i + len(value)
-            if not any(claimed[i:j]):
-                for k in range(i, j):
-                    claimed[k] = True
-                spans.append((i, j, etype))
-            start = i + 1
+    for items in tiers:
+        # Longest first so "45/12 หมู่ 3 ..." claims its range before a bare
+        # "45/12" inside it can, mirroring reverse_mapper's rule.
+        for etype, value in sorted(items, key=lambda it: len(it[1]), reverse=True):
+            start = 0
+            while True:
+                i = text.find(value, start)
+                if i < 0:
+                    break
+                j = i + len(value)
+                if not any(claimed[i:j]):
+                    for k in range(i, j):
+                        claimed[k] = True
+                    spans.append((i, j, etype))
+                start = i + 1
     spans.sort()
     return spans
 
@@ -200,17 +202,24 @@ def score_values(text: str, values: list[tuple[str, str]]) -> dict:
     """Everything score_raw does after parsing. Re-scorable from a cache entry
     holding only the parsed (type, value) pairs -- no network call, and no
     response body kept around to re-score from."""
-    rejected = [etype for etype, _ in values if etype not in GOLD_TYPES]
-    typed = [(etype, value) for etype, value in values if etype in GOLD_TYPES]
+    typed = [(etype or OUT_OF_SCHEME_TYPE, value) for etype, value in values]
     untyped = [(UNTYPED, value) for _, value in values]
-    typed_spans = locate(text, typed)
+    typed_spans = locate_tiered(
+        text,
+        [
+            [row for row in typed if row[0] in SHARED_ENTITY_TYPE_SET],
+            [row for row in typed if row[0] not in SHARED_ENTITY_TYPE_SET],
+        ],
+    )
     untyped_spans = locate(text, untyped)
+    shared_rows = sum(1 for etype, _ in typed if etype in SHARED_ENTITY_TYPE_SET)
     return {
         "spans": typed_spans,
         "untyped_spans": untyped_spans,
         "meta": {
             "returned": len(untyped),
-            "kept_typed": len(typed),
+            "typed_rows": len(typed),
+            "kept_typed": shared_rows,
             "located": len(typed_spans),
             # A value the model invented or paraphrased cannot be found in the
             # source. Counting it separately keeps "the model hallucinated"
@@ -220,7 +229,7 @@ def score_values(text: str, values: list[tuple[str, str]]) -> dict:
             # repeated value, and a negative count silently cancels out a
             # real unlocatable value elsewhere in the same run.
             "unlocatable": sum(1 for _, value in untyped if value not in text),
-            "rejected_types": rejected,
+            "out_of_scheme_types": len(typed) - shared_rows,
             # True when the provider produced no usable rows at all -- the
             # body was blank, the reasoning ran past the token budget and got
             # stripped by _UNCLOSED_THINK before any row could be read, or it

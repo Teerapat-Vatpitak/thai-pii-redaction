@@ -1,0 +1,693 @@
+{
+  "schema": 2,
+  "paper_title": "Negative Controls and Complementary Span Metrics for Thai PII Redaction",
+  "corpus": {
+    "gold_version": "gold-v3",
+    "commit": "d93d10b17be6783d5c684cb47f25d4156ed6fb4b",
+    "path": "benchmark/data/gold.jsonl",
+    "sha256": "d2591229e0bae20d27e5a8a20aa5b41ee3cc18622a54dd39b2a2c363f761fd5d",
+    "documents": 252,
+    "entities": 641,
+    "checkout_sha256": "e31d79bb5716e827b329a13bd02797f09e90d7bee6497e0d8ba63d581fbf6749"
+  },
+  "baseline": {
+    "provider": "tokenmind",
+    "model": "thaillm-8b",
+    "request": {
+      "provider_spec": "tokenmind",
+      "protocol": "openai-compatible",
+      "model": "thaillm-8b",
+      "max_output_tokens": 4096,
+      "extra_body": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      },
+      "temperature": 0.0,
+      "stream": false
+    },
+    "prompt_sha256": "9ecfb364184b998e850ff7446338686cec799e6e5dc292767486baa487605cb9",
+    "cache_schema": 2
+  },
+  "score": {
+    "corpus": {
+      "samples": 252,
+      "entities": 641,
+      "by_type": {
+        "NAME": 199,
+        "ADDRESS": 58,
+        "PHONE": 75,
+        "EMAIL": 46,
+        "THAI_ID": 51,
+        "CREDIT_CARD": 24,
+        "DATE_OF_BIRTH": 45,
+        "VEHICLE_PLATE": 26,
+        "STUDENT_ID": 57,
+        "PASSPORT": 25,
+        "BANK_ACCOUNT": 35
+      }
+    },
+    "overall": {
+      "tp": 609,
+      "fp": 72,
+      "fn": 32,
+      "precision": 0.8942731277533039,
+      "recall": 0.9500780031201248,
+      "f1": 0.9213313161875946,
+      "f2": 0.938366718027735,
+      "gold_entities": 641,
+      "documents": 252,
+      "coverage_recall": 0.9418882072256305,
+      "coverage_precision": 0.9398860641101947,
+      "exact_recall": 0.9204368174726989
+    },
+    "by_type": {
+      "NAME": {
+        "tp": 180,
+        "fp": 6,
+        "fn": 19,
+        "precision": 0.967741935483871,
+        "recall": 0.9045226130653267,
+        "f1": 0.9350649350649352,
+        "f2": 0.9164969450101833
+      },
+      "ADDRESS": {
+        "tp": 56,
+        "fp": 10,
+        "fn": 2,
+        "precision": 0.8484848484848485,
+        "recall": 0.9655172413793104,
+        "f1": 0.9032258064516129,
+        "f2": 0.9395973154362416
+      },
+      "EMAIL": {
+        "tp": 45,
+        "fp": 0,
+        "fn": 1,
+        "precision": 1.0,
+        "recall": 0.9782608695652174,
+        "f1": 0.989010989010989,
+        "f2": 0.982532751091703
+      },
+      "PHONE": {
+        "tp": 74,
+        "fp": 7,
+        "fn": 1,
+        "precision": 0.9135802469135802,
+        "recall": 0.9866666666666667,
+        "f1": 0.9487179487179487,
+        "f2": 0.9711286089238844
+      },
+      "CREDIT_CARD": {
+        "tp": 23,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9583333333333334,
+        "recall": 0.9583333333333334,
+        "f1": 0.9583333333333334,
+        "f2": 0.9583333333333334
+      },
+      "THAI_ID": {
+        "tp": 49,
+        "fp": 17,
+        "fn": 2,
+        "precision": 0.7424242424242424,
+        "recall": 0.9607843137254902,
+        "f1": 0.8376068376068376,
+        "f2": 0.9074074074074073
+      },
+      "DATE_OF_BIRTH": {
+        "tp": 44,
+        "fp": 16,
+        "fn": 1,
+        "precision": 0.7333333333333333,
+        "recall": 0.9777777777777777,
+        "f1": 0.838095238095238,
+        "f2": 0.9166666666666666
+      },
+      "VEHICLE_PLATE": {
+        "tp": 26,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.9285714285714286,
+        "recall": 1.0,
+        "f1": 0.962962962962963,
+        "f2": 0.9848484848484849
+      },
+      "STUDENT_ID": {
+        "tp": 56,
+        "fp": 4,
+        "fn": 1,
+        "precision": 0.9333333333333333,
+        "recall": 0.9824561403508771,
+        "f1": 0.9572649572649572,
+        "f2": 0.9722222222222221
+      },
+      "PASSPORT": {
+        "tp": 22,
+        "fp": 0,
+        "fn": 3,
+        "precision": 1.0,
+        "recall": 0.88,
+        "f1": 0.9361702127659575,
+        "f2": 0.9016393442622952
+      },
+      "BANK_ACCOUNT": {
+        "tp": 34,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9714285714285714,
+        "recall": 0.9714285714285714,
+        "f1": 0.9714285714285714,
+        "f2": 0.9714285714285714
+      },
+      "OUT_OF_SCHEME": {
+        "tp": 0,
+        "fp": 8,
+        "fn": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "f2": 0.0
+      }
+    },
+    "by_slice": {
+      "address_varied": {
+        "tp": 16,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "f2": 1.0,
+        "gold_entities": 16,
+        "documents": 16,
+        "coverage_recall": 1.0,
+        "coverage_precision": 1.0,
+        "exact_recall": 1.0
+      },
+      "bank_phone": {
+        "tp": 15,
+        "fp": 2,
+        "fn": 1,
+        "precision": 0.8823529411764706,
+        "recall": 0.9375,
+        "f1": 0.9090909090909091,
+        "f2": 0.925925925925926,
+        "gold_entities": 16,
+        "documents": 16,
+        "coverage_recall": 1.0,
+        "coverage_precision": 0.8938547486033519,
+        "exact_recall": 0.9375
+      },
+      "education": {
+        "tp": 63,
+        "fp": 1,
+        "fn": 6,
+        "precision": 0.984375,
+        "recall": 0.9130434782608695,
+        "f1": 0.9473684210526315,
+        "f2": 0.926470588235294,
+        "gold_entities": 69,
+        "documents": 18,
+        "coverage_recall": 0.8745762711864407,
+        "coverage_precision": 0.9866156787762906,
+        "exact_recall": 0.9130434782608695
+      },
+      "finance": {
+        "tp": 53,
+        "fp": 2,
+        "fn": 1,
+        "precision": 0.9636363636363636,
+        "recall": 0.9814814814814815,
+        "f1": 0.9724770642201834,
+        "f2": 0.977859778597786,
+        "gold_entities": 54,
+        "documents": 18,
+        "coverage_recall": 0.9864472410454985,
+        "coverage_precision": 0.9714013346043852,
+        "exact_recall": 0.9814814814814815
+      },
+      "gov_form": {
+        "tp": 49,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.98,
+        "recall": 1.0,
+        "f1": 0.98989898989899,
+        "f2": 0.9959349593495935,
+        "gold_entities": 49,
+        "documents": 17,
+        "coverage_recall": 0.9928952042628775,
+        "coverage_precision": 1.0,
+        "exact_recall": 0.9591836734693877
+      },
+      "id_docs": {
+        "tp": 89,
+        "fp": 0,
+        "fn": 9,
+        "precision": 1.0,
+        "recall": 0.9081632653061225,
+        "f1": 0.9518716577540107,
+        "f2": 0.9251559251559252,
+        "gold_entities": 98,
+        "documents": 29,
+        "coverage_recall": 0.8944405348346235,
+        "coverage_precision": 1.0,
+        "exact_recall": 0.8775510204081632
+      },
+      "long_form": {
+        "tp": 211,
+        "fp": 4,
+        "fn": 13,
+        "precision": 0.9813953488372092,
+        "recall": 0.9419642857142857,
+        "f1": 0.9612756264236901,
+        "f2": 0.9495949594959495,
+        "gold_entities": 224,
+        "documents": 20,
+        "coverage_recall": 0.9227642276422764,
+        "coverage_precision": 1.0,
+        "exact_recall": 0.9107142857142857
+      },
+      "medical": {
+        "tp": 38,
+        "fp": 4,
+        "fn": 0,
+        "precision": 0.9047619047619048,
+        "recall": 1.0,
+        "f1": 0.9500000000000001,
+        "f2": 0.9793814432989691,
+        "gold_entities": 38,
+        "documents": 14,
+        "coverage_recall": 0.981294964028777,
+        "coverage_precision": 0.9368131868131868,
+        "exact_recall": 0.9473684210526315
+      },
+      "messy": {
+        "tp": 27,
+        "fp": 4,
+        "fn": 1,
+        "precision": 0.8709677419354839,
+        "recall": 0.9642857142857143,
+        "f1": 0.9152542372881356,
+        "f2": 0.9440559440559441,
+        "gold_entities": 28,
+        "documents": 16,
+        "coverage_recall": 0.9486486486486486,
+        "coverage_precision": 0.9261213720316622,
+        "exact_recall": 0.8571428571428571
+      },
+      "name_no_cue": {
+        "tp": 21,
+        "fp": 2,
+        "fn": 0,
+        "precision": 0.9130434782608695,
+        "recall": 1.0,
+        "f1": 0.9545454545454545,
+        "f2": 0.9813084112149532,
+        "gold_entities": 21,
+        "documents": 18,
+        "coverage_recall": 0.9765886287625418,
+        "coverage_precision": 0.9733333333333334,
+        "exact_recall": 0.9047619047619048
+      },
+      "negative": {
+        "gold_entities": 0,
+        "documents": 45,
+        "false_positives": 51,
+        "clean_docs": 8,
+        "clean_doc_rate": 0.17777777777777778,
+        "coverage_precision": 0.0
+      },
+      "student_id_varied": {
+        "tp": 27,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9642857142857143,
+        "recall": 0.9642857142857143,
+        "f1": 0.9642857142857143,
+        "f2": 0.9642857142857143,
+        "gold_entities": 28,
+        "documents": 25,
+        "coverage_recall": 1.0,
+        "coverage_precision": 1.0,
+        "exact_recall": 0.9642857142857143
+      }
+    },
+    "confidence_intervals": {
+      "overall_f2": {
+        "metric": "f2",
+        "method": "percentile",
+        "unit": "document",
+        "scope": "unrestricted",
+        "confidence": 0.95,
+        "iterations": 10000,
+        "seed": 5252,
+        "lower": 0.9142496847414882,
+        "upper": 0.9588159588159588
+      }
+    },
+    "shared_11": {
+      "overall": {
+        "tp": 609,
+        "fp": 64,
+        "fn": 32,
+        "precision": 0.9049034175334324,
+        "recall": 0.9500780031201248,
+        "f1": 0.9269406392694064,
+        "f2": 0.9406858202038925,
+        "gold_entities": 641,
+        "documents": 252,
+        "coverage_recall": 0.9418882072256305,
+        "coverage_precision": 0.9467283316204179,
+        "exact_recall": 0.9204368174726989
+      },
+      "by_type": {
+        "NAME": {
+          "tp": 180,
+          "fp": 6,
+          "fn": 19,
+          "precision": 0.967741935483871,
+          "recall": 0.9045226130653267,
+          "f1": 0.9350649350649352,
+          "f2": 0.9164969450101833
+        },
+        "ADDRESS": {
+          "tp": 56,
+          "fp": 10,
+          "fn": 2,
+          "precision": 0.8484848484848485,
+          "recall": 0.9655172413793104,
+          "f1": 0.9032258064516129,
+          "f2": 0.9395973154362416
+        },
+        "EMAIL": {
+          "tp": 45,
+          "fp": 0,
+          "fn": 1,
+          "precision": 1.0,
+          "recall": 0.9782608695652174,
+          "f1": 0.989010989010989,
+          "f2": 0.982532751091703
+        },
+        "PHONE": {
+          "tp": 74,
+          "fp": 7,
+          "fn": 1,
+          "precision": 0.9135802469135802,
+          "recall": 0.9866666666666667,
+          "f1": 0.9487179487179487,
+          "f2": 0.9711286089238844
+        },
+        "CREDIT_CARD": {
+          "tp": 23,
+          "fp": 1,
+          "fn": 1,
+          "precision": 0.9583333333333334,
+          "recall": 0.9583333333333334,
+          "f1": 0.9583333333333334,
+          "f2": 0.9583333333333334
+        },
+        "THAI_ID": {
+          "tp": 49,
+          "fp": 17,
+          "fn": 2,
+          "precision": 0.7424242424242424,
+          "recall": 0.9607843137254902,
+          "f1": 0.8376068376068376,
+          "f2": 0.9074074074074073
+        },
+        "DATE_OF_BIRTH": {
+          "tp": 44,
+          "fp": 16,
+          "fn": 1,
+          "precision": 0.7333333333333333,
+          "recall": 0.9777777777777777,
+          "f1": 0.838095238095238,
+          "f2": 0.9166666666666666
+        },
+        "VEHICLE_PLATE": {
+          "tp": 26,
+          "fp": 2,
+          "fn": 0,
+          "precision": 0.9285714285714286,
+          "recall": 1.0,
+          "f1": 0.962962962962963,
+          "f2": 0.9848484848484849
+        },
+        "STUDENT_ID": {
+          "tp": 56,
+          "fp": 4,
+          "fn": 1,
+          "precision": 0.9333333333333333,
+          "recall": 0.9824561403508771,
+          "f1": 0.9572649572649572,
+          "f2": 0.9722222222222221
+        },
+        "PASSPORT": {
+          "tp": 22,
+          "fp": 0,
+          "fn": 3,
+          "precision": 1.0,
+          "recall": 0.88,
+          "f1": 0.9361702127659575,
+          "f2": 0.9016393442622952
+        },
+        "BANK_ACCOUNT": {
+          "tp": 34,
+          "fp": 1,
+          "fn": 1,
+          "precision": 0.9714285714285714,
+          "recall": 0.9714285714285714,
+          "f1": 0.9714285714285714,
+          "f2": 0.9714285714285714
+        }
+      },
+      "by_slice": {
+        "address_varied": {
+          "tp": 16,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "f2": 1.0,
+          "gold_entities": 16,
+          "documents": 16,
+          "coverage_recall": 1.0,
+          "coverage_precision": 1.0,
+          "exact_recall": 1.0
+        },
+        "bank_phone": {
+          "tp": 15,
+          "fp": 2,
+          "fn": 1,
+          "precision": 0.8823529411764706,
+          "recall": 0.9375,
+          "f1": 0.9090909090909091,
+          "f2": 0.925925925925926,
+          "gold_entities": 16,
+          "documents": 16,
+          "coverage_recall": 1.0,
+          "coverage_precision": 0.8938547486033519,
+          "exact_recall": 0.9375
+        },
+        "education": {
+          "tp": 63,
+          "fp": 1,
+          "fn": 6,
+          "precision": 0.984375,
+          "recall": 0.9130434782608695,
+          "f1": 0.9473684210526315,
+          "f2": 0.926470588235294,
+          "gold_entities": 69,
+          "documents": 18,
+          "coverage_recall": 0.8745762711864407,
+          "coverage_precision": 0.9866156787762906,
+          "exact_recall": 0.9130434782608695
+        },
+        "finance": {
+          "tp": 53,
+          "fp": 2,
+          "fn": 1,
+          "precision": 0.9636363636363636,
+          "recall": 0.9814814814814815,
+          "f1": 0.9724770642201834,
+          "f2": 0.977859778597786,
+          "gold_entities": 54,
+          "documents": 18,
+          "coverage_recall": 0.9864472410454985,
+          "coverage_precision": 0.9714013346043852,
+          "exact_recall": 0.9814814814814815
+        },
+        "gov_form": {
+          "tp": 49,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.98,
+          "recall": 1.0,
+          "f1": 0.98989898989899,
+          "f2": 0.9959349593495935,
+          "gold_entities": 49,
+          "documents": 17,
+          "coverage_recall": 0.9928952042628775,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.9591836734693877
+        },
+        "id_docs": {
+          "tp": 89,
+          "fp": 0,
+          "fn": 9,
+          "precision": 1.0,
+          "recall": 0.9081632653061225,
+          "f1": 0.9518716577540107,
+          "f2": 0.9251559251559252,
+          "gold_entities": 98,
+          "documents": 29,
+          "coverage_recall": 0.8944405348346235,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.8775510204081632
+        },
+        "long_form": {
+          "tp": 211,
+          "fp": 4,
+          "fn": 13,
+          "precision": 0.9813953488372092,
+          "recall": 0.9419642857142857,
+          "f1": 0.9612756264236901,
+          "f2": 0.9495949594959495,
+          "gold_entities": 224,
+          "documents": 20,
+          "coverage_recall": 0.9227642276422764,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.9107142857142857
+        },
+        "medical": {
+          "tp": 38,
+          "fp": 4,
+          "fn": 0,
+          "precision": 0.9047619047619048,
+          "recall": 1.0,
+          "f1": 0.9500000000000001,
+          "f2": 0.9793814432989691,
+          "gold_entities": 38,
+          "documents": 14,
+          "coverage_recall": 0.981294964028777,
+          "coverage_precision": 0.9368131868131868,
+          "exact_recall": 0.9473684210526315
+        },
+        "messy": {
+          "tp": 27,
+          "fp": 4,
+          "fn": 1,
+          "precision": 0.8709677419354839,
+          "recall": 0.9642857142857143,
+          "f1": 0.9152542372881356,
+          "f2": 0.9440559440559441,
+          "gold_entities": 28,
+          "documents": 16,
+          "coverage_recall": 0.9486486486486486,
+          "coverage_precision": 0.9261213720316622,
+          "exact_recall": 0.8571428571428571
+        },
+        "name_no_cue": {
+          "tp": 21,
+          "fp": 2,
+          "fn": 0,
+          "precision": 0.9130434782608695,
+          "recall": 1.0,
+          "f1": 0.9545454545454545,
+          "f2": 0.9813084112149532,
+          "gold_entities": 21,
+          "documents": 18,
+          "coverage_recall": 0.9765886287625418,
+          "coverage_precision": 0.9733333333333334,
+          "exact_recall": 0.9047619047619048
+        },
+        "negative": {
+          "gold_entities": 0,
+          "documents": 45,
+          "false_positives": 43,
+          "clean_docs": 14,
+          "clean_doc_rate": 0.3111111111111111,
+          "coverage_precision": 0.0
+        },
+        "student_id_varied": {
+          "tp": 27,
+          "fp": 1,
+          "fn": 1,
+          "precision": 0.9642857142857143,
+          "recall": 0.9642857142857143,
+          "f1": 0.9642857142857143,
+          "f2": 0.9642857142857143,
+          "gold_entities": 28,
+          "documents": 25,
+          "coverage_recall": 1.0,
+          "coverage_precision": 1.0,
+          "exact_recall": 0.9642857142857143
+        }
+      },
+      "excluded_predictions": 8,
+      "confidence_intervals": {
+        "overall_f2": {
+          "metric": "f2",
+          "method": "percentile",
+          "unit": "document",
+          "scope": "shared_11",
+          "confidence": 0.95,
+          "iterations": 10000,
+          "seed": 5252,
+          "lower": 0.916393442622951,
+          "upper": 0.961112867530825
+        }
+      }
+    },
+    "out_of_scheme_predictions": 8,
+    "type_scheme": {
+      "name": "shared-11",
+      "types": [
+        "THAI_ID",
+        "PHONE",
+        "EMAIL",
+        "BANK_ACCOUNT",
+        "CREDIT_CARD",
+        "PASSPORT",
+        "VEHICLE_PLATE",
+        "STUDENT_ID",
+        "DATE_OF_BIRTH",
+        "NAME",
+        "ADDRESS"
+      ],
+      "out_of_scheme_bucket": "OUT_OF_SCHEME"
+    }
+  },
+  "cache_fill": {
+    "cached": 0,
+    "called": 252,
+    "failed": 0,
+    "synthetic_documents_only": true,
+    "report_sha256": "7cffbf141909bf974c924b732e79eb885f28e6f508a0137a4a1934d4c085575c"
+  },
+  "final_rescore": {
+    "cache_only": true,
+    "run": {
+      "cached": 252,
+      "called": 0,
+      "failed": 0,
+      "unlocatable": 2,
+      "no_values": 8
+    }
+  },
+  "evaluator": {
+    "commit": "56350dad65a7949248241326ebab3b7cac4c32be",
+    "scorer_sha256": "d7914c48d2a7f7740d1912f5e928bb745193cdeb91d3a86af6d1f2ba92726bdf",
+    "runner_sha256": "411bad7514079c541f5420ca9aa6b4498c60b1e71a3da570cebe175f6aa342af",
+    "evidence_builder_sha256": "25d7e6201bb56a9fb1d2cbb76db94f39eb386bbef45fcf6e47f595a193b94bd6"
+  },
+  "predictions": {
+    "path": "research/stt52/evidence/gold-v3-tokenmind-thaillm-8b-predictions.jsonl",
+    "sha256": "2280d198a58646a4ac51d04350c1012d79f6b433463d2dcbcac064d07adfe821",
+    "contains_text": false
+  }
+}

@@ -17,21 +17,9 @@ from pii_redactor.anonymizer.tb_generator import (
     SURNAMES,
 )
 
-from .types import GoldSpan, Sample
+from .types import SHARED_ENTITY_TYPES, GoldSpan, Sample
 
-ENTITY_TYPES = [
-    "THAI_ID",
-    "PHONE",
-    "EMAIL",
-    "BANK_ACCOUNT",
-    "CREDIT_CARD",
-    "PASSPORT",
-    "VEHICLE_PLATE",
-    "STUDENT_ID",
-    "DATE_OF_BIRTH",
-    "NAME",
-    "ADDRESS",
-]
+ENTITY_TYPES = list(SHARED_ENTITY_TYPES)
 
 
 def _sample_value(entity_type: str, rng: random.Random) -> str:

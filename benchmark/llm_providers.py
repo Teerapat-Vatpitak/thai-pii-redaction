@@ -25,6 +25,45 @@ class ProviderUnavailable(RuntimeError):
     """Credential or endpoint missing. Raised at construction, never mid-run."""
 
 
+def provider_request_config(spec: str) -> dict:
+    """Return the safe request settings that affect model output."""
+    common = {
+        "temperature": 0.0,
+        "stream": False,
+    }
+    if spec == "pathumma":
+        return {
+            "provider_spec": spec,
+            "protocol": "aiforthai-form",
+            "model": "pathumma",
+            "max_output_tokens": 1024,
+            "extra_body": {},
+            **common,
+        }
+    if spec == "tokenmind":
+        return {
+            "provider_spec": spec,
+            "protocol": "openai-compatible",
+            "model": "thaillm-8b",
+            "max_output_tokens": 4096,
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+            **common,
+        }
+    if ":" not in spec:
+        raise ValueError(f"unknown provider spec {spec!r}")
+    provider, model = spec.split(":", 1)
+    if provider not in {"dotblue", "thaillm"} or not model:
+        raise ValueError(f"unknown provider {provider!r}")
+    return {
+        "provider_spec": spec,
+        "protocol": "openai-compatible",
+        "model": model,
+        "max_output_tokens": 4096,
+        "extra_body": {},
+        **common,
+    }
+
+
 def _retrying_post(send, *, attempts: int = 3):
     """Retry transient failures only (timeout, network, 429, 5xx)."""
     delay = 2.0
@@ -151,8 +190,12 @@ class OpenAICompatCaller:
 
 def build_caller(spec: str):
     """`pathumma`, `tokenmind`, `dotblue:<model>`, or `thaillm:<model>`."""
+    config = provider_request_config(spec)
     if spec == "pathumma":
-        return PathummaCaller()
+        return PathummaCaller(
+            model=config["model"],
+            max_tokens=config["max_output_tokens"],
+        )
     if spec == "tokenmind":
         # The hackathon LiteLLM gateway (TOKENMIND_BASE_URL), NOT the
         # thaillm.or.th service behind THAILLM_BASE_URL -- different host,
@@ -161,14 +204,13 @@ def build_caller(spec: str):
         # thinking disabled to match the product's TokenmindProvider config,
         # so the benchmark measures the model as it would actually be used.
         return OpenAICompatCaller(
-            "thaillm-8b",
+            config["model"],
             base_url_env="TOKENMIND_BASE_URL",
             api_key_env="TOKENMIND_API_KEY",
             name="tokenmind:thaillm-8b",
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            max_tokens=config["max_output_tokens"],
+            extra_body=config["extra_body"],
         )
-    if ":" not in spec:
-        raise ValueError(f"unknown provider spec {spec!r}")
     provider, model = spec.split(":", 1)
     if provider == "dotblue":
         return OpenAICompatCaller(
@@ -176,6 +218,7 @@ def build_caller(spec: str):
             base_url_env="PSU_DOTBLUE_BASE_URL",
             api_key_env="DOTBLUE_API_KEY",
             name=f"dotblue:{model}",
+            max_tokens=config["max_output_tokens"],
         )
     if provider == "thaillm":
         return OpenAICompatCaller(
@@ -183,5 +226,6 @@ def build_caller(spec: str):
             base_url_env="THAILLM_BASE_URL",
             api_key_env="THAILLM_API_KEY",
             name=f"thaillm:{model}",
+            max_tokens=config["max_output_tokens"],
         )
     raise ValueError(f"unknown provider {provider!r}")

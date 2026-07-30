@@ -1,0 +1,252 @@
+{"doc_id": "nc01", "spans": [[0, 32, "NAME"]]}
+{"doc_id": "nc02", "spans": [[20, 33, "NAME"]]}
+{"doc_id": "nc03", "spans": [[7, 21, "NAME"]]}
+{"doc_id": "nc04", "spans": [[18, 32, "NAME"], [54, 68, "NAME"]]}
+{"doc_id": "nc05", "spans": [[21, 37, "NAME"]]}
+{"doc_id": "nc06", "spans": [[2, 17, "NAME"]]}
+{"doc_id": "nc07", "spans": [[15, 34, "NAME"]]}
+{"doc_id": "nc08", "spans": [[0, 30, "NAME"]]}
+{"doc_id": "nc09", "spans": []}
+{"doc_id": "nc10", "spans": [[0, 29, "NAME"]]}
+{"doc_id": "nc11", "spans": [[0, 36, "NAME"], [41, 53, "NAME"]]}
+{"doc_id": "nc12", "spans": [[21, 29, "NAME"]]}
+{"doc_id": "nc13", "spans": []}
+{"doc_id": "nc14", "spans": [[7, 20, "NAME"]]}
+{"doc_id": "nc15", "spans": []}
+{"doc_id": "nc16", "spans": [[0, 21, "NAME"]]}
+{"doc_id": "nc17", "spans": []}
+{"doc_id": "nc18", "spans": [[0, 22, "NAME"]]}
+{"doc_id": "ad01", "spans": [[28, 33, "ADDRESS"], [45, 51, "ADDRESS"], [57, 64, "ADDRESS"], [72, 78, "ADDRESS"], [79, 84, "POSTAL_CODE"]]}
+{"doc_id": "ad02", "spans": [[28, 39, "ADDRESS"], [43, 51, "ADDRESS"], [56, 66, "ADDRESS"], [70, 80, "ADDRESS"], [81, 94, "ADDRESS"], [95, 100, "POSTAL_CODE"]]}
+{"doc_id": "ad03", "spans": [[11, 26, "ORGANIZATION"], [27, 31, "ADDRESS"], [32, 44, "ADDRESS"], [48, 56, "ADDRESS"], [61, 66, "ADDRESS"], [70, 77, "ADDRESS"], [78, 82, "ADDRESS"], [83, 88, "POSTAL_CODE"]]}
+{"doc_id": "ad04", "spans": [[39, 47, "ADDRESS"], [50, 55, "ADDRESS"], [58, 67, "ADDRESS"]]}
+{"doc_id": "ad05", "spans": [[47, 54, "LOCATION"], [58, 66, "ADDRESS"], [86, 94, "LOCATION"]]}
+{"doc_id": "ad06", "spans": [[19, 34, "ADDRESS"], [45, 53, "ADDRESS"], [59, 67, "ADDRESS"], [75, 80, "POSTAL_CODE"]]}
+{"doc_id": "ad07", "spans": [[24, 27, "ADDRESS"], [31, 44, "ADDRESS"], [49, 54, "ADDRESS"], [60, 74, "ADDRESS"], [75, 80, "POSTAL_CODE"]]}
+{"doc_id": "ad08", "spans": [[27, 35, "ADDRESS"], [40, 42, "ADDRESS"], [59, 72, "ADDRESS"]]}
+{"doc_id": "ad09", "spans": [[46, 53, "ADDRESS"], [59, 64, "ADDRESS"], [72, 82, "ADDRESS"], [83, 88, "POSTAL_CODE"]]}
+{"doc_id": "ad10", "spans": [[18, 39, "NAME"], [57, 66, "ADDRESS"], [72, 77, "ADDRESS"]]}
+{"doc_id": "ad11", "spans": [[20, 29, "ADDRESS"], [34, 38, "ADDRESS"], [44, 49, "ADDRESS"], [57, 70, "ADDRESS"], [71, 76, "POSTAL_CODE"]]}
+{"doc_id": "ad12", "spans": [[28, 33, "ADDRESS"], [37, 48, "ADDRESS"], [53, 60, "ADDRESS"], [64, 73, "ADDRESS"], [74, 78, "ADDRESS"], [79, 84, "POSTAL_CODE"]]}
+{"doc_id": "ad13", "spans": [[0, 12, "LOCATION"], [20, 22, "ADDRESS"], [39, 48, "ADDRESS"], [54, 59, "ADDRESS"]]}
+{"doc_id": "ad14", "spans": [[22, 33, "ADDRESS"], [38, 44, "ADDRESS"], [50, 58, "ADDRESS"], [59, 67, "ADDRESS"], [68, 73, "POSTAL_CODE"]]}
+{"doc_id": "ad15", "spans": [[34, 37, "ADDRESS"], [48, 55, "ADDRESS"], [60, 67, "ADDRESS"], [73, 80, "ADDRESS"], [81, 91, "ADDRESS"], [92, 97, "POSTAL_CODE"]]}
+{"doc_id": "ad16", "spans": [[19, 29, "ADDRESS"], [36, 43, "ADDRESS"], [44, 52, "ADDRESS"], [53, 58, "POSTAL_CODE"]]}
+{"doc_id": "ms01", "spans": [[25, 35, "PHONE"], [45, 59, "EMAIL"]]}
+{"doc_id": "ms02", "spans": [[5, 15, "PHONE"], [26, 48, "EMAIL"]]}
+{"doc_id": "ms03", "spans": [[20, 30, "PHONE"], [39, 41, "ADDRESS"], [45, 53, "ADDRESS"], [54, 58, "ADDRESS"]]}
+{"doc_id": "ms04", "spans": [[7, 20, "THAI_ID"], [34, 39, "ADDRESS"]]}
+{"doc_id": "ms05", "spans": [[37, 50, "THAI_ID"], [55, 65, "PHONE"]]}
+{"doc_id": "ms06", "spans": [[14, 43, "EMAIL"]]}
+{"doc_id": "ms07", "spans": [[18, 37, "CREDIT_CARD"]]}
+{"doc_id": "ms08", "spans": [[27, 32, "MEDICAL_ID"]]}
+{"doc_id": "ms09", "spans": [[9, 18, "PHONE"], [25, 34, "PHONE"]]}
+{"doc_id": "ms10", "spans": [[10, 37, "EMAIL"], [48, 58, "DATE_OF_BIRTH"]]}
+{"doc_id": "ms11", "spans": [[8, 16, "VEHICLE_PLATE"]]}
+{"doc_id": "ms12", "spans": [[12, 20, "STUDENT_ID"], [20, 37, "ORGANIZATION"]]}
+{"doc_id": "ms13", "spans": [[20, 29, "PASSPORT"]]}
+{"doc_id": "ms14", "spans": [[0, 37, "NAME"], [38, 48, "PHONE"], [58, 64, "DATE"]]}
+{"doc_id": "ms15", "spans": [[33, 43, "PHONE"], [51, 62, "PHONE"]]}
+{"doc_id": "ms16", "spans": [[0, 28, "NAME"], [42, 52, "BANK_ACCOUNT"]]}
+{"doc_id": "bp01", "spans": [[12, 22, "BANK_ACCOUNT"], [37, 45, "LOCATION"]]}
+{"doc_id": "bp02", "spans": [[4, 14, "PHONE"]]}
+{"doc_id": "bp03", "spans": [[19, 29, "BANK_ACCOUNT"], [39, 58, "ORGANIZATION"]]}
+{"doc_id": "bp04", "spans": [[18, 28, "PHONE"]]}
+{"doc_id": "bp05", "spans": [[0, 19, "ORGANIZATION"], [27, 37, "BANK_ACCOUNT"]]}
+{"doc_id": "bp06", "spans": [[26, 36, "PHONE"]]}
+{"doc_id": "bp07", "spans": [[24, 34, "BANK_ACCOUNT"]]}
+{"doc_id": "bp08", "spans": [[35, 45, "PHONE"]]}
+{"doc_id": "bp09", "spans": [[25, 35, "BANK_ACCOUNT"], [36, 52, "ORGANIZATION"]]}
+{"doc_id": "bp10", "spans": [[22, 32, "PHONE"]]}
+{"doc_id": "bp11", "spans": [[19, 29, "BANK_ACCOUNT"]]}
+{"doc_id": "bp12", "spans": [[6, 16, "PHONE"]]}
+{"doc_id": "bp13", "spans": [[30, 40, "BANK_ACCOUNT"]]}
+{"doc_id": "bp14", "spans": [[7, 17, "PHONE"]]}
+{"doc_id": "bp15", "spans": [[13, 23, "BANK_ACCOUNT"]]}
+{"doc_id": "bp16", "spans": [[15, 25, "PHONE"]]}
+{"doc_id": "gf01", "spans": [[34, 54, "NAME"], [74, 87, "THAI_ID"], [103, 107, "ADDRESS"], [119, 127, "ADDRESS"], [133, 138, "ADDRESS"], [146, 151, "ADDRESS"], [152, 157, "POSTAL_CODE"]]}
+{"doc_id": "gf02", "spans": [[17, 32, "ADDRESS"], [58, 78, "NAME"], [134, 148, "DATE"]]}
+{"doc_id": "gf03", "spans": [[92, 114, "NAME"], [115, 128, "THAI_ID"], [147, 157, "PHONE"]]}
+{"doc_id": "gf04", "spans": [[25, 37, "NAME"], [60, 77, "DATE_OF_BIRTH"]]}
+{"doc_id": "gf05", "spans": [[49, 85, "NAME"], [86, 99, "THAI_ID"], [117, 127, "DATE_OF_BIRTH"], [148, 153, "VEHICLE_PLATE"], [165, 172, "ADDRESS"], [178, 185, "ADDRESS"], [193, 198, "ADDRESS"], [199, 204, "POSTAL_CODE"]]}
+{"doc_id": "gf06", "spans": [[44, 63, "NAME"], [83, 96, "THAI_ID"], [143, 153, "PHONE"]]}
+{"doc_id": "gf07", "spans": [[35, 54, "NAME"]]}
+{"doc_id": "gf08", "spans": [[61, 78, "ADDRESS"], [79, 92, "THAI_ID"], [104, 121, "DATE_OF_BIRTH"], [145, 149, "ADDRESS"], [153, 164, "ADDRESS"], [169, 176, "ADDRESS"], [180, 187, "ADDRESS"], [188, 201, "ADDRESS"], [202, 207, "POSTAL_CODE"]]}
+{"doc_id": "gf09", "spans": [[165, 180, "DATE"]]}
+{"doc_id": "gf10", "spans": [[36, 71, "NAME"], [72, 85, "THAI_ID"], [117, 119, "ADDRESS"], [132, 139, "ADDRESS"], [142, 147, "ADDRESS"], [150, 159, "ADDRESS"], [169, 178, "PHONE"]]}
+{"doc_id": "gf11", "spans": [[94, 109, "DATE"]]}
+{"doc_id": "gf12", "spans": [[27, 44, "NAME"], [52, 65, "THAI_ID"], [84, 92, "ADDRESS"], [97, 105, "ADDRESS"], [111, 125, "ADDRESS"], [126, 135, "ADDRESS"], [136, 141, "POSTAL_CODE"], [166, 177, "ADDRESS"], [182, 191, "ADDRESS"], [195, 202, "ADDRESS"], [203, 207, "ADDRESS"], [208, 213, "POSTAL_CODE"]]}
+{"doc_id": "gf13", "spans": [[0, 80, "NAME"], [81, 94, "THAI_ID"], [116, 126, "PHONE"], [133, 156, "EMAIL"]]}
+{"doc_id": "gf14", "spans": [[50, 114, "NAME"]]}
+{"doc_id": "gf15", "spans": [[47, 85, "NAME"], [86, 103, "THAI_ID"], [129, 131, "ADDRESS"], [135, 143, "ADDRESS"], [148, 155, "ADDRESS"], [161, 166, "ADDRESS"], [174, 182, "ADDRESS"], [183, 188, "POSTAL_CODE"]]}
+{"doc_id": "gf16", "spans": [[92, 107, "DATE"], [157, 166, "PHONE"], [177, 212, "EMAIL"]]}
+{"doc_id": "md01", "spans": [[37, 74, "NAME"], [75, 88, "THAI_ID"], [101, 116, "DATE"]]}
+{"doc_id": "md02", "spans": [[20, 53, "NAME"], [54, 64, "DATE_OF_BIRTH"], [68, 75, "MEDICAL_ID"]]}
+{"doc_id": "md03", "spans": [[36, 52, "NAME"], [69, 83, "DATE_OF_BIRTH"], [140, 150, "PHONE"]]}
+{"doc_id": "md04", "spans": [[35, 57, "NAME"], [69, 79, "DATE_OF_BIRTH"], [99, 112, "THAI_ID"], [142, 152, "PHONE"]]}
+{"doc_id": "md05", "spans": [[20, 58, "NAME"], [68, 83, "DATE"], [137, 146, "PHONE"]]}
+{"doc_id": "md06", "spans": [[41, 74, "NAME"], [75, 88, "THAI_ID"], [97, 107, "DATE_OF_BIRTH"]]}
+{"doc_id": "md07", "spans": [[30, 49, "NAME"], [58, 63, "ADDRESS"], [67, 74, "ADDRESS"], [79, 83, "ADDRESS"], [89, 101, "ADDRESS"], [102, 109, "ADDRESS"], [110, 115, "POSTAL_CODE"]]}
+{"doc_id": "md08", "spans": [[0, 26, "ORGANIZATION"], [68, 78, "DATE_OF_BIRTH"]]}
+{"doc_id": "md09", "spans": [[78, 91, "THAI_ID"], [103, 105, "ADDRESS"], [111, 113, "ADDRESS"], [118, 125, "ADDRESS"], [131, 138, "ADDRESS"], [146, 157, "ADDRESS"], [158, 163, "POSTAL_CODE"]]}
+{"doc_id": "md10", "spans": [[9, 32, "NAME"], [32, 41, "PASSPORT"], [49, 59, "DATE_OF_BIRTH"]]}
+{"doc_id": "md11", "spans": [[29, 61, "NAME"], [146, 156, "PHONE"]]}
+{"doc_id": "md12", "spans": [[82, 95, "THAI_ID"], [117, 146, "EMAIL"]]}
+{"doc_id": "md13", "spans": [[68, 84, "DATE_OF_BIRTH"], [93, 97, "ADDRESS"], [101, 116, "ADDRESS"], [121, 130, "ADDRESS"], [134, 144, "ADDRESS"], [145, 153, "ADDRESS"], [154, 159, "POSTAL_CODE"], [179, 189, "PHONE"]]}
+{"doc_id": "md14", "spans": [[0, 46, "NAME"], [66, 79, "THAI_ID"], [100, 114, "DATE_OF_BIRTH"]]}
+{"doc_id": "fn01", "spans": [[40, 77, "NAME"], [85, 93, "ADDRESS"], [98, 105, "ADDRESS"], [109, 116, "ADDRESS"], [117, 130, "ADDRESS"], [131, 136, "POSTAL_CODE"], [175, 185, "BANK_ACCOUNT"]]}
+{"doc_id": "fn02", "spans": [[0, 7, "ORGANIZATION"], [36, 66, "NAME"], [67, 77, "BANK_ACCOUNT"], [114, 138, "EMAIL"]]}
+{"doc_id": "fn03", "spans": [[45, 50, "NAME"], [86, 105, "CREDIT_CARD"]]}
+{"doc_id": "fn04", "spans": [[24, 58, "NAME"], [94, 104, "BANK_ACCOUNT"], [117, 132, "DATE"], [150, 159, "PHONE"]]}
+{"doc_id": "fn05", "spans": [[24, 58, "NAME"], [66, 70, "ADDRESS"], [82, 90, "ADDRESS"], [96, 104, "ADDRESS"], [105, 116, "ADDRESS"], [117, 122, "POSTAL_CODE"], [135, 154, "CREDIT_CARD"]]}
+{"doc_id": "fn06", "spans": [[43, 60, "NAME"], [73, 83, "BANK_ACCOUNT"], [84, 100, "ORGANIZATION"], [120, 143, "EMAIL"]]}
+{"doc_id": "fn07", "spans": [[43, 80, "NAME"], [81, 94, "THAI_ID"], [110, 120, "PHONE"], [127, 153, "EMAIL"]]}
+{"doc_id": "fn08", "spans": [[48, 67, "CREDIT_CARD"], [123, 132, "PHONE"]]}
+{"doc_id": "fn09", "spans": [[64, 77, "THAI_ID"], [123, 133, "BANK_ACCOUNT"], [145, 148, "LOCATION"]]}
+{"doc_id": "fn10", "spans": [[71, 81, "BANK_ACCOUNT"], [82, 87, "VEHICLE_PLATE"], [114, 140, "EMAIL"]]}
+{"doc_id": "fn11", "spans": [[0, 62, "NAME"], [79, 92, "LOCATION"], [93, 100, "LOCATION"], [104, 111, "ADDRESS"], [116, 123, "ADDRESS"], [127, 131, "ADDRESS"], [132, 140, "ADDRESS"], [141, 146, "POSTAL_CODE"], [160, 179, "CREDIT_CARD"]]}
+{"doc_id": "fn12", "spans": [[0, 16, "NAME"], [41, 81, "NAME"], [82, 95, "THAI_ID"]]}
+{"doc_id": "fn13", "spans": [[82, 104, "EMAIL"], [125, 144, "CREDIT_CARD"], [165, 176, "ADDRESS"], [181, 189, "ADDRESS"], [193, 200, "ADDRESS"], [201, 214, "ADDRESS"], [215, 220, "POSTAL_CODE"]]}
+{"doc_id": "fn14", "spans": [[29, 48, "NAME"], [82, 101, "CREDIT_CARD"]]}
+{"doc_id": "fn15", "spans": [[31, 67, "NAME"], [68, 78, "BANK_ACCOUNT"], [101, 111, "PHONE"], [118, 142, "EMAIL"]]}
+{"doc_id": "fn16", "spans": [[41, 57, "NAME"], [76, 86, "BANK_ACCOUNT"], [97, 107, "BANK_ACCOUNT"]]}
+{"doc_id": "fn17", "spans": [[28, 43, "NAME"], [50, 60, "BANK_ACCOUNT"], [67, 81, "NAME"], [88, 98, "BANK_ACCOUNT"]]}
+{"doc_id": "fn18", "spans": [[47, 62, "NAME"], [75, 94, "CREDIT_CARD"]]}
+{"doc_id": "ed01", "spans": [[51, 65, "NAME"], [79, 87, "STUDENT_ID"], [105, 135, "EMAIL"]]}
+{"doc_id": "ed02", "spans": [[48, 75, "NAME"], [76, 84, "ID_NUMBER"], [109, 123, "ORGANIZATION"]]}
+{"doc_id": "ed03", "spans": [[38, 77, "NAME"], [78, 88, "DATE_OF_BIRTH"], [108, 121, "THAI_ID"], [128, 150, "EMAIL"], [160, 170, "PHONE"]]}
+{"doc_id": "ed04", "spans": [[39, 60, "NAME"], [61, 69, "ID_NUMBER"], [73, 87, "NAME"], [93, 101, "ID_NUMBER"], [105, 123, "NAME"], [129, 137, "ID_NUMBER"]]}
+{"doc_id": "ed05", "spans": [[34, 49, "NAME"], [62, 72, "STUDENT_ID"], [139, 149, "PHONE"]]}
+{"doc_id": "ed06", "spans": [[77, 85, "STUDENT_ID"], [101, 114, "THAI_ID"], [146, 150, "ADDRESS"], [162, 171, "ADDRESS"], [177, 185, "ADDRESS"], [193, 201, "ADDRESS"], [202, 207, "POSTAL_CODE"]]}
+{"doc_id": "ed07", "spans": [[33, 54, "NAME"], [55, 63, "ID_NUMBER"], [119, 142, "EMAIL"]]}
+{"doc_id": "ed08", "spans": [[0, 47, "NAME"], [61, 69, "STUDENT_ID"], [94, 105, "ADDRESS"], [110, 117, "ADDRESS"], [123, 130, "ADDRESS"], [138, 143, "ADDRESS"], [144, 149, "POSTAL_CODE"], [165, 175, "PHONE"]]}
+{"doc_id": "ed09", "spans": [[0, 52, "NAME"], [53, 61, "ID_NUMBER"], [68, 100, "EMAIL"], [101, 117, "NAME"], [118, 126, "ID_NUMBER"], [133, 167, "EMAIL"]]}
+{"doc_id": "ed10", "spans": [[0, 60, "NAME"], [82, 90, "STUDENT_ID"]]}
+{"doc_id": "ed11", "spans": [[0, 55, "NAME"], [61, 69, "STUDENT_ID"], [70, 102, "NAME"], [116, 139, "EMAIL"]]}
+{"doc_id": "ed12", "spans": [[64, 83, "NAME"], [97, 105, "STUDENT_ID"], [126, 136, "BANK_ACCOUNT"]]}
+{"doc_id": "ed13", "spans": [[31, 56, "NAME"], [62, 70, "ID_NUMBER"], [79, 89, "DATE_OF_BIRTH"], [120, 144, "EMAIL"]]}
+{"doc_id": "ed14", "spans": [[36, 63, "NAME"], [109, 123, "DATE"], [146, 156, "PHONE"]]}
+{"doc_id": "ed15", "spans": [[75, 83, "ID_NUMBER"], [121, 129, "ID_NUMBER"]]}
+{"doc_id": "ed16", "spans": [[38, 57, "NAME"], [69, 84, "DATE_OF_BIRTH"], [89, 130, "NAME"], [131, 144, "THAI_ID"], [153, 157, "ADDRESS"], [161, 174, "ADDRESS"], [179, 185, "ADDRESS"], [191, 203, "ADDRESS"], [212, 217, "POSTAL_CODE"]]}
+{"doc_id": "id01", "spans": [[50, 65, "NAME"], [95, 104, "PASSPORT"], [124, 137, "THAI_ID"]]}
+{"doc_id": "id02", "spans": [[50, 59, "PASSPORT"], [88, 98, "DATE_OF_BIRTH"]]}
+{"doc_id": "id03", "spans": [[57, 66, "PASSPORT"], [90, 103, "THAI_ID"], [131, 141, "BANK_ACCOUNT"]]}
+{"doc_id": "id04", "spans": [[45, 54, "PASSPORT"]]}
+{"doc_id": "id05", "spans": [[48, 57, "PASSPORT"], [77, 86, "PASSPORT"], [103, 112, "PASSPORT"]]}
+{"doc_id": "id06", "spans": [[61, 70, "PASSPORT"], [85, 95, "DATE"]]}
+{"doc_id": "id07", "spans": [[44, 68, "NAME"], [90, 99, "PASSPORT"], [111, 121, "DATE_OF_BIRTH"]]}
+{"doc_id": "id08", "spans": [[30, 50, "LOCATION"], [51, 60, "PASSPORT"], [92, 101, "PASSPORT"], [136, 145, "PASSPORT"]]}
+{"doc_id": "id09", "spans": [[44, 53, "PASSPORT"], [61, 77, "NAME"], [107, 114, "ADDRESS"], [119, 127, "ADDRESS"], [131, 137, "ADDRESS"], [138, 151, "ADDRESS"], [152, 157, "POSTAL_CODE"]]}
+{"doc_id": "id10", "spans": [[27, 43, "NAME"], [72, 81, "PASSPORT"], [103, 122, "CREDIT_CARD"]]}
+{"doc_id": "id11", "spans": [[31, 38, "VEHICLE_PLATE"], [39, 52, "LOCATION"], [70, 89, "NAME"], [109, 122, "THAI_ID"]]}
+{"doc_id": "id12", "spans": [[29, 36, "VEHICLE_PLATE"], [93, 112, "CREDIT_CARD"]]}
+{"doc_id": "id13", "spans": [[29, 36, "VEHICLE_PLATE"], [51, 57, "VEHICLE_PLATE"], [72, 79, "VEHICLE_PLATE"], [94, 100, "VEHICLE_PLATE"], [115, 122, "VEHICLE_PLATE"]]}
+{"doc_id": "id14", "spans": [[63, 80, "NAME"], [85, 95, "PHONE"]]}
+{"doc_id": "id15", "spans": [[0, 38, "NAME"], [54, 67, "THAI_ID"], [78, 85, "VEHICLE_PLATE"], [107, 126, "CREDIT_CARD"]]}
+{"doc_id": "id16", "spans": [[27, 34, "VEHICLE_PLATE"], [60, 67, "VEHICLE_PLATE"], [93, 100, "VEHICLE_PLATE"]]}
+{"doc_id": "id17", "spans": [[36, 43, "VEHICLE_PLATE"], [54, 73, "NAME"], [93, 112, "CREDIT_CARD"], [113, 118, "VEHICLE_PLATE"]]}
+{"doc_id": "id18", "spans": [[30, 55, "NAME"], [56, 69, "THAI_ID"], [80, 87, "VEHICLE_PLATE"], [88, 117, "NAME"]]}
+{"doc_id": "id19", "spans": [[35, 42, "VEHICLE_PLATE"], [67, 74, "VEHICLE_PLATE"], [111, 118, "VEHICLE_PLATE"]]}
+{"doc_id": "id20", "spans": [[26, 33, "VEHICLE_PLATE"], [45, 52, "VEHICLE_PLATE"], [106, 116, "PHONE"]]}
+{"doc_id": "id21", "spans": [[50, 57, "VEHICLE_PLATE"], [70, 96, "NAME"], [97, 112, "DATE_OF_BIRTH"], [121, 127, "ADDRESS"], [139, 145, "ADDRESS"], [151, 159, "ADDRESS"], [168, 173, "POSTAL_CODE"]]}
+{"doc_id": "id22", "spans": [[61, 68, "VEHICLE_PLATE"], [81, 96, "NAME"], [118, 127, "PASSPORT"]]}
+{"doc_id": "id23", "spans": [[52, 61, "PASSPORT"], [98, 107, "PASSPORT"], [143, 152, "PASSPORT"]]}
+{"doc_id": "id24", "spans": [[0, 57, "NAME"], [66, 76, "DATE_OF_BIRTH"], [94, 101, "VEHICLE_PLATE"], [120, 130, "BANK_ACCOUNT"], [137, 158, "EMAIL"]]}
+{"doc_id": "id25", "spans": [[33, 52, "CREDIT_CARD"], [81, 100, "CREDIT_CARD"], [114, 125, "NAME"], [126, 145, "CREDIT_CARD"], [153, 167, "NAME"]]}
+{"doc_id": "id26", "spans": [[34, 53, "CREDIT_CARD"], [65, 88, "NAME"], [89, 103, "DATE_OF_BIRTH"]]}
+{"doc_id": "id27", "spans": [[74, 93, "CREDIT_CARD"], [113, 130, "THAI_ID"], [159, 167, "ADDRESS"], [172, 180, "ADDRESS"], [184, 189, "ADDRESS"], [190, 198, "ADDRESS"], [199, 204, "POSTAL_CODE"]]}
+{"doc_id": "id28", "spans": [[31, 50, "CREDIT_CARD"], [65, 84, "CREDIT_CARD"], [115, 134, "CREDIT_CARD"]]}
+{"doc_id": "ng01", "spans": [[18, 25, "VEHICLE_PLATE"], [42, 58, "DATE"]]}
+{"doc_id": "ng02", "spans": [[20, 31, "BANK_ACCOUNT"]]}
+{"doc_id": "ng03", "spans": []}
+{"doc_id": "ng04", "spans": [[15, 25, "BANK_ACCOUNT"]]}
+{"doc_id": "ng05", "spans": [[20, 33, "THAI_ID"]]}
+{"doc_id": "ng06", "spans": [[35, 47, "ORGANIZATION"]]}
+{"doc_id": "ng07", "spans": [[36, 50, "DATE"], [80, 95, "DATE"]]}
+{"doc_id": "ng08", "spans": [[17, 28, "BANK_ACCOUNT"]]}
+{"doc_id": "ng09", "spans": [[0, 11, "NAME"]]}
+{"doc_id": "ng10", "spans": []}
+{"doc_id": "ng11", "spans": []}
+{"doc_id": "ng12", "spans": [[40, 51, "ID_NUMBER"]]}
+{"doc_id": "ed17", "spans": [[40, 57, "NAME"], [63, 71, "ID_NUMBER"], [102, 115, "ADDRESS"], [120, 125, "ADDRESS"], [129, 136, "ADDRESS"], [137, 150, "ADDRESS"], [151, 156, "POSTAL_CODE"], [183, 210, "EMAIL"]]}
+{"doc_id": "ed18", "spans": [[36, 54, "NAME"], [60, 68, "ID_NUMBER"], [89, 115, "NAME"], [116, 124, "ID_NUMBER"]]}
+{"doc_id": "id29", "spans": [[78, 87, "PASSPORT"], [112, 125, "ADDRESS"], [130, 138, "ADDRESS"], [144, 149, "ADDRESS"], [157, 164, "ADDRESS"], [165, 170, "POSTAL_CODE"]]}
+{"doc_id": "gf17", "spans": [[0, 59, "NAME"], [84, 88, "ADDRESS"], [100, 107, "ADDRESS"], [113, 120, "ADDRESS"], [128, 133, "ADDRESS"], [134, 139, "POSTAL_CODE"], [149, 159, "BANK_ACCOUNT"]]}
+{"doc_id": "lf01", "spans": [[99, 125, "NAME"], [139, 147, "STUDENT_ID"], [167, 180, "THAI_ID"], [189, 210, "DATE"], [231, 235, "VEHICLE_PLATE"], [249, 256, "ADDRESS"], [262, 268, "ADDRESS"], [276, 287, "ADDRESS"], [288, 293, "POSTAL_CODE"], [303, 313, "PHONE"], [320, 352, "EMAIL"], [384, 406, "NAME"], [459, 482, "NAME"], [524, 534, "PHONE"], [590, 600, "BANK_ACCOUNT"]]}
+{"doc_id": "lf02", "spans": [[67, 83, "NAME"], [114, 127, "THAI_ID"], [136, 146, "DATE_OF_BIRTH"], [155, 161, "ADDRESS"], [165, 178, "ADDRESS"], [183, 192, "ADDRESS"], [196, 203, "ADDRESS"], [204, 217, "ADDRESS"], [218, 223, "POSTAL_CODE"], [237, 252, "DATE"], [267, 282, "DATE"], [456, 475, "NAME"], [500, 509, "NAME"], [542, 552, "PHONE"], [559, 580, "EMAIL"], [621, 636, "DATE"]]}
+{"doc_id": "lf03", "spans": [[4, 11, "VEHICLE_PLATE"], [33, 47, "ORGANIZATION"], [55, 70, "ORGANIZATION"], [228, 242, "DATE"], [266, 285, "NAME"], [327, 342, "NAME"], [352, 362, "PHONE"], [369, 391, "EMAIL"], [414, 416, "ADDRESS"], [420, 429, "ADDRESS"], [434, 440, "ADDRESS"], [446, 453, "ADDRESS"], [461, 466, "ADDRESS"], [467, 472, "POSTAL_CODE"], [505, 557, "NAME"], [563, 577, "ORGANIZATION"]]}
+{"doc_id": "lf04", "spans": [[53, 94, "NAME"], [95, 108, "THAI_ID"], [117, 127, "DATE_OF_BIRTH"], [153, 165, "ADDRESS"], [170, 178, "ADDRESS"], [182, 189, "ADDRESS"], [190, 203, "ADDRESS"], [204, 209, "POSTAL_CODE"], [219, 229, "PHONE"], [236, 257, "EMAIL"], [313, 323, "STUDENT_ID"], [397, 426, "NAME"], [441, 454, "ORGANIZATION"], [464, 474, "PHONE"], [496, 505, "PASSPORT"], [563, 573, "BANK_ACCOUNT"], [585, 588, "LOCATION"]]}
+{"doc_id": "lf05", "spans": [[49, 64, "DATE"], [65, 90, "NAME"], [119, 123, "ADDRESS"], [128, 132, "ADDRESS"], [136, 142, "ADDRESS"], [143, 156, "ADDRESS"], [157, 162, "POSTAL_CODE"], [186, 199, "THAI_ID"], [209, 218, "PHONE"], [234, 257, "EMAIL"], [472, 482, "BANK_ACCOUNT"], [483, 499, "ORGANIZATION"], [523, 542, "CREDIT_CARD"], [564, 579, "DATE"], [580, 616, "NAME"]]}
+{"doc_id": "lf06", "spans": [[59, 82, "NAME"], [102, 115, "THAI_ID"], [124, 146, "DATE"], [170, 180, "DATE"], [235, 246, "ADDRESS"], [252, 261, "ADDRESS"], [270, 275, "POSTAL_CODE"], [285, 295, "PHONE"], [302, 322, "EMAIL"], [372, 382, "BANK_ACCOUNT"], [434, 469, "NAME"], [473, 508, "NAME"]]}
+{"doc_id": "lf07", "spans": [[25, 51, "NAME"], [52, 67, "DATE"], [92, 104, "NAME"], [134, 147, "THAI_ID"], [159, 169, "DATE_OF_BIRTH"], [185, 190, "ADDRESS"], [202, 207, "ADDRESS"], [213, 227, "ADDRESS"], [235, 244, "ADDRESS"], [245, 250, "POSTAL_CODE"], [260, 270, "PHONE"], [305, 320, "DATE"], [357, 367, "BANK_ACCOUNT"], [386, 396, "BANK_ACCOUNT"], [475, 485, "PHONE"], [501, 537, "EMAIL"], [568, 575, "VEHICLE_PLATE"], [590, 607, "NAME"]]}
+{"doc_id": "lf08", "spans": [[27, 43, "ORGANIZATION"], [51, 60, "DATE"], [66, 112, "NAME"], [113, 126, "THAI_ID"], [142, 145, "ADDRESS"], [149, 156, "ADDRESS"], [161, 166, "ADDRESS"], [170, 177, "ADDRESS"], [178, 191, "ADDRESS"], [192, 197, "POSTAL_CODE"], [198, 243, "NAME"], [244, 257, "THAI_ID"], [269, 279, "DATE_OF_BIRTH"], [313, 317, "ADDRESS"], [321, 332, "ADDRESS"], [337, 343, "ADDRESS"], [347, 353, "ADDRESS"], [354, 367, "ADDRESS"], [368, 373, "POSTAL_CODE"], [478, 488, "BANK_ACCOUNT"], [535, 545, "PHONE"], [563, 573, "PHONE"]]}
+{"doc_id": "lf09", "spans": [[85, 99, "DATE"], [102, 124, "LOCATION"], [148, 165, "NAME"], [179, 187, "STUDENT_ID"], [194, 226, "EMAIL"], [231, 241, "PHONE"], [245, 251, "NAME"], [275, 283, "STUDENT_ID"], [290, 322, "EMAIL"], [327, 337, "PHONE"], [341, 360, "NAME"], [374, 382, "STUDENT_ID"], [389, 421, "EMAIL"], [426, 436, "PHONE"], [440, 458, "NAME"], [472, 480, "STUDENT_ID"], [487, 519, "EMAIL"], [524, 534, "PHONE"], [535, 565, "NAME"], [592, 602, "BANK_ACCOUNT"]]}
+{"doc_id": "lf10", "spans": [[65, 80, "DATE"], [123, 140, "NAME"], [166, 174, "LOCATION"], [186, 194, "NAME"], [215, 234, "NAME"], [270, 291, "NAME"], [319, 326, "ADDRESS"], [577, 605, "EMAIL"], [623, 632, "PHONE"], [678, 697, "NAME"]]}
+{"doc_id": "lf11", "spans": [[41, 52, "NAME"], [87, 100, "THAI_ID"], [109, 119, "DATE_OF_BIRTH"], [128, 132, "ADDRESS"], [136, 145, "ADDRESS"], [150, 160, "ADDRESS"], [166, 176, "ADDRESS"], [184, 189, "ADDRESS"], [190, 195, "POSTAL_CODE"], [211, 221, "PHONE"], [235, 244, "PHONE"], [251, 275, "EMAIL"], [275, 312, "NAME"], [376, 381, "LOCATION"], [410, 420, "PHONE"], [447, 478, "ADDRESS"], [479, 498, "CREDIT_CARD"]]}
+{"doc_id": "lf12", "spans": [[79, 88, "DATE"], [115, 131, "NAME"], [147, 156, "PASSPORT"], [162, 172, "DATE_OF_BIRTH"], [176, 191, "NAME"], [207, 216, "PASSPORT"], [222, 232, "DATE_OF_BIRTH"], [236, 269, "NAME"], [270, 279, "PASSPORT"], [285, 295, "DATE_OF_BIRTH"], [332, 341, "PASSPORT"], [347, 357, "DATE_OF_BIRTH"], [374, 390, "NAME"], [400, 410, "PHONE"], [417, 438, "EMAIL"], [467, 470, "ADDRESS"], [481, 489, "ADDRESS"], [494, 502, "ADDRESS"], [506, 514, "ADDRESS"], [515, 528, "ADDRESS"], [529, 534, "POSTAL_CODE"]]}
+{"doc_id": "lf13", "spans": [[86, 96, "DATE"], [105, 138, "NAME"], [139, 152, "THAI_ID"], [157, 167, "PHONE"], [171, 203, "NAME"], [204, 217, "THAI_ID"], [222, 232, "PHONE"], [236, 269, "NAME"], [270, 283, "THAI_ID"], [288, 298, "PHONE"], [302, 334, "NAME"], [335, 348, "THAI_ID"], [353, 363, "PHONE"], [383, 385, "ADDRESS"], [420, 428, "ADDRESS"], [434, 444, "ADDRESS"], [445, 450, "ADDRESS"], [451, 456, "POSTAL_CODE"], [457, 489, "NAME"], [496, 518, "EMAIL"]]}
+{"doc_id": "lf14", "spans": [[44, 64, "NAME"], [85, 98, "THAI_ID"], [107, 128, "DATE"], [137, 142, "ADDRESS"], [146, 157, "ADDRESS"], [162, 171, "ADDRESS"], [175, 183, "ADDRESS"], [184, 197, "ADDRESS"], [198, 203, "POSTAL_CODE"], [213, 223, "PHONE"], [230, 252, "EMAIL"], [283, 290, "VEHICLE_PLATE"], [363, 373, "BANK_ACCOUNT"], [424, 443, "CREDIT_CARD"], [444, 473, "NAME"], [483, 493, "PHONE"]]}
+{"doc_id": "lf15", "spans": [[84, 109, "NAME"], [129, 142, "THAI_ID"], [158, 174, "DATE_OF_BIRTH"], [195, 203, "STUDENT_ID"], [212, 217, "ADDRESS"], [229, 236, "ADDRESS"], [242, 249, "ADDRESS"], [257, 270, "ADDRESS"], [271, 276, "POSTAL_CODE"], [308, 348, "NAME"], [353, 363, "PHONE"], [370, 402, "NAME"], [407, 417, "PHONE"], [424, 448, "EMAIL"]]}
+{"doc_id": "lf16", "spans": [[79, 105, "NAME"], [106, 119, "THAI_ID"], [131, 141, "DATE_OF_BIRTH"], [150, 152, "ADDRESS"], [164, 172, "ADDRESS"], [178, 184, "ADDRESS"], [192, 200, "ADDRESS"], [201, 206, "POSTAL_CODE"], [216, 226, "PHONE"], [248, 275, "NAME"], [287, 297, "DATE_OF_BIRTH"], [301, 333, "NAME"], [339, 349, "DATE_OF_BIRTH"], [353, 385, "NAME"], [391, 401, "DATE_OF_BIRTH"], [471, 478, "VEHICLE_PLATE"], [514, 524, "BANK_ACCOUNT"]]}
+{"doc_id": "lf17", "spans": [[97, 117, "NAME"], [148, 161, "THAI_ID"], [170, 179, "DATE_OF_BIRTH"], [193, 197, "ADDRESS"], [203, 205, "ADDRESS"], [210, 217, "ADDRESS"], [223, 236, "ADDRESS"], [244, 252, "ADDRESS"], [253, 258, "POSTAL_CODE"], [275, 285, "PHONE"], [479, 523, "NAME"], [530, 560, "EMAIL"], [560, 588, "NAME"], [598, 608, "PHONE"]]}
+{"doc_id": "lf18", "spans": [[29, 66, "ORGANIZATION"], [151, 161, "ADDRESS"], [166, 172, "ADDRESS"], [176, 182, "ADDRESS"], [183, 196, "ADDRESS"], [197, 202, "POSTAL_CODE"], [221, 258, "NAME"], [259, 272, "THAI_ID"], [278, 288, "DATE_OF_BIRTH"], [292, 312, "NAME"], [332, 345, "THAI_ID"], [351, 361, "DATE_OF_BIRTH"], [368, 385, "NAME"], [405, 418, "THAI_ID"], [424, 434, "DATE_OF_BIRTH"], [445, 463, "NAME"], [473, 483, "PHONE"], [490, 514, "EMAIL"], [527, 537, "BANK_ACCOUNT"]]}
+{"doc_id": "lf19", "spans": [[64, 79, "DATE_OF_BIRTH"], [103, 110, "ADDRESS"], [149, 184, "NAME"], [185, 198, "THAI_ID"], [213, 220, "VEHICLE_PLATE"], [230, 240, "PHONE"], [336, 343, "VEHICLE_PLATE"], [355, 365, "DATE_OF_BIRTH"], [375, 385, "PHONE"], [392, 413, "EMAIL"], [413, 446, "NAME"], [456, 466, "PHONE"], [579, 598, "CREDIT_CARD"]]}
+{"doc_id": "lf20", "spans": [[71, 91, "NAME"], [109, 119, "STUDENT_ID"], [137, 145, "STUDENT_ID"], [165, 178, "THAI_ID"], [187, 201, "DATE_OF_BIRTH"], [212, 247, "EMAIL"], [258, 286, "EMAIL"], [296, 306, "PHONE"], [331, 342, "ADDRESS"], [347, 359, "ADDRESS"], [363, 368, "ADDRESS"], [369, 382, "ADDRESS"], [383, 388, "POSTAL_CODE"], [409, 425, "NAME"], [435, 445, "PHONE"], [463, 473, "BANK_ACCOUNT"], [522, 545, "EMAIL"], [641, 646, "VEHICLE_PLATE"]]}
+{"doc_id": "sv01", "spans": [[13, 21, "STUDENT_ID"], [22, 36, "ORGANIZATION"]]}
+{"doc_id": "sv02", "spans": [[21, 31, "STUDENT_ID"]]}
+{"doc_id": "sv03", "spans": [[5, 13, "ID_NUMBER"]]}
+{"doc_id": "sv04", "spans": [[14, 22, "STUDENT_ID"]]}
+{"doc_id": "sv05", "spans": [[12, 22, "STUDENT_ID"]]}
+{"doc_id": "sv06", "spans": [[11, 19, "STUDENT_ID"]]}
+{"doc_id": "sv07", "spans": [[14, 24, "STUDENT_ID"]]}
+{"doc_id": "sv08", "spans": [[20, 28, "STUDENT_ID"]]}
+{"doc_id": "sv09", "spans": [[22, 30, "ID_NUMBER"]]}
+{"doc_id": "sv10", "spans": [[0, 8, "ID_NUMBER"]]}
+{"doc_id": "sv11", "spans": [[25, 35, "BANK_ACCOUNT"]]}
+{"doc_id": "sv12", "spans": [[21, 29, "ID_NUMBER"], [30, 38, "ID_NUMBER"], [39, 47, "ID_NUMBER"]]}
+{"doc_id": "sv13", "spans": [[3, 11, "ID_NUMBER"]]}
+{"doc_id": "sv14", "spans": [[13, 23, "DATE"]]}
+{"doc_id": "sv15", "spans": [[12, 22, "BANK_ACCOUNT"]]}
+{"doc_id": "sv16", "spans": [[13, 21, "STUDENT_ID"]]}
+{"doc_id": "sv17", "spans": [[13, 21, "ID_NUMBER"]]}
+{"doc_id": "sv18", "spans": [[5, 15, "BANK_ACCOUNT"]]}
+{"doc_id": "sv19", "spans": [[19, 27, "STUDENT_ID"]]}
+{"doc_id": "sv20", "spans": [[12, 20, "ID_NUMBER"]]}
+{"doc_id": "sv21", "spans": [[24, 32, "STUDENT_ID"]]}
+{"doc_id": "sv22", "spans": [[12, 22, "BANK_ACCOUNT"]]}
+{"doc_id": "sv23", "spans": [[13, 21, "STUDENT_ID"], [28, 59, "EMAIL"]]}
+{"doc_id": "sv24", "spans": [[23, 31, "ID_NUMBER"]]}
+{"doc_id": "sv25", "spans": [[13, 23, "STUDENT_ID"]]}
+{"doc_id": "ng13", "spans": [[11, 18, "VEHICLE_PLATE"], [21, 26, "VEHICLE_PLATE"], [36, 49, "DATE"]]}
+{"doc_id": "ng14", "spans": []}
+{"doc_id": "ng15", "spans": []}
+{"doc_id": "ng16", "spans": [[15, 25, "BANK_ACCOUNT"]]}
+{"doc_id": "ng17", "spans": [[30, 38, "ID_NUMBER"]]}
+{"doc_id": "ng18", "spans": []}
+{"doc_id": "ng19", "spans": [[0, 15, "LOCATION"], [16, 23, "LOCATION"], [24, 31, "LOCATION"]]}
+{"doc_id": "ng20", "spans": [[39, 54, "DATE"]]}
+{"doc_id": "ng21", "spans": [[12, 21, "LOCATION"]]}
+{"doc_id": "ng22", "spans": []}
+{"doc_id": "ng23", "spans": []}
+{"doc_id": "ng24", "spans": [[13, 20, "ADDRESS"], [73, 87, "DATE"]]}
+{"doc_id": "ng25", "spans": []}
+{"doc_id": "ng26", "spans": [[58, 71, "DATE"]]}
+{"doc_id": "ng27", "spans": []}
+{"doc_id": "ng28", "spans": [[0, 25, "NAME"], [29, 44, "DATE"]]}
+{"doc_id": "ng29", "spans": []}
+{"doc_id": "ng30", "spans": [[21, 32, "BANK_ACCOUNT"]]}
+{"doc_id": "ng31", "spans": [[27, 40, "DATE"]]}
+{"doc_id": "ng32", "spans": []}
+{"doc_id": "ng33", "spans": []}
+{"doc_id": "ng34", "spans": [[24, 30, "ADDRESS"], [31, 36, "POSTAL_CODE"], [37, 42, "POSTAL_CODE"], [43, 48, "POSTAL_CODE"], [53, 58, "POSTAL_CODE"]]}
+{"doc_id": "ng35", "spans": [[0, 12, "LOCATION"], [31, 47, "DATE"]]}
+{"doc_id": "ng36", "spans": [[13, 22, "DATE"]]}
+{"doc_id": "ng37", "spans": [[15, 30, "ORGANIZATION"]]}
+{"doc_id": "ng38", "spans": [[0, 24, "LOCATION"]]}
+{"doc_id": "ng39", "spans": []}
+{"doc_id": "ng40", "spans": [[66, 81, "DATE"]]}
+{"doc_id": "ng41", "spans": [[42, 57, "DATE"]]}
+{"doc_id": "ng42", "spans": [[0, 27, "ORGANIZATION"]]}
+{"doc_id": "ng43", "spans": [[24, 34, "BANK_ACCOUNT"], [55, 73, "DATE"]]}
+{"doc_id": "ng44", "spans": []}
+{"doc_id": "ng45", "spans": []}
