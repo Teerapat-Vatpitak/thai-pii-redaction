@@ -101,6 +101,14 @@ Ordered so that evaluation integrity comes before tuning:
 6. **Evaluate an ONNX (or similar) runtime separately** as an
    inference/deployment decision. It needs output-parity and resource
    evidence, not accuracy claims.
+7. **Extend coverage to real Thai government documents.** The current corpus
+   is self-authored prose; real forms are tables with checkboxes, stamps, and
+   fields the 11-type scheme never adjudicated. Phase 1 artifacts:
+   `docs/research/gov-doc-coverage.md` (sampling frame),
+   `docs/research/gov-doc-policy-ontology.md` (per-field policy draft), and
+   `benchmark/probe_document.py` (six-measurement instrument). Phase 2 (three
+   official blank forms, nine inputs) is gated on the owner approving form
+   downloads and the มาตรา 26 scope question.
 
 Exit gate: results are reproducible, the blind set has not been tuned against,
 and every public claim carries corpus size and limitations. No accuracy number
