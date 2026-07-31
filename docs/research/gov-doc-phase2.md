@@ -2,7 +2,7 @@
 
 บันทึกนี้แยกสี่สถานะออกจากกัน: ดาวน์โหลดต้นฉบับ, สร้างอินพุตสังเคราะห์,
 รัน probe แบบ text layer และรัน OCR. ผลวันที่ 2026-07-31 ยังไม่ใช่ accuracy
-benchmark และไม่ได้แตะ blind set.
+benchmark. Runner ไม่เรียก `blind-v1` และ reveal log ยังอยู่ที่ 4/6.
 
 ## แหล่งและความครบถ้วน
 
@@ -46,48 +46,72 @@ Render QA ตรวจครบทั้ง 6 หน้าแล้วและ�
 
 ```powershell
 $env:PYTHONUTF8='1'
-.\.venv\Scripts\python.exe -m pytest tests\test_gov_form_phase2.py -q
-.\.venv\Scripts\python.exe -m benchmark.data.probe.gov_forms.generate_inputs `
-  --output-dir benchmark/reports/gov-forms-phase2/inputs
-.\.venv\Scripts\python.exe -m benchmark.probe_document `
-  benchmark/reports/gov-forms-phase2/inputs/khor-ror-1/khor-ror-1-digital.pdf `
-  benchmark/reports/gov-forms-phase2/inputs/khor-ror-1/khor-ror-1-digital.expected.json `
-  --json benchmark/reports/gov-forms-phase2/khor-ror-1-digital.result.json
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests\test_gov_form_phase2.py `
+  tests\test_gov_form_acceptance.py `
+  tests\test_probe_document.py
+.\.venv-full\Scripts\python.exe -m benchmark.data.probe.gov_forms.run_acceptance `
+  --output-dir benchmark/reports/gov-forms-2026-07-31-clean
 ```
 
-Builder พิมพ์ path ของเอกสารและ expectation ครบทั้ง 9 คู่; ใช้คำสั่ง probe
-บรรทัดสุดท้ายซ้ำกับแต่ละคู่เพื่อสร้าง result JSON.
+Runner สร้างและ probe ทั้ง 9 อินพุตใน process เดียว แล้วเขียน result JSON แยก
+ต่ออินพุตพร้อม `summary.json`. ค่า exit เป็น `1` เมื่อ strict gate ใดไม่ผ่าน.
+ใช้ `--record-only` ได้เฉพาะเก็บ baseline; failure ยังอยู่ใน JSON ตามเดิม.
+`summary.json` เป็นหลักฐานหลักและมี per-input/aggregate metrics ที่ไม่มีค่า
+entity. Result รายอินพุตเป็น diagnostic ที่ตัด expected value, OCR text,
+surviving value และ decoy string ออกก่อนเขียนไฟล์.
 
-## ผล local default environment
+## ผล local full OCR environment
 
-Focused contract test ผ่าน `7 passed`. Builder สร้าง 9/9 อินพุต. Probe รันครบ
-9 คำสั่ง แต่มีผลที่วัดได้เฉพาะ digital 3 อินพุต:
+Builder สร้าง 9/9 อินพุตและ route ถูกทั้ง 9. Image-only 6 อินพุตรัน OCR,
+coverage และ residual จริงแล้ว. Strict result เป็น **FUNCTIONAL FAIL**:
 
-| ฟอร์ม / modality | extraction | detection | type match | redaction coverage | residual |
-|---|---:|---:|---:|---:|---:|
-| คร.1 digital | 4/4 | 2/4 | 2/4 | 2/4 | removed 2, exposed 2 |
-| ภ.ง.ด.91 digital | 6/6 | 4/6 | 3/6 | 3/6 | removed 3, exposed 3 |
-| สปส.1-03 digital | 5/5 | 3/5 | 2/4 ที่อยู่ใน legacy-11; ORGANIZATION 1 ฟิลด์อยู่นอก scheme | 3/5 | removed 3, exposed 2 |
-| print-like 3 อินพุต | skip: ไม่มี OCR extra | ไม่ได้วัด | ไม่ได้วัด | ไม่ได้วัด | ไม่ได้วัด |
-| degraded 3 อินพุต | skip: ไม่มี OCR extra | ไม่ได้วัด | ไม่ได้วัด | ไม่ได้วัด | ไม่ได้วัด |
+| ฟอร์ม / modality | OCR mean | extraction | detection | type match | coverage / expected | residual |
+|---|---:|---:|---:|---:|---:|---:|
+| คร.1 digital | n/a | 4/4 | 3/4 | 3/4 | 3/4 | removed 3, exposed 1 |
+| คร.1 print-like | 0.95 | 2/4 | 4/4 | 4/4 | 4/4 | removed 4 |
+| คร.1 degraded | 0.93 | 2/4 | 4/4 | 3/4 | 4/4 | removed 4 |
+| ภ.ง.ด.91 digital | n/a | 6/6 | 6/6 | 5/6 | 6/6 | removed 6 |
+| ภ.ง.ด.91 print-like | 0.85 | 4/6 | 4/6 | 3/4 | 4/6 | removed 4, unmeasurable 2 |
+| ภ.ง.ด.91 degraded | 0.88 | 5/6 | 5/6 | 5/5 | 5/6 | removed 5, unmeasurable 1 |
+| สปส.1-03 digital | n/a | 5/5 | 5/5 | 3/4; ORGANIZATION อยู่นอก legacy-11 | 5/5 | removed 5 |
+| สปส.1-03 print-like | 0.97 | 3/5 | 5/5 | 4/4 | 5/5 | removed 5 |
+| สปส.1-03 degraded | 0.72 | 2/5 | 2/5 | 1/2 | 2/5 | removed 2, exposed 1, unmeasurable 2 |
+| **รวม** | 6/6 image inputs measured | **33/45** | **38/45** | **31/37 scored** | **38/45** | **removed 38, exposed 2, unmeasurable 5** |
 
-Digital ทั้งสามผ่าน negative decoy control โดยไม่มี false hit. ช่อง NAME
-สังเคราะห์ทั้งห้ารายการไม่ถูกตรวจพบ. วันเกิดใน ภ.ง.ด.91 และ สปส.1-03 ถูกพบ
-แต่ได้ label `DATE` แทน `DATE_OF_BIRTH`. ที่อยู่ ภ.ง.ด.91 ได้ label ถูก แต่
-span coverage 0.85. THAI_ID ทั้งห้ารายการ และ passport ใน สปส.1-03 ถูกพบและ
-ได้ชนิดตรง.
+ไม่มี declared decoy string ปรากฏในข้อความ extraction ของทั้ง 9 อินพุต. นี่เป็น
+matcher-level check ไม่ใช่ false-positive benchmark ของ detector. ค่า OCR mean
+นับเฉพาะค่าที่จับคู่กับช่วงข้อความได้แบบไม่ซ้ำ; ค่าที่จับคู่ไม่ได้ยังทำให้
+extraction/coverage/residual fail. Exposed สองช่องคือชื่อผู้ร้องคนที่ 2 ใน
+คร.1 digital และชื่อผู้ประกันตนใน สปส.1-03 degraded. อีกห้าช่องไม่มีตำแหน่ง
+OCR ที่เชื่อถือได้ จึงเป็น `unmeasurable` ไม่ใช่ pass.
 
-Print-like และ degraded ทั้งหกถูกจำแนกเป็น `pdf_hybrid` ตามที่ออกแบบ แต่
-environment นี้ไม่มี `requirements-ocr.txt`; probe จึงรายงาน
-`OCR dependencies unavailable` และ skip extraction, OCR accuracy, detection,
-redaction coverage และ residual. นี่เป็น **OCR skipped**, ไม่ใช่ผลผ่าน 0/15.
+Runtime ที่บันทึก: Python 3.13.12, PaddlePaddle 3.2.2, PaddleOCR 3.7.0,
+OpenCV 4.10.0, Pillow 12.3.0, ReportLab 5.0.0 และ pypdfium2 5.12.1.
+รายละเอียด gate และขอบเขตอยู่ใน
+[acceptance record](../acceptance/2026-07-31-government-form-synthetic-run.md).
+
+Strict gate ใช้ route/OCR, extraction, pixel coverage, residual และ declared
+decoy extraction check. Detection กับ type match เป็น telemetry ไม่มี threshold.
+
+การขยาย NAME แบบปลอดภัยใช้ isolated-line retry เฉพาะ default CRF, จำกัด 8
+บรรทัด, ไม่กิน role prefix และมี semantic negative tests. Gold-v4 ที่มองเห็น
+ได้ยังให้ overall recall 0.937 / F2 0.910, NAME recall 0.910 / precision 0.953 /
+F2 0.918, exact recall 0.793 และ gov-form slice recall 0.857. กฎกว้างแบบ
+“ชื่ออยู่ใกล้ ID/วันที่” ไม่ถูกเก็บไว้หลัง visible-gold regression test. Runner
+ไม่เรียก `blind-v1` และ reveal log ยังอยู่ที่ 4/6.
 
 ## ข้อจำกัด
 
 - เป็น overlay ที่สร้างด้วยคอมพิวเตอร์ ไม่ใช่ลายมือหรือการสแกนจากเครื่องจริง.
 - Digital input ใช้ page-only copy เป็นภาพและให้ text layer เฉพาะค่าทดสอบ จึงวัด
   field values แต่ไม่วัดการอ่านข้อความ label ของฟอร์ม.
-- Image-only inputs ยังไม่มี OCR evidence บนเครื่องนี้.
-- Probe รุ่นนี้วัด coverage/residual เฉพาะ text-layer PDF.
+- OCR นี้เป็นภาพ transform แบบกำหนดค่าคงที่ ไม่ใช่ภาพจากเครื่องสแกนจริง.
+- วันเกิดที่ไม่มี cue ชัดยังอาจได้ `DATE`; ระบบปิดบังได้แต่ type ไม่ตรง
+  `DATE_OF_BIRTH`.
 - ไม่กรอกช่องมาตรา 26 ใน สปส.1-03 และยังไม่เปลี่ยนนโยบาย warn-only.
-- ผลนี้เปิดช่องว่างที่ต้องแก้ แต่ไม่ใช่ benchmark accuracy และไม่ใช้ blind set.
+- Synthetic expectations เป็น developer-authored และยังไม่มี independent
+  adjudication. งาน annotation/adjudication ของเนื้อหาฟอร์มจริงที่กว้างกว่านี้
+  ถูกเลื่อนตามคำสั่ง owner.
+- ผลนี้เปิดช่องว่างที่ต้องแก้ แต่ไม่ใช่ benchmark accuracy. Runner ไม่เรียก
+  blind set.

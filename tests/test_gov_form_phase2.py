@@ -13,12 +13,14 @@ from urllib.parse import urlparse
 
 import pdfplumber
 import pytest
+from PIL import ImageChops
 from reportlab.pdfgen import canvas
 
-from benchmark.data.probe.gov_forms.generate_inputs import generate_corpus
+from benchmark.data.probe.gov_forms.generate_inputs import _render_pdf, generate_corpus
 from benchmark.data.probe.gov_forms.sanitize_download import sanitize_pdf
 from benchmark.probe_document import load_expectations
 from pii_redactor.ingest.file_detector import detect_source_type
+from pii_redactor.ingest.text_extractor import extract
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "benchmark" / "data" / "probe" / "gov_forms"
@@ -177,6 +179,32 @@ def test_degraded_inputs_are_not_aliases_of_print_like_inputs(tmp_path):
     for hashes in by_form.values():
         assert hashes["digital"] != hashes["print_like"]
         assert hashes["print_like"] != hashes["degraded"]
+
+
+def test_digital_banner_is_visible_only_and_does_not_change_ner_context(tmp_path):
+    rows = generate_corpus(CORPUS, tmp_path)
+    manifest = _manifest()
+    forms_by_code = {form["code"]: form for form in manifest["forms"]}
+    fields_by_code = {
+        form["code"]: [field["value"] for field in form["synthetic_fields"]]
+        for form in manifest["forms"]
+    }
+
+    for row in rows:
+        if row.modality != "digital":
+            continue
+        document = tmp_path / row.document
+        text, _words, _meta = extract(document, "pdf_text")
+        assert "SYNTHETIC TEST INPUT" not in text
+        assert all(value in text for value in fields_by_code[row.form_code])
+
+        source = CORPUS / forms_by_code[row.form_code]["official_path"]
+        source_page = _render_pdf(source, scale=2.0)[0][0]
+        digital_page = _render_pdf(document, scale=2.0)[0][0]
+        source_crop = source_page.crop((20, 0, 340, 28)).convert("L")
+        digital_crop = digital_page.crop((20, 0, 340, 28)).convert("L")
+        difference = ImageChops.difference(source_crop, digital_crop)
+        assert sum(difference.histogram()[31:]) > 300
 
 
 def test_generator_rejects_a_changed_official_source(tmp_path):

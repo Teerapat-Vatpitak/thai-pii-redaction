@@ -175,6 +175,33 @@ def test_measure_extraction_names_the_arm_that_matched_a_wrapped_value():
     assert row["match"] == "whitespace_normalized"
 
 
+def test_measure_extraction_does_not_reuse_one_span_for_duplicate_values():
+    value = "1312271505581"
+    values = [
+        _value(0, "เลขบัตร 1", value, "THAI_ID"),
+        _value(1, "เลขบัตร 2", value, "THAI_ID"),
+    ]
+
+    result = measure_extraction(values, value)
+
+    assert [row["found"] for row in result["values"]] == [True, False]
+
+
+def test_measure_extraction_uses_two_spans_for_two_duplicate_values():
+    value = "1312271505581"
+    values = [
+        _value(0, "เลขบัตร 1", value, "THAI_ID"),
+        _value(1, "เลขบัตร 2", value, "THAI_ID"),
+    ]
+
+    result = measure_extraction(values, f"{value} {value}")
+
+    assert [(row["start"], row["end"]) for row in result["values"]] == [
+        (0, len(value)),
+        (len(value) + 1, len(value) * 2 + 1),
+    ]
+
+
 # ── measurement 2 ──────────────────────────────────────────────────────────
 
 
@@ -242,6 +269,44 @@ def test_measure_ocr_accuracy_scores_per_value_on_a_scan():
     assert by_field["อีเมล"]["char_accuracy"] == 1.0
 
 
+def test_ocr_alignment_range_cannot_be_reused_by_a_similar_value():
+    first = "1312271505581"
+    second = "1312271506581"
+    values = [
+        _value(0, "เลขบัตร 1", first, "THAI_ID"),
+        _value(1, "เลขบัตร 2", second, "THAI_ID"),
+    ]
+
+    ocr = measure_ocr_accuracy(values, first, "pdf_hybrid", None)
+    extraction = measure_extraction(values, first)
+    detection = measure_detection(values, extraction, [_entity(0, 13, "THAI_ID")], ocr)
+
+    assert ocr["values"][0]["status"] == "measured"
+    assert ocr["values"][1]["status"] == "alignment_conflict"
+    assert detection["values"][1]["status"] == "not_in_text"
+    assert detection["values"][1]["alignment"] is None
+
+
+def test_detection_rejects_duplicate_exact_alignments_from_external_input():
+    value = "1312271505581"
+    values = [
+        _value(0, "เลขบัตร 1", value, "THAI_ID"),
+        _value(1, "เลขบัตร 2", value, "THAI_ID"),
+    ]
+    extraction = {
+        "values": [
+            {"index": 0, "found": True, "start": 0, "end": len(value), "match": "exact"},
+            {"index": 1, "found": True, "start": 0, "end": len(value), "match": "exact"},
+        ]
+    }
+
+    detection = measure_detection(values, extraction, [_entity(0, len(value), "THAI_ID")])
+
+    assert detection["values"][0]["detected"] is True
+    assert detection["values"][1]["status"] == "not_in_text"
+    assert detection["values"][1]["alignment"] is None
+
+
 # ── measurement 4 ──────────────────────────────────────────────────────────
 
 
@@ -292,6 +357,27 @@ def test_measure_detection_carries_a_missing_value_through_as_not_in_text():
     result = measure_detection(values, extraction, [])
     assert result["values"][0]["status"] == "not_in_text"
     assert result["detected"] == 0
+
+
+def test_measure_detection_rejects_a_weak_ocr_alignment():
+    values = [_value(0, "เลขบัตร", "1312271505581", "THAI_ID")]
+    extraction = {"values": [{"index": 0, "found": False, "start": None, "end": None}]}
+    ocr = {
+        "values": [
+            {
+                "index": 0,
+                "status": "measured",
+                "start": 0,
+                "end": 13,
+                "char_accuracy": 0.79,
+            }
+        ]
+    }
+
+    result = measure_detection(values, extraction, [_entity(0, 13, "THAI_ID")], ocr)
+
+    assert result["values"][0]["status"] == "not_in_text"
+    assert result["values"][0]["alignment"] is None
 
 
 # ── end to end ─────────────────────────────────────────────────────────────
@@ -412,6 +498,122 @@ def test_residual_verdict_ignores_the_vacuous_text_arm(two_column_result):
     # The detected values on the same page did get covered, so this is a
     # property of that value and not of a broken redaction run.
     assert coverage["phone_left"]["fully_covered"] is True
+
+
+def test_probe_measures_hybrid_redaction_with_ocr_boxes(tmp_path, monkeypatch):
+    """A scanned page has real OCR geometry, so measurements 5 and 6 must run."""
+    pytest.importorskip("numpy")
+    pytest.importorskip("pypdfium2")
+
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    from pii_redactor.ingest import ocr_processor
+
+    phone = "081-234-5678"
+    marker = "WQXZ-4417"
+    image = Image.new("RGB", (612, 792), "white")
+    draw = ImageDraw.Draw(image)
+    draw.text((72, 72), phone, fill="black")
+    draw.text((72, 110), marker, fill="black")
+
+    scanned = tmp_path / "scanned.pdf"
+    c = canvas.Canvas(str(scanned), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.save()
+
+    words = [
+        WordBbox(text=phone, page=1, x=72, y=72, width=78, height=12),
+        WordBbox(text=marker, page=1, x=72, y=110, width=66, height=12),
+    ]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=words,
+            text=f"{phone}\n{marker}",
+            confidence=0.95,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    expected = {
+        "layout": "single_column",
+        "values": [
+            _value(0, "phone", phone, "PHONE"),
+            _value(1, "marker", marker, "STUDENT_ID"),
+        ],
+        "decoys": [],
+    }
+    result = probe(scanned, expected)
+
+    assert result["source_type"] == "pdf_hybrid"
+    assert result["coverage"]["status"] == "measured"
+    assert result["residual"]["status"] == "measured"
+    by_field = {row["field"]: row for row in result["residual"]["values"]}
+    assert by_field["phone"]["verdict"] == "removed"
+    assert by_field["marker"]["verdict"] == "exposed"
+
+
+def test_probe_uses_close_ocr_match_to_measure_a_misread_id(tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("pypdfium2")
+
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    from pii_redactor.ingest import ocr_processor
+
+    expected_id = "1312271505581"
+    ocr_id = "1312271506581"
+    image = Image.new("RGB", (612, 792), "white")
+    ImageDraw.Draw(image).text((72, 72), expected_id, fill="black")
+    scanned = tmp_path / "misread-id.pdf"
+    c = canvas.Canvas(str(scanned), pagesize=letter)
+    c.drawImage(
+        ImageReader(image),
+        0,
+        0,
+        width=letter[0],
+        height=letter[1],
+    )
+    c.save()
+
+    words = [WordBbox(text=ocr_id, page=1, x=72, y=72, width=80, height=12)]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=words,
+            text=ocr_id,
+            confidence=0.9,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    result = probe(
+        scanned,
+        {
+            "layout": "single_column",
+            "values": [_value(0, "national id", expected_id, "THAI_ID")],
+            "decoys": [],
+        },
+    )
+
+    assert result["extraction"]["missing"] == 1
+    detection = result["detection"]["values"][0]
+    assert detection["alignment"] == "ocr_approximate"
+    assert detection["type_match"] is True
+    assert result["coverage"]["values"][0]["alignment"] == "ocr_approximate"
+    assert result["residual"]["values"][0]["verdict"] == "removed"
 
 
 def test_decoy_control_catches_a_decoy_that_is_actually_present(tmp_path):

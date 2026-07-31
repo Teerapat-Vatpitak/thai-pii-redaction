@@ -83,6 +83,10 @@ _TB_CUE_WINDOW = 30
 # _apply_cue_upgrades), so an all-Latin "organization" span is always this
 # degenerate guess rather than a real Thai employer/hospital name -- reject it.
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
+_ISOLATED_NAME_LINE_RE = re.compile(r"[ก-ฮเ-ไ][ก-ฮะ-์]*(?:[ \t]+[ก-ฮเ-ไ][ก-ฮะ-์]*){1,3}")
+_ISOLATED_NAME_PREFIX_RE = re.compile(r"(?:ชื่อ(?:-นามสกุล)?|ผู้[ก-๛]{1,30})[ \t:：]+")
+_ISOLATED_NAME_MAX_CHARS = 80
+_ISOLATED_NAME_MAX_LINES = 8
 # Document/form compounds the CRF hallucinates as PERSON in header-heavy
 # registers. Anchored at span start; each entry is a compound so that real
 # given names sharing a prefix (เลขา, ใบเฟิร์น, ประกาศิต, นิคม) survive.
@@ -489,6 +493,118 @@ def _ner_candidates(
     return candidates
 
 
+def _trim_unoccupied_isolated_name_prefix(
+    text: str,
+    candidate: Entity,
+) -> Entity | None:
+    """Remove a field or role before an isolated NAME."""
+    candidate_text = text[candidate.span[0] : candidate.span[1]]
+    prefix = _ISOLATED_NAME_PREFIX_RE.match(candidate_text)
+    if prefix is None:
+        return candidate
+
+    # Check the value with the normal name rules, then map it to the source.
+    from pii_redactor.detectors.name_context import detect_name_context
+
+    label = "ชื่อ "
+    value = candidate_text[prefix.end() :]
+    probe = label + value
+    validated = [
+        entity
+        for entity in detect_name_context(probe)
+        if entity.data_type == "NAME" and entity.span[0] >= len(label)
+    ]
+    if not validated:
+        return None
+
+    best = max(validated, key=lambda entity: entity.span[1] - entity.span[0])
+    start = candidate.span[0] + prefix.end() + best.span[0] - len(label)
+    end = candidate.span[0] + prefix.end() + best.span[1] - len(label)
+    if not (candidate.span[0] <= start < end <= candidate.span[1]):
+        return None
+    return Entity(
+        entity_id=candidate.entity_id,
+        redact_type=candidate.redact_type,
+        data_type=candidate.data_type,
+        span=(start, end),
+        score=candidate.score,
+        original_text=text[start:end],
+    )
+
+
+def _isolated_line_name_candidates(
+    text: str,
+    ner: NER,
+    occupied: list[Entity],
+    diagnostics: NERChunkDiagnostics | None = None,
+) -> tuple[list[Entity], set[str]]:
+    """Retry short Thai lines with no entity or only NAME entities."""
+    if "\n" not in text and "\r" not in text:
+        return [], set()
+
+    candidates: list[Entity] = []
+    superseded_ids: set[str] = set()
+    attempted = 0
+    offset = 0
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        line_end = offset + len(line)
+        line_entities = [
+            entity
+            for entity in occupied
+            if not (line_end <= entity.span[0] or offset >= entity.span[1])
+        ]
+        line_has_non_name = any(entity.data_type != "NAME" for entity in line_entities)
+        if (
+            attempted < _ISOLATED_NAME_MAX_LINES
+            and not line_has_non_name
+            and len(line) <= _ISOLATED_NAME_MAX_CHARS
+            and _ISOLATED_NAME_LINE_RE.fullmatch(line)
+        ):
+            attempted += 1
+            line_candidates = [
+                entity
+                for entity in _ner_candidates(
+                    text,
+                    ner,
+                    [(line, offset)],
+                    0,
+                    diagnostics=diagnostics,
+                )
+                if entity.data_type == "NAME"
+            ]
+            if not line_entities:
+                candidates.extend(
+                    trimmed
+                    for candidate in line_candidates
+                    if (trimmed := _trim_unoccupied_isolated_name_prefix(text, candidate))
+                    is not None
+                )
+                offset += len(raw_line)
+                continue
+
+            for candidate in line_candidates:
+                overlapping = [
+                    entity
+                    for entity in line_entities
+                    if not (
+                        candidate.span[1] <= entity.span[0] or candidate.span[0] >= entity.span[1]
+                    )
+                ]
+                preserves_start = overlapping and all(
+                    candidate.span[0] == entity.span[0] for entity in overlapping
+                )
+                extends_right = all(
+                    candidate.span[1] >= entity.span[1] for entity in overlapping
+                ) and any(candidate.span[1] > entity.span[1] for entity in overlapping)
+                if preserves_start and extends_right:
+                    candidates.append(candidate)
+                    superseded_ids.update(entity.entity_id for entity in overlapping)
+        offset += len(raw_line)
+
+    return candidates, superseded_ids
+
+
 # ---------------------------------------------------------------------------
 # Main detector
 # ---------------------------------------------------------------------------
@@ -556,6 +672,15 @@ def detect_tb(
     from pii_redactor.detectors.name_context import detect_name_context
 
     candidates.extend(detect_name_context(text))
+    if name == "thainer":
+        isolated_names, superseded_ids = _isolated_line_name_candidates(
+            text,
+            ners[0],
+            candidates,
+            diagnostics=diagnostics,
+        )
+        candidates = [entity for entity in candidates if entity.entity_id not in superseded_ids]
+        candidates.extend(isolated_names)
 
     # Deduplication
     return _deduplicate(candidates)

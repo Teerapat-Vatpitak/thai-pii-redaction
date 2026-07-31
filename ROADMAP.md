@@ -82,12 +82,14 @@ that survives being checked.
 
 Ordered so that evaluation integrity comes before tuning:
 
-1. **Lock a blind set before tuning.** Freeze a held-out corpus that is never
-   inspected during detector work. Without it, every fix tuned on the gold set
-   is unfalsifiable.
-2. **Harden the gold set as evidence.** Annotation is currently single-source;
-   add a label review/adjudication pass before treating gold-set scores as
-   release or CI evidence. Grow underrepresented types as gaps appear.
+1. **Keep the blind set locked during tuning.** `blind-v1` is frozen. The
+   government-form runner does not access it, and the reveal log remains at
+   4/6.
+2. **Separate automatic and human evidence.** Gold v4 already has its recorded
+   two-reviewer adjudication. Government-form synthetic expectations are
+   developer-authored and not independently adjudicated. Independent annotation
+   and adjudication of broader real-form content are deferred by the owner;
+   automatic synthetic results must not be described as general accuracy.
 3. **Fix in impact order:** scorer/boundary defects, structured (FP) misses,
    NAME context coverage, ADDRESS coverage, then false-positive reduction.
    Prefer recall over precision, but keep type labels honest.
@@ -101,19 +103,25 @@ Ordered so that evaluation integrity comes before tuning:
 6. **Evaluate an ONNX (or similar) runtime separately** as an
    inference/deployment decision. It needs output-parity and resource
    evidence, not accuracy claims.
-7. **Extend coverage to real Thai government documents.** The current corpus
-   is self-authored prose; real forms are tables with checkboxes, stamps, and
-   fields the 11-type scheme never adjudicated. Phase 1 artifacts:
+7. **Extend coverage to real Thai government documents.** The current
+   adjudicated accuracy corpus is self-authored prose; real forms are tables
+   with checkboxes, stamps, and fields the 11-type scheme never adjudicated.
+   Phase 1 artifacts:
    `docs/research/gov-doc-coverage.md` (sampling frame),
    `docs/research/gov-doc-policy-ontology.md` (per-field policy draft), and
    `benchmark/probe_document.py` (six-measurement instrument). The owner
    approved Phase 2 downloads on 2026-07-31. Source and sanitized-artifact
-   hashes are now pinned for three official blanks, and a deterministic builder
+   hashes are pinned for three official blanks, and a deterministic builder
    creates nine inputs (three modalities each); raw downloads are not committed.
+   The local runner now covers digital plus all six OCR inputs. Strict gates
+   cover route/OCR, extraction, pixel coverage, residual PII, and declared
+   decoy extraction; detection and type results are telemetry. It also checks
+   unique alignment and evidence provenance. The runner is verified, but its
+   privacy gate remains red; see the
+   [dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md).
    ท.ร.6 had no public blank download and its declared backup คร.1 is used.
-   Digital probe evidence exists, while all six image-only runs remain open
-   because the local environment lacked the OCR extra. The มาตรา 26 scope
-   question also remains open. See
+   Physical scans, handwriting, independent real-form annotation, and the
+   มาตรา 26 scope question remain open. See
    `docs/research/gov-doc-phase2.md`.
 
 Exit gate: results are reproducible, the blind set has not been tuned against,

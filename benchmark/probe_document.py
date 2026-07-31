@@ -47,10 +47,8 @@ WHAT THIS INSTRUMENT CANNOT DO
   (REDACT_PAD_TOP_PT), because on tight leading anything beyond it is the
   legitimate previous line. A glyph fragment surviving further above the box
   than the pad reaches would need the OCR check above to be seen.
-- Measurements 5 and 6 run on `pdf_text` sources only. Scans produce bboxes
-  through the OCR path too, so this is a scope limit of this version rather
-  than a technical wall -- it is untested because the OCR extra is not
-  installed here.
+- Measurements 5 and 6 need aligned word boxes. Text PDFs get them from the
+  text layer; scans get them from OCR.
 - The column heuristic behind measurement 2 is a heuristic. An expectations
   file may declare `layout` and override it.
 """
@@ -133,6 +131,9 @@ MAX_RENDER_SCALE = 2.0
 
 # Guard on the O(len(value) * len(text)) approximate-match DP in measurement 3.
 MAX_EDIT_DISTANCE_CELLS = 20_000_000
+
+# Use close OCR matches only when they are reliable.
+OCR_ALIGNMENT_MIN_ACCURACY = 0.8
 
 
 @dataclass(frozen=True)
@@ -340,18 +341,19 @@ def approx_substring_distance(needle: str, haystack: str) -> tuple[int, int, int
 def measure_extraction(values: list[ExpectedValue], text: str) -> dict[str, Any]:
     """Per expected value: did it survive ingest, and where did it land."""
     rows = []
+    claimed: list[tuple[int, int]] = []
     for v in values:
-        start = text.find(v.value)
+        start, end = _find_unclaimed_exact(text, v.value, claimed)
         method = "exact"
         if start < 0:
             # A value split by a line wrap comes back with different internal
             # whitespace. Retry with runs of whitespace made equivalent before
             # calling it lost -- but say which arm matched, because a
             # whitespace-normalized hit means the PDF broke the value.
-            start, end = _find_whitespace_insensitive(text, v.value)
+            start, end = _find_whitespace_insensitive(text, v.value, claimed)
             method = "whitespace_normalized" if start >= 0 else "none"
-        else:
-            end = start + len(v.value)
+        if start >= 0:
+            claimed.append((start, end))
         rows.append(
             {
                 "index": v.index,
@@ -368,7 +370,31 @@ def measure_extraction(values: list[ExpectedValue], text: str) -> dict[str, Any]
     return {"total": len(rows), "found": found, "missing": len(rows) - found, "values": rows}
 
 
-def _find_whitespace_insensitive(text: str, value: str) -> tuple[int, int]:
+def _range_is_free(start: int, end: int, claimed: list[tuple[int, int]]) -> bool:
+    return start < end and all(
+        end <= used_start or start >= used_end for used_start, used_end in claimed
+    )
+
+
+def _find_unclaimed_exact(
+    text: str,
+    value: str,
+    claimed: list[tuple[int, int]],
+) -> tuple[int, int]:
+    start = text.find(value)
+    while start >= 0:
+        end = start + len(value)
+        if _range_is_free(start, end, claimed):
+            return start, end
+        start = text.find(value, start + 1)
+    return -1, -1
+
+
+def _find_whitespace_insensitive(
+    text: str,
+    value: str,
+    claimed: list[tuple[int, int]] | None = None,
+) -> tuple[int, int]:
     """Locate `value` in `text` treating any whitespace run as equivalent.
 
     Returns (start, end) offsets into the ORIGINAL text, or (-1, -1).
@@ -376,8 +402,11 @@ def _find_whitespace_insensitive(text: str, value: str) -> tuple[int, int]:
     pattern = r"\s+".join(re.escape(part) for part in value.split())
     if not pattern:
         return -1, -1
-    m = re.search(pattern, text)
-    return (m.start(), m.end()) if m else (-1, -1)
+    claimed = claimed or []
+    for match in re.finditer(pattern, text):
+        if _range_is_free(match.start(), match.end(), claimed):
+            return match.start(), match.end()
+    return -1, -1
 
 
 # ── measurement 2: extraction order ────────────────────────────────────────
@@ -486,10 +515,26 @@ def measure_ocr_accuracy(
                 "status": "measured",
                 "expected": v.value,
                 "best_match": text[start:end],
+                "start": start,
+                "end": end,
                 "edit_distance": distance,
                 "char_accuracy": round(1.0 - distance / max(len(v.value), 1), 4),
             }
         )
+
+    claimed: list[tuple[int, int]] = []
+    ranked = sorted(
+        (row for row in rows if row["status"] == "measured"),
+        key=lambda row: (-row["char_accuracy"], row["edit_distance"], row["index"]),
+    )
+    for row in ranked:
+        span = row["start"], row["end"]
+        if span[0] < span[1] and any(span[0] < end and start < span[1] for start, end in claimed):
+            row["status"] = "alignment_conflict"
+            row["reason"] = "best OCR range is already used by another expected value"
+        elif span[0] < span[1]:
+            claimed.append(span)
+
     measured = [r for r in rows if r["status"] == "measured"]
     mean = round(sum(r["char_accuracy"] for r in measured) / len(measured), 4) if measured else None
     return {"status": "measured", "mean_char_accuracy": mean, "values": rows}
@@ -498,19 +543,68 @@ def measure_ocr_accuracy(
 # ── measurement 4: legacy-11 detection ─────────────────────────────────────
 
 
+def _value_alignment(
+    extracted: dict[str, Any],
+    ocr_row: dict[str, Any] | None,
+) -> tuple[int, int, str] | None:
+    if extracted["found"]:
+        return extracted["start"], extracted["end"], extracted.get("match", "exact")
+    if (
+        ocr_row
+        and ocr_row.get("status") == "measured"
+        and ocr_row.get("char_accuracy", 0.0) >= OCR_ALIGNMENT_MIN_ACCURACY
+    ):
+        return ocr_row["start"], ocr_row["end"], "ocr_approximate"
+    return None
+
+
+def _resolve_value_alignments(
+    extraction: dict[str, Any],
+    ocr: dict[str, Any] | None,
+) -> dict[int, tuple[int, int, str] | None]:
+    """Give each expected value its own source range."""
+    ocr_by_index = {row["index"]: row for row in (ocr or {}).get("values", [])}
+    candidates = []
+    for extracted in extraction["values"]:
+        index = extracted["index"]
+        alignment = _value_alignment(extracted, ocr_by_index.get(index))
+        if alignment is None:
+            continue
+        is_approximate = alignment[2] == "ocr_approximate"
+        accuracy = ocr_by_index.get(index, {}).get("char_accuracy", 0.0)
+        candidates.append((is_approximate, -accuracy, index, alignment))
+
+    resolved: dict[int, tuple[int, int, str] | None] = {
+        extracted["index"]: None for extracted in extraction["values"]
+    }
+    claimed: list[tuple[int, int]] = []
+    for _is_approximate, _accuracy, index, alignment in sorted(candidates):
+        start, end, _kind = alignment
+        if _range_is_free(start, end, claimed):
+            resolved[index] = alignment
+            claimed.append((start, end))
+    return resolved
+
+
 def measure_detection(
-    values: list[ExpectedValue], extraction: dict[str, Any], entities
+    values: list[ExpectedValue],
+    extraction: dict[str, Any],
+    entities,
+    ocr: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Per expected value: did detect_all find it, and with the claimed type."""
     rows = []
-    for v, found in zip(values, extraction["values"]):
-        if not found["found"]:
+    alignments = _resolve_value_alignments(extraction, ocr)
+    for v in values:
+        alignment = alignments.get(v.index)
+        if alignment is None:
             rows.append(
                 {
                     "index": v.index,
                     "field": v.field,
                     "expected_type": v.type,
                     "status": "not_in_text",
+                    "alignment": None,
                     "detected": False,
                     "detected_types": [],
                     "type_match": None,
@@ -519,7 +613,7 @@ def measure_detection(
             )
             continue
 
-        start, end = found["start"], found["end"]
+        start, end, alignment_kind = alignment
         overlapping = [e for e in entities if e.span[0] < end and start < e.span[1]]
         covered = set()
         for e in overlapping:
@@ -531,7 +625,8 @@ def measure_detection(
         elif v.type not in LEGACY_11:
             match, status = None, "out_of_scheme"
         else:
-            match, status = (v.type in types), "scored"
+            match = v.type in types
+            status = "scored_ocr_approximate" if alignment_kind == "ocr_approximate" else "scored"
 
         rows.append(
             {
@@ -539,6 +634,7 @@ def measure_detection(
                 "field": v.field,
                 "expected_type": v.type,
                 "status": status,
+                "alignment": alignment_kind,
                 "detected": bool(overlapping),
                 "detected_types": types,
                 "type_match": match,
@@ -546,7 +642,7 @@ def measure_detection(
             }
         )
 
-    scored = [r for r in rows if r["status"] == "scored"]
+    scored = [r for r in rows if r["status"].startswith("scored")]
     return {
         "total": len(rows),
         "detected": sum(1 for r in rows if r["detected"]),
@@ -569,22 +665,16 @@ def measure_redaction(
     word_bboxes,
     aligned: list[AlignedWord],
     render_scale: float,
+    ocr: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run the product's real redaction, then measure pixels and residue.
 
-    Returns (coverage, residual). The entity registry is built the way
-    app/server.py's /api/redact-pdf builds it (detect_fp + detect_tb, no
-    dedupe) so this measures the path that actually ships, not a
-    reconstruction of it.
+    Returns (coverage, residual). The entity registry uses the same shared
+    detector as the PDF endpoint.
     """
     skip = None
-    if source_type != "pdf_text":
-        skip = (
-            f"source_type is {source_type!r}; this version measures redaction on text-layer "
-            "PDFs only. Scans produce bboxes through the OCR path too, so this is a scope "
-            "limit rather than a technical one -- it is untested because the OCR extra is "
-            "not installed here."
-        )
+    if source_type not in {"pdf_text", "pdf_hybrid"}:
+        skip = f"source_type is {source_type!r}; redaction measurement needs a PDF"
     elif not aligned:
         skip = "no word bboxes could be aligned to the extracted text, so there is no region to measure"
 
@@ -609,16 +699,19 @@ def measure_redaction(
             "values": [],
         }
 
-    from pii_redactor.detectors.fp_detector import detect_fp
-    from pii_redactor.detectors.tb_detector import detect_tb
+    from pii_redactor.detectors.aggregate import detect_all
     from pii_redactor.ingest.file_detector import detect_source_type
     from pii_redactor.ingest.text_extractor import extract
     from pii_redactor.models import EntityRegistry
     from pii_redactor.redactor import redact_pdf
 
-    fp = detect_fp(detect_text)
-    tb = detect_tb(detect_text)
-    registry = EntityRegistry(entities=fp + tb, fp_count=len(fp), tb_count=len(tb))
+    entities = detect_all(detect_text)
+    fp_count = sum(entity.redact_type == "FP" for entity in entities)
+    registry = EntityRegistry(
+        entities=entities,
+        fp_count=fp_count,
+        tb_count=len(entities) - fp_count,
+    )
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="aiguard_probe_"))
     redacted = tmp_dir / "redacted.pdf"
@@ -641,12 +734,13 @@ def measure_redaction(
         # accumulated, and the array is released before the next page is
         # touched. Only pages that actually carry an expected value are
         # rendered at all.
-        boxes_by_value: dict[int, list[AlignedWord]] = {
-            v.index: (
-                words_for_span(aligned, found["start"], found["end"]) if found["found"] else []
+        alignments = _resolve_value_alignments(extraction, ocr)
+        boxes_by_value: dict[int, list[AlignedWord]] = {}
+        for v in values:
+            alignment = alignments[v.index]
+            boxes_by_value[v.index] = (
+                words_for_span(aligned, alignment[0], alignment[1]) if alignment else []
             )
-            for v, found in zip(values, extraction["values"])
-        }
         totals = dict.fromkeys(boxes_by_value, 0)
         blacks = dict.fromkeys(boxes_by_value, 0)
         strip_inks = dict.fromkeys(boxes_by_value, 0)
@@ -685,13 +779,15 @@ def measure_redaction(
 
         coverage_rows = []
         residual_rows = []
-        for v, found in zip(values, extraction["values"]):
-            if not found["found"]:
+        for v in values:
+            alignment = alignments[v.index]
+            if alignment is None:
                 coverage_rows.append(
                     {
                         "index": v.index,
                         "field": v.field,
                         "status": "not_in_text",
+                        "alignment": None,
                         "words": 0,
                         "black_fraction": None,
                     }
@@ -701,7 +797,8 @@ def measure_redaction(
                         "index": v.index,
                         "field": v.field,
                         "verdict": "unmeasurable",
-                        "reason": "value was not found in the source text, so it has no region",
+                        "reason": "no reliable text or OCR alignment was found for this value",
+                        "alignment": None,
                         "text_arm_survives": v.value in redacted_text,
                         "black_fraction": None,
                         "ink_above_box_pixels": None,
@@ -710,6 +807,7 @@ def measure_redaction(
                 continue
 
             boxes = boxes_by_value[v.index]
+            alignment_kind = alignment[2]
             total, black, strip_ink = totals[v.index], blacks[v.index], strip_inks[v.index]
             fraction = (black / total) if total else None
             fully = fraction is not None and fraction >= COVERAGE_FULL
@@ -718,6 +816,7 @@ def measure_redaction(
                     "index": v.index,
                     "field": v.field,
                     "status": "measured" if total else "no_pixels",
+                    "alignment": alignment_kind,
                     "words": len(boxes),
                     "black_pixels": black,
                     "total_pixels": total,
@@ -754,6 +853,7 @@ def measure_redaction(
                     "field": v.field,
                     "verdict": verdict,
                     "reason": reason,
+                    "alignment": alignment_kind,
                     "text_arm_survives": survives_text,
                     "black_fraction": round(fraction, 4) if fraction is not None else None,
                     "ink_above_box_pixels": strip_ink,
@@ -763,7 +863,10 @@ def measure_redaction(
         measured = [r for r in coverage_rows if r["black_fraction"] is not None]
         coverage = {
             "status": "measured",
-            "note": "text-layer PDFs only; measured on the rendered redacted page, not on the box list",
+            "note": (
+                "measured on the rendered redacted page using "
+                f"{'OCR' if source_type == 'pdf_hybrid' else 'text-layer'} word boxes"
+            ),
             "render_scale": render_scale,
             "values_measured": len(measured),
             "fully_covered": sum(1 for r in measured if r["fully_covered"]),
@@ -854,7 +957,7 @@ def probe(
         entities = detect_all(detect_text)
     else:
         entities = []
-    detection = measure_detection(values, extraction, entities)
+    detection = measure_detection(values, extraction, entities, ocr)
 
     coverage, residual = measure_redaction(
         values,
@@ -865,6 +968,7 @@ def probe(
         word_bboxes,
         aligned,
         render_scale,
+        ocr,
     )
 
     decoy_hits = [d for d in expectations["decoys"] if d in text]

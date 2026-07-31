@@ -137,6 +137,46 @@ def test_redact_pdf_hybrid_ocr_path(client, tmp_path, monkeypatch):
     assert data["entity_count"] >= 2
 
 
+def test_redact_pdf_hybrid_keeps_false_negative_scan_in_the_real_path(
+    client, tmp_path, monkeypatch
+):
+    from pii_redactor.ingest import ocr_processor
+    from pii_redactor.models import WordBbox
+
+    pdf = _scanned_pdf(tmp_path)
+    misread_id = "1312271506581"
+    fake_words = [
+        WordBbox(
+            text=f"เลขประจำตัวประชาชน {misread_id}",
+            page=1,
+            x=50,
+            y=72,
+            width=220,
+            height=12,
+        )
+    ]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=fake_words,
+            text=f"เลขประจำตัวประชาชน {misread_id}",
+            confidence=0.85,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    resp = client.post(
+        "/api/redact-pdf",
+        files={"pdf_file": ("scan.pdf", pdf, "application/pdf")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(field["data_type"] == "THAI_ID" for field in data["fields"])
+
+
 def test_redact_pdf_hybrid_without_ocr_deps_returns_503(client, tmp_path, monkeypatch):
     from pii_redactor.ingest import ocr_processor
 

@@ -4,7 +4,8 @@ Phase 1B of the Thai government document coverage plan: every field class seen
 in the [sampling frame](gov-doc-coverage.md) gets exactly one of four policy
 decisions. This is a DRAFT for the owner to review — it changes no product
 behavior by itself, and it deliberately does not cross the two decisions the
-plan reserves for the owner (มาตรา 26 scope, and the new blind set).
+plan reserves for the owner (มาตรา 26 scope, and independent annotation of
+broader real-form content).
 
 - เวอร์ชัน: v0.1 (2026-07-30) อิงฟิลด์จากกรอบการสุ่ม v0.1 (69 รายการ 8 ตระกูล)
 - หลักยืนสองข้อที่ร่างนี้ไม่ล้ำ คือ (1) ข้อมูลอ่อนไหวมาตรา 26 เป็น
@@ -109,8 +110,8 @@ POSTAL_CODE, MEDICAL_ID, IBAN) คำว่า "ช่องว่าง" แป
 
 1. เจ้าของอนุมัติการดาวน์โหลดแล้วเมื่อ 2026-07-31 แต่ยังต้องตัดสินข้อ ก.
    (ขอบเขต ม.26 ต่อเวชระเบียน)
-2. ฟอร์มทางการ 3 แบบและ deterministic builder 9 อินพุตมีแล้ว.
-   Digital probe วัดได้ 3 อินพุต; image-only อีก 6 อินพุตยัง skip เพราะ
-   environment ไม่มี OCR extra. ดู [หลักฐาน phase 2](gov-doc-phase2.md).
+2. ฟอร์มทางการ 3 แบบและ deterministic builder 9 อินพุตมีแล้ว. Local runner
+   วัด digital 3 และ OCR image-only 6 อินพุตครบ แต่ strict privacy gate ยัง
+   fail. ดู [หลักฐาน phase 2](gov-doc-phase2.md).
 3. จากนั้นจึงตรึงสัญญา benchmark ใหม่ (ตระกูล ontology เวอร์ชัน) — ขั้นที่ 5
    ของแผน

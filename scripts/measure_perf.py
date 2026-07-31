@@ -151,8 +151,6 @@ def measure(iterations: int = DEFAULT_ITERATIONS) -> dict:
     # Imported here, not at module scope, so the comparison logic stays
     # importable (and unit-testable) without loading the NER model.
     from pii_redactor.detectors.aggregate import detect_all
-    from pii_redactor.detectors.fp_detector import detect_fp
-    from pii_redactor.detectors.tb_detector import detect_tb
     from pii_redactor.ingest.file_detector import detect_source_type
     from pii_redactor.ingest.text_cleaner import clean_length_preserving
     from pii_redactor.ingest.text_extractor import extract
@@ -187,16 +185,19 @@ def measure(iterations: int = DEFAULT_ITERATIONS) -> dict:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         def redact_once() -> None:
-            # Mirrors /api/redact-pdf exactly, including its FP/TB split: the
-            # point is to measure the path users actually hit, not a tidier one.
+            # Use the same detector as the PDF endpoint.
             source_type = detect_source_type(str(SAMPLE_PDF_PATH))
             raw_text, word_bboxes, _meta = extract(str(SAMPLE_PDF_PATH), source_type)
             detect_text = clean_length_preserving(raw_text)
-            fp = detect_fp(detect_text)
-            tb = detect_tb(detect_text)
+            entities = detect_all(detect_text)
+            fp_count = sum(entity.redact_type == "FP" for entity in entities)
             redact_pdf(
                 str(SAMPLE_PDF_PATH),
-                EntityRegistry(entities=fp + tb, fp_count=len(fp), tb_count=len(tb)),
+                EntityRegistry(
+                    entities=entities,
+                    fp_count=fp_count,
+                    tb_count=len(entities) - fp_count,
+                ),
                 word_bboxes,
                 str(out_path),
             )

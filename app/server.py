@@ -39,8 +39,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
-from pii_redactor.detectors.fp_detector import detect_fp
-from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
@@ -813,10 +811,13 @@ def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
             )
 
         detect_text = clean_length_preserving(raw_text)
-        fp = detect_fp(detect_text)
-        tb = detect_tb(detect_text)
-        entities = fp + tb
-        registry = EntityRegistry(entities=entities, fp_count=len(fp), tb_count=len(tb))
+        entities = detect_all(detect_text)
+        fp_count = sum(entity.redact_type == "FP" for entity in entities)
+        registry = EntityRegistry(
+            entities=entities,
+            fp_count=fp_count,
+            tb_count=len(entities) - fp_count,
+        )
 
         redact_pdf_file(str(in_path), registry, word_bboxes, str(out_path))
 
