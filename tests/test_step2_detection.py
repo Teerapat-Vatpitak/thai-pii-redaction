@@ -171,6 +171,40 @@ def test_detect_fp_house_number_after_address_label_colon_has_exact_span():
     assert house_numbers[0].span == (text.index("99"), text.index("99") + 2)
 
 
+def test_detect_fp_house_number_before_street_cue_has_exact_span():
+    text = "88 ถนนตัวอย่าง แขวงทดสอบ กรุงเทพฯ 10110"
+    houses = [
+        entity
+        for entity in detect_fp(text)
+        if entity.data_type == "ADDRESS" and entity.original_text == "88"
+    ]
+
+    assert len(houses) == 1
+    assert houses[0].span == (0, 2)
+
+
+def test_buddhist_year_before_street_word_is_not_a_house_number():
+    entities = detect_fp("ปี 2568 ถนนสายหลักเปิดใช้งาน")
+    assert not any(
+        entity.data_type == "ADDRESS" and entity.original_text == "2568" for entity in entities
+    )
+
+
+def test_house_number_in_buddhist_year_range_is_still_an_address():
+    text = "2568 ถนนสุขุมวิท เขตวัฒนา กรุงเทพฯ 10110"
+    assert any(
+        entity.data_type == "ADDRESS" and entity.original_text == "2568"
+        for entity in detect_fp(text)
+    )
+
+
+def test_buddhist_year_with_era_prefix_is_not_a_house_number():
+    entities = detect_fp("พ.ศ. 2568 ถนนสุขุมวิทเปิดใช้งาน")
+    assert not any(
+        entity.data_type == "ADDRESS" and entity.original_text == "2568" for entity in entities
+    )
+
+
 def test_detect_fp_no_overlap():
     text = "ID: 1101200012345 email: test@example.com"
     entities = detect_fp(text)

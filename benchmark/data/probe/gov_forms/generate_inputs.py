@@ -15,6 +15,8 @@ from pathlib import Path
 MODALITIES = ("digital", "print_like", "degraded")
 DEFAULT_CORPUS = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = Path("benchmark/reports/gov-forms-phase2/inputs")
+SYNTHETIC_BANNER = "SYNTHETIC TEST INPUT - NO REAL PERSONAL DATA"
+TEXT_LAYER_SENTINEL = "." * 20
 
 
 @dataclass(frozen=True)
@@ -74,7 +76,8 @@ def _write_digital(
     form: dict,
     corpus_dir: Path,
 ) -> None:
-    from reportlab.lib.colors import Color, black
+    from PIL import ImageDraw, ImageFont
+    from reportlab.lib.colors import black
     from reportlab.lib.utils import ImageReader
 
     pages = _render_pdf(source, scale=2.0)
@@ -85,17 +88,26 @@ def _write_digital(
 
     for page_number, (image, (width, height)) in enumerate(pages, start=1):
         c.setPageSize((width, height))
+        draw = ImageDraw.Draw(image)
+        draw.text(
+            (24, 4),
+            SYNTHETIC_BANNER,
+            fill=(115, 115, 115),
+            font=ImageFont.load_default(),
+        )
         c.drawImage(ImageReader(image), 0, 0, width=width, height=height)
 
-        # Keep every digital page on the text-layer path.
-        c.setFillColor(Color(0.45, 0.45, 0.45))
-        c.setFont("Helvetica", 6)
-        c.drawString(12, height - 12, "SYNTHETIC TEST INPUT - NO REAL PERSONAL DATA")
+        page_fields = [field for field in form["synthetic_fields"] if field["page"] == page_number]
+        if not page_fields:
+            # Keep an empty image page as a digital PDF. Do not add words.
+            text = c.beginText(12, 12)
+            text.setTextRenderMode(3)
+            text.setFont("Helvetica", 6)
+            text.textOut(TEXT_LAYER_SENTINEL)
+            c.drawText(text)
 
         c.setFillColor(black)
-        for field in form["synthetic_fields"]:
-            if field["page"] != page_number:
-                continue
+        for field in page_fields:
             c.setFont(font_name, field.get("font_size", 9))
             c.drawString(field["x"], height - field["y"], field["value"])
         c.showPage()

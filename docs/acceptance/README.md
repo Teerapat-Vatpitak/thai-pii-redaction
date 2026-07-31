@@ -4,7 +4,11 @@ Acceptance answers one question: can a user complete the feature on the real
 delivery path without leaking raw PII? It is separate from the later accuracy
 benchmark.
 
-Latest recorded runs:
+Diagnostic and failed-gate records:
+
+- [2026-07-31 Government-form synthetic regression (functional fail)](2026-07-31-government-form-synthetic-run.md)
+
+Other acceptance and qualified runtime records:
 
 - [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
@@ -16,9 +20,10 @@ Latest recorded runs:
 - [2026-07-23 Office local Word evidence](2026-07-23-office-local-run.md)
 - [2026-07-24 Office 2.5.0 local acceptance and promotion preparation](2026-07-24-office-2.5.0-run.md)
 
-Use only the synthetic fixtures in `examples/` and this document. Evidence must
-never contain request text, entity values, mappings, credentials, or provider
-response bodies.
+Use only the synthetic fixtures in `examples/`, this document, and
+`benchmark/data/probe/gov_forms/manifest.json` with its generated corpus.
+Evidence must never contain request text, entity values, mappings, credentials,
+or provider response bodies.
 
 ## Automated HTTP and live-provider run
 

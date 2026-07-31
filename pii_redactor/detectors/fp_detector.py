@@ -344,6 +344,11 @@ _STUDENT_LABEL_RE = re.compile(r"(?:รหัส|เลขประจำตั�
 # full-width colon (``ที่อยู่: 99`` / ``ที่อยู่：99``); keeping it outside
 # group 1 preserves the exact value-only span used by text replacement.
 _RE_HOUSE_NO = re.compile(r"(?:บ้านเลขที่|เลขที่|ที่อยู่)\s*[:：]?\s*(\d{1,4}(?:\s*[/-]\s*\d{1,4})?)(?!\d)")
+# Some form rows start with the house number and put the street cue after it.
+_RE_HOUSE_BEFORE_STREET = re.compile(
+    r"(?<!\d)(\d{1,4}(?:\s*[/-]\s*\d{1,4})?)\s+(?=(?:ถนน|ถ\.|ซอย|ซ\.|ตรอก))"
+)
+_RE_YEAR_PREFIX = re.compile(r"(?:ปี(?:งบประมาณ|ภาษี)?|พ\.?\s*ศ\.?)\s*$")
 # Captures the soi/road NAME plus its number ("ลาดพร้าว 71"): the name alone
 # identifies a neighbourhood and the number narrows it to one lane, so masking
 # only the digits would leave the person locatable.
@@ -653,6 +658,12 @@ def detect_fp(text: str) -> list[Entity]:
         # house number — leave the digits to the numeric detectors.
         nxt = text[m.end(1) : m.end(1) + 2]
         if len(nxt) == 2 and nxt[0] in "-/" and nxt[1].isdigit():
+            continue
+        candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
+    for m in _RE_HOUSE_BEFORE_STREET.finditer(text):
+        raw = re.sub(r"\s", "", m.group(1))
+        prefix = text[max(0, m.start() - 20) : m.start()]
+        if raw.isdigit() and 2400 <= int(raw) <= 2699 and _RE_YEAR_PREFIX.search(prefix):
             continue
         candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
     for pattern in (_RE_SOI_ROAD, _RE_MOO, _RE_ADMIN_AREA):

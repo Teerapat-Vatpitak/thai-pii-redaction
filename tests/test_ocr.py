@@ -254,11 +254,23 @@ def _install_fake_cv2(monkeypatch, calls):
     np = pytest.importorskip("numpy")
     fake = types.ModuleType("cv2")
     fake.COLOR_RGB2GRAY = 7
+    fake.COLOR_GRAY2RGB = 8
+    fake.ADAPTIVE_THRESH_GAUSSIAN_C = 0
+    fake.THRESH_BINARY = 0
     fake.THRESH_BINARY_INV = 1
     fake.THRESH_OTSU = 8
     fake.INTER_CUBIC = 2
     fake.BORDER_REPLICATE = 1
-    fake.cvtColor = lambda img, code: img[:, :, 0] if img.ndim == 3 else img
+
+    def _convert(img, code):
+        if code == fake.COLOR_RGB2GRAY:
+            return img[:, :, 0]
+        if code == fake.COLOR_GRAY2RGB:
+            return np.repeat(img[:, :, None], 3, axis=2)
+        return img
+
+    fake.cvtColor = _convert
+    fake.adaptiveThreshold = lambda gray, *a, **k: np.where(gray > 0, 255, 0).astype(np.uint8)
     # thresh image with foreground so np.where(...) yields coords -> deskew proceeds
     fake.threshold = lambda gray, a, b, flags: (0.0, np.ones_like(gray))
     fake.minAreaRect = lambda coords: ((0.0, 0.0), (1.0, 1.0), 5.0)  # 5 deg skew
@@ -301,18 +313,28 @@ def test_preprocess_image_level0_keeps_color_shape():
     assert out.shape == img.shape
 
 
+def test_retry_preprocess_keeps_three_channels_without_real_opencv(monkeypatch):
+    np = _install_fake_cv2(monkeypatch, [])
+    img = np.zeros((50, 50, 3), dtype=np.uint8)
+
+    out = ocr_processor.preprocess_image(img, level=1)
+
+    assert out.shape == img.shape
+
+
 def test_deskew_removed():
     """DET-3: deskew was removed from the module to keep OCR bbox coordinates in
     the same (unrotated) space redactor.py renders and paints on."""
     assert not hasattr(ocr_processor, "_deskew")
 
 
-def test_preprocess_image_level1_binarizes_to_grayscale():
+def test_preprocess_image_level1_keeps_three_channels_for_paddle():
     pytest.importorskip("cv2")
     np = pytest.importorskip("numpy")
     img = np.random.randint(0, 255, (50, 50, 3), dtype=np.uint8)
     out = ocr_processor.preprocess_image(img, level=1)
-    assert out.ndim == 2
+    assert out.shape == img.shape
+    assert set(np.unique(out)) <= {0, 255}
 
 
 def test_is_available_true_when_deps_present():

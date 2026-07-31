@@ -44,6 +44,11 @@ def test_building_name_bridge_merges():
     assert "อาคารทัวร์ไทย" in addrs[0]
 
 
+def test_unlabelled_house_number_and_street_merge_into_full_address():
+    text = "88 ถนนตัวอย่าง แขวงทดสอบ กรุงเทพฯ 10110"
+    assert _addr_texts(text) == [text]
+
+
 def test_two_parties_addresses_do_not_merge():
     text = "ผู้ซื้อ อยู่บ้านเลขที่ 12 ซอยพัฒนา 3 ผู้ขาย อยู่บ้านเลขที่ 99 ซอยเจริญ 7"
     addrs = _addr_texts(text)
