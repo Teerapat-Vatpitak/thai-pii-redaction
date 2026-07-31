@@ -119,6 +119,13 @@ Ordered so that evaluation integrity comes before tuning:
    unique alignment and evidence provenance. The runner is verified, but its
    privacy gate remains red; see the
    [dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md).
+   That failed gate isolated two detection gaps that order the next accuracy
+   work: an OCR read that is one character off (char accuracy ~0.90) is
+   treated as if the value were absent — no tag, no black box — so closing it
+   means OCR-error-tolerant matching on the detection side, not gate
+   softening; and `detect_parallel_record_names` unlocks only when at least
+   one NAME was already found, so a page whose every name is misread cannot
+   bootstrap. Both are detection work under items 3-5.
    ท.ร.6 had no public blank download and its declared backup คร.1 is used.
    Physical scans, handwriting, independent real-form annotation, and the
    มาตรา 26 scope question remain open. See
