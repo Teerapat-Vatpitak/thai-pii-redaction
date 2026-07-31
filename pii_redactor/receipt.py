@@ -1,43 +1,9 @@
-"""Processing receipt for PDPA มาตรา 39 — one slip per run, verified by rerunning.
+"""Create one PDPA section 39 receipt for each run.
 
-Section 39 asks a data controller to keep a record of its processing
-activities. The obvious reading is a cumulative register (a RoPA) that grows
-over time, and this project cannot honestly keep one: the vault is in memory,
-the hosted path is stateless by contract, and nothing about a document survives
-the request that carried it. A register would mean starting to retain exactly
-what the product promises not to retain.
-
-So the record here is a **per-run slip**. Each run of AI Guard over a document
-can emit one receipt, the operator keeps it beside their own file, and the
-receipt says what was processed, how much of it, by which version of the system,
-and when. It records the processing; it does not record the person.
-
-Authenticity comes from **recomputation, not signature**. A signature would
-prove who issued a receipt and prove nothing about whether it describes reality
-— and it needs a key to keep, which is one more secret than a local-first tool
-should ask for. Instead the receipt carries two digests: one over the source
-bytes, one over the detection result. Hand `verify` the receipt and the original
-file and it runs the same pipeline again; if the file is the same file and the
-system still sees the same thing in it, the digests match. That is the same
-position `docs/decisions/2026-07-29-store-distribution-and-signing.md` takes on
-the installer — trust is earned by being checkable, not by a certificate.
-
-Two things are deliberately outside the result digest:
-
-- `entity_id` is a fresh UUID4 per run, so including it would make every
-  receipt unverifiable by construction.
-- `score` is a detector's internal confidence. A PyThaiNLP patch release could
-  move a float without moving a single span, and a receipt that fails
-  verification over that would train its reader to ignore failures. What the
-  receipt attests to is which spans of what type were treated as personal
-  data — the thing that decides what gets masked.
-
-Nothing here reads an entity's text. Everything this module derives from the
-document is a count, a type name, a hash, or a digest over offsets — never a
-value. The one exception is not derived from the document at all: `purpose` and
-`controller` are free text the operator typed, and if they type a person's name
-there it is on the slip because they put it there. No filter is applied to
-them, and no document in this project may claim otherwise.
+Verification runs the same input again and compares digests. The receipt keeps
+counts, types, hashes, and offsets, but never document values. ``entity_id`` and
+``score`` stay out of the digest so a new run can match. ``purpose`` and
+``controller`` are user text and may contain personal data.
 """
 
 from __future__ import annotations

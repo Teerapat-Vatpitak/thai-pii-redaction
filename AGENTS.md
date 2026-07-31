@@ -104,6 +104,8 @@ unavailable.
 ## Change and review rules
 
 - Use `rg`/`rg --files` for discovery and `apply_patch` for manual edits.
+- Keep code comments short and use plain English (A2-B1 when possible). Explain why; do not repeat the code.
+- Before removing old code, check imports, entry points, build files, docs, and tests. Keep code used by a live path.
 - Add or update tests for behavior changes, including failure and privacy paths.
 - Keep real-host, live-provider, and packaged-runtime acceptance distinct from
   mocks and schema validation. Never mark a checkbox from weaker evidence.

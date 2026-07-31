@@ -6,19 +6,8 @@
 <title>AI Guard — สนามทดลอง</title>
 <style>
   :root{
-    /* MD3 colour roles — dark scheme. This page has always been dark-styled
-       with no light variant to switch from, so the dark roles below are its
-       only palette, declared directly rather than gated behind a media query
-       (no light/dark toggle exists here, and none is being added).
-       Declared locally: the playground is served standalone by FastAPI and
-       cannot @import desktop/src/tokens.css across packages.
-       --dim and --c-* keep their original names — the inline style="" spans
-       in the body and the COLORS map in the page's inline script reference
-       them by name and are out of scope for this change (style block only),
-       so the names must keep resolving. (Deliberately not writing that
-       element's opening tag literally anywhere in this comment block: the JS
-       test harness for this page locates it by matching the raw markup, and
-       an extra occurrence earlier in the file would be matched instead.) */
+    /* This page runs alone, so it cannot load Desktop tokens.
+       The page script still uses --dim and --c-* names. */
     --md-sys-color-surface:#131316;
     --md-sys-color-surface-container:#1f1f23;
     --md-sys-color-on-surface:#e4e2e6;

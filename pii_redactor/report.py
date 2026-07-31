@@ -135,23 +135,9 @@ def _risk_label(score: float) -> str:
 
 
 def analyze_text(text: str) -> dict:
-    """Assemble the full PDPA analysis for already-cleaned text.
+    """Build the shared PDPA response for clean text.
 
-    Shared by `/api/analyze` (JSON), `/api/analyze-report` (PDF) and the queue
-    worker's analyze operation, so none of the three can drift. Returns the
-    exact response dict `/api/analyze` serves.
-
-    This lived in `app/server.py` until 2026-07-29, which forced
-    `app/worker/handler.py` to import it lazily inside the function — a
-    worker-only install has no FastAPI, and a module-level import would have
-    broken collection in the `pytest-core-only` CI job. The comment on that
-    late import blamed a fastapi-free worker deployment, which does not exist
-    (the compose `worker` profile builds the same image as the API, and
-    `requirements.lock` is core+web). The real constraint was the CI job's
-    import hygiene, and the honest fix was to put the function where it
-    belongs: it calls `generate_report`, `detect_fp`, `detect_tb`,
-    `scan_section26` and the optional semantic detector, and touches nothing
-    from the web layer at all.
+    The API, PDF report, and worker use this same result.
     """
     report = generate_report(text)
     reid = report.reid_risk

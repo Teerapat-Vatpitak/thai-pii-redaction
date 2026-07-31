@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "retrieved_at": "2026-07-31",
+  "forms": [
+    {
+      "code": "คร.1",
+      "slug": "khor-ror-1",
+      "name": "คำร้องขอจดทะเบียนและบันทึกทะเบียนครอบครัว",
+      "agency": "สำนักบริหารการทะเบียน กรมการปกครอง",
+      "source_page": "https://www.bora.dopa.go.th/menu-stt",
+      "download_url": "https://www.bora.dopa.go.th/wp-content/uploads/2025/10/%E0%B8%84%E0%B8%B3%E0%B8%A3%E0%B9%89%E0%B8%AD%E0%B8%87%E0%B8%82%E0%B8%AD%E0%B8%88%E0%B8%94%E0%B8%97%E0%B8%B0%E0%B9%80%E0%B8%9A%E0%B8%B5%E0%B8%A2%E0%B8%99%E0%B9%81%E0%B8%A5%E0%B8%B0%E0%B8%9A%E0%B8%B1%E0%B8%99%E0%B8%97%E0%B8%B6%E0%B8%81%E0%B8%97%E0%B8%B0%E0%B9%80%E0%B8%9A%E0%B8%B5%E0%B8%A2%E0%B8%99%E0%B8%84%E0%B8%A3%E0%B8%AD%E0%B8%9A%E0%B8%84%E0%B8%A3%E0%B8%B1%E0%B8%A7-%E0%B8%84%E0%B8%A3.1.pdf",
+      "official_path": "sanitized/khor-ror-1-blank.pdf",
+      "source_sha256": "84692fd1f64a254ead8b7ae7ff193890d5a5412ce03ef18b0cfcf6323500df31",
+      "artifact_sha256": "861c97588c0ea09afc65239f42d10bb810afeb3b176abf81721b38603c41b6eb",
+      "blank_verified": true,
+      "blank_note": "Page-only copy of the official blank. Source metadata and hidden payloads are not kept. The page has a red ตัวอย่าง watermark.",
+      "layout": "multi_column",
+      "synthetic_fields": [
+        {
+          "field": "ผู้ร้องคนที่ 1",
+          "value": "สมชาย ใจดี",
+          "type": "NAME",
+          "page": 1,
+          "x": 174,
+          "y": 220,
+          "font_size": 9
+        },
+        {
+          "field": "เลขประจำตัวประชาชนผู้ร้องคนที่ 1",
+          "value": "1312271505581",
+          "type": "THAI_ID",
+          "page": 1,
+          "x": 157,
+          "y": 247,
+          "font_size": 8
+        },
+        {
+          "field": "ผู้ร้องคนที่ 2",
+          "value": "มาลี รักดี",
+          "type": "NAME",
+          "page": 1,
+          "x": 88,
+          "y": 274,
+          "font_size": 9
+        },
+        {
+          "field": "เลขประจำตัวประชาชนผู้ร้องคนที่ 2",
+          "value": "4951607747108",
+          "type": "THAI_ID",
+          "page": 1,
+          "x": 157,
+          "y": 300,
+          "font_size": 8
+        }
+      ],
+      "decoys": [
+        "วิชัย มั่งมี",
+        "081-987-6543",
+        "9999999999999"
+      ]
+    },
+    {
+      "code": "ภ.ง.ด.91",
+      "slug": "pnd91-2568",
+      "name": "แบบแสดงรายการภาษีเงินได้บุคคลธรรมดา ปีภาษี 2568",
+      "agency": "กรมสรรพากร",
+      "source_page": "https://www.rd.go.th/67335.html",
+      "download_url": "https://www.rd.go.th/fileadmin/tax_pdf/pit/2568/241268PIT91.pdf",
+      "official_path": "sanitized/pnd91-2568-blank.pdf",
+      "source_sha256": "8cb80f3b2392be6462c3b73cb31bd7b560578e81a84625b3938bb02d258e206b",
+      "artifact_sha256": "b17a877020f5a8f18d704cbc63513c779cea1d22093c71f7243c6c7d72ee9726",
+      "blank_verified": true,
+      "blank_note": "Page-only copy of the official tax-year 2568 blank. Source metadata and hidden payloads are not kept.",
+      "layout": "multi_column",
+      "synthetic_fields": [
+        {
+          "field": "ชื่อผู้มีเงินได้",
+          "value": "กิตติ พรดี",
+          "type": "NAME",
+          "page": 1,
+          "x": 55,
+          "y": 145,
+          "font_size": 8
+        },
+        {
+          "field": "เลขประจำตัวผู้เสียภาษีผู้มีเงินได้",
+          "value": "4471030389607",
+          "type": "THAI_ID",
+          "page": 1,
+          "x": 109,
+          "y": 105,
+          "font_size": 7
+        },
+        {
+          "field": "วันเดือนปีเกิดผู้มีเงินได้",
+          "value": "12/03/2532",
+          "type": "DATE_OF_BIRTH",
+          "page": 1,
+          "x": 185,
+          "y": 132,
+          "font_size": 7
+        },
+        {
+          "field": "ที่อยู่ผู้มีเงินได้",
+          "value": "88 ถนนตัวอย่าง แขวงทดสอบ กรุงเทพฯ 10110",
+          "type": "ADDRESS",
+          "page": 1,
+          "x": 100,
+          "y": 211,
+          "font_size": 7
+        },
+        {
+          "field": "ชื่อคู่สมรส",
+          "value": "พิมพ์ใจ แสนดี",
+          "type": "NAME",
+          "page": 1,
+          "x": 375,
+          "y": 145,
+          "font_size": 8
+        },
+        {
+          "field": "เลขประจำตัวผู้เสียภาษีคู่สมรส",
+          "value": "3901113014217",
+          "type": "THAI_ID",
+          "page": 1,
+          "x": 407,
+          "y": 105,
+          "font_size": 7
+        }
+      ],
+      "decoys": [
+        "สุดา ทดลอง",
+        "089-555-0101",
+        "demo.tax@example.invalid"
+      ]
+    },
+    {
+      "code": "สปส.1-03",
+      "slug": "sps-1-03",
+      "name": "แบบขึ้นทะเบียนผู้ประกันตน",
+      "agency": "สำนักงานประกันสังคม",
+      "source_page": "https://catalog.sso.go.th/dataset/dataset-22_01",
+      "download_url": "https://catalog.sso.go.th/dataset/c72fd51f-8e63-4565-8b6a-120fe5a95e60/resource/bd8da94a-a375-482b-a233-b9069c390f03/download/.pdf",
+      "official_path": "sanitized/sps-1-03-blank.pdf",
+      "source_sha256": "e43c424e64456581faa37319b88e1b9a4daea7a4cbcbaa4b3c664c78a7d94e4d",
+      "artifact_sha256": "2274ade390545fd5e465bd2ff276e338467de69a72c8cdcfde1efbc8e3f48dcb",
+      "blank_verified": true,
+      "blank_note": "Page-only copy of the official SSO blank. Source metadata and hidden payloads are not kept.",
+      "layout": "multi_column",
+      "synthetic_fields": [
+        {
+          "field": "ชื่อสถานประกอบการ",
+          "value": "บริษัท ทดลองระบบ จำกัด",
+          "type": "ORGANIZATION",
+          "page": 1,
+          "x": 130,
+          "y": 99,
+          "font_size": 8
+        },
+        {
+          "field": "ชื่อผู้ประกันตน",
+          "value": "ธนา มั่นคง",
+          "type": "NAME",
+          "page": 1,
+          "x": 224,
+          "y": 203,
+          "font_size": 8
+        },
+        {
+          "field": "วันเดือนปีเกิดผู้ประกันตน",
+          "value": "24/09/2535",
+          "type": "DATE_OF_BIRTH",
+          "page": 1,
+          "x": 88,
+          "y": 221,
+          "font_size": 7
+        },
+        {
+          "field": "เลขประจำตัวประชาชนผู้ประกันตน",
+          "value": "1016253503284",
+          "type": "THAI_ID",
+          "page": 1,
+          "x": 316,
+          "y": 235,
+          "font_size": 7
+        },
+        {
+          "field": "เลขหนังสือเดินทาง",
+          "value": "AB1234567",
+          "type": "PASSPORT",
+          "page": 1,
+          "x": 178,
+          "y": 371,
+          "font_size": 7
+        }
+      ],
+      "decoys": [
+        "นภา ใจดี",
+        "062-444-7700",
+        "XY9876543"
+      ]
+    }
+  ]
+}

@@ -66,8 +66,8 @@ fn port_owner_pid_from_netstat(output: &str, port: u16) -> Option<u32> {
     None
 }
 
-/// Parse `tasklist /FI "PID eq N" /FO CSV /NH`: the quoted image name in the
-/// first field, or None on the "INFO: No tasks" miss line.
+/// Read the process name from `tasklist` CSV output.
+#[cfg(any(target_os = "windows", test))]
 fn image_name_from_tasklist_csv(csv: &str) -> Option<String> {
     let line = csv.lines().next()?.trim();
     let first = line.split("\",\"").next()?;
@@ -78,8 +78,8 @@ fn image_name_from_tasklist_csv(csv: &str) -> Option<String> {
     Some(name.to_string())
 }
 
-/// Parse `lsof -nP -iTCP:<port> -sTCP:LISTEN`: the COMMAND column of the
-/// first process row (macOS/Linux path).
+/// Read the first process name from `lsof` output.
+#[cfg(any(not(target_os = "windows"), test))]
 fn image_name_from_lsof(output: &str) -> Option<String> {
     for line in output.lines().skip(1) {
         let cols: Vec<&str> = line.split_whitespace().collect();
