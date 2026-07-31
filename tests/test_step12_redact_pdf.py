@@ -39,8 +39,6 @@ def _pdf_with_pii(tmp_path) -> bytes:
     path = tmp_path / "in.pdf"
     c = canvas.Canvas(str(path), pagesize=letter)
     c.setFont("Helvetica", 12)
-    # >= 50 chars so file_detector classifies this as pdf_text, not pdf_hybrid
-    # (a short-but-real text layer would otherwise be mistaken for a scan).
     c.drawString(
         50, letter[1] - 72, "Please contact us at 081-234-5678 or email john@example.com today"
     )
@@ -97,6 +95,70 @@ def _scanned_pdf(tmp_path) -> bytes:
     return path.read_bytes()
 
 
+def _mixed_pdf_with_image_pii(tmp_path) -> bytes:
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    image = Image.new("RGB", (612, 792), "white")
+    ImageDraw.Draw(image).text((50, 72), "081-234-5678", fill="black")
+    path = tmp_path / "mixed.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.drawString(50, 40, "Selectable footer with more than twenty safe characters")
+    c.save()
+    return path.read_bytes()
+
+
+def test_redact_pdf_mixed_page_redacts_image_only_pii(client, tmp_path, monkeypatch):
+    import pypdfium2 as pdfium
+
+    from pii_redactor.ingest import ocr_processor
+    from pii_redactor.models import WordBbox
+
+    phone = "081-234-5678"
+    words = [WordBbox(text=phone, page=1, x=50, y=72, width=80, height=12)]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=words,
+            text=phone,
+            confidence=0.95,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    response = client.post(
+        "/api/redact-pdf",
+        files={
+            "pdf_file": (
+                "mixed.pdf",
+                _mixed_pdf_with_image_pii(tmp_path),
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_type"] == "pdf_hybrid"
+    assert any(field["data_type"] == "PHONE" for field in payload["fields"])
+
+    redacted = tmp_path / "mixed-redacted.pdf"
+    redacted.write_bytes(base64.b64decode(payload["redacted_pdf_b64"]))
+    doc = pdfium.PdfDocument(str(redacted))
+    try:
+        image = doc[0].render(scale=2).to_pil().convert("L")
+        region = image.crop((96, 134, 264, 172))
+        assert region.getextrema() == (0, 0)
+    finally:
+        doc.close()
+
+
 def test_redact_pdf_hybrid_ocr_path(client, tmp_path, monkeypatch):
     from pii_redactor.ingest import ocr_processor
     from pii_redactor.models import WordBbox
@@ -135,6 +197,38 @@ def test_redact_pdf_hybrid_ocr_path(client, tmp_path, monkeypatch):
     assert data["ocr_confidence"] == pytest.approx(0.85)
     assert data["human_review"] is False
     assert data["entity_count"] >= 2
+
+
+def test_redact_pdf_marks_review_in_the_audit_log(client, tmp_path, monkeypatch):
+    from app import server
+    from pii_redactor.ingest import ocr_processor
+    from pii_redactor.models import WordBbox
+
+    pdf = _scanned_pdf(tmp_path)
+    fake_words = [WordBbox(text="ข้อความ", page=1, x=50, y=72, width=80, height=12)]
+    audit_rows = []
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=fake_words,
+            text="ข้อความ",
+            confidence=0.4,
+            attempts=3,
+            human_review=True,
+        ),
+    )
+    monkeypatch.setattr(server, "write_process_log", lambda **row: audit_rows.append(row))
+
+    resp = client.post(
+        "/api/redact-pdf",
+        files={"pdf_file": ("scan.pdf", pdf, "application/pdf")},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["human_review"] is True
+    assert audit_rows[-1]["validation_result"] == "warn"
 
 
 def test_redact_pdf_hybrid_keeps_false_negative_scan_in_the_real_path(
@@ -393,7 +487,6 @@ def _pdf_with_thai_numeral_phone(tmp_path) -> Path:
     path = tmp_path / "thai_numeral_phone.pdf"
     c = canvas.Canvas(str(path), pagesize=letter)
     c.setFont("Sarabun", 14)
-    # >= 50 chars so file_detector classifies this as pdf_text, not pdf_hybrid.
     c.drawString(72, letter[1] - 72, "โปรดติดต่อกลับที่หมายเลขโทรศัพท์ ๐๘๑-๒๓๔-๕๖๗๘ ในเวลาราชการ")
     c.save()
     return path

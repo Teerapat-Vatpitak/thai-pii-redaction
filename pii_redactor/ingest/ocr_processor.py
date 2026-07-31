@@ -12,10 +12,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pii_redactor.detectors.fn_scanner import scan_fn
+from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.ingest.quality_validator import OCR_CONFIDENCE_THRESHOLD
+from pii_redactor.ingest.text_cleaner import clean_length_preserving
 from pii_redactor.models import WordBbox
 
 MAX_OCR_RETRIES = 3
+MIN_OCR_ATTEMPTS = 2
+OCR_EARLY_STOP_THRESHOLD = 0.9
 _DPI_ESCALATION_STEP = 100
 _DPI_CAP = 600
 
@@ -62,7 +67,13 @@ def _get_engine():
         _prime_torch_if_present()
         from paddleocr import PaddleOCR
 
-        _engine = PaddleOCR(lang="th", use_textline_orientation=True)
+        # Redaction uses the original page coordinates.
+        _engine = PaddleOCR(
+            lang="th",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=True,
+        )
     return _engine
 
 
@@ -70,9 +81,9 @@ def _get_engine():
 class OCRPageResult:
     words: list[WordBbox]
     text: str
-    confidence: float  # mean word-confidence for the page, 0.0 if no words found
+    confidence: float  # lowest confidence among kept text
     attempts: int  # 1..MAX_OCR_RETRIES
-    human_review: bool  # True if confidence stayed below threshold after the final attempt
+    human_review: bool  # true when kept text has low confidence
 
 
 def _render_page_to_array(page, dpi: int):
@@ -168,34 +179,118 @@ def _run_ocr_once(image, page_num: int, dpi: int) -> tuple[list[WordBbox], float
     return words, mean_conf
 
 
+def _structured_keys(text: str) -> set[tuple[str, str]]:
+    """Return structured matches for one OCR line."""
+    clean_text = clean_length_preserving(text)
+    entities = detect_fp(clean_text)
+    entities.extend(scan_fn(clean_text, entities))
+    return {(entity.data_type, entity.original_text.casefold().strip()) for entity in entities}
+
+
+def _same_word_area(first: WordBbox, second: WordBbox) -> bool:
+    if first.page != second.page:
+        return False
+    left = max(first.x, second.x)
+    top = max(first.y, second.y)
+    right = min(first.x + first.width, second.x + second.width)
+    bottom = min(first.y + first.height, second.y + second.height)
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    first_area = max(0.0, first.width) * max(0.0, first.height)
+    second_area = max(0.0, second.width) * max(0.0, second.height)
+    smaller_area = min(first_area, second_area)
+    return bool(smaller_area and intersection / smaller_area >= 0.3)
+
+
+def _word_key(text: str) -> str:
+    return "".join(char for char in text.casefold() if char.isalnum())
+
+
+def _merge_retry_words(
+    primary_words: list[WordBbox],
+    primary_confidence: float,
+    attempts: list[tuple[list[WordBbox], float]],
+) -> tuple[list[WordBbox], float]:
+    """Add text found in new page areas on later tries."""
+    merged = list(primary_words)
+    used_confidences = [primary_confidence]
+    seen_structured = set().union(*(_structured_keys(word.text) for word in merged))
+
+    for words, confidence in sorted(attempts, key=lambda item: item[1], reverse=True):
+        if words is primary_words:
+            continue
+        for word in words:
+            overlaps = [
+                index for index, current in enumerate(merged) if _same_word_area(word, current)
+            ]
+            word_key = _word_key(word.text)
+            if any(_word_key(merged[index].text) == word_key for index in overlaps):
+                continue
+
+            keys = _structured_keys(word.text)
+            if keys - seen_structured:
+                merged.append(word)
+                seen_structured.update(keys)
+                used_confidences.append(confidence)
+                continue
+            if not overlaps:
+                merged.append(word)
+                used_confidences.append(confidence)
+                continue
+
+            contained = [
+                index
+                for index in overlaps
+                if _word_key(merged[index].text) and _word_key(merged[index].text) in word_key
+            ]
+            # Replacing is only safe when the longer read still carries every
+            # structured value the reads it evicts carried. A retry that adds
+            # one digit to a national id contains the old key as a SUBSTRING
+            # while matching no pattern itself, so without this check a 0.55
+            # attempt could delete the 0.90 attempt's valid THAI_ID and leave
+            # nothing for detection — and nothing for redaction — to find.
+            if contained and keys >= set().union(
+                *(_structured_keys(merged[index].text) for index in contained)
+            ):
+                for index in sorted(contained, reverse=True):
+                    merged.pop(index)
+                merged.append(word)
+                used_confidences.append(confidence)
+
+    merged.sort(key=lambda word: (word.page, word.y, word.x))
+    return merged, min(used_confidences)
+
+
 def ocr_page(
     page, page_num: int, *, dpi: int = 300, max_retries: int = MAX_OCR_RETRIES
 ) -> OCRPageResult:
-    """OCR a single PDF page with a retry loop.
-
-    Retries up to max_retries times, escalating DPI and preprocessing strength
-    each attempt while confidence stays below OCR_CONFIDENCE_THRESHOLD, stopping
-    early once the threshold is met. human_review is set when confidence is
-    still below threshold after the final attempt (design doc: "Retry >= 3 ->
-    flag human review").
-    """
+    """OCR a page, then join useful text from its retries."""
     cur_dpi = dpi
-    words: list[WordBbox] = []
-    conf = 0.0
+    best_conf = -1.0
+    attempt_results: list[tuple[list[WordBbox], float]] = []
     attempts = 0
     for attempt in range(1, max_retries + 1):
         attempts = attempt
         arr = _render_page_to_array(page, cur_dpi)
         arr = preprocess_image(arr, level=attempt - 1)
         words, conf = _run_ocr_once(arr, page_num, cur_dpi)
-        if conf >= OCR_CONFIDENCE_THRESHOLD:
+        attempt_results.append((words, conf))
+        if conf > best_conf:
+            best_conf = conf
+        minimum = min(MIN_OCR_ATTEMPTS, max_retries)
+        if attempt >= minimum and best_conf >= OCR_EARLY_STOP_THRESHOLD:
             break
         cur_dpi = min(cur_dpi + _DPI_ESCALATION_STEP, _DPI_CAP)
-    text = " ".join(w.text for w in words)
+    primary_words, primary_conf = max(attempt_results, key=lambda item: item[1])
+    merged_words, retained_conf = _merge_retry_words(
+        primary_words,
+        primary_conf,
+        attempt_results,
+    )
+    text = "\n".join(word.text for word in merged_words)
     return OCRPageResult(
-        words=words,
+        words=merged_words,
         text=text,
-        confidence=conf,
+        confidence=max(retained_conf, 0.0),
         attempts=attempts,
-        human_review=conf < OCR_CONFIDENCE_THRESHOLD,
+        human_review=retained_conf < OCR_CONFIDENCE_THRESHOLD,
     )

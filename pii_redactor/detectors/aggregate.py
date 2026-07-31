@@ -11,6 +11,7 @@ import re
 
 from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.detectors.fp_detector import detect_fp
+from pii_redactor.detectors.name_context import detect_parallel_record_names
 from pii_redactor.detectors.tb_detector import NERChunkDiagnostics, detect_tb
 from pii_redactor.models import Entity
 
@@ -39,6 +40,37 @@ def dedupe_spans(entities: list[Entity]) -> list[Entity]:
         if not _overlaps(e):
             kept.append(e)
     return sorted(kept, key=lambda e: e.span[0])
+
+
+def _prefer_record_names(
+    entities: list[Entity],
+    record_names: list[Entity],
+) -> list[Entity]:
+    """Keep strong record context above a conflicting TB label."""
+    kept = list(entities)
+    for name in record_names:
+        overlaps = [
+            entity
+            for entity in kept
+            if name.span[0] < entity.span[1] and entity.span[0] < name.span[1]
+        ]
+        if any(entity.redact_type == "FP" for entity in overlaps):
+            continue
+        # Relabeling a span the record row explains is the point of this pass,
+        # so a coextensive LOCATION/ADDRESS still becomes the NAME. What it may
+        # never do is UNCOVER: an overlap reaching outside the record name (a
+        # CRF ADDRESS whose span runs on into the next line) would lose that
+        # tail to a shorter NAME, and dropping already-masked characters
+        # violates recall > precision. Tested against every data_type —
+        # limiting the guard to NAME is what let other labels be swapped for a
+        # shorter span.
+        if any(
+            entity.span[0] < name.span[0] or entity.span[1] > name.span[1] for entity in overlaps
+        ):
+            continue
+        kept = [entity for entity in kept if entity not in overlaps]
+        kept.append(name)
+    return sorted(kept, key=lambda entity: entity.span[0])
 
 
 # ── ADDRESS coalescing ─────────────────────────────────────────────────────
@@ -176,5 +208,7 @@ def detect_all(
     else:
         tb = detect_tb(text, diagnostics=ner_diagnostics)
     fn = scan_fn(text, fp + tb)
-    kept = merge_address_spans(text, dedupe_spans(fp + tb + fn))
+    record_names = detect_parallel_record_names(text, fp + tb + fn)
+    deduped = dedupe_spans(fp + tb + fn + record_names)
+    kept = merge_address_spans(text, _prefer_record_names(deduped, record_names))
     return _relabel_student_ids(tb, kept)

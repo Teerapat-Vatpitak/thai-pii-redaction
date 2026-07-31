@@ -11,15 +11,15 @@
 
 This run proves that the local runner can build and inspect all nine inputs. It
 does not prove general government-form accuracy, physical-scan accuracy, or
-handwriting support. The strict privacy gate stays red because two synthetic
-fields remained visible and five fields had no reliable region to inspect.
+handwriting support. The strict privacy gate stays red because four synthetic
+fields remained visible; none were unmeasurable this run.
 
 Run:
 
 ```powershell
 $env:PYTHONUTF8='1'
 .\.venv-full\Scripts\python.exe -m benchmark.data.probe.gov_forms.run_acceptance `
-  --output-dir benchmark/reports/gov-forms-2026-07-31-clean
+  --output-dir benchmark/reports/gov-forms-2026-07-31-final
 ```
 
 The command writes one safe diagnostic JSON result per input and a canonical
@@ -34,24 +34,35 @@ metrics. The table below comes from those summary fields.
 | Measure | Result |
 |---|---:|
 | Input route | 9/9 correct |
-| OCR route | 6/6 image-only inputs measured |
-| Exact or whitespace-normalized extraction | 33/45 |
-| Detection overlap | 38/45 |
-| Type match | 31/37 scored values |
-| Fully covered region | 38/45 |
-| Residual verdict | 38 removed, 2 exposed, 5 unmeasurable |
+| OCR route | 9/9 inputs measured |
+| Exact or whitespace-normalized extraction | 39/45 |
+| Detection overlap | 41/45 |
+| Type match | 36/42 scored values |
+| Fully covered region | 41/45 |
+| Residual verdict | 41 removed, 4 exposed, 0 unmeasurable |
+| Redacted-render OCR check | 3 of the 4 exposed values were also read back from the redacted render |
 | Declared decoy extraction check | No declared decoy string appeared in 9/9 inputs |
 
-The 19 input-level gate failures were: extraction incomplete on 6 inputs,
-coverage incomplete on 4, exposed residual on 2, unmeasurable residual on 3,
-and a non-removed residual row on 4. These counts are gate events, not unique
-field counts.
+The three failing inputs triggered eleven gate-failure codes: coverage
+incomplete on 3 inputs, residual exposed on 3, a non-removed residual row on
+3, and redacted-render OCR exposure on 2. These counts are gate events, not
+unique field counts. The failing inputs were the print-like คร.1 input, the
+print-like ภ.ง.ด.91 input, and the degraded ภ.ง.ด.91 input.
 
-The exposed fields were the second applicant name in the digital คร.1 input
-and the insured-person name in the degraded สปส.1-03 input. The five
-unmeasurable fields were address, spouse tax ID, date of birth, and national-ID
-cases where OCR did not provide a reliable unique region. No raw or real PII
-is stored in this record.
+The exposed fields were the first and second applicant names in the
+print-like คร.1 input, and the spouse name in both the print-like and the
+degraded ภ.ง.ด.91 input (four exposed values total, since the spouse name
+failed in two separate inputs). For the print-like คร.1 applicant names, the
+source OCR read the name at roughly 0.90 character accuracy — not an exact
+match — so the pipeline treated the value as not found, drew no redaction box,
+and the redacted-render OCR then read the name straight back off the page.
+The degraded ภ.ง.ด.91 spouse name was read correctly by the source OCR but the
+detector never tagged it as a NAME, so no box was drawn there either, and the
+redacted-render OCR again read it back. The print-like ภ.ง.ด.91 spouse name
+was exposed for a different reason: its redaction box covered only 31.5% of
+the field's pixel area, not because the redacted-render OCR could read it.
+No fields were unmeasurable this run. No raw or real PII is stored in this
+record.
 
 Runtime: Python 3.13.12, PaddlePaddle 3.2.2, PaddleOCR 3.7.0, OpenCV 4.10.0,
 Pillow 12.3.0, ReportLab 5.0.0, and pypdfium2 5.12.1.
@@ -59,7 +70,7 @@ Pillow 12.3.0, ReportLab 5.0.0, and pypdfium2 5.12.1.
 ## Runner and code integrity verified alongside this run
 
 - Focused OCR tests verify that retry images stay three-channel; this batch
-  completed all six OCR routes.
+  completed all nine OCR routes.
 - Focused probe tests verify that exact, whitespace-normalized, and close OCR
   matches cannot reuse one source range for two expected values.
 - Runner tests require each expected index once in extraction, coverage, and

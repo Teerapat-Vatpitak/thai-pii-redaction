@@ -82,9 +82,25 @@ def test_line_start_name_label():
     assert "ศศิธร อุดมทรัพย์" in ctx_names("ชื่อ ศศิธร อุดมทรัพย์ วันเดือนปีเกิดตามบัตร")
 
 
+def test_ocr_inline_name_label():
+    text = "สัญชาติ ไทย ชื่อ ธนา มันคง 22"
+
+    assert "ธนา มันคง" in ctx_names(text)
+
+
+def test_inline_name_label_needs_the_word_not_a_compound_tail():
+    # The inline form-field rule gives up the line anchor so OCR may join
+    # fields, so "ชื่อ" has to earn the match as its own word. Prose that
+    # happens to carry เพศ/สัญชาติ ahead of รายชื่อ/และชื่อ is not a form row.
+    assert ctx_names("สินค้านี้แยกตามเพศ ดูรายชื่อ สาขา ทั่วประเทศ ได้ที่เว็บไซต์") == set()
+    assert ctx_names("กรุณาระบุเพศ และชื่อ สินค้า ตัวอย่าง ให้ครบถ้วน") == set()
+
+
 def test_mid_sentence_bare_name_label_does_not_fire():
     # "ชื่อ" mid-sentence stays gated on the pronoun rule.
     assert ctx_names("กรุณากรอกชื่อ สถานประกอบการ ให้ครบถ้วน") == set()
+    assert ctx_names("ชื่อ บริษัท ทดลองระบบ จำกัด") == set()
+    assert ctx_names("แบบฟอร์ม ชื่อ ผู้สมัคร ที่อยู่") == set()
 
 
 # ── rosters (gold miss class 4) ────────────────────────────────────────────
@@ -180,3 +196,35 @@ def test_fuller_context_name_beats_clipped_crf_span():
     ents = [e for e in detect_tb("ผู้ติดต่อมานพ ดีเลิศเบอร์0891234455") if e.data_type == "NAME"]
     assert ents, "expected a NAME"
     assert any("ดีเลิศ" in e.original_text for e in ents), [e.original_text for e in ents]
+
+
+def test_record_name_relabels_but_never_uncovers():
+    """Record context outranks a conflicting CRF label on the same row, and
+    that is the whole point of the pass — but a span reaching past the row
+    (an ADDRESS the CRF ran on into the next line) keeps the row instead.
+    Swapping it for the shorter NAME would drop already-masked characters,
+    which recall > precision does not allow.
+    """
+    from pii_redactor.detectors.aggregate import _prefer_record_names
+    from pii_redactor.models import Entity
+
+    def entity(data_type: str, start: int, end: int, redact_type: str = "TB") -> Entity:
+        return Entity(
+            entity_id=f"{data_type}-{start}",
+            data_type=data_type,
+            original_text="x",
+            span=(start, end),
+            score=0.9,
+            redact_type=redact_type,
+        )
+
+    record = entity("NAME", 0, 10)
+
+    coextensive = _prefer_record_names([entity("LOCATION", 0, 10)], [record])
+    assert [(e.data_type, e.span) for e in coextensive] == [("NAME", (0, 10))]
+
+    overrunning = _prefer_record_names([entity("ADDRESS", 0, 29)], [record])
+    assert [(e.data_type, e.span) for e in overrunning] == [("ADDRESS", (0, 29))]
+
+    checksum_backed = _prefer_record_names([entity("THAI_ID", 0, 10, "FP")], [record])
+    assert [e.data_type for e in checksum_backed] == ["THAI_ID"]

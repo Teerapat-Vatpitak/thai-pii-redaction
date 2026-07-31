@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.ingest import ocr_processor
 from pii_redactor.models import WordBbox
 
@@ -80,7 +81,15 @@ def test_get_engine_primes_torch_before_constructing_paddleocr(monkeypatch):
     assert events == [
         "torch",
         "paddleocr",
-        ("construct", {"lang": "th", "use_textline_orientation": True}),
+        (
+            "construct",
+            {
+                "lang": "th",
+                "use_doc_orientation_classify": False,
+                "use_doc_unwarping": False,
+                "use_textline_orientation": True,
+            },
+        ),
     ]
 
 
@@ -134,7 +143,7 @@ def _patch_render_and_preprocess(monkeypatch):
     monkeypatch.setattr(ocr_processor, "preprocess_image", lambda img, level=0: img)
 
 
-def test_ocr_page_succeeds_first_try_no_retry(monkeypatch):
+def test_ocr_page_runs_a_second_attempt_after_a_strong_first(monkeypatch):
     _patch_render_and_preprocess(monkeypatch)
     calls = []
 
@@ -145,15 +154,15 @@ def test_ocr_page_succeeds_first_try_no_retry(monkeypatch):
     monkeypatch.setattr(ocr_processor, "_run_ocr_once", fake_run)
     result = ocr_processor.ocr_page(page=object(), page_num=1)
 
-    assert result.attempts == 1
+    assert result.attempts == 2
     assert result.human_review is False
     assert result.confidence == pytest.approx(0.9)
-    assert calls == [300]
+    assert calls == [300, 400]
 
 
 def test_ocr_page_retry_succeeds_on_second_attempt(monkeypatch):
     _patch_render_and_preprocess(monkeypatch)
-    confidences = iter([0.4, 0.85])
+    confidences = iter([0.4, 0.95])
 
     def fake_run(image, page_num, dpi):
         return [WordBbox(text="x", page=page_num, x=0, y=0, width=1, height=1)], next(confidences)
@@ -163,7 +172,156 @@ def test_ocr_page_retry_succeeds_on_second_attempt(monkeypatch):
 
     assert result.attempts == 2
     assert result.human_review is False
+    assert result.confidence == pytest.approx(0.95)
+
+
+def test_ocr_page_retries_borderline_confidence(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    confidences = iter([0.75, 0.93])
+
+    def fake_run(image, page_num, dpi):
+        word = WordBbox(text=str(dpi), page=page_num, x=0, y=0, width=1, height=1)
+        return [word], next(confidences)
+
+    monkeypatch.setattr(ocr_processor, "_run_ocr_once", fake_run)
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.attempts == 2
+    assert result.confidence == pytest.approx(0.93)
+    assert result.words[0].text == "400"
+
+
+def test_ocr_page_keeps_the_best_retry(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    confidences = iter([0.65, 0.55, 0.45])
+
+    def fake_run(image, page_num, dpi):
+        word = WordBbox(text=str(dpi), page=page_num, x=0, y=0, width=1, height=1)
+        return [word], next(confidences)
+
+    monkeypatch.setattr(ocr_processor, "_run_ocr_once", fake_run)
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.attempts == 3
+    assert result.confidence == pytest.approx(0.65)
+    assert result.words[0].text == "300"
+    assert result.human_review is True
+
+
+def test_ocr_page_prefers_a_more_complete_retry(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            ([WordBbox(text="หัวข้อ", page=1, x=1, y=1, width=20, height=5)], 0.69),
+            (
+                [
+                    WordBbox(text="หัวข้อ", page=1, x=1, y=1, width=20, height=5),
+                    WordBbox(text="สมชาย ใจดี", page=1, x=1, y=8, width=40, height=5),
+                ],
+                0.50,
+            ),
+            (
+                [
+                    WordBbox(text="หัวข้อ", page=1, x=1, y=1, width=20, height=5),
+                    WordBbox(text="สมชาย ใจดี", page=1, x=1, y=8, width=40, height=5),
+                ],
+                0.50,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.confidence == pytest.approx(0.50)
+    assert result.text == "หัวข้อ\nสมชาย ใจดี"
+    assert result.human_review is True
+
+
+def test_ocr_page_keeps_a_high_confidence_name_when_retry_adds_noise(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            ([WordBbox(text="สมชาย ใจดี", page=1, x=1, y=1, width=40, height=5)], 0.95),
+            (
+                [
+                    WordBbox(text="เศษหนึ่ง", page=1, x=1, y=20, width=20, height=5),
+                    WordBbox(text="เศษสอง", page=1, x=1, y=30, width=20, height=5),
+                ],
+                0.20,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert "สมชาย ใจดี" in result.text
+    assert result.confidence == pytest.approx(0.20)
+    assert result.human_review is True
+
+
+def test_ocr_page_replaces_split_words_with_one_complete_line(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            (
+                [
+                    WordBbox(text="สมชาย", page=1, x=1, y=1, width=20, height=5),
+                    WordBbox(text="ใจดี", page=1, x=22, y=1, width=15, height=5),
+                ],
+                0.95,
+            ),
+            (
+                [WordBbox(text="สมชาย ใจดี", page=1, x=1, y=1, width=36, height=5)],
+                0.85,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert [word.text for word in result.words] == ["สมชาย ใจดี"]
     assert result.confidence == pytest.approx(0.85)
+
+
+def test_ocr_page_never_lets_a_worse_retry_destroy_a_structured_read(monkeypatch):
+    """A retry that adds a digit to a national id contains the good read as a
+    substring while matching no pattern itself. Replacing on containment alone
+    would delete the only copy detection could see, and the id would survive
+    unredacted on the page — recall > precision makes that the worst outcome
+    available, so the merge keeps the read that still carries the value.
+    """
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            ([WordBbox(text="1101700230708", page=1, x=1, y=1, width=40, height=5)], 0.90),
+            ([WordBbox(text="11017002307081", page=1, x=1, y=1, width=42, height=5)], 0.55),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert [word.text for word in result.words] == ["1101700230708"]
+    assert [entity.data_type for entity in detect_fp(result.text)] == ["THAI_ID"]
 
 
 def test_ocr_page_exhausts_retries_flags_human_review(monkeypatch):
@@ -206,7 +364,7 @@ def test_ocr_page_escalates_preprocess_level_on_retry(monkeypatch):
     assert seen_levels == [0, 1, 2]
 
 
-def test_ocr_page_word_count_matches_text(monkeypatch):
+def test_ocr_page_keeps_detected_line_boundaries(monkeypatch):
     _patch_render_and_preprocess(monkeypatch)
     words = [
         WordBbox(text="สวัสดี", page=1, x=0, y=0, width=1, height=1),
@@ -216,8 +374,71 @@ def test_ocr_page_word_count_matches_text(monkeypatch):
 
     result = ocr_processor.ocr_page(page=object(), page_num=1)
 
-    assert result.text == "สวัสดี ครับ"
+    assert result.text == "สวัสดี\nครับ"
     assert result.words == words
+
+
+def test_ocr_page_keeps_structured_line_from_lower_confidence_retry(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            (
+                [WordBbox(text="หัวเอกสาร", page=1, x=1, y=8, width=20, height=5)],
+                0.75,
+            ),
+            (
+                [WordBbox(text="ผลหลัก", page=1, x=1, y=8, width=20, height=5)],
+                0.85,
+            ),
+            (
+                [
+                    WordBbox(
+                        text="เลข 1234567890123",
+                        page=1,
+                        x=40,
+                        y=20,
+                        width=50,
+                        height=5,
+                    )
+                ],
+                0.55,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.confidence == pytest.approx(0.55)
+    assert result.words[0].text == "ผลหลัก"
+    assert result.words[1].text == "เลข 1234567890123"
+    assert result.words[1].x == 40
+    assert result.text == "ผลหลัก\nเลข 1234567890123"
+
+
+def test_ocr_page_drops_unstructured_line_from_lower_confidence_retry(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    attempts = iter(
+        [
+            ([WordBbox(text="ผลหลัก", page=1, x=1, y=1, width=20, height=5)], 0.85),
+            ([WordBbox(text="ข้อความอื่น", page=1, x=1, y=1, width=20, height=5)], 0.55),
+            ([WordBbox(text="ข้อความสาม", page=1, x=1, y=1, width=20, height=5)], 0.45),
+        ]
+    )
+    monkeypatch.setattr(
+        ocr_processor,
+        "_run_ocr_once",
+        lambda image, page_num, dpi: next(attempts),
+    )
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.words == [WordBbox(text="ผลหลัก", page=1, x=1, y=1, width=20, height=5)]
+    assert result.text == "ผลหลัก"
 
 
 # --- Tier 2: real preprocessing functions (requires the OCR OpenCV runtime) --

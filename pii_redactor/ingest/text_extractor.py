@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pii_redactor.ingest.file_detector import validate_encoding
+from pii_redactor.ingest.file_detector import (
+    PAGE_TEXT_LAYER_MIN_CHARS,
+    page_needs_ocr,
+    validate_encoding,
+)
 from pii_redactor.models import WordBbox
-
-# A single page with at least this many text-layer characters is treated as
-# having a real text layer (lower than file_detector's whole-document 50-char
-# threshold, since one page legitimately holds less content than a whole-doc
-# sum).
-PDF_HYBRID_PAGE_TEXT_LAYER_MIN_CHARS = 20
 
 
 def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], dict]:
@@ -35,8 +33,8 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
       - Return (full_text, word_bboxes, {})
 
     For source_type == "pdf_hybrid":
-      - Per-page: pages with a real text layer are extracted directly (same
-        as pdf_text); pages that are image-only are OCR'd via ocr_processor.py.
+      - Per-page: keep selectable text and also OCR every raster page. Mixed
+        pages merge both sources so a text overlay cannot hide image-only PII.
       - Raises OCRUnavailableError if the OCR dependencies (requirements-ocr.txt)
         aren't installed.
       - Returns (full_text, word_bboxes, meta) where meta carries
@@ -180,53 +178,169 @@ def _extract_pdf_pypdfium2(path: Path) -> tuple[str, list[WordBbox]]:
     return full_text, word_bboxes
 
 
+def _remove_layer_text(word: WordBbox, layer_words: list[WordBbox]) -> WordBbox | None:
+    """Remove selectable text that OCR read again."""
+
+    def view(value: str) -> tuple[str, list[int]]:
+        chars = []
+        positions = []
+        for index, char in enumerate(value.casefold()):
+            if char.isalnum():
+                chars.append(char)
+                positions.append(index)
+        return "".join(chars), positions
+
+    overlaps = []
+    for layer_word in layer_words:
+        if layer_word.page != word.page:
+            continue
+        left = max(word.x, layer_word.x)
+        top = max(word.y, layer_word.y)
+        right = min(word.x + word.width, layer_word.x + layer_word.width)
+        bottom = min(word.y + word.height, layer_word.y + layer_word.height)
+        intersection = max(0.0, right - left) * max(0.0, bottom - top)
+        word_area = max(0.0, word.width) * max(0.0, word.height)
+        layer_area = max(0.0, layer_word.width) * max(0.0, layer_word.height)
+        smaller_area = min(word_area, layer_area)
+        if smaller_area and intersection / smaller_area >= 0.5:
+            overlaps.append(layer_word)
+    if not overlaps:
+        return word
+    layer_text = "".join(item.text for item in sorted(overlaps, key=lambda item: item.x))
+    layer_clean, _layer_positions = view(layer_text)
+    word_clean, word_positions = view(word.text)
+    start = word_clean.find(layer_clean) if layer_clean else -1
+    if start < 0:
+        return word
+
+    from pii_redactor.detectors.fn_scanner import scan_fn
+    from pii_redactor.detectors.fp_detector import detect_fp
+    from pii_redactor.ingest.text_cleaner import clean_length_preserving
+
+    def structured(value: str) -> set[tuple[str, str]]:
+        clean_value = clean_length_preserving(value)
+        entities = detect_fp(clean_value)
+        entities.extend(scan_fn(clean_value, entities))
+        return {(entity.data_type, entity.original_text.casefold().strip()) for entity in entities}
+
+    word_keys = structured(word.text)
+    layer_keys = structured(layer_text)
+    if word_keys:
+        if not word_keys <= layer_keys:
+            return word
+    elif word_clean != layer_clean:
+        return word
+
+    source_start = word_positions[start]
+    source_end = word_positions[start + len(layer_clean) - 1] + 1
+    remaining = f"{word.text[:source_start]} {word.text[source_end:]}".strip()
+    if not any(char.isalnum() for char in remaining):
+        return None
+    return WordBbox(
+        text=remaining,
+        page=word.page,
+        x=word.x,
+        y=word.y,
+        width=word.width,
+        height=word.height,
+    )
+
+
 def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
-    """Extract a mixed/scanned PDF, OCR-ing only the pages that have no text layer."""
+    """Extract text layers and OCR every raster page."""
     from pii_redactor.ingest import ocr_processor
 
-    if not ocr_processor.is_available():
-        raise ocr_processor.OCRUnavailableError(
-            "This PDF has pages without a text layer and cannot be read "
-            "without OCR. Run: pip install -r requirements-ocr.txt"
-        )
+    # Routing sends a page here as soon as it carries a raster image, even one
+    # sitting beside a full text layer (a letterhead logo). Refusing the whole
+    # document when the OCR extra is missing would take PDF redaction away from
+    # every core-only install — including the packaged exe, which ships without
+    # requirements-ocr.txt — for documents it used to read fine. So the refusal
+    # is made per page and only where it is true: a raster page with no usable
+    # text layer really cannot be read, while one that has a text layer falls
+    # back to it, loudly (warning + human_review), because whatever the image
+    # holds stays unread.
+    ocr_available = ocr_processor.is_available()
 
     import pypdfium2 as pdfium
 
     doc = pdfium.PdfDocument(str(path))
-    page_texts: list[str] = []
+    page_payloads: list[tuple[str, list[tuple[int, int]]]] = []
     word_bboxes: list[WordBbox] = []
     pages_ocred: list[int] = []
     pages_text_layer: list[int] = []
     warnings: list[str] = []
     confidences: list[float] = []
+    ocr_observations: list[str] = []
     human_review_any = False
 
     try:
         for page_num, page in enumerate(doc, start=1):
-            text, bboxes = _extract_page_text_layer(page, page_num)
-            if len(text.strip()) >= PDF_HYBRID_PAGE_TEXT_LAYER_MIN_CHARS:
+            layer_text, layer_bboxes = _extract_page_text_layer(page, page_num)
+            layer_chars = len(layer_text.strip())
+            has_text_layer = layer_chars >= PAGE_TEXT_LAYER_MIN_CHARS
+            needs_ocr = page_needs_ocr(page)
+            page_parts: list[str] = []
+            page_ranges: list[tuple[int, int]] = []
+
+            if layer_text.strip():
+                page_parts.append(layer_text)
+                word_bboxes.extend(layer_bboxes)
+            if has_text_layer:
                 pages_text_layer.append(page_num)
-            else:
+
+            if needs_ocr and not ocr_available:
+                if not has_text_layer:
+                    raise ocr_processor.OCRUnavailableError(
+                        "This PDF has pages without a text layer and cannot be read "
+                        "without OCR. Run: pip install -r requirements-ocr.txt"
+                    )
+                needs_ocr = False
+                human_review_any = True
+                warnings.append(
+                    f"page {page_num}: an image on this page was not read because OCR is "
+                    "not installed; only its text layer was extracted"
+                )
+
+            if needs_ocr:
                 result = ocr_processor.ocr_page(page, page_num)
-                text, bboxes = result.text, result.words
                 pages_ocred.append(page_num)
                 confidences.append(result.confidence)
+                ocr_observations.append(result.text)
+                ocr_words = [
+                    kept
+                    for word in result.words
+                    if (kept := _remove_layer_text(word, layer_bboxes)) is not None
+                ]
+                ocr_text = "\n".join(word.text for word in ocr_words)
+                if ocr_text.strip():
+                    start = sum(len(part) for part in page_parts) + len(page_parts)
+                    page_parts.append(ocr_text)
+                    page_ranges.append((start, start + len(ocr_text)))
+                word_bboxes.extend(result.words)
                 if result.human_review:
                     human_review_any = True
                     warnings.append(
                         f"page {page_num}: low OCR confidence after {result.attempts} attempt(s)"
                     )
-            page_texts.append(text)
-            word_bboxes.extend(bboxes)
+            page_payloads.append(("\n".join(page_parts), page_ranges))
     finally:
         doc.close()
 
+    page_texts: list[str] = []
+    ocr_text_ranges: list[tuple[int, int]] = []
+    offset = 0
+    for page_text, local_ranges in page_payloads:
+        page_texts.append(page_text)
+        ocr_text_ranges.extend((offset + start, offset + end) for start, end in local_ranges)
+        offset += len(page_text) + 2
     full_text = "\n\n".join(page_texts)
     meta = {
         "ocr_confidence": (sum(confidences) / len(confidences)) if confidences else None,
         "human_review": human_review_any,
         "pages_ocred": pages_ocred,
         "pages_text_layer": pages_text_layer,
+        "ocr_text_ranges": ocr_text_ranges,
+        "ocr_observations": ocr_observations,
         "warnings": warnings,
     }
     return full_text, word_bboxes, meta

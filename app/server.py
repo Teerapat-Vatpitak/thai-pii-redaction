@@ -829,12 +829,17 @@ def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
                 seen.add(e.data_type)
                 fields.append({"data_type": e.data_type, "redact_type": e.redact_type})
 
+        human_review = bool(extract_meta.get("human_review", False))
+        ocr_warnings = extract_meta.get("warnings", [])
+        audit_flags = [f"source_type:{source_type}"]
+        if human_review:
+            audit_flags.append("ocr_review_required")
         write_process_log(
             session_id=str(uuid.uuid4()),
             step="api_redact_pdf",
             entity_count=len(entities),
-            validation_result="pass",
-            flags=[f"source_type:{source_type}"],
+            validation_result="warn" if (human_review or ocr_warnings) else "pass",
+            flags=audit_flags,
             latency_ms=(time.time() - start) * 1000,
             output_dir=_get_audit_log_dir(),
         )
@@ -842,8 +847,8 @@ def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
             "filename": pdf_file.filename,
             "source_type": source_type,
             "ocr_confidence": extract_meta.get("ocr_confidence"),
-            "human_review": extract_meta.get("human_review", False),
-            "ocr_warnings": extract_meta.get("warnings", []),
+            "human_review": human_review,
+            "ocr_warnings": ocr_warnings,
             "entity_count": len(entities),
             "fields": fields,
             "section26": scan_section26(raw_text),

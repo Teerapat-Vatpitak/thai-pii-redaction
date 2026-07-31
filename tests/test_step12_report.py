@@ -100,3 +100,39 @@ def test_analyze_text_still_answers_on_a_document_with_nothing_in_it():
     assert result["overall_grade"] == "A"
     assert result["breakdown"] == []
     assert result["recommendations"], "a clean document still gets a verdict"
+
+
+def test_analyze_text_matches_the_canonical_fallback_detector():
+    result = analyze_text("รหัส 1234567890123 โทร 081-234-5678")
+
+    assert result["direct_pii_count"] == 2
+    assert result["fp_count"] == 2
+    assert result["tb_count"] == 0
+    assert sum(row["count"] for row in result["breakdown"]) == 2
+    assert {row["data_type"] for row in result["breakdown"]} == {"PHONE", "THAI_ID"}
+
+
+def test_analyze_text_runs_detection_once(monkeypatch):
+    import pii_redactor.report as report_module
+    from pii_redactor.models import Entity
+
+    calls = []
+
+    def fake_detect(text):
+        calls.append(text)
+        return [
+            Entity(
+                entity_id="test-id",
+                redact_type="FP",
+                data_type="THAI_ID",
+                span=(0, 13),
+                score=0.6,
+                original_text=text[:13],
+            )
+        ]
+
+    monkeypatch.setattr(report_module, "detect_all", fake_detect)
+    result = report_module.analyze_text("1234567890123")
+
+    assert calls == ["1234567890123"]
+    assert result["direct_pii_count"] == 1

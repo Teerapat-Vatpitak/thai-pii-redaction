@@ -27,10 +27,14 @@
   เปลี่ยน wire contract
 - `build_exe.ps1` และ `desktop/build-sidecar.ps1` เรียก builder ตัวเดียวกัน
   แต่เอกสารยังใช้ทั้งสองชื่อ ต้องเลือก entry point หลักก่อน
-- CLI report ยังประกอบผลซ้ำกับ shared report path การรวมอาจเปลี่ยน output
-  และต้อง pin contract ก่อน
-- `analyze_text()` ตรวจ FP/TB ซ้ำกับ `generate_report()` นี่เป็นงานลดเวลา ไม่ใช่
-  dead-code cleanup และต้องมี output-parity กับ performance evidence
+- ~~CLI report ยังประกอบผลซ้ำกับ shared report path~~ **รวมแล้ว** `ai_guard.py
+  cmd_report` เรียก `detect_all` ตัวเดียวกับทางเว็บ output เปลี่ยนจริงตามที่
+  ห่วงไว้ คือจำนวน entity ไม่ถูกนับซ้ำอีกเมื่อ FP กับ TB จับค่าเดียวกัน
+  pin ด้วย `tests/test_step10_cli.py::test_ai_guard_report_uses_the_canonical_fallback_detector`
+- ~~`analyze_text()` ตรวจ FP/TB ซ้ำกับ `generate_report()`~~ **รวมแล้ว** ทั้งคู่
+  รับผล `detect_all` ชุดเดียว `tests/test_step12_report.py::test_analyze_text_runs_detection_once`
+  ตรึงไว้ว่าตรวจรอบเดียว และ `breakdown[]` เปลี่ยน key เป็น
+  (`data_type`, `redact_type`) จึงมีสองแถวต่อชนิดได้เมื่อเจอทั้งสองแบบ
 - source assets ที่ไม่มี build reference อาจยังใช้แก้ logo หรืออัปโหลด store
   จากนอก repo จึงยังไม่ลบ
 

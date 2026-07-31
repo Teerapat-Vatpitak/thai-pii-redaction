@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from difflib import SequenceMatcher
 
 from pythainlp.tokenize import word_tokenize
 
@@ -166,6 +167,29 @@ _ROLE_LINKERS = {"คือ", "ชื่อ", "ได้แก่"}
 # Bare "ชื่อ" as a field label: only at line start, only with a delimiter, so
 # it cannot fire inside ชื่อบัญชี/ชื่อบริษัท or mid-sentence prose.
 _LINE_NAME_LABEL_RE = re.compile(r"(?m)^[ \t]*ชื่อ(?:-นามสกุล)?[ \t:：]+")
+# OCR can join nearby form fields on one line, so the label is allowed away
+# from the line start here — but it still has to be the WORD ชื่อ. Without the
+# lookbehind, any prose carrying one of these field words ahead of a compound
+# ending in ชื่อ ("ดูรายชื่อ สาขา ทั่วประเทศ") tags the next two words as a
+# person, which is the same trap the line-anchored pattern above avoids.
+_INLINE_NAME_LABEL_RE = re.compile(
+    r"(?m)(?:สัญชาติ|คำนำหน้า|เพศ)[^\r\n]{0,30}?(?<![ก-๛])ชื่อ(?:-นามสกุล)?[ \t:：]+"
+)
+_NON_PERSON_LEADS = {
+    "บริษัท",
+    "ห้าง",
+    "ธนาคาร",
+    "โรงพยาบาล",
+    "มหาวิทยาลัย",
+    "โรงเรียน",
+    "สำนักงาน",
+    "โรงงาน",
+    "มูลนิธิ",
+    "โครงการ",
+    "สมาคม",
+    "สหกรณ์",
+    "หน่วยงาน",
+}
 
 # "<kinship>ชื่อ <first> <last>" — คุณแม่ชื่อ สมหญิง รักไทย. The kinship word
 # is what makes bare ชื่อ a person label here; กรอกชื่อ/ระบุชื่อ stay form
@@ -362,9 +386,29 @@ def _line_label_names(text: str, spans: list[tuple[str, int, int]]) -> list[Enti
         idx = _index_after(spans, m.end())
         if idx is None:
             continue
+        while idx < len(spans) and spans[idx][0].strip() == "":
+            idx += 1
+        if idx >= len(spans) or spans[idx][0] in _NON_PERSON_LEADS:
+            continue
         got = _collect_two_groups(spans, idx)
         if got:
             ents.append(_make_name(text, got[0], got[1], 0.88))
+    return ents
+
+
+def _inline_label_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:
+    ents = []
+    for m in _INLINE_NAME_LABEL_RE.finditer(text):
+        idx = _index_after(spans, m.end())
+        if idx is None:
+            continue
+        while idx < len(spans) and spans[idx][0].strip() == "":
+            idx += 1
+        if idx >= len(spans) or spans[idx][0] in _NON_PERSON_LEADS:
+            continue
+        got = _collect_two_groups(spans, idx)
+        if got:
+            ents.append(_make_name(text, got[0], got[1], 0.87))
     return ents
 
 
@@ -443,6 +487,7 @@ def detect_name_context_passes(text: str) -> list[tuple[str, Entity]]:
     tagged: list[tuple[str, Entity]] = []
     tagged.extend(("extended", e) for e in _role_cue_names(text, spans))
     tagged.extend(("strong", e) for e in _line_label_names(text, spans))
+    tagged.extend(("extended", e) for e in _inline_label_names(text, spans))
     tagged.extend(("extended", e) for e in _kinship_label_names(text, spans))
     tagged.extend(("extended", e) for e in _roster_names(text, spans))
     tagged.extend(("extended", e) for e in _passport_roster_names(text))
@@ -454,6 +499,91 @@ def detect_name_context_passes(text: str) -> list[tuple[str, Entity]]:
 def detect_name_context(text: str) -> list[Entity]:
     """Detect names introduced by a title, label, role word, or roster cue."""
     return [e for _pass, e in detect_name_context_passes(text)]
+
+
+_PARALLEL_NAME_LINE_RE = re.compile(r"^[ \t]*([ก-๛]{2,25})[ \t]+([ก-๛]{2,25})[ \t]*$")
+_PARALLEL_NAME_STOP = _NOT_NAME | _LEAD_STOP | _NON_PERSON_LEADS
+# The second Thai token is optional so the single-token shape keeps matching
+# byte-for-byte, but a co-applicant written the normal way — given name, space,
+# surname — is the common case on a real form and matched nothing before: the
+# run between และ and the name may only hold non-Thai characters, so the space
+# inside "สมหญิง รักดี" ended the name group early and the line failed. Missing
+# a whole class of the names this rule exists to recover is the recall-negative
+# direction, which recall > precision does not allow.
+_OCR_CO_APPLICANT_RE = re.compile(
+    r"(?m)^[ \t]*(?:และ|แถะ)[^ก-๛\r\n]{2,}"
+    r"(?P<name>[ก-๛]{4,25}(?:[ \t]+[ก-๛]{2,25})?)[ \t]*$"
+)
+_OCR_CO_APPLICANT_STOP = (
+    "กรอก",
+    "ขอ",
+    "คำ",
+    "บริษัท",
+    "ผู้",
+    "มูลนิธิ",
+    "เอกสาร",
+    "โรงงาน",
+    "โครงการ",
+)
+
+
+def _repeated_ocr_co_applicant_names(text: str, entities: list[Entity]) -> list[Entity]:
+    """Find a name repeated after an OCR form mark."""
+    if sum(entity.data_type == "THAI_ID" for entity in entities) < 2:
+        return []
+    if not any(entity.data_type == "NAME" for entity in entities):
+        return []
+
+    matches = list(_OCR_CO_APPLICANT_RE.finditer(text))
+    recovered = []
+    for match in matches:
+        value = match.group("name")
+        if value.startswith(_OCR_CO_APPLICANT_STOP):
+            continue
+        repeated = any(
+            other is not match and SequenceMatcher(None, value, other.group("name")).ratio() >= 0.8
+            for other in matches
+        )
+        if repeated:
+            recovered.append(_make_name(text, *match.span("name"), 0.87))
+    return recovered
+
+
+def detect_parallel_record_names(text: str, entities: list[Entity]) -> list[Entity]:
+    """Recover a missed name in repeated NAME/THAI_ID rows."""
+    recovered = _repeated_ocr_co_applicant_names(text, entities)
+    rows: list[tuple[str, int, int]] = []
+    offset = 0
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        stripped = line.strip()
+        if stripped:
+            start = offset + line.index(stripped)
+            rows.append((stripped, start, start + len(stripped)))
+        offset += len(raw_line)
+
+    def _covered(row: tuple[str, int, int], data_type: str) -> bool:
+        return any(
+            entity.data_type == data_type and entity.span[0] <= row[1] and entity.span[1] >= row[2]
+            for entity in entities
+        )
+
+    pairs: list[tuple[tuple[str, int, int], re.Match[str]]] = []
+    for index, row in enumerate(rows[:-1]):
+        match = _PARALLEL_NAME_LINE_RE.fullmatch(row[0])
+        if match and _covered(rows[index + 1], "THAI_ID"):
+            pairs.append((row, match))
+
+    if not any(_covered(row, "NAME") for row, _match in pairs):
+        return recovered
+
+    for row, match in pairs:
+        if _covered(row, "NAME"):
+            continue
+        if match.group(1) in _PARALLEL_NAME_STOP or match.group(2) in _PARALLEL_NAME_STOP:
+            continue
+        recovered.append(_make_name(text, row[1], row[2], 0.87))
+    return recovered
 
 
 def _token_pass_names(text: str, spans: list[tuple[str, int, int]]) -> list[Entity]:

@@ -51,7 +51,7 @@ $env:PYTHONUTF8='1'
   tests\test_gov_form_acceptance.py `
   tests\test_probe_document.py
 .\.venv-full\Scripts\python.exe -m benchmark.data.probe.gov_forms.run_acceptance `
-  --output-dir benchmark/reports/gov-forms-2026-07-31-clean
+  --output-dir benchmark/reports/gov-forms-2026-07-31-final
 ```
 
 Runner สร้างและ probe ทั้ง 9 อินพุตใน process เดียว แล้วเขียน result JSON แยก
@@ -63,28 +63,39 @@ surviving value และ decoy string ออกก่อนเขียนไ�
 
 ## ผล local full OCR environment
 
-Builder สร้าง 9/9 อินพุตและ route ถูกทั้ง 9. Image-only 6 อินพุตรัน OCR,
-coverage และ residual จริงแล้ว. Strict result เป็น **FUNCTIONAL FAIL**:
+Builder สร้าง 9/9 อินพุตและ route ถูกทั้ง 9. ทั้ง 9 อินพุตรัน OCR, coverage และ
+residual จริงแล้ว (ไม่ใช่แค่ image-only เหมือนรอบก่อน). Strict result เป็น
+**FUNCTIONAL FAIL**:
 
-| ฟอร์ม / modality | OCR mean | extraction | detection | type match | coverage / expected | residual |
-|---|---:|---:|---:|---:|---:|---:|
-| คร.1 digital | n/a | 4/4 | 3/4 | 3/4 | 3/4 | removed 3, exposed 1 |
-| คร.1 print-like | 0.95 | 2/4 | 4/4 | 4/4 | 4/4 | removed 4 |
-| คร.1 degraded | 0.93 | 2/4 | 4/4 | 3/4 | 4/4 | removed 4 |
-| ภ.ง.ด.91 digital | n/a | 6/6 | 6/6 | 5/6 | 6/6 | removed 6 |
-| ภ.ง.ด.91 print-like | 0.85 | 4/6 | 4/6 | 3/4 | 4/6 | removed 4, unmeasurable 2 |
-| ภ.ง.ด.91 degraded | 0.88 | 5/6 | 5/6 | 5/5 | 5/6 | removed 5, unmeasurable 1 |
-| สปส.1-03 digital | n/a | 5/5 | 5/5 | 3/4; ORGANIZATION อยู่นอก legacy-11 | 5/5 | removed 5 |
-| สปส.1-03 print-like | 0.97 | 3/5 | 5/5 | 4/4 | 5/5 | removed 5 |
-| สปส.1-03 degraded | 0.72 | 2/5 | 2/5 | 1/2 | 2/5 | removed 2, exposed 1, unmeasurable 2 |
-| **รวม** | 6/6 image inputs measured | **33/45** | **38/45** | **31/37 scored** | **38/45** | **removed 38, exposed 2, unmeasurable 5** |
+<!-- generated from gov-forms-2026-07-31-final/summary.json -->
+
+| ฟอร์ม / modality | OCR mean | extraction | detection | type match | coverage | residual | render-OCR |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| คร.1 digital | 0.95 | 4/4 | 4/4 | 4/4 | 4/4 | removed 4, exposed 0 | 0 surviving |
+| คร.1 print-like **ตก** | 0.95 | 2/4 | 2/4 | 2/4 | 2/4 | removed 2, exposed 2 | 2 surviving |
+| คร.1 degraded | 0.95 | 3/4 | 4/4 | 4/4 | 4/4 | removed 4, exposed 0 | 0 surviving |
+| ภ.ง.ด.91 digital | 1.00 | 6/6 | 6/6 | 5/6 | 6/6 | removed 6, exposed 0 | 0 surviving |
+| ภ.ง.ด.91 print-like **ตก** | 1.00 | 6/6 | 5/6 | 5/6 | 5/6 | removed 5, exposed 1 | 0 surviving |
+| ภ.ง.ด.91 degraded **ตก** | 0.98 | 5/6 | 5/6 | 5/6 | 5/6 | removed 5, exposed 1 | 1 surviving |
+| สปส.1-03 digital | 1.00 | 5/5 | 5/5 | 3/4 | 5/5 | removed 5, exposed 0 | 0 surviving |
+| สปส.1-03 print-like | 1.00 | 5/5 | 5/5 | 4/4 | 5/5 | removed 5, exposed 0 | 0 surviving |
+| สปส.1-03 degraded | 0.96 | 3/5 | 5/5 | 4/4 | 5/5 | removed 5, exposed 0 | 0 surviving |
+| **รวม** | 9/9 image inputs measured | **39/45** | **41/45** | **36/42** | **41/45** | **removed 41, exposed 4, unmeasurable 0** | **3 surviving** |
 
 ไม่มี declared decoy string ปรากฏในข้อความ extraction ของทั้ง 9 อินพุต. นี่เป็น
 matcher-level check ไม่ใช่ false-positive benchmark ของ detector. ค่า OCR mean
 นับเฉพาะค่าที่จับคู่กับช่วงข้อความได้แบบไม่ซ้ำ; ค่าที่จับคู่ไม่ได้ยังทำให้
-extraction/coverage/residual fail. Exposed สองช่องคือชื่อผู้ร้องคนที่ 2 ใน
-คร.1 digital และชื่อผู้ประกันตนใน สปส.1-03 degraded. อีกห้าช่องไม่มีตำแหน่ง
-OCR ที่เชื่อถือได้ จึงเป็น `unmeasurable` ไม่ใช่ pass.
+extraction/coverage/residual fail. Exposed สี่ช่องคือชื่อผู้ร้องคนที่ 1 และคนที่ 2
+ใน คร.1 print-like, กับชื่อคู่สมรสใน ภ.ง.ด.91 print-like และ ภ.ง.ด.91 degraded
+(คนละอินพุต). ไม่มีช่องใด unmeasurable รอบนี้.
+
+Render-OCR ของหน้าที่แก้ไขแล้วอ่านค่ากลับได้ 3 ช่องจาก 4 ช่องที่ expose. ชื่อผู้ร้อง
+คนที่ 1 และ 2 ใน คร.1 print-like ระบบอ่าน OCR ต้นทางได้ที่ char_accuracy ราว 0.90
+เท่านั้น (ไม่ตรงเป๊ะ). detector จึงตีความว่าไม่พบค่านั้น ไม่วาดกล่องดำ และ render-OCR
+ก็อ่านชื่อกลับมาได้ตรง. ช่องชื่อคู่สมรสใน ภ.ง.ด.91 degraded ก็ถูก render-OCR อ่านกลับ
+มาได้เช่นกันแม้ OCR ต้นทางจะอ่านถูก 100% เพราะ detector ไม่ติดป้าย NAME ให้เลย จึง
+ไม่มีกล่องมาตั้งแต่ต้น. ส่วนชื่อคู่สมรสใน ภ.ง.ด.91 print-like expose เพราะกล่องดำครอบ
+พื้นที่ได้ไม่ครบ (31.5%) ไม่ใช่เพราะ render-OCR อ่านได้.
 
 Runtime ที่บันทึก: Python 3.13.12, PaddlePaddle 3.2.2, PaddleOCR 3.7.0,
 OpenCV 4.10.0, Pillow 12.3.0, ReportLab 5.0.0 และ pypdfium2 5.12.1.

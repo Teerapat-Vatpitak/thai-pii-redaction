@@ -78,6 +78,24 @@ def test_pipeline_validation_result_is_validation_result():
     assert isinstance(result.validation_result, ValidationResult)
 
 
+def test_pipeline_registry_matches_the_canonical_detector():
+    from pii_redactor.detectors.aggregate import detect_all
+    from pii_redactor.ingest.text_cleaner import clean
+
+    text = "รหัส 1234567890123 โทร 081-234-5678"
+    result = run_pipeline(text=text, provider=FakeLLMProvider(), salt="canonical-detector")
+    expected = detect_all(clean(text).text)
+
+    actual_rows = [
+        (entity.span, entity.data_type, entity.redact_type)
+        for entity in result.entity_registry.entities
+    ]
+    expected_rows = [(entity.span, entity.data_type, entity.redact_type) for entity in expected]
+    assert actual_rows == expected_rows
+    assert result.entity_registry.fp_count == 2
+    assert result.entity_registry.tb_count == 0
+
+
 # run_pipeline() mints a random salt when none is passed, and the salt decides
 # every surrogate value — so this test used to sample ONE random point of the
 # input space per run and went red on CI only when it happened to draw a bad

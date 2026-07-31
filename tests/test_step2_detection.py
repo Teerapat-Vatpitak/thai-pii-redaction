@@ -223,6 +223,63 @@ def test_detect_fp_span_min_2():
         assert e.span[1] - e.span[0] >= 2
 
 
+def test_detect_all_recovers_a_name_in_repeated_id_records():
+    from pii_redactor.detectors.aggregate import detect_all
+
+    text = "สมชาย ใจดี\n1312271505581\nมาลี รักดี\n4951607747108"
+    names = {entity.original_text for entity in detect_all(text) if entity.data_type == "NAME"}
+
+    assert {"สมชาย ใจดี", "มาลี รักดี"} <= names
+
+
+def test_detect_all_recovers_a_repeated_ocr_co_applicant():
+    from pii_redactor.detectors.aggregate import detect_all
+
+    text = "สมชาย ใจดี\n1312271505581\nและ...มาลิรักดี\nแถะ...มาลิรักดิ\n4951607747108"
+    names = {entity.original_text for entity in detect_all(text) if entity.data_type == "NAME"}
+
+    assert {"มาลิรักดี", "มาลิรักดิ"} <= names
+
+
+def test_ocr_co_applicant_recovers_a_name_written_with_a_space():
+    """The fixture above runs the given name into the surname, which is what a
+    bad OCR read looks like. A form that kept the space is the ordinary shape
+    and matched nothing at all, because the run before the name may hold only
+    non-Thai characters — so the whole common case of this rule's own target
+    class was missed, which is the recall-negative direction.
+    """
+    from pii_redactor.detectors.aggregate import detect_all
+
+    text = "สมชาย ใจดี\n1312271505581\nและ ( ) สมหญิง รักดี\nแถะ ( ) สมหญิง รักดิ\n4951607747108"
+    names = {entity.original_text for entity in detect_all(text) if entity.data_type == "NAME"}
+
+    assert {"สมหญิง รักดี", "สมหญิง รักดิ"} <= names
+
+
+def test_record_name_rule_rejects_form_prose():
+    from pii_redactor.detectors.aggregate import detect_all
+
+    text = (
+        "สมชาย ใจดี\n1312271505581\n"
+        "โรงงาน ทดสอบ\n4951607747108\n"
+        "มูลนิธิ ตัวอย่าง\n3951607747108\n"
+        "โครงการ ทดลอง\n2951607747108"
+    )
+
+    names = {entity.original_text for entity in detect_all(text) if entity.data_type == "NAME"}
+
+    assert names == {"สมชาย ใจดี"}
+
+
+def test_ocr_co_applicant_rule_rejects_repeated_form_prose():
+    from pii_redactor.detectors.aggregate import detect_all
+
+    text = "สมชาย ใจดี\n1312271505581\nและ...เอกสารแนบ\nแถะ...เอกสารแนบ\n4951607747108"
+    names = {entity.original_text for entity in detect_all(text) if entity.data_type == "NAME"}
+
+    assert names == {"สมชาย ใจดี"}
+
+
 def test_detect_fp_entity_fields():
     text = "test@example.com"
     entities = detect_fp(text)

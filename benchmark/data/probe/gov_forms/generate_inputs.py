@@ -9,14 +9,17 @@ import argparse
 import hashlib
 import io
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 MODALITIES = ("digital", "print_like", "degraded")
 DEFAULT_CORPUS = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = Path("benchmark/reports/gov-forms-phase2/inputs")
 SYNTHETIC_BANNER = "SYNTHETIC TEST INPUT - NO REAL PERSONAL DATA"
 TEXT_LAYER_SENTINEL = "." * 20
+DEGRADED_ROTATION_DEGREES = 0.65
 
 
 @dataclass(frozen=True)
@@ -139,7 +142,7 @@ def _degrade(image):
     )
     restored = small.resize(gray.size, Image.Resampling.BILINEAR)
     rotated = restored.rotate(
-        0.65,
+        DEGRADED_ROTATION_DEGREES,
         resample=Image.Resampling.BICUBIC,
         expand=False,
         fillcolor=245,
@@ -162,7 +165,80 @@ def _degrade(image):
     return Image.open(encoded).convert("RGB")
 
 
-def _write_expectations(path: Path, form: dict, modality: str) -> None:
+def _base_region(field: dict[str, Any], font_name: str) -> dict[str, float | int]:
+    from reportlab.pdfbase import pdfmetrics
+
+    font_size = field.get("font_size", 9)
+    ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+    return {
+        "page": int(field["page"]),
+        "x": float(field["x"]),
+        "y": float(field["y"] - ascent),
+        "width": float(pdfmetrics.stringWidth(field["value"], font_name, font_size)),
+        "height": float(ascent - descent),
+    }
+
+
+def _rotate_region(
+    region: dict[str, float | int],
+    page_size: tuple[float, float],
+) -> dict[str, float | int]:
+    angle = math.radians(DEGRADED_ROTATION_DEGREES)
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    center_x = page_size[0] / 2
+    center_y = page_size[1] / 2
+
+    def rotate(x: float, y: float) -> tuple[float, float]:
+        offset_x = x - center_x
+        offset_y = y - center_y
+        return (
+            center_x + cosine * offset_x + sine * offset_y,
+            center_y - sine * offset_x + cosine * offset_y,
+        )
+
+    x = float(region["x"])
+    y = float(region["y"])
+    width = float(region["width"])
+    height = float(region["height"])
+    corners = (
+        rotate(x, y),
+        rotate(x + width, y),
+        rotate(x, y + height),
+        rotate(x + width, y + height),
+    )
+    xs = [point[0] for point in corners]
+    ys = [point[1] for point in corners]
+    return {
+        "page": region["page"],
+        "x": min(xs),
+        "y": min(ys),
+        "width": max(xs) - min(xs),
+        "height": max(ys) - min(ys),
+    }
+
+
+def _field_region(
+    field: dict[str, Any],
+    modality: str,
+    page_sizes: list[tuple[float, float]],
+    font_name: str,
+) -> dict[str, float | int]:
+    region = _base_region(field, font_name)
+    if modality == "degraded":
+        region = _rotate_region(region, page_sizes[field["page"] - 1])
+    return {
+        key: value if key == "page" else round(float(value), 6) for key, value in region.items()
+    }
+
+
+def _write_expectations(
+    path: Path,
+    form: dict,
+    modality: str,
+    page_sizes: list[tuple[float, float]],
+    font_name: str,
+) -> None:
     payload = {
         "meta": {
             "form_code": form["code"],
@@ -173,6 +249,7 @@ def _write_expectations(path: Path, form: dict, modality: str) -> None:
                 "Official blank form identified by manifest SHA-256; values are "
                 "fabricated constants declared in that manifest."
             ),
+            "region_space": "pdf_points_top_left",
         },
         "layout": form["layout"],
         "fields": [
@@ -180,6 +257,7 @@ def _write_expectations(path: Path, form: dict, modality: str) -> None:
                 "field": field["field"],
                 "value": field["value"],
                 "type": field["type"],
+                "region": _field_region(field, modality, page_sizes, font_name),
             }
             for field in form["synthetic_fields"]
         ],
@@ -198,6 +276,7 @@ def generate_corpus(corpus_dir: str | Path, output_dir: str | Path) -> list[Corp
     output_dir = Path(output_dir)
     manifest = json.loads((corpus_dir / "manifest.json").read_text(encoding="utf-8"))
     rows: list[CorpusRow] = []
+    font_name = _register_font(corpus_dir)
 
     for form in manifest["forms"]:
         source = corpus_dir / form["official_path"]
@@ -220,6 +299,7 @@ def generate_corpus(corpus_dir: str | Path, output_dir: str | Path) -> list[Corp
         degraded = form_dir / f"{form['slug']}-degraded.pdf"
         degraded_pages = [(_degrade(image), size) for image, size in digital_pages]
         _write_image_pdf(degraded_pages, degraded)
+        page_sizes = [size for _image, size in digital_pages]
 
         documents = {
             "digital": digital,
@@ -228,7 +308,13 @@ def generate_corpus(corpus_dir: str | Path, output_dir: str | Path) -> list[Corp
         }
         for modality in MODALITIES:
             expected = form_dir / f"{form['slug']}-{modality}.expected.json"
-            _write_expectations(expected, form, modality)
+            _write_expectations(
+                expected,
+                form,
+                modality,
+                page_sizes,
+                font_name,
+            )
             rows.append(
                 CorpusRow(
                     form_code=form["code"],

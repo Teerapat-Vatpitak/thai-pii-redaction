@@ -63,9 +63,7 @@ def cmd_sanitize(args):
 
 def cmd_report(args):
     """Generate a PII risk report for a file (no redaction)."""
-    from pii_redactor.detectors.aggregate import dedupe_spans
-    from pii_redactor.detectors.fp_detector import detect_fp
-    from pii_redactor.detectors.tb_detector import detect_tb
+    from pii_redactor.detectors.aggregate import detect_all
     from pii_redactor.ingest.file_detector import detect_source_type
     from pii_redactor.ingest.text_cleaner import clean
     from pii_redactor.ingest.text_extractor import extract
@@ -82,11 +80,7 @@ def cmd_report(args):
         print(f"Failed to read file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve FP/TB span overlaps (FP wins, checksum-backed) before counting —
-    # the same central rule the pipeline/web path use. Summing raw len(fp)+
-    # len(tb) double-counts a value both detectors matched (e.g. an ID the NER
-    # also tags), inflating the total past the risk-level thresholds.
-    merged = dedupe_spans(detect_fp(text) + detect_tb(text))
+    merged = detect_all(text)
     fp_entities = [e for e in merged if e.redact_type == "FP"]
     tb_entities = [e for e in merged if e.redact_type != "FP"]
 

@@ -214,3 +214,17 @@ def test_ai_guard_report_no_pii(tmp_path, capsys):
     ai_guard.cmd_report(args_ns)
     captured = capsys.readouterr()
     assert "Risk Level: Low" in captured.out
+
+
+def test_ai_guard_report_uses_the_canonical_fallback_detector(tmp_path, capsys):
+    import ai_guard
+
+    infile = tmp_path / "input.txt"
+    infile.write_text("รหัส 1234567890123", encoding="utf-8")
+
+    ai_guard.cmd_report(type("Args", (), {"file": str(infile)})())
+    out = capsys.readouterr().out
+
+    assert "Total entities detected: 1" in out
+    assert "Structured PII (FP): 1" in out
+    assert "Name/Address/Date (TB): 0" in out

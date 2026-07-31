@@ -52,12 +52,18 @@ def test_extract_text_returns_unicode():
     assert isinstance(text, str)
 
 
-def test_extract_hybrid_without_ocr_deps_raises(monkeypatch):
+def test_extract_hybrid_without_ocr_deps_raises(tmp_path, monkeypatch):
+    """An image-only page has no text layer to fall back to, so the hybrid
+    path still refuses outright when the OCR extra is missing. (The fixture is
+    a real scanned-shape PDF: the check is per page now, so handing this a
+    non-PDF would only prove the argument was mis-routed.)
+    """
     from pii_redactor.ingest import ocr_processor
 
+    path = _make_hybrid_test_pdf(tmp_path)
     monkeypatch.setattr(ocr_processor, "is_available", lambda: False)
     with pytest.raises(ocr_processor.OCRUnavailableError):
-        extract("tests/sample_thai.txt", "pdf_hybrid")
+        extract(path, "pdf_hybrid")
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +138,158 @@ def _make_hybrid_test_pdf(tmp_path) -> Path:
     return path
 
 
+def _make_mixed_page_pdf(tmp_path) -> Path:
+    """A raster page with a small selectable text overlay."""
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    image = Image.new("RGB", (100, 100), (255, 255, 255))
+    path = tmp_path / "mixed-page.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.drawString(50, letter[1] - 50, "Selectable footer with more than twenty characters")
+    c.save()
+    return path
+
+
+def _make_text_pdf_with_tiny_logo(tmp_path) -> Path:
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    image = Image.new("RGB", (2, 2), (0, 0, 0))
+    path = tmp_path / "text-with-logo.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 50, letter[1] - 20, width=8, height=8)
+    c.drawString(50, letter[1] - 50, "Selectable text with a small logo and no scanned page")
+    c.save()
+    return path
+
+
+def _make_searchable_scan_pdf(tmp_path) -> Path:
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    phone = "081-234-5678"
+    image = Image.new("RGB", (612, 792), "white")
+    ImageDraw.Draw(image).text((50, 72), phone, fill="black")
+    path = tmp_path / "searchable-scan.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.drawString(50, letter[1] - 72, phone)
+    c.save()
+    return path
+
+
+def _make_partial_overlay_scan_pdf(tmp_path) -> Path:
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    phone = "081-234-5678"
+    image = Image.new("RGB", (612, 792), "white")
+    ImageDraw.Draw(image).text((50, 72), phone, fill="black")
+    path = tmp_path / "partial-overlay-scan.pdf"
+    c = canvas.Canvas(str(path), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.drawString(50, letter[1] - 72, "1234")
+    c.save()
+    return path
+
+
+def test_detect_mixed_page_requires_ocr(tmp_path):
+    path = _make_mixed_page_pdf(tmp_path)
+
+    assert detect_source_type(path) == "pdf_hybrid"
+
+
+def test_tiny_logo_degrades_loudly_without_optional_ocr(tmp_path, monkeypatch):
+    """A letterhead logo must not cost a core-only install the whole document.
+
+    Routing sends any raster page to the hybrid path, so an ordinary digital
+    PDF with a logo lands here. Refusing it outright reads as failing closed,
+    but the packaged exe ships without requirements-ocr.txt, so it would take
+    PDF redaction away from every such document — the text layer that carries
+    the PII is right there and readable. The page is extracted from its text
+    layer instead, and the caller is told what was skipped: /api/redact-pdf
+    returns both human_review and ocr_warnings, so this is a surfaced limit,
+    not a silent one. Failing closed stays for the case that earns it below.
+    """
+    from pii_redactor.ingest import ocr_processor
+
+    path = _make_text_pdf_with_tiny_logo(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: False)
+
+    source_type = detect_source_type(path)
+    assert source_type == "pdf_hybrid"
+
+    text, _bboxes, meta = extract(path, source_type)
+
+    assert "Selectable text with a small logo" in text
+    assert meta["human_review"] is True
+    assert any("OCR is not installed" in warning for warning in meta["warnings"])
+
+
+def test_hybrid_drops_the_same_text_from_the_same_place(tmp_path, monkeypatch):
+    from pii_redactor.detectors.aggregate import detect_all
+    from pii_redactor.ingest import ocr_processor
+
+    phone = "081-234-5678"
+    ocr_line = f"โทร {phone}"
+    path = _make_searchable_scan_pdf(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=[WordBbox(text=ocr_line, page=1, x=30, y=62, width=102, height=14)],
+            text=ocr_line,
+            confidence=0.95,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    text, bboxes, _meta = extract(path, detect_source_type(path))
+    phones = [entity for entity in detect_all(text) if entity.data_type == "PHONE"]
+
+    assert text.count(phone) == 1
+    assert len(phones) == 1
+    assert any(word.text == ocr_line for word in bboxes)
+
+
+def test_partial_overlay_cannot_hide_structured_ocr_text(tmp_path, monkeypatch):
+    from pii_redactor.detectors.aggregate import detect_all
+    from pii_redactor.ingest import ocr_processor
+
+    phone = "081-234-5678"
+    path = _make_partial_overlay_scan_pdf(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=[WordBbox(text=phone, page=1, x=50, y=62, width=82, height=14)],
+            text=phone,
+            confidence=0.95,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    text, bboxes, _meta = extract(path, detect_source_type(path))
+
+    assert phone in text
+    assert any(entity.data_type == "PHONE" for entity in detect_all(text))
+    assert any(word.text == phone for word in bboxes)
+
+
 def test_extract_pdf_hybrid_returns_3_tuple_with_meta(tmp_path, monkeypatch):
     from pii_redactor.ingest import ocr_processor
 
@@ -155,6 +313,64 @@ def test_extract_pdf_hybrid_returns_3_tuple_with_meta(tmp_path, monkeypatch):
     assert meta["ocr_confidence"] == pytest.approx(0.9)
     assert meta["human_review"] is False
     assert meta["warnings"] == []
+
+
+def test_extract_pdf_hybrid_merges_text_layer_and_ocr_on_one_page(tmp_path, monkeypatch):
+    from pii_redactor.ingest import ocr_processor
+
+    pdf_path = _make_mixed_page_pdf(tmp_path)
+    fake_words = [WordBbox(text="OCR image text", page=1, x=20, y=30, width=80, height=10)]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=fake_words,
+            text="OCR image text",
+            confidence=0.9,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    text, bboxes, meta = extract(pdf_path, "pdf_hybrid")
+
+    assert "Selectable footer" in text
+    assert "OCR image text" in text
+    assert fake_words[0] in bboxes
+    assert meta["pages_ocred"] == [1]
+    assert meta["pages_text_layer"] == [1]
+    assert meta["ocr_text_ranges"]
+    assert all(text[start:end].strip() for start, end in meta["ocr_text_ranges"])
+
+
+def test_extract_pdf_hybrid_keeps_ocr_line_boundaries_in_range(tmp_path, monkeypatch):
+    from pii_redactor.ingest import ocr_processor
+
+    pdf_path = _make_mixed_page_pdf(tmp_path)
+    ocr_text = "บรรทัดหนึ่ง\nเลข 1234567890123"
+    fake_words = [
+        WordBbox(text="บรรทัดหนึ่ง", page=1, x=20, y=30, width=80, height=10),
+        WordBbox(text="เลข 1234567890123", page=1, x=20, y=50, width=80, height=10),
+    ]
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=fake_words,
+            text=ocr_text,
+            confidence=0.9,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    text, bboxes, meta = extract(pdf_path, "pdf_hybrid")
+
+    start, end = meta["ocr_text_ranges"][0]
+    assert text[start:end] == ocr_text
+    assert fake_words == [word for word in bboxes if word in fake_words]
 
 
 def test_extract_pdf_hybrid_human_review_propagates(tmp_path, monkeypatch):

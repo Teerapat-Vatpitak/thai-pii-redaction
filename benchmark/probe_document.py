@@ -40,9 +40,8 @@ part of the verdict that is actually evidence.
 
 WHAT THIS INSTRUMENT CANNOT DO
 ------------------------------
-- It does not OCR the redacted render. A value could in principle survive as
-  readable ink somewhere other than its own bbox, and nothing here would see
-  it. That check needs requirements-ocr.txt and is not implemented.
+- OCR can miss readable ink. A negative OCR result does not prove removal
+  unless the source value also has aligned geometry and full pixel coverage.
 - The ink check above each box stops at the redaction pad's boundary
   (REDACT_PAD_TOP_PT), because on tight leading anything beyond it is the
   legitimate previous line. A glyph fragment surviving further above the box
@@ -57,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 import tempfile
@@ -144,6 +144,7 @@ class ExpectedValue:
     field: str
     value: str
     type: str
+    region: dict[str, float | int] | None = None
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,10 @@ def load_expectations(path: str | Path) -> dict[str, Any]:
 
         {
           "layout": "single_column" | "multi_column" | "unknown",   # optional
-          "fields": [{"field": "...", "value": "...", "type": "NAME"}, ...],
+          "fields": [{
+            "field": "...", "value": "...", "type": "NAME",
+            "region": {"page": 1, "x": 10, "y": 20, "width": 30, "height": 12}
+          }, ...],
           "decoys": ["value that must NOT be in the document", ...]  # optional
         }
 
@@ -183,12 +187,42 @@ def load_expectations(path: str | Path) -> dict[str, Any]:
     for i, item in enumerate(raw["fields"]):
         if not isinstance(item, dict) or not item.get("value"):
             raise ValueError(f"fields[{i}] must be an object with a non-empty 'value'")
+        region = item.get("region")
+        if region is not None:
+            keys = ("page", "x", "y", "width", "height")
+            if not isinstance(region, dict) or any(key not in region for key in keys):
+                raise ValueError(f"fields[{i}].region is incomplete")
+            page = region["page"]
+            numbers = [region[key] for key in keys[1:]]
+            if (
+                type(page) is not int
+                or page < 1
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    for value in numbers
+                )
+                or region["x"] < 0
+                or region["y"] < 0
+                or region["width"] <= 0
+                or region["height"] <= 0
+            ):
+                raise ValueError(f"fields[{i}].region has invalid coordinates")
+            region = {
+                "page": page,
+                "x": float(region["x"]),
+                "y": float(region["y"]),
+                "width": float(region["width"]),
+                "height": float(region["height"]),
+            }
         values.append(
             ExpectedValue(
                 index=i,
                 field=str(item.get("field", f"field_{i}")),
                 value=str(item["value"]),
                 type=str(item.get("type", "")).upper(),
+                region=region,
             )
         )
     if not values:
@@ -468,6 +502,36 @@ def measure_order(
 # ── measurement 3: OCR character accuracy ──────────────────────────────────
 
 
+def _ocr_origin_view(
+    text: str,
+    meta: dict[str, Any],
+) -> tuple[str, list[tuple[int, int, int]]]:
+    """Return OCR text and its ranges in the full text."""
+    parts = []
+    segments = []
+    compact_offset = 0
+    for item in meta.get("ocr_text_ranges", []):
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) == 2
+            and all(type(value) is int for value in item)
+        ):
+            start, end = item
+            if 0 <= start < end <= len(text):
+                if parts:
+                    compact_offset += 1
+                part = text[start:end]
+                parts.append(part)
+                segments.append((compact_offset, compact_offset + len(part), start))
+                compact_offset += len(part)
+    return "\n".join(parts), segments
+
+
+def _ocr_origin_text(text: str, meta: dict[str, Any]) -> str:
+    """Return only text created by OCR."""
+    return _ocr_origin_view(text, meta)[0]
+
+
 def measure_ocr_accuracy(
     values: list[ExpectedValue], text: str, source_type: str, ocr_error: str | None
 ) -> dict[str, Any]:
@@ -540,6 +604,134 @@ def measure_ocr_accuracy(
     return {"status": "measured", "mean_char_accuracy": mean, "values": rows}
 
 
+def _measure_source_ocr(
+    values: list[ExpectedValue],
+    text: str,
+    source_type: str,
+    ocr_error: str | None,
+    meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Measure OCR and map matches back to the full extracted text."""
+    if source_type != "pdf_hybrid":
+        return measure_ocr_accuracy(values, text, source_type, ocr_error)
+
+    ocr_text, segments = _ocr_origin_view(text, meta)
+    mapped_result = measure_ocr_accuracy(values, ocr_text, source_type, ocr_error)
+    for row in mapped_result.get("values", []):
+        if row.get("status") != "measured":
+            continue
+        match = next(
+            (
+                segment
+                for segment in segments
+                if segment[0] <= row["start"] < row["end"] <= segment[1]
+            ),
+            None,
+        )
+        if match is None:
+            row["status"] = "unmapped"
+            row["reason"] = "OCR match crosses source ranges"
+            continue
+        compact_start, _compact_end, source_start = match
+        row["start"] = source_start + row["start"] - compact_start
+        row["end"] = source_start + row["end"] - compact_start
+
+    observations = meta.get("ocr_observations")
+    if not isinstance(observations, list) or not all(
+        isinstance(item, str) for item in observations
+    ):
+        return mapped_result
+
+    observed_text = "\n".join(observations)
+    observed_result = measure_ocr_accuracy(values, observed_text, source_type, ocr_error)
+    mapped_by_index = {row["index"]: row for row in mapped_result.get("values", [])}
+    for row in observed_result.get("values", []):
+        mapped = mapped_by_index.get(row["index"], {})
+        same_match = (
+            mapped.get("status") == "measured"
+            and mapped.get("best_match") == row.get("best_match")
+            and mapped.get("char_accuracy") == row.get("char_accuracy")
+        )
+        if same_match:
+            row["start"] = mapped["start"]
+            row["end"] = mapped["end"]
+            row["source_alignment"] = "canonical_ocr_text"
+        else:
+            row.pop("start", None)
+            row.pop("end", None)
+            row["source_alignment"] = "observation_only"
+    return observed_result
+
+
+def _measure_render_ocr_text(
+    values: list[ExpectedValue],
+    text: str,
+) -> dict[str, Any]:
+    """Find expected values in OCR from the redacted render."""
+    exact = measure_extraction(values, text)
+    approximate = measure_ocr_accuracy(values, text, "pdf_hybrid", None)
+    approximate_by_index = {row["index"]: row for row in approximate.get("values", [])}
+
+    rows = []
+    for exact_row in exact["values"]:
+        approximate_row = approximate_by_index.get(exact_row["index"], {})
+        approximate_hit = (
+            not exact_row["found"]
+            and approximate_row.get("status") == "measured"
+            and approximate_row.get("char_accuracy", 0.0) >= OCR_ALIGNMENT_MIN_ACCURACY
+        )
+        survives = exact_row["found"] or approximate_hit
+        rows.append(
+            {
+                "index": exact_row["index"],
+                "field": exact_row["field"],
+                "survives": survives,
+                "match": (
+                    exact_row["match"]
+                    if exact_row["found"]
+                    else "ocr_approximate"
+                    if approximate_hit
+                    else "none"
+                ),
+                "char_accuracy": (
+                    1.0
+                    if exact_row["found"]
+                    else approximate_row.get("char_accuracy")
+                    if approximate_row.get("status") == "measured"
+                    else None
+                ),
+            }
+        )
+
+    return {
+        "status": "measured",
+        "minimum_accuracy": OCR_ALIGNMENT_MIN_ACCURACY,
+        "text_chars": len(text),
+        "surviving": sum(row["survives"] for row in rows),
+        "values": rows,
+    }
+
+
+def _measure_render_ocr(
+    values: list[ExpectedValue],
+    document: Path,
+) -> dict[str, Any]:
+    """OCR a redacted PDF without keeping its text."""
+    from pii_redactor.ingest.ocr_processor import OCRUnavailableError
+    from pii_redactor.ingest.text_extractor import extract
+
+    try:
+        text, _words, meta = extract(document, "pdf_hybrid")
+    except OCRUnavailableError:
+        return {
+            "status": "skipped",
+            "reason": "OCR dependencies are unavailable",
+            "surviving": None,
+            "values": [],
+        }
+    return _measure_render_ocr_text(values, _ocr_origin_text(text, meta))
+
+
 # ── measurement 4: legacy-11 detection ─────────────────────────────────────
 
 
@@ -553,6 +745,8 @@ def _value_alignment(
         ocr_row
         and ocr_row.get("status") == "measured"
         and ocr_row.get("char_accuracy", 0.0) >= OCR_ALIGNMENT_MIN_ACCURACY
+        and type(ocr_row.get("start")) is int
+        and type(ocr_row.get("end")) is int
     ):
         return ocr_row["start"], ocr_row["end"], "ocr_approximate"
     return None
@@ -584,6 +778,36 @@ def _resolve_value_alignments(
             resolved[index] = alignment
             claimed.append((start, end))
     return resolved
+
+
+def measure_privacy_alignment(
+    values: list[ExpectedValue],
+    extraction: dict[str, Any],
+    ocr: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Report which values have safe geometry for privacy checks."""
+    resolved = _resolve_value_alignments(extraction, ocr)
+    rows = []
+    for value in values:
+        alignment = resolved.get(value.index)
+        alignment_kind = alignment[2] if alignment else None
+        if alignment_kind is None and value.region is not None:
+            alignment_kind = "ground_truth_region"
+        rows.append(
+            {
+                "index": value.index,
+                "field": value.field,
+                "aligned": alignment_kind is not None,
+                "alignment": alignment_kind,
+            }
+        )
+    aligned = sum(row["aligned"] for row in rows)
+    return {
+        "total": len(rows),
+        "aligned": aligned,
+        "unaligned": len(rows) - aligned,
+        "values": rows,
+    }
 
 
 def measure_detection(
@@ -696,6 +920,7 @@ def measure_redaction(
             "status": "skipped",
             "reason": skip,
             "text_arm": None,
+            "render_ocr": None,
             "values": [],
         }
 
@@ -725,6 +950,10 @@ def measure_redaction(
         redacted_type = detect_source_type(redacted)
         redacted_text, _rw, _rm = extract(redacted, "pdf_text")
         text_layer_chars = len(redacted_text.strip())
+        render_ocr = _measure_render_ocr(values, redacted)
+        render_ocr_survivors = {
+            row["index"] for row in render_ocr["values"] if row.get("survives") is True
+        }
 
         # --- pixel arm: strictly one page at a time -------------------------
         # Rendering is the memory hazard in this whole harness: a letter page at
@@ -736,11 +965,28 @@ def measure_redaction(
         # rendered at all.
         alignments = _resolve_value_alignments(extraction, ocr)
         boxes_by_value: dict[int, list[AlignedWord]] = {}
+        measurement_alignment: dict[int, str | None] = {}
         for v in values:
             alignment = alignments[v.index]
-            boxes_by_value[v.index] = (
-                words_for_span(aligned, alignment[0], alignment[1]) if alignment else []
-            )
+            if v.region:
+                boxes_by_value[v.index] = [
+                    AlignedWord(
+                        start=0,
+                        end=0,
+                        page=int(v.region["page"]),
+                        x=float(v.region["x"]),
+                        y=float(v.region["y"]),
+                        width=float(v.region["width"]),
+                        height=float(v.region["height"]),
+                    )
+                ]
+                measurement_alignment[v.index] = "ground_truth_region"
+            elif alignment:
+                boxes_by_value[v.index] = words_for_span(aligned, alignment[0], alignment[1])
+                measurement_alignment[v.index] = alignment[2]
+            else:
+                boxes_by_value[v.index] = []
+                measurement_alignment[v.index] = None
         totals = dict.fromkeys(boxes_by_value, 0)
         blacks = dict.fromkeys(boxes_by_value, 0)
         strip_inks = dict.fromkeys(boxes_by_value, 0)
@@ -780,8 +1026,20 @@ def measure_redaction(
         coverage_rows = []
         residual_rows = []
         for v in values:
-            alignment = alignments[v.index]
-            if alignment is None:
+            alignment_kind = measurement_alignment[v.index]
+            if alignment_kind is None:
+                survives_text = v.value in redacted_text
+                survives_render = v.index in render_ocr_survivors
+                if survives_text or survives_render:
+                    verdict = "exposed"
+                    reason = (
+                        "the value survived in the redacted text layer"
+                        if survives_text
+                        else "OCR found the value in the redacted render"
+                    )
+                else:
+                    verdict = "unmeasurable"
+                    reason = "no reliable source alignment was found for this value"
                 coverage_rows.append(
                     {
                         "index": v.index,
@@ -796,10 +1054,11 @@ def measure_redaction(
                     {
                         "index": v.index,
                         "field": v.field,
-                        "verdict": "unmeasurable",
-                        "reason": "no reliable text or OCR alignment was found for this value",
+                        "verdict": verdict,
+                        "reason": reason,
                         "alignment": None,
-                        "text_arm_survives": v.value in redacted_text,
+                        "text_arm_survives": survives_text,
+                        "render_ocr_survives": survives_render,
                         "black_fraction": None,
                         "ink_above_box_pixels": None,
                     }
@@ -807,7 +1066,6 @@ def measure_redaction(
                 continue
 
             boxes = boxes_by_value[v.index]
-            alignment_kind = alignment[2]
             total, black, strip_ink = totals[v.index], blacks[v.index], strip_inks[v.index]
             fraction = (black / total) if total else None
             fully = fraction is not None and fraction >= COVERAGE_FULL
@@ -826,7 +1084,12 @@ def measure_redaction(
             )
 
             survives_text = v.value in redacted_text
-            if fraction is None:
+            survives_render = v.index in render_ocr_survivors
+            if survives_text:
+                verdict, reason = "exposed", "the value survived in the redacted text layer"
+            elif survives_render:
+                verdict, reason = "exposed", "OCR found the value in the redacted render"
+            elif fraction is None:
                 verdict, reason = (
                     "unmeasurable",
                     "no pixels could be sampled for this value's bboxes",
@@ -855,6 +1118,7 @@ def measure_redaction(
                     "reason": reason,
                     "alignment": alignment_kind,
                     "text_arm_survives": survives_text,
+                    "render_ocr_survives": survives_render,
                     "black_fraction": round(fraction, 4) if fraction is not None else None,
                     "ink_above_box_pixels": strip_ink,
                 }
@@ -864,8 +1128,8 @@ def measure_redaction(
         coverage = {
             "status": "measured",
             "note": (
-                "measured on the rendered redacted page using "
-                f"{'OCR' if source_type == 'pdf_hybrid' else 'text-layer'} word boxes"
+                "measured on the rendered redacted page using source boxes or "
+                "synthetic fixture regions"
             ),
             "render_scale": render_scale,
             "values_measured": len(measured),
@@ -898,6 +1162,7 @@ def measure_redaction(
                     "check, so the pixel arm remains the binding evidence."
                 ),
             },
+            "render_ocr": render_ocr,
             "removed": sum(1 for r in residual_rows if r["verdict"] == "removed"),
             "exposed": sum(
                 1 for r in residual_rows if r["verdict"] in ("exposed", "ink_above_box")
@@ -949,7 +1214,7 @@ def probe(
     extraction = measure_extraction(values, text)
     columns = detect_columns(word_bboxes)
     order = measure_order(extraction, columns, expectations.get("layout", "unknown"))
-    ocr = measure_ocr_accuracy(values, text, source_type, ocr_error)
+    ocr = _measure_source_ocr(values, text, source_type, ocr_error, meta)
 
     if detect_text:
         from pii_redactor.detectors.aggregate import detect_all
@@ -958,6 +1223,7 @@ def probe(
     else:
         entities = []
     detection = measure_detection(values, extraction, entities, ocr)
+    privacy_alignment = measure_privacy_alignment(values, extraction, ocr)
 
     coverage, residual = measure_redaction(
         values,
@@ -996,6 +1262,7 @@ def probe(
         "order": order,
         "ocr": ocr,
         "detection": detection,
+        "privacy_alignment": privacy_alignment,
         "coverage": coverage,
         "residual": residual,
         "decoy_control": control,
@@ -1097,6 +1364,18 @@ def render_report(result: dict[str, Any]) -> str:
             + ("  <-- VACUOUS" if ta["vacuous"] else "")
         )
         lines.append(f"   {ta['note']}")
+        render_ocr = res["render_ocr"]
+        if render_ocr["status"] == "measured":
+            lines.append(
+                f"   supporting render OCR: measured, surviving={render_ocr['surviving']}/"
+                f"{len(render_ocr['values'])}, min_accuracy="
+                f"{render_ocr['minimum_accuracy']}"
+            )
+        else:
+            lines.append(
+                f"   supporting render OCR: {render_ocr['status']}; "
+                f"{render_ocr.get('reason', 'no reason')}"
+            )
         for r in res["values"]:
             lines.append(f"   {r['field']:<20} {r['verdict']:<14} {r['reason']}")
     else:

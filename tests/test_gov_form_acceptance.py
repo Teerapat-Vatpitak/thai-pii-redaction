@@ -47,10 +47,15 @@ def _expected_values() -> list[ExpectedValue]:
 
 
 def _result(modality: str) -> dict:
-    image_only = modality != "digital"
     return {
-        "source_type": "pdf_hybrid" if image_only else "pdf_text",
-        "ocr": {"status": "measured" if image_only else "not_applicable"},
+        "source_type": "pdf_hybrid",
+        "ocr": {
+            "status": "measured",
+            "values": [
+                {"index": index, "field": f"synthetic_{index}", "status": "measured"}
+                for index in EXPECTED_INDICES
+            ],
+        },
         "extraction": {
             "total": 2,
             "found": 2,
@@ -67,6 +72,20 @@ def _result(modality: str) -> dict:
             "type_matches": 2,
             "out_of_scheme": 0,
             "values": [],
+        },
+        "privacy_alignment": {
+            "total": 2,
+            "aligned": 2,
+            "unaligned": 0,
+            "values": [
+                {
+                    "index": index,
+                    "field": f"synthetic_{index}",
+                    "aligned": True,
+                    "alignment": "exact",
+                }
+                for index in EXPECTED_INDICES
+            ],
         },
         "coverage": {
             "status": "measured",
@@ -85,6 +104,23 @@ def _result(modality: str) -> dict:
         },
         "residual": {
             "status": "measured",
+            "text_arm": {
+                "redacted_source_type": "pdf_hybrid",
+                "text_layer_chars": 0,
+                "vacuous": True,
+            },
+            "render_ocr": {
+                "status": "measured",
+                "surviving": 0,
+                "values": [
+                    {
+                        "index": index,
+                        "field": f"synthetic_{index}",
+                        "survives": False,
+                    }
+                    for index in EXPECTED_INDICES
+                ],
+            },
             "removed": 2,
             "exposed": 0,
             "unmeasurable": 0,
@@ -93,6 +129,7 @@ def _result(modality: str) -> dict:
                     "index": index,
                     "field": f"synthetic_{index}",
                     "verdict": "removed",
+                    "render_ocr_survives": False,
                 }
                 for index in EXPECTED_INDICES
             ],
@@ -151,7 +188,7 @@ def test_runner_writes_nine_results_and_a_passing_summary(tmp_path, monkeypatch)
     summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
 
     assert summary["evidence_scope"] == run_acceptance.EVIDENCE_SCOPE
-    assert summary["schema_version"] == 2
+    assert summary["schema_version"] == 3
     assert summary["generated_inputs"] == 9
     assert summary["acceptance_passed"] is True
     assert summary["evidence_status"] == "synthetic_local_pass_clean"
@@ -164,10 +201,11 @@ def test_runner_writes_nine_results_and_a_passing_summary(tmp_path, monkeypatch)
     assert summary["aggregate_metrics"] == {
         "inputs": 9,
         "source_routes_correct": 9,
-        "ocr_routes_expected": 6,
-        "ocr_routes_measured": 6,
+        "ocr_routes_expected": 9,
+        "ocr_routes_measured": 9,
         "expected_values": 18,
         "extraction_found": 18,
+        "privacy_aligned": 18,
         "detection_total": 18,
         "detection_detected": 18,
         "detection_scored": 18,
@@ -176,6 +214,8 @@ def test_runner_writes_nine_results_and_a_passing_summary(tmp_path, monkeypatch)
         "residual_removed": 18,
         "residual_exposed": 0,
         "residual_unmeasurable": 0,
+        "residual_ocr_routes_measured": 9,
+        "residual_ocr_surviving": 0,
         "decoy_inputs_without_false_hits": 9,
     }
 
@@ -186,14 +226,24 @@ def test_runner_writes_nine_results_and_a_passing_summary(tmp_path, monkeypatch)
     assert len(set(result_paths)) == 9
     assert all(path.is_file() for path in result_paths)
     saved_result = json.loads(result_paths[0].read_text(encoding="utf-8"))
-    assert saved_result["schema_version"] == 2
+    assert saved_result["schema_version"] == 3
     assert saved_result["probe"]["source_type"]
 
 
 def test_persisted_results_remove_value_bearing_text(tmp_path, monkeypatch):
     canary = "SYNTHETIC-RAW-CANARY-4417"
+    near_match = "SYNTHETIC-RAW-CANARY-441X"
 
     def add_value_text(result, _modality):
+        result["extract_meta"] = {
+            "ocr_confidence": 0.9,
+            "human_review": False,
+            "pages_ocred": [1],
+            "pages_text_layer": [1],
+            "ocr_text_ranges": [(0, len(near_match))],
+            "ocr_observations": [near_match],
+            "warnings": [],
+        }
         result["extraction"]["values"][0]["value"] = canary
         result["ocr"]["values"] = [
             {
@@ -208,6 +258,10 @@ def test_persisted_results_remove_value_bearing_text(tmp_path, monkeypatch):
                 "char_accuracy": 1.0,
             }
         ]
+        result["residual"]["render_ocr"]["values"][0].update(
+            expected=canary,
+            best_match=canary,
+        )
         result["residual"]["text_arm"] = {
             "values_surviving_in_text": [canary],
         }
@@ -222,17 +276,54 @@ def test_persisted_results_remove_value_bearing_text(tmp_path, monkeypatch):
     saved = json.loads(raw)["probe"]
 
     assert canary not in raw
+    assert near_match not in raw
     assert canary not in summary_raw
+    assert "document" not in saved
+    assert "ocr_observations" not in saved["extract_meta"]
     assert "value" not in saved["extraction"]["values"][0]
     assert saved["extraction"]["values"][0]["value_chars"] == len(canary)
     assert "expected" not in saved["ocr"]["values"][0]
     assert "best_match" not in saved["ocr"]["values"][0]
     assert saved["ocr"]["values"][0]["expected_chars"] == len(canary)
     assert saved["ocr"]["values"][0]["best_match_chars"] == len(canary)
+    render_row = saved["residual"]["render_ocr"]["values"][0]
+    assert "expected" not in render_row
+    assert "best_match" not in render_row
+    assert render_row["expected_chars"] == len(canary)
+    assert render_row["best_match_chars"] == len(canary)
     assert "values_surviving_in_text" not in saved["residual"]["text_arm"]
     assert saved["residual"]["text_arm"]["values_surviving_in_text_count"] == 1
     assert "false_hits" not in saved["decoy_control"]
     assert saved["decoy_control"]["false_hit_count"] == 1
+
+
+def test_unknown_value_field_is_not_saved(tmp_path, monkeypatch):
+    def add_unknown_field(result, _modality):
+        result["future_debug_field"] = "SYNTHETIC-0"
+
+    _install_fakes(monkeypatch, add_unknown_field)
+    summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+    result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
+    raw = result_path.read_text(encoding="utf-8")
+    saved = json.loads(raw)
+
+    assert summary["acceptance_passed"] is True
+    assert "SYNTHETIC-0" not in raw
+    assert "future_debug_field" not in saved["probe"]
+
+
+def test_declared_value_in_safe_field_nulls_the_probe(tmp_path, monkeypatch):
+    def add_declared_value(result, _modality):
+        result["coverage"]["note"] = "unsafe SYNTHETIC-0"
+
+    _install_fakes(monkeypatch, add_declared_value)
+    summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+    result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+
+    assert summary["acceptance_passed"] is False
+    assert summary["failure_counts"]["unsafe_evidence"] == 9
+    assert saved["probe"] is None
 
 
 def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
@@ -248,7 +339,7 @@ def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
     assert summary["acceptance_passed"] is False
     assert summary["failure_counts"] == {"probe_error": 9}
     assert summary["aggregate_metrics"]["inputs"] == 9
-    assert summary["aggregate_metrics"]["ocr_routes_expected"] == 6
+    assert summary["aggregate_metrics"]["ocr_routes_expected"] == 9
     assert summary["aggregate_metrics"]["expected_values"] == 0
     assert all(item["metrics"] is None for item in summary["inputs"])
     raw = (tmp_path / "reports" / "summary.json").read_text(encoding="utf-8")
@@ -264,17 +355,53 @@ def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
         ),
         (
             "ocr_not_measured",
-            lambda result, modality: (
-                result["ocr"].update(status="skipped") if modality != "digital" else None
-            ),
+            lambda result, _modality: result["ocr"].update(status="skipped"),
         ),
         (
             "coverage_not_measured",
             lambda result, _modality: result["coverage"].update(status="skipped"),
         ),
         (
+            "coverage_row_invalid",
+            lambda result, _modality: result["coverage"]["values"][0].update(
+                black_fraction=float("nan")
+            ),
+        ),
+        (
+            "privacy_alignment_incomplete",
+            lambda result, _modality: (
+                result["privacy_alignment"].update(aligned=1, unaligned=1),
+                result["privacy_alignment"]["values"][1].update(aligned=False, alignment=None),
+            ),
+        ),
+        (
             "residual_not_measured",
             lambda result, _modality: result["residual"].update(status="skipped"),
+        ),
+        (
+            "residual_text_layer_present",
+            lambda result, _modality: result["residual"]["text_arm"].update(
+                text_layer_chars=10,
+                vacuous=False,
+            ),
+        ),
+        (
+            "residual_ocr_not_measured",
+            lambda result, _modality: result["residual"]["render_ocr"].update(status="skipped"),
+        ),
+        (
+            "residual_ocr_exposed",
+            lambda result, _modality: result["residual"]["render_ocr"].update(surviving=1),
+        ),
+        (
+            "residual_ocr_row_invalid",
+            lambda result, _modality: result["residual"]["render_ocr"]["values"][0].pop("survives"),
+        ),
+        (
+            "residual_ocr_row_mismatch",
+            lambda result, _modality: result["residual"]["values"][0].update(
+                render_ocr_survives=True
+            ),
         ),
         (
             "decoy_false_hit",
@@ -356,6 +483,16 @@ def test_result_gate_does_not_mutate_the_probe_payload():
 
     assert failures == []
     assert payload == original
+
+
+def test_exact_extraction_is_telemetry_when_privacy_alignment_is_reliable():
+    payload = _result("degraded")
+    payload["extraction"].update(found=1, missing=1)
+    payload["extraction"]["values"][1].update(found=False)
+
+    failures = run_acceptance.evaluate_result("degraded", EXPECTED_INDICES, payload)
+
+    assert failures == []
 
 
 def test_result_gate_rejects_empty_expectations():

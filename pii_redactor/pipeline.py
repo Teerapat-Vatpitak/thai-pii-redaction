@@ -103,28 +103,14 @@ def run_pipeline(
     validate_quality(clean_text, source_type, ocr_confidence=extract_meta.get("ocr_confidence"))
 
     # --- Step 2: Detection ---
-    from pii_redactor.detectors.aggregate import dedupe_spans, merge_address_spans
-    from pii_redactor.detectors.fn_scanner import scan_fn
-    from pii_redactor.detectors.fp_detector import detect_fp
-    from pii_redactor.detectors.tb_detector import detect_tb
+    from pii_redactor.detectors.aggregate import detect_all
 
-    fp_entities = detect_fp(clean_text)
-    tb_entities = detect_tb(clean_text)
-
-    # Resolve FP/TB span overlaps before replacement: unresolved overlaps
-    # corrupt the text during the anonymizer's tail-first splice. FP wins
-    # (checksum-backed), same central rule the web API ships (aggregate),
-    # then coalesce address fragments exactly as detect_all does so the CLI
-    # and the web path pseudonymize the same spans.
-    merged_entities = merge_address_spans(clean_text, dedupe_spans(fp_entities + tb_entities))
-    fn_entities = scan_fn(clean_text, merged_entities)
-
-    all_entities = merged_entities + fn_entities
+    all_entities = detect_all(clean_text)
+    fp_count = sum(entity.redact_type == "FP" for entity in all_entities)
     entity_registry = EntityRegistry(
         entities=all_entities,
-        fp_count=sum(1 for e in merged_entities if e.redact_type == "FP"),
-        # fn hits keep counting toward tb_count (historical contract)
-        tb_count=sum(1 for e in merged_entities if e.redact_type != "FP") + len(fn_entities),
+        fp_count=fp_count,
+        tb_count=len(all_entities) - fp_count,
     )
 
     # --- Step 3+4: Pseudonymization ---

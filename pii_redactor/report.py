@@ -3,8 +3,8 @@
 import re
 from dataclasses import dataclass
 
-from pii_redactor.detectors.fp_detector import detect_fp
-from pii_redactor.detectors.tb_detector import detect_tb
+from pii_redactor.detectors.aggregate import detect_all
+from pii_redactor.models import Entity
 from pii_redactor.reid_risk import ReidRiskResult, assess_reid_risk
 
 
@@ -55,15 +55,10 @@ def scan_section26(text: str) -> list[dict]:
     return hits
 
 
-def generate_report(text: str) -> PDPAReport:
-    """
-    Generate a PDPA risk assessment report for the given text.
-    Does NOT redact. Returns structured analysis.
-    """
-    fp_entities = detect_fp(text)
-    tb_entities = detect_tb(text)
-
-    direct_pii_count = len(fp_entities) + len(tb_entities)
+def _generate_report(text: str, entities: list[Entity]) -> PDPAReport:
+    """Build the report from the canonical detector output."""
+    fp_count = sum(entity.redact_type == "FP" for entity in entities)
+    direct_pii_count = len(entities)
 
     # Section 26 scan
     section26_flags = []
@@ -110,14 +105,19 @@ def generate_report(text: str) -> PDPAReport:
 
     return PDPAReport(
         direct_pii_count=direct_pii_count,
-        fp_count=len(fp_entities),
-        tb_count=len(tb_entities),
+        fp_count=fp_count,
+        tb_count=direct_pii_count - fp_count,
         section26_flags=section26_flags,
         reid_risk=reid,
         overall_score=overall,
         overall_grade=grade,
         recommendations=recommendations,
     )
+
+
+def generate_report(text: str) -> PDPAReport:
+    """Generate a PDPA risk report without changing the text."""
+    return _generate_report(text, detect_all(text))
 
 
 def _risk_label(score: float) -> str:
@@ -139,18 +139,20 @@ def analyze_text(text: str) -> dict:
 
     The API, PDF report, and worker use this same result.
     """
-    report = generate_report(text)
+    entities = detect_all(text)
+    report = _generate_report(text, entities)
     reid = report.reid_risk
 
-    fp = detect_fp(text)
-    tb = detect_tb(text)
-
     # entity breakdown per data_type
-    breakdown_map: dict[str, dict] = {}
-    for e in fp + tb:
-        key = e.data_type
+    breakdown_map: dict[tuple[str, str], dict] = {}
+    for e in entities:
+        key = (e.data_type, e.redact_type)
         if key not in breakdown_map:
-            breakdown_map[key] = {"data_type": key, "redact_type": e.redact_type, "count": 0}
+            breakdown_map[key] = {
+                "data_type": e.data_type,
+                "redact_type": e.redact_type,
+                "count": 0,
+            }
         breakdown_map[key]["count"] += 1
     breakdown = sorted(breakdown_map.values(), key=lambda x: -x["count"])
 

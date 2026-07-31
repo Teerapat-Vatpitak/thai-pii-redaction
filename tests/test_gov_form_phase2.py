@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,9 +15,14 @@ from urllib.parse import urlparse
 import pdfplumber
 import pytest
 from PIL import ImageChops
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 
-from benchmark.data.probe.gov_forms.generate_inputs import _render_pdf, generate_corpus
+from benchmark.data.probe.gov_forms.generate_inputs import (
+    _register_font,
+    _render_pdf,
+    generate_corpus,
+)
 from benchmark.data.probe.gov_forms.sanitize_download import sanitize_pdf
 from benchmark.probe_document import load_expectations
 from pii_redactor.ingest.file_detector import detect_source_type
@@ -161,10 +167,107 @@ def test_generator_builds_nine_deterministic_modality_inputs(tmp_path):
         assert expected["meta"]["modality"] == first_row.modality
 
         source_type = detect_source_type(first_pdf)
-        if first_row.modality == "digital":
-            assert source_type == "pdf_text"
-        else:
-            assert source_type == "pdf_hybrid"
+        assert source_type == "pdf_hybrid"
+
+
+def _base_region(field: dict, font_name: str) -> dict[str, float | int]:
+    font_size = field["font_size"]
+    ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+    return {
+        "page": field["page"],
+        "x": field["x"],
+        "y": field["y"] - ascent,
+        "width": pdfmetrics.stringWidth(field["value"], font_name, font_size),
+        "height": ascent - descent,
+    }
+
+
+def _rotated_bounds(region: dict, page_size: tuple[float, float]) -> dict[str, float | int]:
+    angle = math.radians(0.65)
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    center_x = page_size[0] / 2
+    center_y = page_size[1] / 2
+
+    def rotate(x: float, y: float) -> tuple[float, float]:
+        offset_x = x - center_x
+        offset_y = y - center_y
+        return (
+            center_x + cosine * offset_x + sine * offset_y,
+            center_y - sine * offset_x + cosine * offset_y,
+        )
+
+    corners = [
+        rotate(region["x"], region["y"]),
+        rotate(region["x"] + region["width"], region["y"]),
+        rotate(region["x"], region["y"] + region["height"]),
+        rotate(region["x"] + region["width"], region["y"] + region["height"]),
+    ]
+    xs = [point[0] for point in corners]
+    ys = [point[1] for point in corners]
+    return {
+        "page": region["page"],
+        "x": min(xs),
+        "y": min(ys),
+        "width": max(xs) - min(xs),
+        "height": max(ys) - min(ys),
+    }
+
+
+def test_expectations_include_regions_for_each_modality(tmp_path):
+    rows = generate_corpus(CORPUS, tmp_path)
+    manifest = _manifest()
+    forms_by_code = {form["code"]: form for form in manifest["forms"]}
+    font_name = _register_font(CORPUS)
+
+    for row in rows:
+        payload = json.loads((tmp_path / row.expectations).read_text(encoding="utf-8"))
+        form = forms_by_code[row.form_code]
+        page_sizes = [size for _image, size in _render_pdf(CORPUS / form["official_path"], 2)]
+
+        assert payload["meta"]["region_space"] == "pdf_points_top_left"
+        assert len(payload["fields"]) == len(form["synthetic_fields"])
+        for output_field, source_field in zip(
+            payload["fields"], form["synthetic_fields"], strict=True
+        ):
+            base = _base_region(source_field, font_name)
+            expected = (
+                _rotated_bounds(base, page_sizes[source_field["page"] - 1])
+                if row.modality == "degraded"
+                else base
+            )
+            region = output_field["region"]
+            assert region["page"] == expected["page"]
+            for key in ("x", "y", "width", "height"):
+                assert region[key] == pytest.approx(expected[key], abs=0.0001)
+            page_width, page_height = page_sizes[region["page"] - 1]
+            assert 0 <= region["x"] < page_width
+            assert 0 <= region["y"] < page_height
+            assert region["x"] + region["width"] <= page_width
+            assert region["y"] + region["height"] <= page_height
+
+
+def test_address_fixture_does_not_cover_form_labels():
+    manifest = _manifest()
+    form = next(form for form in manifest["forms"] if form["code"] == "ภ.ง.ด.91")
+    field = next(field for field in form["synthetic_fields"] if field["type"] == "ADDRESS")
+    assert field["value"] == "88 ถนนตัวอย่าง แขวงทดสอบ กรุงเทพฯ 10110"
+
+    font_name = _register_font(CORPUS)
+    region = _base_region(field, font_name)
+    source = CORPUS / form["official_path"]
+    page = _render_pdf(source, scale=2.0)[field["page"] - 1][0].convert("L")
+    scale = 2.0
+    crop = page.crop(
+        (
+            int(region["x"] * scale),
+            int(region["y"] * scale),
+            int((region["x"] + region["width"]) * scale),
+            int((region["y"] + region["height"]) * scale),
+        )
+    )
+
+    assert sum(crop.histogram()[:225]) == 0
 
 
 def test_degraded_inputs_are_not_aliases_of_print_like_inputs(tmp_path):

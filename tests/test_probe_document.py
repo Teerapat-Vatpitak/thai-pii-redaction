@@ -26,6 +26,9 @@ from benchmark.probe_document import (
     COVERAGE_FULL,
     INK_STRIP_PT,
     ExpectedValue,
+    _measure_render_ocr_text,
+    _measure_source_ocr,
+    _ocr_origin_text,
     align_words,
     approx_substring_distance,
     detect_columns,
@@ -34,7 +37,9 @@ from benchmark.probe_document import (
     measure_extraction,
     measure_ocr_accuracy,
     measure_order,
+    measure_privacy_alignment,
     probe,
+    render_report,
 )
 from pii_redactor.models import Entity, WordBbox
 
@@ -56,7 +61,20 @@ def test_load_expectations_reads_fields_decoys_and_layout(tmp_path):
         json.dumps(
             {
                 "layout": "multi_column",
-                "fields": [{"field": "โทร", "value": "081-234-5678", "type": "phone"}],
+                "fields": [
+                    {
+                        "field": "โทร",
+                        "value": "081-234-5678",
+                        "type": "phone",
+                        "region": {
+                            "page": 1,
+                            "x": 10,
+                            "y": 20,
+                            "width": 30,
+                            "height": 12,
+                        },
+                    }
+                ],
                 "decoys": ["089-000-0000"],
             }
         ),
@@ -68,6 +86,13 @@ def test_load_expectations_reads_fields_decoys_and_layout(tmp_path):
     (only,) = loaded["values"]
     assert only.field == "โทร"
     assert only.type == "PHONE", "field types are upper-cased so they compare to detector labels"
+    assert only.region == {
+        "page": 1,
+        "x": 10.0,
+        "y": 20.0,
+        "width": 30.0,
+        "height": 12.0,
+    }
 
 
 @pytest.mark.parametrize(
@@ -269,6 +294,67 @@ def test_measure_ocr_accuracy_scores_per_value_on_a_scan():
     assert by_field["อีเมล"]["char_accuracy"] == 1.0
 
 
+def test_ocr_accuracy_uses_only_ocr_origin_text_on_a_mixed_page():
+    text = "1312271505581\n13I227I50558I"
+    meta = {"ocr_text_ranges": [(14, len(text))]}
+
+    assert _ocr_origin_text(text, meta) == "13I227I50558I"
+
+
+def test_mixed_page_ocr_alignment_maps_back_to_full_text():
+    layer = "selectable layer"
+    ocr_text = "13I227I50558I"
+    full_text = f"{layer}\n{ocr_text}"
+    result = _measure_source_ocr(
+        [_value(0, "เลขบัตร", "1312271505581", "THAI_ID")],
+        full_text,
+        "pdf_hybrid",
+        None,
+        {"ocr_text_ranges": [(len(layer) + 1, len(full_text))]},
+    )
+
+    row = result["values"][0]
+    assert row["status"] == "measured"
+    assert row["start"] == len(layer) + 1
+    assert full_text[row["start"] : row["end"]] == ocr_text[: row["end"] - row["start"]]
+
+
+def test_mixed_page_ocr_accuracy_keeps_a_deduped_observation():
+    phone = "081-234-5678"
+    canonical = f"{phone}\nโทร"
+    result = _measure_source_ocr(
+        [_value(0, "phone", phone, "PHONE")],
+        canonical,
+        "pdf_hybrid",
+        None,
+        {
+            "ocr_text_ranges": [(len(phone) + 1, len(canonical))],
+            "ocr_observations": [f"โทร {phone}"],
+        },
+    )
+
+    row = result["values"][0]
+    assert row["char_accuracy"] == 1.0
+    assert row["source_alignment"] == "observation_only"
+    assert "start" not in row
+
+
+def test_render_ocr_uses_one_range_for_similar_values():
+    first = "1312271505581"
+    second = "1312271506581"
+    result = _measure_render_ocr_text(
+        [
+            _value(0, "เลขบัตร 1", first, "THAI_ID"),
+            _value(1, "เลขบัตร 2", second, "THAI_ID"),
+        ],
+        first,
+    )
+
+    assert result["status"] == "measured"
+    assert result["surviving"] == 1
+    assert [row["survives"] for row in result["values"]] == [True, False]
+
+
 def test_ocr_alignment_range_cannot_be_reused_by_a_similar_value():
     first = "1312271505581"
     second = "1312271506581"
@@ -380,6 +466,43 @@ def test_measure_detection_rejects_a_weak_ocr_alignment():
     assert result["values"][0]["alignment"] is None
 
 
+def test_privacy_alignment_accepts_a_unique_close_ocr_match():
+    value = _value(0, "เลขบัตร", "1312271505581", "THAI_ID")
+    extraction = {"values": [{"index": 0, "field": value.field, "found": False}]}
+    ocr = {
+        "values": [
+            {
+                "index": 0,
+                "status": "measured",
+                "start": 3,
+                "end": 16,
+                "char_accuracy": 0.92,
+            }
+        ]
+    }
+
+    result = measure_privacy_alignment([value], extraction, ocr)
+
+    assert result["aligned"] == 1
+    assert result["values"][0]["alignment"] == "ocr_approximate"
+
+
+def test_privacy_alignment_uses_a_fixture_region_without_text_alignment():
+    value = ExpectedValue(
+        index=0,
+        field="marker",
+        value="WQXY-4417",
+        type="STUDENT_ID",
+        region={"page": 1, "x": 72.0, "y": 170.0, "width": 70.0, "height": 18.0},
+    )
+    extraction = {"values": [{"index": 0, "field": value.field, "found": False}]}
+
+    result = measure_privacy_alignment([value], extraction, None)
+
+    assert result["aligned"] == 1
+    assert result["values"][0]["alignment"] == "ground_truth_region"
+
+
 # ── end to end ─────────────────────────────────────────────────────────────
 
 
@@ -417,6 +540,12 @@ def test_sample_document_text_arm_is_reported_as_vacuous(sample_result):
     assert arm["text_layer_chars"] == 0
     assert arm["vacuous"] is True
     assert arm["redacted_source_type"] == "pdf_hybrid"
+
+
+def test_report_shows_safe_render_ocr_summary(sample_result):
+    report = render_report(sample_result)
+
+    assert "supporting render OCR:" in report
 
 
 # --- a document the harness must fail ---------------------------------------
@@ -500,6 +629,162 @@ def test_residual_verdict_ignores_the_vacuous_text_arm(two_column_result):
     assert coverage["phone_left"]["fully_covered"] is True
 
 
+def test_render_ocr_overrides_a_fully_black_bbox(tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("pypdfium2")
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    from pii_redactor.ingest import ocr_processor
+
+    phone = "081-234-5678"
+    pdf = tmp_path / "phone.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=letter)
+    c.drawString(72, letter[1] - 72, phone)
+    c.save()
+
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=[WordBbox(text=phone, page=page_num, x=72, y=72, width=78, height=12)],
+            text=phone,
+            confidence=0.95,
+            attempts=1,
+            human_review=False,
+        ),
+    )
+
+    result = probe(
+        pdf,
+        {
+            "layout": "single_column",
+            "values": [_value(0, "phone", phone, "PHONE")],
+            "decoys": [],
+        },
+    )
+
+    assert result["coverage"]["values"][0]["fully_covered"] is True
+    assert result["residual"]["render_ocr"]["surviving"] == 1
+    assert result["residual"]["values"][0]["verdict"] == "exposed"
+
+
+def test_fixture_region_turns_a_missing_value_into_exposed(tmp_path):
+    pytest.importorskip("numpy")
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf = tmp_path / "marker.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=letter)
+    c.setFont("Helvetica", 12)
+    c.drawString(72, letter[1] - 182, "WQXZ-4417")
+    c.save()
+
+    result = probe(
+        pdf,
+        {
+            "layout": "single_column",
+            "values": [
+                ExpectedValue(
+                    index=0,
+                    field="marker",
+                    value="WQXY-4417",
+                    type="STUDENT_ID",
+                    region={
+                        "page": 1,
+                        "x": 72.0,
+                        "y": 170.0,
+                        "width": 70.0,
+                        "height": 18.0,
+                    },
+                )
+            ],
+            "decoys": [],
+        },
+    )
+
+    assert result["extraction"]["missing"] == 1
+    assert result["coverage"]["values"][0]["alignment"] == "ground_truth_region"
+    assert result["residual"]["values"][0]["verdict"] == "exposed"
+
+
+def test_fixture_region_overrides_a_shifted_ocr_box(tmp_path, monkeypatch):
+    pytest.importorskip("numpy")
+    pytest.importorskip("pypdfium2")
+
+    from PIL import Image, ImageDraw
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    from pii_redactor.ingest import ocr_processor
+
+    phone = "081-234-5678"
+    image = Image.new("RGB", (612, 792), "white")
+    ImageDraw.Draw(image).text((72, 72), phone, fill="black")
+    pdf = tmp_path / "shifted-ocr.pdf"
+    c = canvas.Canvas(str(pdf), pagesize=letter)
+    c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
+    c.save()
+
+    source_words = [WordBbox(text=phone, page=1, x=300, y=300, width=90, height=14)]
+    ocr_results = iter(
+        [
+            ocr_processor.OCRPageResult(
+                words=source_words,
+                text=phone,
+                confidence=0.95,
+                attempts=1,
+                human_review=False,
+            ),
+            ocr_processor.OCRPageResult(
+                words=[],
+                text="",
+                confidence=0.95,
+                attempts=1,
+                human_review=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: next(ocr_results),
+    )
+
+    result = probe(
+        pdf,
+        {
+            "layout": "single_column",
+            "values": [
+                ExpectedValue(
+                    index=0,
+                    field="phone",
+                    value=phone,
+                    type="PHONE",
+                    region={
+                        "page": 1,
+                        "x": 70.0,
+                        "y": 68.0,
+                        "width": 100.0,
+                        "height": 22.0,
+                    },
+                )
+            ],
+            "decoys": [],
+        },
+    )
+
+    coverage = result["coverage"]["values"][0]
+    assert coverage["alignment"] == "ground_truth_region"
+    assert coverage["fully_covered"] is False
+    assert result["residual"]["values"][0]["verdict"] == "exposed"
+
+
 def test_probe_measures_hybrid_redaction_with_ocr_boxes(tmp_path, monkeypatch):
     """A scanned page has real OCR geometry, so measurements 5 and 6 must run."""
     pytest.importorskip("numpy")
@@ -528,17 +813,29 @@ def test_probe_measures_hybrid_redaction_with_ocr_boxes(tmp_path, monkeypatch):
         WordBbox(text=phone, page=1, x=72, y=72, width=78, height=12),
         WordBbox(text=marker, page=1, x=72, y=110, width=66, height=12),
     ]
+    ocr_results = iter(
+        [
+            ocr_processor.OCRPageResult(
+                words=words,
+                text=f"{phone}\n{marker}",
+                confidence=0.95,
+                attempts=1,
+                human_review=False,
+            ),
+            ocr_processor.OCRPageResult(
+                words=[WordBbox(text=marker, page=1, x=72, y=110, width=66, height=12)],
+                text=marker,
+                confidence=0.95,
+                attempts=1,
+                human_review=False,
+            ),
+        ]
+    )
     monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
     monkeypatch.setattr(
         ocr_processor,
         "ocr_page",
-        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
-            words=words,
-            text=f"{phone}\n{marker}",
-            confidence=0.95,
-            attempts=1,
-            human_review=False,
-        ),
+        lambda page, page_num, **kw: next(ocr_results),
     )
 
     expected = {
@@ -586,17 +883,29 @@ def test_probe_uses_close_ocr_match_to_measure_a_misread_id(tmp_path, monkeypatc
     c.save()
 
     words = [WordBbox(text=ocr_id, page=1, x=72, y=72, width=80, height=12)]
+    ocr_results = iter(
+        [
+            ocr_processor.OCRPageResult(
+                words=words,
+                text=ocr_id,
+                confidence=0.9,
+                attempts=1,
+                human_review=False,
+            ),
+            ocr_processor.OCRPageResult(
+                words=[],
+                text="",
+                confidence=0.9,
+                attempts=1,
+                human_review=False,
+            ),
+        ]
+    )
     monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
     monkeypatch.setattr(
         ocr_processor,
         "ocr_page",
-        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
-            words=words,
-            text=ocr_id,
-            confidence=0.9,
-            attempts=1,
-            human_review=False,
-        ),
+        lambda page, page_num, **kw: next(ocr_results),
     )
 
     result = probe(
@@ -609,6 +918,7 @@ def test_probe_uses_close_ocr_match_to_measure_a_misread_id(tmp_path, monkeypatc
     )
 
     assert result["extraction"]["missing"] == 1
+    assert result["privacy_alignment"]["aligned"] == 1
     detection = result["detection"]["values"][0]
     assert detection["alignment"] == "ocr_approximate"
     assert detection["type_match"] is True
