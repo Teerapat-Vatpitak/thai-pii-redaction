@@ -239,10 +239,12 @@ document.
    rather than a cumulative register, verified by rerunning the input and
    comparing digests rather than by a signature. Core plus a CLI that both
    issues and verifies, plus a Thai PDF. No API endpoint in v1.
-2. **Breach assessment mode.** Scan a set of leaked documents and summarize
-   type, count and affected-subject estimates, so a controller can draft the
-   72-hour PDPC notification from evidence rather than memory. Needs its own
-   accepted design; the estimate methodology is the hard part, not the scan.
+2. **Breach assessment mode.** Delivered 2026-08-01
+   ([record](docs/decisions/2026-08-01-breach-assessment.md)): scan a set of
+   leaked documents and summarize type, count and affected-subject estimates,
+   so a controller can draft the 72-hour PDPC notification from evidence
+   rather than memory. Core plus a CLI verb, plus a Thai PDF. No API endpoint
+   in v1.
 3. **DSAR helper.** Support a data-subject access request against documents the
    controller already holds. Blocked on the same question the receipt answered
    for itself — what may be retained, and for how long.

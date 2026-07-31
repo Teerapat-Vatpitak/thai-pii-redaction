@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+import types
 from pathlib import Path
 
 
@@ -178,6 +179,130 @@ def cmd_receipt_issue(args):
         print(f"Receipt PDF written: {args.pdf}")
 
 
+def _print_breach_summary(result, payload):
+    """Short Thai summary: counts only, no PII value, no filename beyond the
+    basenames breach.py already limits itself to. Thai punctuation uses spaces,
+    never Western colons/semicolons (see cmd_receipt_verify's output)."""
+    print(f"ประเมินแล้ว {result.files_assessed}/{result.files_total} ไฟล์")
+    print(f"ประเภทข้อมูลที่พบ {len(payload['types'])} ประเภท")
+    subjects = payload["subjects"]
+    if subjects["no_strong_identifiers"]:
+        # subjects_min/max are both 0 here only because no strong identifier
+        # (id/passport/phone/email) was found -- that is not the same claim as
+        # "nobody was affected", so the headline says so instead of a 0-0 range.
+        print("ไม่พบตัวระบุแบบเข้ม จึงประมาณจำนวนเจ้าของข้อมูลไม่ได้")
+    else:
+        print(f"ประมาณการจำนวนเจ้าของข้อมูลที่ได้รับผลกระทบ {subjects['min']}-{subjects['max']} คน")
+    print(f"ระดับความเสี่ยงสูงสุด {payload['risk']['max_grade']}")
+
+
+def _scrub_known_paths(message, paths):
+    """Fold every spelling of each caller-given path (as given, resolved, both
+    slash directions) down to its bare basename.
+
+    Mirrors `breach._short_reason`'s per-file path scrub, but applied to a
+    corpus-level failure (e.g. a `PermissionError` raised while scanning a
+    directory) that escapes `assess_breach` itself -- any of `args.paths`
+    could be the one embedded in the exception's own message, not just a
+    single file, so every one of them is scrubbed."""
+    for raw in paths:
+        path = Path(raw)
+        basename = path.name
+        spellings = {str(path)}
+        try:
+            spellings.add(str(path.resolve()))
+        except OSError:
+            pass
+        for spelling in list(spellings):
+            spellings.add(spelling.replace("\\", "/"))
+            spellings.add(spelling.replace("/", "\\"))
+        for spelling in spellings:
+            if spelling and spelling != basename:
+                message = message.replace(spelling, basename)
+    return message
+
+
+def cmd_breach_assess(args):
+    """Assess a set of files for a PDPA มาตรา 37(4) breach notification."""
+    from pii_redactor.breach import NoFilesAssessedError, assess_breach
+
+    # --pdf is checked before the assessment runs, same reasoning as receipt
+    # issue: a run that discovers a missing renderer after already writing the
+    # JSON leaves a half-finished result on disk. `render_breach_pdf` is Task
+    # 3's contract: given the assessment dict and an output path, it writes
+    # the PDF itself (no bytes returned here to write).
+    render_breach_pdf = None
+    if args.pdf:
+        try:
+            from pii_redactor.breach_pdf import render_breach_pdf
+        except ImportError:
+            print(
+                "Error: --pdf requires pii_redactor/breach_pdf.py, which is not yet available",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    try:
+        result = assess_breach(args.paths, recursive=args.recursive)
+    except NoFilesAssessedError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(
+            f"Assessment failed to run: {_scrub_known_paths(str(e), args.paths)}", file=sys.stderr
+        )
+        sys.exit(1)
+
+    payload = result.to_json_dict()
+
+    # PDF before JSON: if the PDF write fails, nothing must be left behind.
+    # The reverse order used to let a successful -o JSON survive a failed
+    # --pdf, so exit 1 (a hard failure) still left an artifact on disk. The
+    # mirror image is just as much a half-state: if the PDF write SUCCEEDS
+    # and the JSON write then fails, a complete assessment PDF is left on
+    # disk for a run that reports a hard failure and never mentions it. So on
+    # any OSError here, a PDF this run wrote is deleted (best-effort) before
+    # the error is reported.
+    try:
+        if render_breach_pdf is not None:
+            render_breach_pdf(payload, args.pdf)
+        if args.output:
+            Path(args.output).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+    except OSError as e:
+        removed_pdf = False
+        if render_breach_pdf is not None:
+            pdf_path = Path(args.pdf)
+            if pdf_path.exists():
+                try:
+                    pdf_path.unlink()
+                    removed_pdf = True
+                except OSError:
+                    pass
+        note = " -- deleted the assessment PDF already written this run" if removed_pdf else ""
+        print(f"Error: cannot write assessment: {e}{note}", file=sys.stderr)
+        sys.exit(1)
+
+    _print_breach_summary(result, payload)
+    if render_breach_pdf is not None:
+        print(f"Assessment PDF written: {args.pdf}")
+    if args.output:
+        print(f"Assessment written: {args.output}")
+
+    skipped = payload["files"]["skipped"]
+    if skipped["count"]:
+        print(f"ข้ามไฟล์ที่นามสกุลไม่รองรับ {skipped['count']} ไฟล์")
+        for name in skipped["basenames"]:
+            print(f"  - {name}")
+
+    if result.files_failed:
+        print(f"ไม่สำเร็จ {len(result.files_failed)} ไฟล์", file=sys.stderr)
+        for failed in result.files_failed:
+            print(f"  - {failed.basename} {failed.reason}", file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_receipt_verify(args):
     """Re-run a file and report whether it still matches its receipt."""
     from pii_redactor.receipt import verify_receipt
@@ -208,6 +333,29 @@ def cmd_receipt_verify(args):
 
     if not result.ok:
         sys.exit(1)
+
+
+def _usage_error_exits_one(self, message):
+    """argparse's own default usage-error exit code is 2, but the breach
+    verb's spec assigns 2 to "partial failure" (some files failed) and 1 to
+    "usage error" -- a scripted caller needs to tell "you typed it wrong"
+    apart from "some inputs failed". Bound onto `breach`-tree parsers only
+    (see `main()`), so no other verb's usage-error exit code changes."""
+    self.print_usage(sys.stderr)
+    self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+class _BreachSubcommandParser(argparse.ArgumentParser):
+    """Used as `parser_class=` for `breach`'s own nested subparsers action, so
+    every parser it constructs (currently just `assess`) exits 1 on a usage
+    error instead of argparse's stock 2. `breach_parser` itself (the outer
+    "breach" level, whose required-subcommand check fires before this class
+    is ever involved) gets the same behavior via a direct instance-level
+    `error` bind in `main()` -- it is built by the shared top-level
+    subparsers action alongside `sanitize`/`report`/`receipt`, so it cannot
+    be given a different `parser_class` without affecting those too."""
+
+    error = _usage_error_exits_one
 
 
 def main():
@@ -253,6 +401,33 @@ def main():
     verify_parser.add_argument("receipt", help="Receipt JSON path")
     verify_parser.add_argument("file", help="The original file the receipt was issued for")
     verify_parser.set_defaults(func=cmd_receipt_verify)
+
+    # breach subcommand — one verb (assess) today, mirrors receipt's
+    # sub-subparser shape so a future verb has somewhere to go.
+    breach_parser = subparsers.add_parser(
+        "breach", help="Assess files for a PDPA มาตรา 37(4) breach notification"
+    )
+    # Instance-level bind, not a parser_class swap: breach_parser is built by
+    # the SAME top-level `subparsers` action as sanitize_parser/report_parser/
+    # receipt_parser, so giving it a different class there would change those
+    # too. Binding `error` directly on this one instance leaves every other
+    # verb's parser (including receipt_parser and its own issue/verify
+    # children) on argparse's stock exit-2 usage-error behavior.
+    breach_parser.error = types.MethodType(_usage_error_exits_one, breach_parser)
+    breach_sub = breach_parser.add_subparsers(
+        dest="breach_command", required=True, parser_class=_BreachSubcommandParser
+    )
+
+    assess_parser = breach_sub.add_parser("assess", help="Assess files or directories")
+    assess_parser.add_argument("paths", nargs="+", help="File or directory paths to assess")
+    assess_parser.add_argument(
+        "--output", "-o", help="Write the assessment JSON here (also prints a summary)"
+    )
+    assess_parser.add_argument("--pdf", help="Also render the assessment as a PDF at this path")
+    assess_parser.add_argument(
+        "--recursive", action="store_true", help="Scan directory paths recursively"
+    )
+    assess_parser.set_defaults(func=cmd_breach_assess)
 
     args = parser.parse_args()
     args.func(args)
