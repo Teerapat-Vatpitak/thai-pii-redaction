@@ -68,10 +68,6 @@ jobs:
       - name: Pre-download the offline NER model
         run: python scripts/prewarm_ner.py
 
-      - name: Install Thai font (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-thai-tlwg
-
       - name: Run tests
         env:
           PYTHONUTF8: "1"
@@ -102,10 +98,6 @@ jobs:
 
       - name: Pre-download the offline NER model
         run: python scripts/prewarm_ner.py
-
-      - name: Install Thai font (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-thai-tlwg
 
       - name: Run tests (optional-dep tests must skip, not error)
         env:

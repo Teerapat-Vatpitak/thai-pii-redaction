@@ -1,15 +1,8 @@
-"""LLM-as-detector: ask a chat model for PII, then locate what it returns.
+"""Use a chat model to find PII in benchmark text.
 
-The comparison this supports is "how much accuracy does sending the text to a
-large hosted model actually buy", so the setup is deliberately generous to the
-model: it is given the exact type vocabulary the gold set uses, told what each
-type means, and asked only for the VALUES. Character offsets are computed here
-by locating each returned value in the original text, because making a model
-count UTF-8 offsets measures its arithmetic, not its extraction.
-
-Values are claimed longest-first and never overlap -- the same rule
-`reverse_mapper` and `leak_guard` use, so a short value that happens to sit
-inside a longer one cannot double-count.
+The model returns types and values. This module finds each value in the source
+text, so the model does not need to count offsets. Longer values win when two
+values overlap.
 """
 
 from __future__ import annotations
@@ -17,10 +10,7 @@ from __future__ import annotations
 import json
 import re
 
-from .types import OUT_OF_SCHEME_TYPE, SHARED_ENTITY_TYPE_SET, SHARED_ENTITY_TYPES
-
-# Backward-compatible name for callers that imported the old local constant.
-GOLD_TYPES = SHARED_ENTITY_TYPES
+from .types import OUT_OF_SCHEME_TYPE, SHARED_ENTITY_TYPE_SET
 
 SYSTEM_PROMPT = """คุณคือระบบตรวจจับข้อมูลส่วนบุคคล (PII) ในข้อความภาษาไทย
 

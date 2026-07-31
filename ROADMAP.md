@@ -106,9 +106,15 @@ Ordered so that evaluation integrity comes before tuning:
    fields the 11-type scheme never adjudicated. Phase 1 artifacts:
    `docs/research/gov-doc-coverage.md` (sampling frame),
    `docs/research/gov-doc-policy-ontology.md` (per-field policy draft), and
-   `benchmark/probe_document.py` (six-measurement instrument). Phase 2 (three
-   official blank forms, nine inputs) is gated on the owner approving form
-   downloads and the มาตรา 26 scope question.
+   `benchmark/probe_document.py` (six-measurement instrument). The owner
+   approved Phase 2 downloads on 2026-07-31. Source and sanitized-artifact
+   hashes are now pinned for three official blanks, and a deterministic builder
+   creates nine inputs (three modalities each); raw downloads are not committed.
+   ท.ร.6 had no public blank download and its declared backup คร.1 is used.
+   Digital probe evidence exists, while all six image-only runs remain open
+   because the local environment lacked the OCR extra. The มาตรา 26 scope
+   question also remains open. See
+   `docs/research/gov-doc-phase2.md`.
 
 Exit gate: results are reproducible, the blind set has not been tuned against,
 and every public claim carries corpus size and limitations. No accuracy number

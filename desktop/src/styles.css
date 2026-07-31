@@ -1,21 +1,4 @@
-/* AI Guard desktop — Material Design 3 components.
-
-   Every value comes from tokens.css (--md-sys-*). Class names are unchanged
-   from the previous system so the five screen modules keep working untouched;
-   what changed is what each class *is*: .btn is now an MD3 filled button,
-   .card an outlined card, .chip an assist chip, .nav-item a navigation-rail
-   destination with a pill indicator, .toast a snackbar, and so on.
-
-   Two MD3 mechanics are implemented rather than approximated:
-
-   State layers. Interactive surfaces get a translucent overlay of their own
-   on-colour at 8% hover / 12% focus / 12% pressed, drawn with a ::before so it
-   composites over the container's own colour instead of replacing it. Using a
-   different background per state is the thing this replaces.
-
-   Elevation. Shadows are the spec's paired key + ambient shadows, not a single
-   soft blur, and levels are used for meaning: resting surfaces sit at level 0,
-   the snackbar at 3, the modal at 3. */
+/* Desktop styles use the shared Material Design tokens in tokens.css. */
 
 * { box-sizing: border-box; }
 
@@ -32,14 +15,13 @@ body {
 
 .hidden { display: none !important; }
 
-/* Shared state-layer mechanic. The host sets --state-color to whichever
-   on-colour belongs on top of it. */
-.btn, .nav-item, .icon-btn, .seg__opt, button.primary, .dropzone, .toast__close {
+/* Each control sets its own state colour. */
+.btn, .nav-item, .icon-btn, .seg__opt, .dropzone, .toast__close {
   position: relative;
   isolation: isolate;
 }
 .btn::before, .nav-item::before, .icon-btn::before, .seg__opt::before,
-button.primary::before, .dropzone::before, .toast__close::before {
+.dropzone::before, .toast__close::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -51,17 +33,17 @@ button.primary::before, .dropzone::before, .toast__close::before {
   z-index: -1;
 }
 .btn:hover::before, .nav-item:hover::before, .icon-btn:hover::before,
-.seg__opt:hover::before, button.primary:hover::before, .dropzone:hover::before,
+.seg__opt:hover::before, .dropzone:hover::before,
 .toast__close:hover::before { opacity: var(--md-sys-state-hover-state-layer-opacity); }
 .btn:focus-visible::before, .nav-item:focus-visible::before, .icon-btn:focus-visible::before,
-.seg__opt:focus-visible::before, button.primary:focus-visible::before,
+.seg__opt:focus-visible::before,
 .dropzone:focus-visible::before, .toast__close:focus-visible::before { opacity: var(--md-sys-state-focus-state-layer-opacity); }
 .btn:active::before, .nav-item:active::before, .icon-btn:active::before,
-.seg__opt:active::before, button.primary:active::before, .dropzone:active::before,
+.seg__opt:active::before, .dropzone:active::before,
 .toast__close:active::before { opacity: var(--md-sys-state-pressed-state-layer-opacity); }
-.btn:disabled::before, button.primary:disabled::before { opacity: 0; }
+.btn:disabled::before { opacity: 0; }
 
-:where(.btn, .nav-item, .icon-btn, .seg__opt, button.primary):focus-visible {
+:where(.btn, .nav-item, .icon-btn, .seg__opt):focus-visible {
   outline: 3px solid var(--md-sys-color-secondary);
   outline-offset: 2px;
 }
@@ -93,7 +75,7 @@ button.primary::before, .dropzone::before, .toast__close::before {
 /* ---------- shell ---------- */
 .app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
 
-/* Navigation rail: surface-coloured, no divider — MD3 separates it by tone. */
+/* Colour separates the side bar from the page. */
 .sidebar {
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface);
@@ -111,8 +93,7 @@ button.primary::before, .dropzone::before, .toast__close::before {
 }
 .brand__mark { flex: none; color: var(--md-sys-color-primary); }
 
-/* Destination: pill-shaped active indicator in secondary-container, per the
-   navigation-rail spec. */
+/* The active item uses a pill shape. */
 .nav-item {
   --state-color: var(--md-sys-color-on-surface);
   text-align: left; background: transparent; color: var(--md-sys-color-on-surface-variant);
@@ -211,24 +192,6 @@ h2 {
   background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
   color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
   border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
-}
-
-/* legacy alias: old screens use .primary — same filled button */
-button.primary {
-  display: inline-flex; align-items: center; justify-content: center;
-  font-family: inherit;
-  font-size: var(--md-sys-typescale-label-large-size);
-  font-weight: var(--md-sys-typescale-label-large-weight);
-  letter-spacing: var(--md-sys-typescale-label-large-tracking);
-  height: 40px; padding-inline: var(--md-spacing-5);
-  border-radius: var(--md-sys-shape-corner-full); border: none; cursor: pointer;
-  background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
-  --state-color: var(--md-sys-color-on-primary);
-}
-button.primary:disabled {
-  cursor: default;
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
-  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
 }
 
 .icon-btn {

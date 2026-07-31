@@ -2,10 +2,10 @@
 
 Phase 1A of the Thai government document coverage plan: a versioned table of
 document families, agencies, form codes, and the official source that names
-each one. Survey-only — **no form file was downloaded** to produce this table;
-downloading blank forms is phase 2 and requires the owner's approval first.
+each one. Phase 2 downloads and probe evidence are recorded separately in
+[gov-doc-phase2.md](gov-doc-phase2.md).
 
-- เวอร์ชัน: v0.1 (สำรวจ 2026-07-30)
+- เวอร์ชัน: v0.2 (สำรวจ 2026-07-30; เพิ่มหลักฐาน phase 2 วันที่ 2026-07-31)
 - วิธีทำ: สำรวจหน้าเว็บทางการ 8 ตระกูลเอกสารแบบขนาน แล้วให้ตัวตรวจอิสระยืนยัน
   รหัสฟอร์มทุกตัวกับโดเมนทางการ (*.go.th / ราชกิจจานุเบกษา / data.go.th)
   รหัสที่ยืนยันไม่ได้ถูกติดป้ายไว้ ไม่ตัดทิ้งเงียบ ๆ
@@ -35,8 +35,12 @@ downloading blank forms is phase 2 and requires the owner's approval first.
 | ภาษี | ภ.ง.ด.91 | แบบยื่นรายปีที่คนใช้มากที่สุด มีเลขผู้เสียภาษี รายได้ และบัญชีรับเงินคืน | หนังสือรับรองหัก ณ ที่จ่าย (50 ทวิ) |
 | ประกันสังคม | สปส.1-03 ขึ้นทะเบียนผู้ประกันตน | ฟิลด์ครบทั้งบุคคล นายจ้าง สิทธิรักษา และเลขบัญชี | สปส.2-01 คำขอรับประโยชน์ทดแทน |
 
-การดาวน์โหลดสามฟอร์มนี้ (หรือกรอกฟอร์มเปล่าด้วยค่าปลอมแล้วปริ้น/สแกน)
-ยังไม่เริ่มจนกว่าเจ้าของอนุมัติ
+เจ้าของอนุมัติการดาวน์โหลดเมื่อ 2026-07-31. ท.ร.6 ไม่มี public blank download
+จาก DOPA/BORA และคู่มือทางการระบุว่าเจ้าหน้าที่เป็นผู้พิมพ์ จึงใช้ คร.1
+ตัวสำรอง. Source hash และ sanitized-artifact hash ของทั้ง 3 แบบถูก pin แล้ว;
+ต้นฉบับดิบไม่ commit. Deterministic builder สร้าง 9 อินพุตได้; ดูผลที่วัดและ
+OCR gate ที่ยังเปิดใน
+[หลักฐาน phase 2](gov-doc-phase2.md).
 
 ## ตารางความครอบคลุม
 

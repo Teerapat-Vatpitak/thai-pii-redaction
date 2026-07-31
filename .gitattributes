@@ -7,3 +7,6 @@ benchmark/data/*.enc -text
 # endings excluded), but keep them LF so every platform sees identical files.
 benchmark/data/blind-scores.jsonl text eol=lf
 benchmark/data/*.lock.json text eol=lf
+
+# Official form probes are byte-exact PDF artifacts.
+benchmark/data/probe/gov_forms/sanitized/*.pdf binary
