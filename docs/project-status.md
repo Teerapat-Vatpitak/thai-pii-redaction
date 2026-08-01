@@ -21,6 +21,8 @@ code map must have a row here; `tests/test_docs_coverage.py` enforces that.
   contract, provider/platform state, or another external change.
 - **Optional** - supported only when an explicit extra is installed/configured;
   absence must fail clearly.
+- **Documented** - a document deliverable, not code: the claims were checked
+  against their sources and the codebase; there is no runtime path to verify.
 - **Deferred** - intentionally out of current scope; the list lives in
   [ROADMAP.md](../ROADMAP.md).
 
@@ -45,6 +47,12 @@ code map must have a row here; `tests/test_docs_coverage.py` enforces that.
 | Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
 | HTTP API authentication | Verified | Optional local compatibility; required in hosted configuration. |
 | PII-free public errors/logs | Verified | Contract and worker safety tests; official platform-visible log scan remains part of platform acceptance. |
+
+## Compliance documents
+
+| Deliverable | Status | Evidence / remaining gate |
+|---|---|---|
+| Standards mapping (ISO/IEC 20889 + มรด. 6:2566) | Documented | [docs/standards-mapping.md](standards-mapping.md), delivered 2026-08-01: a correspondence document, explicitly not a conformance claim. Grounded in what was actually readable: a publicly served ISO/IEC 20889 preview covering the complete terms clause (3.1-3.39), Clauses 1 through the start of 7.2, and the full table of contents — clauses 8-12 and the annexes are cited by title only, and the document says so; and the full 103-page มรด. 6:2566 PDF from the DGA standards site, read end to end, which defines no de-identification technique and references neither ISO/IEC 20889 nor any de-identification standard (the only ISO citations are 27001 and 11179) — so the มรด. mapping is at governance-practice level (classification, security/privacy dimension, breach-as-risk, the Data Agents processing-record duty), each row naming what the tool supports rather than claiming the practice is thereby satisfied. Every technique family the tool does NOT implement is listed by clause title, and the re-identification risk score is explicitly disclaimed as a heuristic, not a Clause-10 formal model. An adversarial review checked every ISO term number, every มรด. page citation, the negative claims, and every code claim against the repository before this row was written. |
 
 ## Integrations and storefronts
 

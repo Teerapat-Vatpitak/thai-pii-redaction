@@ -253,9 +253,20 @@ document.
    blocked this item was answered by the owner — in-memory for the run only,
    nothing beyond the requested artifacts written to disk. Core plus a CLI
    verb, plus a Thai PDF. No API endpoint in v1.
-4. **Standards mapping.** Document how the de-identification this tool performs
-   maps to ISO/IEC 20889 and มรด. 6:2566. A document, not code, and it must
-   describe what is implemented rather than what the standards recommend.
+4. **Standards mapping.** Delivered 2026-08-01
+   ([docs/standards-mapping.md](docs/standards-mapping.md)): a correspondence
+   document, not a conformance claim. Grounded in the sources actually
+   accessible — a publicly served ISO/IEC 20889 preview (complete terminology
+   clause plus the full table of contents; clauses 8-12 cited by title only)
+   and the full 103-page มรด. 6:2566 PDF from the DGA standards site. Reading
+   the latter end to end established that it defines no de-identification
+   technique at all (and does not reference ISO/IEC 20889), so the mapping is
+   terminology/technique-family level for ISO and governance-practice level
+   for มรด., with every non-claim listed explicitly. This item is a document,
+   so the exit gate below applies in its documentation form: the "caller-facing
+   path" is the published document, and the tests are the claims having been
+   adversarially checked against the sources and the codebase — there is no
+   runtime path and no code to test.
 
 Exit gate for each item: a caller-facing path, tests covering the failure and
 privacy behavior, and no artifact that carries a personal-data value.
