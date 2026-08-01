@@ -1,5 +1,7 @@
 """Tests for Step 2 FP detection: thai_id.py and fp_detector.py."""
 
+import pytest
+
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.thai_id import is_valid_thai_id
 from pii_redactor.models import Entity
@@ -512,6 +514,167 @@ def test_scan_fn_no_overlap_with_existing():
     for e in new_ents:
         # Should not overlap with (6, 16)
         assert e.span[1] <= 6 or e.span[0] >= 16
+
+
+# ---------------------------------------------------------------------------
+# FN scanner: corrupted-duplicate structured id scan (F4)
+#
+# OCR retry merge can leave a second, corrupted copy of a structured value
+# beside the valid read (e.g. "13122+1506581" next to "1312271505581"). The
+# corrupt copy matches neither fp_detector's regex nor its checksum, so
+# without this rule 12 of 13 digits of a national id leave unmasked on the
+# text path.
+# ---------------------------------------------------------------------------
+
+
+def test_scan_fn_corrupted_id_plus_junk():
+    text = "เลขประจำตัว 13122+1506581 ในเอกสาร"
+    result = scan_fn(text, [])
+    hits = [e for e in result if e.data_type == "ID_NUMBER" and e.original_text == "13122+1506581"]
+    assert len(hits) == 1
+    assert hits[0].redact_type == "FP"
+
+
+def test_scan_fn_corrupted_id_dollar_junk():
+    text = "id number 49516$7747108 filed"
+    result = scan_fn(text, [])
+    hits = [e for e in result if e.data_type == "ID_NUMBER" and e.original_text == "49516$7747108"]
+    assert len(hits) == 1
+
+
+def test_scan_fn_corrupted_id_two_junk_chars():
+    # Spec allows 1-2 inner junk chars, not just 1.
+    text = "ref 13122+150+581 code"
+    result = scan_fn(text, [])
+    hits = [e for e in result if e.data_type == "ID_NUMBER" and e.original_text == "13122+150+581"]
+    assert len(hits) == 1
+
+
+def test_scan_fn_corrupted_id_phone_length_not_tagged():
+    # 10-digit phone number: length is out of the 12-15 range.
+    text = "call 0812345678 now"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+
+
+def test_scan_fn_corrupted_id_version_string_not_tagged():
+    # Version/build string: contains letters, not just digits + narrow junk.
+    text = "shipped as 1.2.3+build4567 today"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+
+
+def test_scan_fn_corrupted_id_pure_digit_run_not_double_tagged():
+    # A pure 13-digit run is already handled by the existing THAI_ID fallback
+    # pattern (0 junk chars) -- must not also become an ID_NUMBER hit.
+    text = "her id is 1312271505581 and more"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+    assert any(e.data_type == "THAI_ID" for e in result)
+
+
+def test_scan_fn_corrupted_id_no_double_tag_against_existing_entity():
+    import uuid as _uuid
+
+    text = "id 1312271505581 here"
+    existing = [
+        Entity(
+            entity_id=str(_uuid.uuid4()),
+            redact_type="FP",
+            data_type="THAI_ID",
+            span=(3, 16),
+            score=1.0,
+            original_text="1312271505581",
+        )
+    ]
+    new_ents = scan_fn(text, existing)
+    assert not any(e.data_type == "ID_NUMBER" for e in new_ents)
+
+
+def test_scan_fn_corrupted_id_amount_with_commas_not_tagged():
+    # Amounts with thousands separators/decimal point are the likeliest
+    # real-world false-positive source -- deliberately excluded from the
+    # junk set (comma/period are not treated as OCR junk here).
+    text = "total 1,234,567.89 baht"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+
+
+def test_scan_fn_corrupted_id_thai_text_with_digits_not_tagged():
+    text = "อายุ 25 ปี อาศัยอยู่บ้านเลขที่ 99 หมู่ 3"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+
+
+def test_scan_fn_corrupted_id_leading_plus_intl_phone_not_tagged():
+    # Leading "+" (international phone prefix) is not an INNER junk char.
+    text = "โทร +66812345678 ค่ะ"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result)
+
+
+def test_scan_fn_corrupted_id_summed_invoice_total_not_tagged():
+    # Reproduced on an ordinary invoice with no OCR involved: a summed amount
+    # has exactly the corrupted-id shape (13 chars, one inner "+"). An amount
+    # introducer nearer than any id introducer suppresses the tag, otherwise
+    # /api/redact-pdf paints a black box over a money total.
+    text = "รวมเป็นเงิน 600000+120000 = 720000 บาท"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result), [
+        (e.data_type, e.original_text) for e in result
+    ]
+
+
+def test_scan_fn_corrupted_id_summed_expense_email_not_tagged():
+    # Same shape in an expense e-mail thread (the second reproduced instance).
+    text = "ค่าเดินทาง 250000 บาท ค่าที่พัก 180000 บาท รวม 250000+180000 บาท"
+    result = scan_fn(text, [])
+    assert not any(e.data_type == "ID_NUMBER" for e in result), [
+        (e.data_type, e.original_text) for e in result
+    ]
+
+
+def test_scan_fn_corrupted_id_nearest_cue_wins_id_over_amount():
+    # Nearest-cue-wins, not "any amount word anywhere kills it": the amount
+    # words sit further from the run than the id introducer does.
+    text = "ใบเสร็จ ยอด 500 บาท เลขประจำตัว 13122+1506581"
+    result = scan_fn(text, [])
+    hits = [e for e in result if e.data_type == "ID_NUMBER" and e.original_text == "13122+1506581"]
+    assert len(hits) == 1
+    assert text[hits[0].span[0] : hits[0].span[1]] == "13122+1506581"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A fee in บาท beside a national-id label: the id cue is the NEAREST
+        # one, so the amount must not suppress a real corrupted id.
+        "ค่าธรรมเนียม 500 บาท เลขบัตร 13122+1506581",
+        # ...including when the id cue is directly adjacent to the run.
+        "เลขที่บัตรประชาชน 13122+1506581 ค่าธรรมเนียม 100 บาท",
+        # The phrasing gold's own gov-form document gf08 uses for a THAI_ID,
+        # with the fee line ahead of it on the same line.
+        "ค่าคำขอ 20 บาท เลขที่บัตรประชาชน 13122+1506581",
+    ],
+)
+def test_scan_fn_corrupted_id_national_id_cue_beats_amount_cue(text):
+    # The id side of the gate is NOT fp_detector's student-id introducer list:
+    # that one knows nothing about card phrasing, so these leaked entirely.
+    hits = [
+        e
+        for e in scan_fn(text, [])
+        if e.data_type == "ID_NUMBER" and e.original_text == "13122+1506581"
+    ]
+    assert len(hits) == 1, [(e.data_type, e.original_text) for e in scan_fn(text, [])]
+    assert text[hits[0].span[0] : hits[0].span[1]] == "13122+1506581"
+
+
+def test_scan_fn_corrupted_id_amount_cue_on_another_line_does_not_suppress():
+    # The cue window is clipped at the line: a total on the previous line is
+    # not evidence about a value on this one.
+    text = "รวมเป็นเงิน 720000 บาท\nเลขประจำตัว 13122+1506581"
+    result = scan_fn(text, [])
+    assert any(e.data_type == "ID_NUMBER" and e.original_text == "13122+1506581" for e in result)
 
 
 # ---------------------------------------------------------------------------

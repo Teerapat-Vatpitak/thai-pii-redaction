@@ -84,6 +84,21 @@ _TB_CUE_WINDOW = 30
 # degenerate guess rather than a real Thai employer/hospital name -- reject it.
 _THAI_CHAR_RE = re.compile(r"[฀-๿]")
 _ISOLATED_NAME_LINE_RE = re.compile(r"[ก-ฮเ-ไ][ก-ฮะ-์]*(?:[ \t]+[ก-ฮเ-ไ][ก-ฮะ-์]*){1,3}")
+# A line holding ONE Thai run is admitted to the retry too, but only through
+# `name_context.is_glued_name_run` -- OCR deletes the space inside a name
+# ("สมชาย ใจดี" -> "สมชายใจดี") and the shape gate above then rejected the whole
+# line. Relaxing the regex to {0,3} instead would admit every single-word Thai
+# line in the document, spending the _ISOLATED_NAME_MAX_LINES budget on form
+# headers before the retry ever reaches a real name.
+_ISOLATED_GLUED_LINE_RE = re.compile(r"[ก-ฮเ-ไ][ก-ฮะ-์]*")
+# One or more Thai-letter "words" separated by single spaces/tabs and nothing
+# else -- a bare digit run is already excluded (digits aren't in ก-ฮ/ะ-์), and
+# so is a segment with a glued non-name prefix like an OCR-corrupted "และ..."
+# co-applicant marker ("แถะ...มาลิรักดิ"): the parallel-record bootstrap
+# (name_context.detect_parallel_record_names) already owns that shape and
+# extracts the bare name from it; a hygiene segment that also grabbed the
+# punctuation-glued prefix would out-compete the correct extraction in dedupe.
+_NAME_SEGMENT_SHAPE_RE = re.compile(r"^[ก-ฮเ-ไ][ก-ฮะ-์]*(?:[ \t]+[ก-ฮเ-ไ][ก-ฮะ-์]*)*$")
 _ISOLATED_NAME_PREFIX_RE = re.compile(r"(?:ชื่อ(?:-นามสกุล)?|ผู้[ก-๛]{1,30})[ \t:：]+")
 _ISOLATED_NAME_MAX_CHARS = 80
 _ISOLATED_NAME_MAX_LINES = 8
@@ -95,7 +110,21 @@ _NAME_DOC_COMPOUND_RE = re.compile(
     r"ตารางสอบ|ตารางเรียน|ตารางนัด|รายงานการ|สถานีตำรวจ|ประวัติการ|นิคมอุตสาหกรรม"
     r"|เลขครุภัณฑ์|เลขที่|เลขเอกสาร|ใบสมัคร|ใบคำร้อง|ใบเสร็จ|ใบกำกับ|ใบแจ้ง"
     r"|บันทึกข้อความ|ประกาศรายชื่อ|ประกาศผล|กำหนดการ|ระเบียบวาระ"
+    # Form field labels seen gluing to real names in label-first OCR order
+    # (M6-P0 mechanism 2, ภ.ง.ด.91 spouse-name exposure): "เดือนปีเกิด" is
+    # "month/year of birth", not a person. The regex is used with .match()
+    # (anchored at segment start), so the commoner full form spelling
+    # "วันเดือนปีเกิด" needs its own alternative -- without it that spelling
+    # leaked as a NAME (a measured gold false positive, doc116) even though
+    # `name_context.is_glued_name_run` already rejected it via its token stop
+    # set. Longer alternative first.
+    r"|วันเดือนปีเกิด|เดือนปีเกิด"
 )
+# Punctuation an OCR line break leaves hanging on a name ("สมชาย ใจดี,"). On a
+# tail segment it is TRIMMED, not treated as a reason to drop the segment --
+# the strict shape gate below would otherwise discard the name because of a
+# comma. Deliberately narrow: only characters that end a clause.
+_NAME_SEGMENT_TRIM_CHARS = ",.;:!?)]}\"'"
 
 
 def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
@@ -110,29 +139,75 @@ def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
     return data_type
 
 
-def _name_hygiene(text: str, start: int, end: int) -> tuple[int, int] | None:
+def _name_hygiene(text: str, start: int, end: int) -> list[tuple[int, int]]:
     """Shared NAME span hygiene for every neural engine (CRF and fine-tuned).
 
-    A person's name never spans a line break, so the span is TRIMMED at the
-    first newline — unless the next line opens with a name cue, in which case
-    the cue pass owns the person and keeping the pre-newline head would mint
-    a junk NAME out of glued ordinary words, which the leak guard would then
-    halt on. A span beginning with a document compound is a header, not a
-    person.
+    A person's name never spans a line break. On label-first OCR field order
+    the CRF can glue a form label to the real name(s) that follow it into one
+    span (e.g. "เดือนปีเกิด\n\nกิตติ พรดี\nพิมพ์ใจ แสนดี" -- a
+    month/year-of-birth label followed by two real names): unconditionally
+    keeping the pre-newline head would mint the label itself as a
+    false-positive NAME while discarding both real names. So the span is split
+    at newlines into segments -- but the HEAD and the TAIL segments are judged
+    by deliberately different rules, because the evidence for them differs:
+
+    - HEAD (the pre-newline part, what the CRF actually started on) keeps the
+      original lenient rule: >= 2 characters after rstrip and not a document
+      compound. Requiring a strict name shape here drops the real name for a
+      trailing comma, a parenthesised role, an age, or Latin script
+      ("สมชาย ใจดี," / "สมชาย ใจดี (ผู้ยื่น)" / "John Smith" all became NOTHING)
+      -- the sample-PDF regression class, measured on the branch review.
+    - TAIL segments carry no such evidence: they are whatever the CRF ran on
+      into. They must look like a name (`_NAME_SEGMENT_SHAPE_RE`, after
+      trailing clause punctuation is TRIMMED rather than counted against them)
+      AND survive the shared non-person rejection
+      (`name_context.is_non_person_segment` plus the document-compound regex),
+      which is what keeps Thai form labels (ที่อยู่, เลขประจำตัวประชาชน,
+      บัญชีรับเงินกู้, ตำแหน่ง) and letter closings (ขอแสดงความนับถือ) from
+      becoming NAME entities of their own.
+
+    The one exception: if the line right after the first break opens with a
+    name cue (นาย/นาง/ชื่อ/...), the cue pass owns the person outright, and
+    even the head would be junk glued to it -- so the WHOLE span is dropped
+    instead of segmented.
     """
+    from pii_redactor.detectors.name_context import is_non_person_segment
+
     entity_text = text[start:end]
-    if "\n" in entity_text:
-        head, tail = entity_text.split("\n", 1)
-        if _NAME_CUE_AFTER_BREAK_RE.match(tail.lstrip()):
-            return None
-        head = head.rstrip()
-        if len(head) < 2:
-            return None
-        end = start + len(head)
-        entity_text = text[start:end]
-    if _NAME_DOC_COMPOUND_RE.match(entity_text):
-        return None
-    return start, end
+    if "\n" not in entity_text:
+        if _NAME_DOC_COMPOUND_RE.match(entity_text):
+            return []
+        return [(start, end)]
+
+    _head, tail = entity_text.split("\n", 1)
+    if _NAME_CUE_AFTER_BREAK_RE.match(tail.lstrip()):
+        return []
+
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    for index, line in enumerate(entity_text.split("\n")):
+        line_start = start + offset
+        offset += len(line) + 1
+        if index == 0:
+            seg = line.rstrip()
+            if len(seg) < 2 or _NAME_DOC_COMPOUND_RE.match(seg):
+                continue
+            spans.append((line_start, line_start + len(seg)))
+            continue
+        lstripped = line.lstrip()
+        pad = len(line) - len(lstripped)
+        seg = lstripped.rstrip().rstrip(_NAME_SEGMENT_TRIM_CHARS).rstrip()
+        if len(seg) < 2:
+            continue
+        if _NAME_DOC_COMPOUND_RE.match(seg):
+            continue
+        if not _NAME_SEGMENT_SHAPE_RE.match(seg):
+            continue
+        if is_non_person_segment(seg):
+            continue
+        seg_start = line_start + pad
+        spans.append((seg_start, seg_start + len(seg)))
+    return spans
 
 
 _FINETUNED_LABEL_MAP = {
@@ -179,11 +254,21 @@ def _detect_tb_finetuned(text: str) -> list[Entity]:
         if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
             continue
         if data_type == "NAME":
-            trimmed = _name_hygiene(text, start, end)
-            if trimmed is None:
-                continue
-            start, end = trimmed
-            model_name_spans.append((start, end))
+            segments = _name_hygiene(text, start, end)
+            for seg_start, seg_end in segments:
+                model_name_spans.append((seg_start, seg_end))
+                seg_data_type = _apply_cue_upgrades(text, seg_start, seg_end, data_type)
+                candidates.append(
+                    Entity(
+                        entity_id=str(uuid.uuid4()),
+                        redact_type="TB",
+                        data_type=seg_data_type,
+                        span=(seg_start, seg_end),
+                        score=round(min(0.99, max(0.5, conf)), 3),
+                        original_text=text[seg_start:seg_end],
+                    )
+                )
+            continue
         data_type = _apply_cue_upgrades(text, start, end, data_type)
         candidates.append(
             Entity(
@@ -378,6 +463,102 @@ def _deduplicate(entities: list[Entity]) -> list[Entity]:
 
 _CHUNK_CORE_CHARS = 500
 
+# Degenerate-chunk guard (gov-form OCR gap): on sufficiently noisy input the
+# CRF sometimes returns a SINGLE span covering nearly the whole chunk instead
+# of abstaining, and when that span's data_type is None the entire chunk
+# silently yields zero entities -- including any real name the model would
+# have tagged correctly in isolation. 80%/3-line are the two shapes this
+# degenerate guess takes in the reproduced OCR corpus: either the label maps
+# to None (LABEL_MAP.get(label) is None -- true both for a label missing from
+# LABEL_MAP entirely, like the reproduced corpus's "LAW", AND for one of the
+# labels LABEL_MAP explicitly maps to None, like MONEY/TIME/PERCENT --
+# `label not in LABEL_MAP` would miss the second group even though
+# _finalize_tb_candidate rejects both identically) or a mapped label has
+# swallowed several unrelated form lines into one span (a real NAME/DATE/etc
+# never spans that much of a multi-field form).
+_DEGENERATE_COVERAGE_RATIO = 0.8
+_DEGENERATE_MIN_LINES = 3
+
+
+def _finalize_tb_candidate(text: str, orig_start: int, orig_end: int, label: str) -> list[Entity]:
+    """Apply the normal LABEL_MAP -> hygiene -> cue-upgrade pipeline to one
+    decoded BIO span and return the resulting candidate Entities (zero, one,
+    or several -- see `_name_hygiene`). Shared by the main per-chunk loop and
+    the degenerate-chunk line-by-line fallback so both paths reject/accept
+    spans identically.
+    """
+    data_type = LABEL_MAP.get(label)
+    if data_type is None:
+        return []
+    if (orig_end - orig_start) < 2:
+        return []
+    entity_text = text[orig_start:orig_end]
+    if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
+        return []
+    # NAME hygiene (blind-set precision classes): a person's name never spans
+    # a line break. On label-first OCR field order the CRF can glue a form
+    # label to the name(s) that follow it into one span, so the span is split
+    # into segments (see `_name_hygiene`) rather than just trimmed to the
+    # head -- trimming alone would keep the label itself as a false-positive
+    # NAME. A segment BEGINNING with a document compound (ตารางสอบ…,
+    # เลขครุภัณฑ์…) is a header, not a person. Compounds, never noun prefixes --
+    # เลขา, ใบเฟิร์น and ประกาศิต are real names.
+    if data_type == "NAME":
+        segments = _name_hygiene(text, orig_start, orig_end)
+    else:
+        segments = [(orig_start, orig_end)]
+    entities: list[Entity] = []
+    for seg_start, seg_end in segments:
+        seg_data_type = _apply_cue_upgrades(text, seg_start, seg_end, data_type)
+        entities.append(
+            Entity(
+                entity_id=str(uuid.uuid4()),
+                redact_type="TB",
+                data_type=seg_data_type,
+                span=(seg_start, seg_end),
+                score=0.85,
+                original_text=text[seg_start:seg_end],
+            )
+        )
+    return entities
+
+
+def _retag_degenerate_chunk(text: str, ner: NER, core_begin: int, core_end: int) -> list[Entity]:
+    """Re-tag a degenerate chunk's core one physical line at a time.
+
+    The whole-chunk tagging call that produced the degenerate span is not
+    retried -- it is exactly what produced the bad guess. Isolating each line
+    removes the noisy neighbours that dragged the CRF into a single bogus
+    span, which is what lets it recognize a clean line's PII again (verified
+    against the reproduced คร.1 OCR text: the CRF cannot tag a name at all in
+    the degenerate whole-chunk context, but tags it correctly once the line
+    carrying it is presented alone).
+    """
+    candidates: list[Entity] = []
+    core_text = text[core_begin:core_end]
+    offset = 0
+    for raw_line in core_text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        if line.strip():
+            line_start = core_begin + offset
+            try:
+                tagged_line = ner.tag(line)
+            except Exception as exc:  # pragma: no cover - defensive, see chunk-level guard above
+                _LOG.warning(
+                    "NER tagging failed on degenerate-chunk line at char %d (%d chars; %s); "
+                    "skipping — PII on this line may be missed",
+                    line_start,
+                    len(line),
+                    type(exc).__name__,
+                )
+                tagged_line = []
+            for ent_text, ls, le, label in _bio_to_spans(tagged_line, line):
+                candidates.extend(
+                    _finalize_tb_candidate(text, line_start + ls, line_start + le, label)
+                )
+        offset += len(raw_line)
+    return candidates
+
 
 def _ner_candidates(
     text: str,
@@ -450,43 +631,42 @@ def _ner_candidates(
             diagnostics.succeeded += 1
 
         if tagged:
-            for ent_text, ctx_start, ctx_end_pos, label in _bio_to_spans(tagged, context_text):
+            bio_spans = _bio_to_spans(tagged, context_text)
+
+            # Degenerate-chunk guard: a SINGLE span covering most of the core
+            # is either a bogus unmapped label or a mapped label that has
+            # swallowed several unrelated lines -- either way it is not a
+            # real entity, and consuming it (or letting it fall through to
+            # the normal loop below) would drop every real entity the model
+            # could have found on this chunk's individual lines.
+            if len(bio_spans) == 1:
+                _ent_text, sp_ctx_start, sp_ctx_end, sp_label = bio_spans[0]
+                sp_start = ctx_begin + sp_ctx_start
+                sp_end = ctx_begin + sp_ctx_end
+                core_len = core_end - core_begin
+                overlap = max(0, min(sp_end, core_end) - max(sp_start, core_begin))
+                crosses_lines = text[sp_start:sp_end].count("\n") + 1 >= _DEGENERATE_MIN_LINES
+                if (
+                    core_len > 0
+                    and overlap >= _DEGENERATE_COVERAGE_RATIO * core_len
+                    and (LABEL_MAP.get(sp_label) is None or crosses_lines)
+                ):
+                    _LOG.warning(
+                        "Degenerate whole-chunk NER span (label=%s, chunk_chars=%d); "
+                        "re-tagging chunk line-by-line",
+                        sp_label,
+                        core_len,
+                    )
+                    candidates.extend(_retag_degenerate_chunk(text, ner, core_begin, core_end))
+                    chunk_first = chunk_last + 1
+                    continue
+
+            for ent_text, ctx_start, ctx_end_pos, label in bio_spans:
                 orig_start = ctx_begin + ctx_start
                 orig_end = ctx_begin + ctx_end_pos
                 if not (core_begin <= orig_start < core_end):
                     continue
-                data_type = LABEL_MAP.get(label)
-                if data_type is None:
-                    continue
-                if (orig_end - orig_start) < 2:
-                    continue
-                entity_text = text[orig_start:orig_end]
-                if data_type == "ORGANIZATION" and not _THAI_CHAR_RE.search(entity_text):
-                    continue
-                # NAME hygiene (blind-set precision classes): a person's name
-                # never spans a line break, so TRIM the span at the first
-                # newline (rejecting outright would drop the real name the CRF
-                # glued to the next line's label — the sample-PDF regression).
-                # A span BEGINNING with a document compound (ตารางสอบ…,
-                # เลขครุภัณฑ์…) is a header, not a person. Compounds, never
-                # noun prefixes — เลขา, ใบเฟิร์น and ประกาศิต are real names.
-                if data_type == "NAME":
-                    trimmed = _name_hygiene(text, orig_start, orig_end)
-                    if trimmed is None:
-                        continue
-                    orig_start, orig_end = trimmed
-                    entity_text = text[orig_start:orig_end]
-                data_type = _apply_cue_upgrades(text, orig_start, orig_end, data_type)
-                candidates.append(
-                    Entity(
-                        entity_id=str(uuid.uuid4()),
-                        redact_type="TB",
-                        data_type=data_type,
-                        span=(orig_start, orig_end),
-                        score=0.85,
-                        original_text=text[orig_start:orig_end],
-                    )
-                )
+                candidates.extend(_finalize_tb_candidate(text, orig_start, orig_end, label))
 
         chunk_first = chunk_last + 1
 
@@ -542,6 +722,13 @@ def _isolated_line_name_candidates(
     if "\n" not in text and "\r" not in text:
         return [], set()
 
+    from pii_redactor.detectors.name_context import is_glued_name_run
+
+    def _has_name_shape(line: str) -> bool:
+        if _ISOLATED_NAME_LINE_RE.fullmatch(line):
+            return True
+        return bool(_ISOLATED_GLUED_LINE_RE.fullmatch(line)) and is_glued_name_run(line)
+
     candidates: list[Entity] = []
     superseded_ids: set[str] = set()
     attempted = 0
@@ -559,7 +746,7 @@ def _isolated_line_name_candidates(
             attempted < _ISOLATED_NAME_MAX_LINES
             and not line_has_non_name
             and len(line) <= _ISOLATED_NAME_MAX_CHARS
-            and _ISOLATED_NAME_LINE_RE.fullmatch(line)
+            and _has_name_shape(line)
         ):
             attempted += 1
             line_candidates = [

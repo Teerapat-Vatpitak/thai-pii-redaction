@@ -116,20 +116,26 @@ Ordered so that evaluation integrity comes before tuning:
    The local runner now covers digital plus all six OCR inputs. Strict gates
    cover route/OCR, extraction, pixel coverage, residual PII, and declared
    decoy extraction; detection and type results are telemetry. It also checks
-   unique alignment and evidence provenance. The runner is verified, but its
-   privacy gate remains red; see the
-   [dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md).
-   That failed gate isolated two detection gaps that order the next accuracy
-   work: an OCR read that is one character off (char accuracy ~0.90) is
-   treated as if the value were absent — no tag, no black box — so closing it
-   means OCR-error-tolerant matching on the detection side, not gate
-   softening; and `detect_parallel_record_names` unlocks only when at least
-   one NAME was already found, so a page whose every name is misread cannot
-   bootstrap. Both are detection work under items 3-5.
+   unique alignment and evidence provenance. The runner is verified; its
+   privacy gate was red at the
+   [2026-07-31 dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md)
+   and passed green 9/9 on the 2026-08-01 branch rerun, detailed next.
+   That failed gate's cause was not what it first looked like: near-miss OCR
+   reads were already tolerated, and "an OCR read one character off is
+   treated as absent" was not why values leaked. Investigation found four
+   detection-side mechanisms instead: a degenerate whole-chunk CRF span
+   silently dropped on an unmapped label; `_name_hygiene`'s head-keep rule
+   losing real names to a label-first OCR line order; name shapes gated on a
+   space an OCR read had deleted; and a corrupted duplicate of a structured
+   value from the OCR retry merge leaking on the text path — a gap the
+   original two-gap framing never named. All four closed 2026-08-01/02
+   (commits 76eb9c4..60955b6) with zero acceptance-gate or threshold edits;
+   the strict gate passed green for the first time on the branch's
+   acceptance rerun. See the corrected investigation, fixes, and rerun
+   results in the 2026-08-02 addendum to `docs/research/gov-doc-phase2.md`.
    ท.ร.6 had no public blank download and its declared backup คร.1 is used.
    Physical scans, handwriting, independent real-form annotation, and the
-   มาตรา 26 scope question remain open. See
-   `docs/research/gov-doc-phase2.md`.
+   มาตรา 26 scope question remain open.
 
 Exit gate: results are reproducible, the blind set has not been tuned against,
 and every public claim carries corpus size and limitations. No accuracy number

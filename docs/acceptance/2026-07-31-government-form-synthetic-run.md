@@ -1,5 +1,9 @@
 # Government-form synthetic regression gate
 
+Superseded by the 2026-08-01 branch run recorded in the gov-doc-phase2.md
+addendum (2026-08-02): all four detection-side gaps below were closed and the
+strict gate passed 9/9 at commit 60955b6.
+
 - Date: 2026-07-31
 - Evidence level: synthetic local regression
 - Forms: official blank คร.1, ภ.ง.ด.91, and สปส.1-03
