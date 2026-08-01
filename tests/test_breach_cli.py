@@ -13,6 +13,7 @@ detector actually fires the same way.
 import json
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -87,6 +88,12 @@ def test_breach_assess_no_strong_identifiers_reports_distinct_wording(tmp_path, 
 
 
 def test_breach_assess_partial_failure_exits_2_and_lists_failed_basenames(tmp_path, capsys):
+    """`missing.txt` never being created means `extract()` raises a REAL
+    FileNotFoundError, whose message (via `OSError.__str__`'s `repr()`
+    formatting) embeds `tmp_path` in a doubled-backslash form as well as the
+    plain one -- both are checked, plus `tmp_path.name` (unaffected by the
+    doubling), so this test cannot pass vacuously the way a plain
+    `str(tmp_path) not in captured.err` check could."""
     import ai_guard
 
     good = tmp_path / "good.txt"
@@ -102,6 +109,9 @@ def test_breach_assess_partial_failure_exits_2_and_lists_failed_basenames(tmp_pa
     assert "missing.txt" in captured.err
     # The basename of the file that DID succeed must not show up as a failure.
     assert "good.txt" not in captured.err
+    assert str(tmp_path) not in captured.err
+    assert str(tmp_path).replace("\\", "\\\\") not in captured.err
+    assert tmp_path.name not in captured.err
 
 
 def test_breach_assess_empty_input_exits_1(tmp_path, capsys):
@@ -249,14 +259,21 @@ def test_breach_assess_top_level_failure_scrubs_input_paths(tmp_path, monkeypatc
     """A failure raised inside assess_breach itself (e.g. a directory scan
     blowing up with a PermissionError) must not leak the caller's own input
     path into the generic failure line -- the same path-scrub discipline
-    breach.py already applies to per-file FailedFile.reason."""
+    breach.py already applies to per-file FailedFile.reason.
+
+    The PermissionError here is REAL (raised by attempting to
+    `Path.read_bytes()` a directory), not a hand-built exception string --
+    CPython's `OSError.__str__` formats its filename via `repr()`, which
+    backslash-escapes a Windows path, so a hand-built message using plain
+    str-formatting (as this test previously did) never exercises that
+    doubled-backslash form and can pass even when the scrub misses it."""
     import ai_guard
 
     bad_dir = tmp_path / "case-folder"
     bad_dir.mkdir()
 
     def _boom(paths, *, recursive=False):
-        raise PermissionError(f"[Errno 13] Permission denied: '{paths[0]}'")
+        Path(paths[0]).read_bytes()  # a directory -- raises a real OSError
 
     monkeypatch.setattr("pii_redactor.breach.assess_breach", _boom)
 
@@ -266,6 +283,7 @@ def test_breach_assess_top_level_failure_scrubs_input_paths(tmp_path, monkeypatc
 
     captured = capsys.readouterr()
     assert str(bad_dir) not in captured.err
+    assert str(bad_dir).replace("\\", "\\\\") not in captured.err
     assert "case-folder" in captured.err
 
 

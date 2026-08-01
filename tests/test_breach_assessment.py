@@ -173,7 +173,16 @@ def test_failed_file_reason_never_leaks_the_input_path(tmp_path):
     ("No such file or directory: '<full path>'"). The spec limits a
     failed-file row to basename + a short reason, so the parent directory
     (itself potentially a sensitive name -- a ward, a case folder, ...) must
-    not survive into the reason, in the dataclass or in the JSON bytes."""
+    not survive into the reason, in the dataclass or in the JSON bytes.
+
+    This is a REAL FileNotFoundError raised by `Path.read_bytes()` on a file
+    that was never created -- not a hand-built exception string. CPython's
+    `OSError.__str__` formats its filename via `repr()`, which
+    backslash-escapes a Windows path, so the raw message embeds `tmp_path`
+    in a doubled-backslash form as well as the plain one; `str(tmp_path) not
+    in failed.reason` alone can pass vacuously without ever exercising that
+    doubled form, so `tmp_path.name` (one path component, unaffected by the
+    doubling) and the explicit doubled-backslash spelling are checked too."""
     good = _write(tmp_path, "good.txt", f"เลขบัตรประชาชน {ID_A}")
     missing = tmp_path / "missing.txt"  # never created
 
@@ -183,10 +192,14 @@ def test_failed_file_reason_never_leaks_the_input_path(tmp_path):
     assert failed.basename == "missing.txt"
     assert "missing.txt" in failed.reason
     assert str(tmp_path) not in failed.reason
+    assert str(tmp_path).replace("\\", "\\\\") not in failed.reason
+    assert tmp_path.name not in failed.reason
 
     payload = json.dumps(result.to_json_dict(), ensure_ascii=False)
     assert "missing.txt" in payload
     assert str(tmp_path) not in payload
+    assert str(tmp_path).replace("\\", "\\\\") not in payload
+    assert tmp_path.name not in payload
 
 
 def test_directory_scan_is_non_recursive_by_default(tmp_path):

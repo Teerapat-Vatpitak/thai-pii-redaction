@@ -17,7 +17,6 @@ subject estimate was derived, never that notification is required.
 
 from __future__ import annotations
 
-import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -31,6 +30,9 @@ from pii_redactor.ingest.text_cleaner import clean
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.reid_risk import assess_reid_risk
 from pii_redactor.report import scan_section26
+from pii_redactor.scan_common import canonical_value as _canonical_value
+from pii_redactor.scan_common import discover_files as _discover_files
+from pii_redactor.scan_common import short_reason as _short_reason
 
 BREACH_SCHEMA = "aiguard.breach-assessment/1"
 
@@ -41,8 +43,6 @@ BREACH_SCHEMA = "aiguard.breach-assessment/1"
 # `_NAME_TYPE`) and never contributes to the subject bounds.
 _STRONG_TYPES = ("THAI_ID", "PASSPORT", "PHONE", "EMAIL")
 _NAME_TYPE = "NAME"
-
-_DISCOVER_SUFFIXES = (".txt", ".pdf")
 
 _SUBJECT_ESTIMATE_METHOD = (
     "subjects_min is the largest distinct-value count among the strong identifier "
@@ -59,40 +59,6 @@ _NAME_WEAK_NOTE = (
     "inflate its distinct count, so it is reported separately and does not "
     "contribute to subjects_min or subjects_max."
 )
-
-_NAME_TITLE_RE = re.compile(r"^(?:นางสาว|นาย|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง|คุณ)\s*")
-
-
-def _short_reason(exc: Exception, path: Path) -> str:
-    """`{ExceptionClassName} {message}` with the input file's own path
-    scrubbed out of the message.
-
-    `FailedFile.reason` is documented as "basename + short reason, never
-    content" -- but several stdlib exceptions embed the FULL operand path in
-    their own message (`FileNotFoundError`: "[Errno 2] No such file or
-    directory: 'C:\\Users\\...\\missing.txt'"), which can carry a directory
-    name the controller did not intend to disclose. Every spelling of `path`
-    this process is likely to have produced (as given, resolved, and both
-    slash directions) is folded down to the bare basename, which is already
-    a value this report shows elsewhere. A space separates the class name
-    from the message rather than a colon -- this reason string can reach
-    Thai-facing CLI/PDF output, and Thai punctuation uses spaces, not Western
-    colons.
-    """
-    message = str(exc)
-    basename = path.name
-    spellings = {str(path)}
-    try:
-        spellings.add(str(path.resolve()))
-    except OSError:
-        pass
-    for spelling in list(spellings):
-        spellings.add(spelling.replace("\\", "/"))
-        spellings.add(spelling.replace("/", "\\"))
-    for spelling in spellings:
-        if spelling and spelling != basename:
-            message = message.replace(spelling, basename)
-    return f"{type(exc).__name__} {message}"
 
 
 class NoFilesAssessedError(RuntimeError):
@@ -224,101 +190,12 @@ def _environment() -> dict:
     }
 
 
-def _canonical_value(data_type: str, value: str) -> str:
-    """Fold formatting differences that would otherwise inflate a distinct count.
-
-    Only strong types get bespoke normalization (per the spec: spaced/hyphenated
-    Thai id forms and mixed-case emails are the same value). NAME is normalized
-    by stripping a leading title and collapsing whitespace -- still a WEAK
-    identifier, so this only keeps its own distinct count honest, never feeds
-    subjects_min/max. Every other type gets a generic whitespace/case fold so
-    its distinct count is not inflated by incidental formatting.
-    """
-    if data_type == "THAI_ID":
-        return re.sub(r"\D", "", value)
-    if data_type == "PASSPORT":
-        return re.sub(r"[\s-]", "", value).upper()
-    if data_type == "PHONE":
-        digits = re.sub(r"\D", "", value)
-        # +66 drops the domestic leading 0 (fp_detector's _RE_PHONE_INTL
-        # comment): a 9-digit mobile number becomes 66 + 9 digits (11 total),
-        # an 8-digit landline becomes 66 + 8 digits (10 total). Both fold back
-        # to the domestic form so "+66 81 234 5678" and "081-234-5678" --
-        # or "+66 2 123 4567" and "02-123-4567" -- collapse to one value
-        # instead of counting the same subject twice.
-        if digits.startswith("66") and len(digits) in (10, 11):
-            digits = "0" + digits[2:]
-        return digits
-    if data_type == "EMAIL":
-        return value.strip().casefold()
-    if data_type == _NAME_TYPE:
-        stripped = _NAME_TITLE_RE.sub("", value.strip())
-        return re.sub(r"\s+", " ", stripped).strip().casefold()
-    return re.sub(r"\s+", " ", value.strip()).casefold()
-
-
 def _max_risk_grade(distribution: dict[str, int]) -> str:
     """The worst grade present. `distribution` is never empty when this is
     called -- every successfully assessed file contributes exactly one grade,
     and zero successes raises before this point."""
     rank = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
     return max(distribution, key=lambda grade: rank.get(grade, -1))
-
-
-def _discover_files(
-    paths: Sequence[str | Path], *, recursive: bool
-) -> tuple[list[Path], list[str]]:
-    """Resolve `paths` to a deterministic, de-duplicated list of files, plus the
-    basenames a directory scan chose not to look at.
-
-    A directory is scanned for *.txt/*.pdf (non-recursive unless `recursive`);
-    every other file the scan finds there is reported back as skipped rather
-    than dropped silently -- a breach report must not claim it covered a
-    folder when it only opened a subset of what was in it. A path that is not
-    a directory is taken as-is, even if it does not exist or carries a
-    different extension -- the caller named it explicitly, and letting it
-    reach `assess_breach`'s per-file try/except turns a bad path into a
-    failed-file row instead of a silent skip (this rule does not apply to
-    directory contents, which is exactly what "skipped" now surfaces).
-    """
-    found: list[Path] = []
-    skipped: list[str] = []
-    seen: set[Path] = set()
-    seen_skipped: set[Path] = set()
-
-    def _resolved(candidate: Path) -> Path:
-        try:
-            return candidate.resolve()
-        except OSError:
-            return candidate
-
-    def _add(candidate: Path) -> None:
-        key = _resolved(candidate)
-        if key not in seen:
-            seen.add(key)
-            found.append(candidate)
-
-    def _add_skipped(candidate: Path) -> None:
-        key = _resolved(candidate)
-        if key not in seen_skipped:
-            seen_skipped.add(key)
-            skipped.append(candidate.name)
-
-    for raw in paths:
-        candidate_path = Path(raw)
-        if candidate_path.is_dir():
-            pattern = "**/*" if recursive else "*"
-            for child in sorted(candidate_path.glob(pattern)):
-                if not child.is_file():
-                    continue
-                if child.suffix.lower() in _DISCOVER_SUFFIXES:
-                    _add(child)
-                else:
-                    _add_skipped(child)
-        else:
-            _add(candidate_path)
-
-    return found, skipped
 
 
 def assess_breach(

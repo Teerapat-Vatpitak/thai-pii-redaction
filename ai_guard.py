@@ -198,25 +198,22 @@ def _print_breach_summary(result, payload):
 
 def _scrub_known_paths(message, paths):
     """Fold every spelling of each caller-given path (as given, resolved, both
-    slash directions) down to its bare basename.
+    slash directions, and the repr-escaped forms a real `OSError` embeds --
+    see `pii_redactor.scan_common.path_spellings`) down to its bare basename.
 
-    Mirrors `breach._short_reason`'s per-file path scrub, but applied to a
+    Mirrors `scan_common.short_reason`'s per-file path scrub, but applied to a
     corpus-level failure (e.g. a `PermissionError` raised while scanning a
-    directory) that escapes `assess_breach` itself -- any of `args.paths`
-    could be the one embedded in the exception's own message, not just a
-    single file, so every one of them is scrubbed."""
+    directory) that escapes `assess_breach`/`locate_subject` themselves -- any
+    of the given `paths` could be the one embedded in the exception's own
+    message, not just a single file, so every one of them is scrubbed. Uses
+    the SAME helper `short_reason` uses so a fix to the escaping only has to
+    happen once."""
+    from pii_redactor.scan_common import path_spellings
+
     for raw in paths:
         path = Path(raw)
         basename = path.name
-        spellings = {str(path)}
-        try:
-            spellings.add(str(path.resolve()))
-        except OSError:
-            pass
-        for spelling in list(spellings):
-            spellings.add(spelling.replace("\\", "/"))
-            spellings.add(spelling.replace("/", "\\"))
-        for spelling in spellings:
+        for spelling in path_spellings(path):
             if spelling and spelling != basename:
                 message = message.replace(spelling, basename)
     return message
@@ -303,6 +300,126 @@ def cmd_breach_assess(args):
         sys.exit(2)
 
 
+def _print_dsar_summary(payload):
+    """Short Thai summary: counts only, no subject identifier or document
+    value ever printed. Thai punctuation uses spaces, never colons (same
+    convention as `_print_breach_summary`)."""
+    files = payload["files"]
+    print(f"ตรวจแล้ว {files['assessed']}/{files['total']} ไฟล์")
+    matched = files["matched"]
+    if matched == 0:
+        # A valid DSAR outcome, not a failure -- exit code stays 0.
+        print("ไม่พบไฟล์ที่ตรงกับผู้ขอข้อมูล")
+    else:
+        print(f"พบไฟล์ที่ตรงกับผู้ขอข้อมูล {matched} ไฟล์")
+    subject_types = payload["subject"]["types"]
+    print(f"ตัวระบุตัวตนที่ให้มา {len(subject_types)} ประเภท")
+    for data_type, count in sorted(subject_types.items()):
+        print(f"  - {data_type} {count}")
+
+    # weak_only (F2): a NAME-only match is weaker evidence than a
+    # checksum-backed id/passport/phone/email match, so the CLI marks those
+    # rows separately rather than presenting every match identically.
+    weak_only_names = [row["basename"] for row in payload["matched_files"] if row["weak_only"]]
+    if weak_only_names:
+        print(f"ไฟล์ที่ตรงกันเฉพาะชื่อ (ตัวระบุอ่อน ต้องยืนยันตัวตนเพิ่มเติม) {len(weak_only_names)} ไฟล์")
+        for name in weak_only_names:
+            print(f"  - {name}")
+
+
+def cmd_dsar_locate(args):
+    """Locate which files mention a data subject for a PDPA มาตรา 30 access
+    request."""
+    from pii_redactor.dsar import (
+        NoFilesAssessedError,
+        NoSubjectIdentifiersError,
+        locate_subject,
+    )
+
+    # Same reasoning as breach assess: check --pdf's renderer before running
+    # anything, so a missing renderer never surfaces after the JSON has
+    # already landed. `render_dsar_pdf` is Task 3's contract -- given the
+    # locate-result dict and an output path, it writes the PDF itself.
+    render_dsar_pdf = None
+    if args.pdf:
+        try:
+            from pii_redactor.dsar_pdf import render_dsar_pdf
+        except ImportError:
+            print(
+                "Error: --pdf requires pii_redactor/dsar_pdf.py, which is not yet available",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    try:
+        result = locate_subject(args.paths, args.subject_file, recursive=args.recursive)
+    except NoSubjectIdentifiersError as e:
+        # M1: the raised message names the subject-file PATH (never a line's
+        # content -- see NoSubjectIdentifiersError's own docstring), but this
+        # is the one branch on this argument that skipped the scrub the
+        # sibling failure below already applies. Route it through the same
+        # helper so a directory name never reaches stderr either.
+        print(
+            f"Error: {_scrub_known_paths(str(e), [args.subject_file])}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except NoFilesAssessedError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(
+            f"Locate failed to run: {_scrub_known_paths(str(e), [*args.paths, args.subject_file])}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    payload = result.to_json_dict()
+
+    # PDF before JSON, same half-state discipline as breach assess: on any
+    # OSError, a PDF this run wrote is deleted (best-effort) before the error
+    # is reported, so a hard failure never leaves a complete artifact behind
+    # unmentioned.
+    try:
+        if render_dsar_pdf is not None:
+            render_dsar_pdf(payload, args.pdf)
+        if args.output:
+            Path(args.output).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+    except OSError as e:
+        removed_pdf = False
+        if render_dsar_pdf is not None:
+            pdf_path = Path(args.pdf)
+            if pdf_path.exists():
+                try:
+                    pdf_path.unlink()
+                    removed_pdf = True
+                except OSError:
+                    pass
+        note = " -- deleted the locate-result PDF already written this run" if removed_pdf else ""
+        print(f"Error: cannot write locate result: {e}{note}", file=sys.stderr)
+        sys.exit(1)
+
+    _print_dsar_summary(payload)
+    if render_dsar_pdf is not None:
+        print(f"Locate result PDF written: {args.pdf}")
+    if args.output:
+        print(f"Locate result written: {args.output}")
+
+    skipped = payload["files"]["skipped"]
+    if skipped["count"]:
+        print(f"ข้ามไฟล์ที่นามสกุลไม่รองรับ {skipped['count']} ไฟล์")
+        for name in skipped["basenames"]:
+            print(f"  - {name}")
+
+    if result.files_failed:
+        print(f"ไม่สำเร็จ {len(result.files_failed)} ไฟล์", file=sys.stderr)
+        for failed in result.files_failed:
+            print(f"  - {failed.basename} {failed.reason}", file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_receipt_verify(args):
     """Re-run a file and report whether it still matches its receipt."""
     from pii_redactor.receipt import verify_receipt
@@ -354,6 +471,17 @@ class _BreachSubcommandParser(argparse.ArgumentParser):
     `error` bind in `main()` -- it is built by the shared top-level
     subparsers action alongside `sanitize`/`report`/`receipt`, so it cannot
     be given a different `parser_class` without affecting those too."""
+
+    error = _usage_error_exits_one
+
+
+class _DsarSubcommandParser(argparse.ArgumentParser):
+    """Used as `parser_class=` for `dsar`'s own nested subparsers action, same
+    technique as `_BreachSubcommandParser` -- every parser it constructs
+    (currently just `locate`) exits 1 on a usage error instead of argparse's
+    stock 2. `dsar_parser` itself gets the same behavior via a direct
+    instance-level `error` bind in `main()`, for the same reason
+    `_BreachSubcommandParser`'s docstring gives for `breach_parser`."""
 
     error = _usage_error_exits_one
 
@@ -428,6 +556,43 @@ def main():
         "--recursive", action="store_true", help="Scan directory paths recursively"
     )
     assess_parser.set_defaults(func=cmd_breach_assess)
+
+    # dsar subcommand — one verb (locate) today, same shape as breach/receipt.
+    dsar_parser = subparsers.add_parser(
+        "dsar", help="Locate files mentioning a data subject for a PDPA มาตรา 30 access request"
+    )
+    # Same instance-level bind as breach_parser, for the same reason (see
+    # _BreachSubcommandParser's docstring): dsar_parser is built by the same
+    # shared top-level subparsers action, so a parser_class swap here would
+    # affect sanitize/report/receipt/breach too.
+    dsar_parser.error = types.MethodType(_usage_error_exits_one, dsar_parser)
+    dsar_sub = dsar_parser.add_subparsers(
+        dest="dsar_command", required=True, parser_class=_DsarSubcommandParser
+    )
+
+    locate_parser = dsar_sub.add_parser("locate", help="Locate files mentioning a data subject")
+    locate_parser.add_argument("paths", nargs="+", help="File or directory paths to search")
+    locate_parser.add_argument(
+        "--subject-file",
+        required=True,
+        help=(
+            "Text file, one subject identifier per line: Thai national id, passport, "
+            "phone, email, or full name. Classified by shape -- 13 digits -> Thai "
+            "national id; two letters followed by 7 digits -> passport; contains @ -> "
+            "email; digits starting with 0, or a +66 form -> phone; anything else -> "
+            "name (the catch-all -- a phone number typed WITHOUT a leading 0 or +66 "
+            "classifies as a name, not a phone number). Identifiers are never accepted "
+            "inline on the command line, so no value enters shell history."
+        ),
+    )
+    locate_parser.add_argument(
+        "--output", "-o", help="Write the locate result JSON here (also prints a summary)"
+    )
+    locate_parser.add_argument("--pdf", help="Also render the locate result as a PDF at this path")
+    locate_parser.add_argument(
+        "--recursive", action="store_true", help="Scan directory paths recursively"
+    )
+    locate_parser.set_defaults(func=cmd_dsar_locate)
 
     args = parser.parse_args()
     args.func(args)

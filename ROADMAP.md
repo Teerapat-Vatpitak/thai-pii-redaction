@@ -245,9 +245,14 @@ document.
    so a controller can draft the 72-hour PDPC notification from evidence
    rather than memory. Core plus a CLI verb, plus a Thai PDF. No API endpoint
    in v1.
-3. **DSAR helper.** Support a data-subject access request against documents the
-   controller already holds. Blocked on the same question the receipt answered
-   for itself — what may be retained, and for how long.
+3. **DSAR helper.** Delivered 2026-08-01
+   ([record](docs/decisions/2026-08-01-dsar-helper.md)): locate which of a set
+   of documents the controller already holds mention a data subject, so the
+   controller can serve a มาตรา 30 access request from the located files
+   themselves rather than searching by hand. The retention question that
+   blocked this item was answered by the owner — in-memory for the run only,
+   nothing beyond the requested artifacts written to disk. Core plus a CLI
+   verb, plus a Thai PDF. No API endpoint in v1.
 4. **Standards mapping.** Document how the de-identification this tool performs
    maps to ISO/IEC 20889 and มรด. 6:2566. A document, not code, and it must
    describe what is implemented rather than what the standards recommend.

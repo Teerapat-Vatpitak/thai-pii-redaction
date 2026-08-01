@@ -99,6 +99,15 @@ def test_pdf_carries_no_fixture_value(tmp_path):
 
 
 def test_failed_file_row_shows_basename_and_reason_only(tmp_path):
+    """`missing.txt` is never created, so `extract()` raises a REAL
+    FileNotFoundError -- CPython's `OSError.__str__` formats its filename via
+    `repr()`, which backslash-escapes a Windows path, so the raw message
+    embeds `tmp_path` in BOTH the plain single-backslash form (which
+    `str(tmp_path) not in ...` alone would catch) and a doubled-backslash form
+    a naive scrub misses entirely (M4: this was the exact gap the final
+    whole-branch review flagged -- the plain check alone cannot fail here,
+    the same way it could not have caught the original leak this branch's
+    480ba08 fix closed in the sibling breach/dsar test files)."""
     good = _write(tmp_path, "good.txt", f"เลขบัตรประชาชน {ID_A}")
     missing_name = "missing.txt"
 
@@ -110,10 +119,15 @@ def test_failed_file_row_shows_basename_and_reason_only(tmp_path):
     assert failed[0]["basename"] == missing_name
     assert "FileNotFoundError" in failed[0]["reason"]
     assert str(tmp_path) not in failed[0]["reason"]
+    assert str(tmp_path).replace("\\", "\\\\") not in failed[0]["reason"]
+    assert tmp_path.name not in failed[0]["reason"]
 
 
 @requires_thai_font
 def test_failed_file_row_renders_in_pdf(tmp_path):
+    """M4: the PDF is the surface a human actually reads, so the same
+    doubled-backslash and bare-component checks used for the JSON reason
+    above are asserted here too, not just "FileNotFoundError in text"."""
     good = _write(tmp_path, "good.txt", f"เลขบัตรประชาชน {ID_A}")
     missing_name = "missing.txt"
 
@@ -125,6 +139,9 @@ def test_failed_file_row_renders_in_pdf(tmp_path):
     text = _text_of(out.read_bytes())
     assert missing_name in text
     assert "FileNotFoundError" in text
+    assert str(tmp_path) not in text
+    assert str(tmp_path).replace("\\", "\\\\") not in text
+    assert tmp_path.name not in text
 
 
 def test_oserror_propagates_on_unwritable_path(tmp_path):
