@@ -1,7 +1,8 @@
 """Format-preserving pseudonym generator for structured PII entities.
 
-Deterministic: same (data_type, original, salt) -> same pseudonym always.
-Uses seeded random: seed = int.from_bytes(SHA256(f"{salt}:{original}").digest()[:4], 'big')
+Deterministic for fixed (data_type, original, salt, attempt) inputs.
+The seed uses the caller's salt and original value, with attempt added for
+deterministic collision rerolls; entity_id is not part of the seed.
 """
 
 from __future__ import annotations
@@ -156,12 +157,14 @@ def generate_fp(data_type: str, original: str, *, salt: str, attempt: int = 0) -
     """Generate a format-preserving pseudonym for a given entity.
 
     Deterministic: same (data_type, original, salt, attempt) -> same pseudonym.
-    Uses seeded random: seed = int.from_bytes(SHA256(f"{salt}:{original}").digest()[:4], 'big')
+    Uses seeded random from salt and original, with attempt added for a
+    deterministic collision reroll.
 
     Args:
         data_type: entity type (THAI_ID, PHONE, EMAIL, etc.)
         original: the real PII value
-        salt: per-process random salt (never stored)
+        salt: caller-provided salt; the session service keeps one per session
+            and the pipeline generates one when omitted
         attempt: collision re-roll counter; 0 = the stable deterministic value
 
     Returns:

@@ -1,6 +1,8 @@
 """Thai name/address pseudonym generator using hardcoded pools (no LLM).
 
-Deterministic: same (data_type, original, salt) -> same pseudonym.
+Deterministic for fixed data_type, original, salt, attempt, and relevant
+context cues. The seed uses salt and original, with attempt added for a
+deterministic collision reroll; entity_id is not part of the seed.
 """
 
 from __future__ import annotations
@@ -192,7 +194,8 @@ def generate_tb(
     Args:
         data_type: "NAME" | "SURNAME" | "ADDRESS" | "DATE_OF_BIRTH" | etc.
         context_with_blank: sentence(s) with the original PII replaced by '___'
-        salt: per-process random salt
+        salt: caller-provided salt; the session service keeps one per session
+            and the pipeline generates one when omitted
         original: original PII (for seeding; never sent to LLM)
         attempt: collision re-roll counter; 0 = the stable deterministic value
 

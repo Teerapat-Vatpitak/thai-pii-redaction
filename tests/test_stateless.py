@@ -100,12 +100,13 @@ def test_prior_mapping_reuses_the_token_rather_than_minting_a_second_one():
 def test_prior_mapping_reuses_the_surrogate_across_turns():
     """Forces a real pin, not a vacuous one.
 
-    Surrogates are a pure function of (salt, original, attempt) --
-    tb_generator._seeded_rng takes no vault/call-order input (see
-    tb_generator.py:171-179). So whenever turn 1's value came from attempt=0,
-    a from-scratch regeneration in turn 2 reproduces it exactly, with or
-    without prior_mapping -- a test built on an attempt=0 fixture would pass
-    either way.
+    The surrogate generator's random draw is a pure function of its seed
+    inputs (data type, salt, original, and attempt); the TB name cue/shape also
+    comes from the supplied context. `tb_generator._seeded_rng` takes no
+    vault/call-order input (see tb_generator.py:171-179). So whenever turn 1's
+    value came from attempt=0, a from-scratch regeneration in turn 2
+    reproduces it exactly, with or without prior_mapping -- a test built on
+    an attempt=0 fixture would pass either way.
 
     To make prior_mapping load-bearing, turn 1's surrogate must NOT come from
     attempt=0. `bait` is the attempt=0 draw for `name` under salt "s" and
