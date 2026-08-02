@@ -16,7 +16,6 @@ import argparse
 import json
 import math
 import os
-import platform
 import subprocess
 import sys
 import time
@@ -255,7 +254,6 @@ def _load_engine(model_dir: Path) -> tuple[Any, dict[str, Any]]:
         "architecture": type(engine._model).__name__,
         "tokenizer": type(engine._tok).__name__,
         "labels": [engine._id2label[index] for index in range(len(engine._id2label))],
-        "thresholds_present": bool(thresholds),
         "model_size_bytes": _model_size_bytes(model_dir),
         "thresholds": thresholds,
     }
@@ -514,10 +512,6 @@ def _prf(
     }
 
 
-def _worker_cases() -> list[tuple[str, str]]:
-    return list(_CASES)
-
-
 def _run_worker(args: argparse.Namespace) -> int:
     result_path = args.worker_result_file or args.output_dir / "worker-result.json"
     try:
@@ -569,7 +563,6 @@ def _run_worker(args: argparse.Namespace) -> int:
                     "architecture": "ONNX Runtime token-classification graph",
                     "tokenizer": type(tokenizer).__name__,
                     "labels": [id2label[index] for index in range(len(id2label))],
-                    "thresholds_present": bool(thresholds),
                     "model_size_bytes": _model_size_bytes(model_dir),
                     "thresholds": thresholds,
                 }
@@ -587,13 +580,13 @@ def _run_worker(args: argparse.Namespace) -> int:
             load_ms = round((time.perf_counter() - started) * 1000, 3)
             rss_after_load = _rss_mb()
             first_started = time.perf_counter()
-            cases = {name: predict(text) for name, text in _worker_cases()}
+            cases = {name: predict(text) for name, text in _CASES}
             first_ms = round((time.perf_counter() - first_started) * 1000, 3)
             rss_after_first = _rss_mb()
             warm_samples: list[float] = []
             for _ in range(args.repeats):
                 warm_started = time.perf_counter()
-                for _name, text in _worker_cases():
+                for _name, text in _CASES:
                     predict(text)
                 warm_samples.append((time.perf_counter() - warm_started) * 1000)
             rss_after_warm = _rss_mb()
@@ -603,10 +596,6 @@ def _run_worker(args: argparse.Namespace) -> int:
                 "cases": {name: [list(span) for span in spans] for name, spans in cases.items()},
                 "load_ms": load_ms,
                 "first_inference_ms": first_ms,
-                "first_inference_ms_per_case": round(
-                    first_ms / len(_CASES),
-                    3,
-                ),
                 "warm_inference_ms_per_case": round(
                     median(warm_samples) / len(_CASES),
                     3,
@@ -615,12 +604,8 @@ def _run_worker(args: argparse.Namespace) -> int:
                 "rss_after_first_mb": rss_after_first,
                 "rss_after_warm_mb": rss_after_warm,
                 "memory_method": "current RSS samples in an isolated subprocess; not a peak sampler",
-                "python": platform.python_version(),
-                "platform": platform.platform(),
-                "cpu": platform.processor() or "unknown",
                 "providers": providers,
                 "thresholds": metadata["thresholds"],
-                "metadata": metadata,
             }
             if args.gold_jsonl:
                 records = _load_jsonl_gold(args.gold_jsonl)
@@ -723,7 +708,6 @@ def _invoke_worker(
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["HF_HUB_OFFLINE"] = "1"
-    started = time.perf_counter()
     completed = subprocess.run(
         command,
         cwd=Path(__file__).resolve().parents[1],
@@ -733,11 +717,9 @@ def _invoke_worker(
         timeout=900,
         check=False,
     )
-    process_ms = round((time.perf_counter() - started) * 1000, 3)
     if not result_path.exists():
         raise EvaluationError("worker did not produce a result")
     payload = json.loads(result_path.read_text(encoding="utf-8"))
-    payload["process_elapsed_ms"] = process_ms
     if payload.get("status") == "FAIL" or completed.returncode not in (0, 1):
         raise EvaluationError("worker evaluation failed")
     return payload
@@ -781,10 +763,6 @@ def _run_parent(args: argparse.Namespace) -> int:
             "comparison": fp32_comparison,
         },
         "int8": {"status": "NOT_EXECUTED", "reason": "not requested"},
-        "gold_metrics": {
-            "pytorch": pytorch.get("gold_metrics"),
-            "onnx_fp32": onnx_fp32.get("gold_metrics"),
-        },
     }
     fp32_passed = _differential_passed(fp32_comparison)
     if not fp32_passed:
@@ -814,7 +792,6 @@ def _run_parent(args: argparse.Namespace) -> int:
                 "onnx": onnx_int8,
                 "vs_pytorch": vs_pytorch,
                 "vs_onnx_fp32": vs_onnx_fp32,
-                "gold_metrics": onnx_int8.get("gold_metrics"),
             }
             if not int8_passed:
                 result["status"] = "FAIL"

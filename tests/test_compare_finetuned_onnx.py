@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from pii_redactor.detectors.finetuned_engine import _STRIDE_TOKENS, _WINDOW_TOKENS
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "compare_finetuned_onnx.py"
 SPEC = importlib.util.spec_from_file_location("compare_finetuned_onnx", SCRIPT)
@@ -85,13 +87,16 @@ def test_tokenizer_must_provide_fast_offsets():
 
 
 def test_decode_spans_preserves_unicode_character_offsets():
-    ids = [11, 12, 13]
-    offsets = [(0, 2), (2, 4), (5, 8)]
+    text = "A\u0301ก\u0e49\u0e33"
+    assert text[0:2] == "A\u0301"
+    assert text[2:5] == "ก\u0e49\u0e33"
+    ids = [11, 12]
+    offsets = [(0, 2), (2, 5)]
     labels = {0: "B-PERSON", 1: "I-PERSON"}
     probabilities = {0: 0.9, 1: 0.8}
 
     spans = harness._decode_spans(ids, offsets, labels, probabilities)
-    assert spans[0][:3] == (0, 4, "PERSON")
+    assert spans[0][:3] == (0, 5, "PERSON")
     assert spans[0][3] == pytest.approx(0.85)
 
 
@@ -120,7 +125,7 @@ class _FakeSession:
         input_ids = inputs["input_ids"][0]
         logits = np.full((1, len(input_ids), 11), -10.0, dtype=np.float32)
         start = int(input_ids[0])
-        if start == 180:
+        if start == _WINDOW_TOKENS - _STRIDE_TOKENS:
             logits[0, 10, 1] = 10.0
             logits[0, 11, 2] = 10.0
         return [logits]
@@ -134,8 +139,8 @@ def test_onnx_windows_use_production_overlap_stride_and_merge_spans():
         _FakeTokenizer(),
         id2label,
         "synthetic long text",
-        window_tokens=240,
-        stride_tokens=60,
+        window_tokens=_WINDOW_TOKENS,
+        stride_tokens=_STRIDE_TOKENS,
     )
 
     assert spans == [(190, 192, "PERSON", 1.0)]
@@ -146,7 +151,7 @@ def _worker_payload(spans):
     return {"cases": cases, "thresholds": {"PERSON": 0.95}}
 
 
-def test_differential_comparison_gates_spans_and_thresholds_but_allows_score_drift():
+def test_differential_comparison_and_parent_gates(monkeypatch, tmp_path):
     left = _worker_payload([(0, 4, "PERSON", 0.9000)])
     right = _worker_payload([(0, 4, "PERSON", 0.9005)])
     comparison = harness._compare_worker_outputs(left, right)
@@ -158,6 +163,67 @@ def test_differential_comparison_gates_spans_and_thresholds_but_allows_score_dri
     mismatch = harness._compare_worker_outputs(left, right)
     assert mismatch["span_and_label_agreement"] is False
     assert harness._differential_passed(mismatch) is False
+
+    def run_parent_case(name, *, fp32_mismatch=False, int8_mismatch=False, quantize=False):
+        model_dir = tmp_path / f"model-{name}"
+        model_dir.mkdir()
+        output_dir = tmp_path / f"result-{name}"
+        calls = []
+
+        def fake_invoke(_args, worker, **_paths):
+            calls.append(worker)
+            if worker == "export":
+                return {"status": "PASS", "metadata": {"thresholds": {}}}
+            if worker == "quantize":
+                return {"status": "PASS"}
+            spans = [(0, 4, "PERSON", 0.9)]
+            if worker == "onnx-fp32" and fp32_mismatch:
+                spans = [(0, 4, "LOCATION", 0.9)]
+            if worker == "onnx-int8" and int8_mismatch:
+                spans = [(0, 4, "LOCATION", 0.9)]
+            payload = _worker_payload(spans)
+            payload["status"] = "PASS"
+            return payload
+
+        monkeypatch.setattr(harness, "_invoke_worker", fake_invoke)
+        args = SimpleNamespace(
+            repeats=1,
+            model_dir=str(model_dir),
+            output_dir=output_dir,
+            gold_jsonl=None,
+            quantize=quantize,
+            smoke_only=True,
+            require_model=True,
+        )
+        exit_code = harness._run_parent(args)
+        result = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+        return exit_code, result, calls
+
+    passed_code, passed, passed_calls = run_parent_case("pass")
+    assert passed_code == 0
+    assert passed["status"] == "SMOKE_ONLY"
+    assert passed["int8"]["status"] == "NOT_EXECUTED"
+    assert passed_calls == ["export", "pytorch", "onnx-fp32"]
+
+    blocked_code, blocked, blocked_calls = run_parent_case(
+        "fp32-mismatch",
+        fp32_mismatch=True,
+        quantize=True,
+    )
+    assert blocked_code == 1
+    assert blocked["status"] == "FAIL"
+    assert blocked["int8"]["status"] == "NOT_EXECUTED"
+    assert "quantize" not in blocked_calls
+
+    int8_code, int8, int8_calls = run_parent_case(
+        "int8-mismatch",
+        int8_mismatch=True,
+        quantize=True,
+    )
+    assert int8_code == 1
+    assert int8["status"] == "FAIL"
+    assert int8["int8"]["status"] == "FAIL"
+    assert int8_calls == ["export", "pytorch", "onnx-fp32", "quantize", "onnx-int8"]
 
 
 def test_synthetic_gold_metrics_are_exact_span_metrics(tmp_path):

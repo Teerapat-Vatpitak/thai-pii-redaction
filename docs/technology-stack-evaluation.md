@@ -1,10 +1,18 @@
 # Technology Stack Evaluation
 
-Evaluation target: AI Guard version 2.5.0
-Branch: research/technology-evaluation
-Baseline commit: origin/main at 97ba756
-Scope: evidence-based technology evaluation only. No runtime API, default
-engine, product version, or public architecture contract was changed.
+Evaluation target: AI Guard 2.5.0
+Branch: `research/technology-evaluation`
+Baseline: `origin/main` at `97ba756`
+Scope: evidence-based technology evaluation only. Runtime APIs, defaults,
+`VERSION`, the shared core, and the product architecture were not changed.
+
+Evidence labels used below:
+
+- **Production evidence**: existing runtime, package, CI, or performance gates.
+- **SMOKE_ONLY**: a bounded experiment that proves mechanics, not quality or
+  production readiness.
+- **FAIL**: the stated experiment did not meet its gate.
+- **BLOCKED**: the required external artifact, host, or approval was absent.
 
 ## 1. Executive conclusion
 
@@ -14,55 +22,28 @@ Keep the current architecture:
                                       -> detectors, anonymizer, leak guard,
                                          provider boundary, restore/validate
 
-Keep Python as the shared PII, Thai NLP, PDF, report, and privacy core. Keep
-FastAPI as the local and hosted HTTP adapter, Tauri/Rust as the desktop shell,
-TypeScript/JavaScript as the storefront layer, and Docker as the hosted
-deployment unit.
+Keep Python for the shared PII, Thai NLP, PDF, report, and privacy core.
+Keep FastAPI for local and hosted HTTP, Tauri/Rust for the desktop shell,
+JavaScript/TypeScript for storefronts, and Docker for hosted packaging.
 
-Adopt now:
+Decisions from this evaluation:
 
-- Keep the existing architecture and optimize measured boundaries.
 - Keep the existing requirements and hash-locked installation paths.
-- Keep the optional ONNX evaluation harness in
-  scripts/compare_finetuned_onnx.py.
-- Treat model-backed ONNX and uv work as reversible evaluation experiments, not
-  as production changes.
+- Keep `scripts/compare_finetuned_onnx.py` as an optional research harness.
+- Do not add an ONNX production backend from this evidence. FP32 is
+  `SMOKE_ONLY`; the temporary-model INT8 run is `FAIL`.
+- Treat uv as a reversible migration candidate, not an adopted default.
+- Keep Rust/PyO3, Go, free-threaded Python, and full core rewrites as future
+  options only when a measured product requirement justifies them.
 
-Run a proof of concept:
+No ADR was added. This document records reversible evaluation results, not an
+architecture decision that is expensive to undo.
 
-- ONNX Runtime FP32, then dynamic INT8 only after FP32 differential validation,
-  when an external fine-tuned model and an approved synthetic gold set are
-  available. The one-step training smoke reached FP32 `SMOKE_ONLY`; its INT8
-  gate failed, so neither backend is a production candidate.
-- A uv migration pilot only after the generated lock can be proven equivalent
-  across CI, Docker, ML/OCR optional tiers, and the PyInstaller sidecar build.
+## 2. Current production architecture
 
-Keep as future options:
-
-- Rust/PyO3 for a specific hot path only if a representative profile proves a
-  Python-owned path is responsible for a material share of the budget.
-- A Go gateway only if a hosted platform requirement introduces a gateway
-  bottleneck or operational boundary that FastAPI cannot meet.
-- Free-threaded Python only after every native dependency is proven compatible
-  and a concurrency benchmark demonstrates a real benefit.
-
-Reject for the current product:
-
-- A full Rust, Go, Node/TypeScript, C#/.NET, or C++ rewrite of the shared core.
-- Replacing FastAPI or the Python sidecar solely to reduce process count.
-- A frontend framework rewrite without a measured UI or bundle problem.
-
-The current polyglot stack is justified at its boundaries: Rust/Tauri owns the
-desktop shell, JavaScript/TypeScript owns browser and Office surfaces, and
-Python owns one shared detection and privacy implementation. The evidence does
-not justify moving that core into another language.
-
-## 2. Current architecture
-
-The repository has one shared core under pii_redactor/. app/server.py provides
-the FastAPI adapter and the provisional local worker adapter. Storefronts call
-the shared path; they do not own independent detector, vault, or provider
-implementations.
+The repository has one shared core under `pii_redactor/`. `app/server.py`
+adapts the core for local, hosted, Office, and browser-facing paths. Storefronts
+do not own separate detection, vault, provider, or restore implementations.
 
     browser extension / CLI / demo / Office Add-in
                      |
@@ -70,529 +51,243 @@ implementations.
                      |
              app/server.py
                      |
-    SessionService or stateless request path
-                     |
     detect_all -> anonymize -> outbound leak guard
                      -> provider -> restore/validate
 
-The main runtime technologies are:
-
-| Boundary | Current technology | Reason it remains in scope |
+| Boundary | Current technology | Evidence-based reason |
 | --- | --- | --- |
-| Shared PII and privacy core | Python 3.11+ | Existing Thai NLP, CRFsuite, PDF, report, and provider ecosystem |
-| Thai detection | PyThaiNLP, CRFsuite, regex/checksum layers | Current accuracy and source-span behavior |
-| Optional fine-tuned NER | PyTorch and Transformers | External model is opt-in and not bundled |
-| Optional scanned-PDF OCR | PaddlePaddle and PaddleOCR | Separate optional tier |
-| HTTP adapter | FastAPI and Uvicorn | Existing local, hosted, Office, and browser contract |
-| Desktop shell | Tauri 2 and Rust | Native window, lifecycle, watchdog, and packaging boundary |
-| Storefronts | JavaScript/TypeScript and Vite | Browser and Microsoft 365 integration |
-| Hosted packaging | Docker | Existing reverse-proxy and stateless deployment path |
+| Shared PII and privacy core | Python 3.11+ | Existing Thai NLP, PDF, report, and provider ecosystem |
+| Thai detection | PyThaiNLP, CRFsuite, regex/checksum layers | Current source-span and structured-ID behavior |
+| Optional fine-tuned NER | PyTorch and Transformers | Opt-in external artifact; not bundled |
+| Optional scanned-PDF OCR | PaddlePaddle and PaddleOCR | Separate optional dependency tier |
+| HTTP adapter | FastAPI and Uvicorn | Shared local, hosted, Office, and browser contract |
+| Desktop shell | Tauri 2 and Rust | Native lifecycle, watchdog, and packaging boundary |
+| Storefronts | JavaScript/TypeScript and Vite | Browser and Microsoft 365 surfaces |
+| Hosted packaging | Docker | Existing stateless deployment path |
 
-The local mapping is held in memory inside the core. Browser and Office clients
-may hold a session_id but never receive the mapping or provider credentials.
-The hosted path is stateless by default and must not be described as keeping
-raw PII on the user's device.
+The local pseudonym mapping remains in memory inside the core. Browser and
+Office clients may hold `session_id`, never the mapping or provider
+credentials. Hosted AI processing is stateless by default and is not described
+as keeping raw PII on the user's device.
 
-The tracked source inventory on this baseline was 194 Python files, 26
-JavaScript files, 18 TypeScript files, and 7 Rust files. That count describes
-the existing surface; it is not a justification for duplicating the core.
+## 3. Existing production baseline
 
-## 3. Current measured baseline
+### Environment and gates
 
-### Environment
+Measurements used Windows 11 build 26200, repository Python 3.13.14, Node
+24.15.0, Rust/cargo 1.97.0, and uv 0.11.18. Docker CLI was present, but the
+local Docker Desktop Linux daemon was unavailable. Go and .NET were not
+installed.
 
-Measurements were run on Windows 11 build 26200 with:
-
-| Item | Value |
+| Gate | Result |
 | --- | --- |
-| Repository Python | .venv Python 3.13.14 |
-| Node | 24.15.0 |
-| Rust/cargo | 1.97.0 |
-| uv | 0.11.18 |
-| Docker | CLI present; local Docker Desktop Linux daemon unavailable |
-| Go/.NET | Not installed on the evaluation machine |
-| Fine-tuned model | No valid external 11-label artifact discovered; environment variable unset |
-
-The Office package declares Node 22.12 through <23. The local machine used
-Node 24, so the Office command emitted an engine warning; the successful
-Node 22 CI job is the authoritative compatibility result.
-
-### Tests and static checks
-
-| Check | Result |
-| --- | --- |
-| Python pytest | 1482 passed, 5 skipped, 1 warning in 246.77 s |
-| Ruff lint | All checks passed |
+| Python pytest | 1,482 passed, 5 skipped, 1 warning |
+| Ruff lint | Passed |
 | Ruff format | 210 files already formatted |
-| Version check | All version-bearing files match 2.5.0 |
-| Release readiness | Version targets, changelog, and release metadata agree |
-| Root JavaScript tests | 60 tests passed in 12 files |
-| Desktop JavaScript syntax | app.js and api.js passed node --check |
-| Tauri/Rust tests | 19 passed, 0 failed |
-| Office typecheck | Passed |
-| Office tests | 65 tests passed in 9 files |
-| Office build | Vite build passed |
-| Office manifests | Upstream and local validation passed |
-| Office package | 2.5.0 zip created and verified |
+| Version and release readiness | Passed; all version targets remain 2.5.0 |
+| Root JavaScript | 60 tests passed; syntax checks passed |
+| Tauri/Rust | 19 tests passed |
+| Office Add-in | 65 tests passed; typecheck, build, manifests, and package passed |
 | Sidecar smoke | Health, sanitize, and port cleanup passed |
-
-The only Python test warning was StarletteDeprecationWarning for the current
-httpx/TestClient combination. It did not fail a test.
+| Docker CI baseline | 320,978,341 bytes; ready after 2 s; five-endpoint smoke passed |
 
 ### In-process performance
 
-The committed historical baseline in perf/baseline.json is:
+The existing local performance gate is production-core evidence. Its memory
+value is the maximum of RSS samples taken after each measured operation, not a
+continuously sampled instantaneous peak.
 
-| Operation | Historical median | Peak RSS |
+| Operation | Historical median | Current final run |
 | --- | ---: | ---: |
-| detect | 5.73 ms | 151.4 MiB |
-| sanitize | 10.08 ms | 151.4 MiB |
-| restore | 0.28 ms | 151.4 MiB |
-| pdf_redact | 67.67 ms | 151.4 MiB |
+| detect | 5.73 ms | 5.18 ms |
+| sanitize | 10.08 ms | 9.57 ms |
+| restore | 0.28 ms | 0.31 ms |
+| PDF redaction | 67.67 ms | 67.72 ms |
+| RSS sample maximum | 151.4 MiB | 151.3 MiB |
 
-Command:
+The final run stayed within the 20% time and 15% memory budgets. Earlier
+outliers show measurement variance; no baseline move is justified.
 
-    $env:PYTHONUTF8='1'
-    ./.venv/Scripts/python.exe scripts/measure_perf.py --iterations 5 --json tmp/technology-baseline.json
+### Startup and packaging
 
-The first post-build run in this session reported detect 6.81 ms, sanitize
-13.10 ms, restore 0.79 ms, pdf_redact 110.36 ms, and 151.3 MiB. The command
-correctly returned a regression status. The committed baseline was not
-updated.
+- Fresh `import app.server` median: 676.88 ms. This is import/startup time,
+  not fine-tuned model loading.
+- Local Uvicorn: health response after 1,203.58 ms, first sanitize 501.01 ms,
+  warm sanitize median 4.32 ms, warm maximum 6.79 ms.
+- PyInstaller sidecar: 137,558,149 bytes / 131.19 MiB; smoke passed.
+- Published v2.5.0 assets ranged from 68,981,723 bytes for the ARM archive to
+  172,308,984 bytes for the Linux AppImage.
+- No local Docker image build or cold-start measurement was possible; CI is the
+  authoritative Docker evidence.
 
-Three additional runs showed the environment-sensitive range below:
+Model-dependent production evidence is reported in section 6. It remains
+`BLOCKED` for absolute accuracy because no approved external model and gold set
+were available.
 
-| Operation | Repeat range | Interpretation |
+## 4. Profiling observations
+
+On the current synthetic Thai fixture, cProfile over 30 detection calls
+attributes the largest measured share to Thai tokenization and NER:
+
+| Path | Cumulative profile time | Interpretation |
 | --- | ---: | --- |
-| detect | 5.22-5.88 ms | Within the 20% time budget |
-| sanitize | 10.27-11.14 ms | Within the 20% time budget |
-| restore | 0.33-0.61 ms | One run was noisy; later runs were 0.33 ms |
-| pdf_redact | 70.11-71.31 ms | Within the 20% time budget |
-| peak RSS | 150.6-151.0 MiB | Within the 15% memory budget |
+| `detect_all` | 0.756 s | Top-level detector |
+| `detect_tb` | 0.743 s | Thai contextual detector |
+| `sent_tokenize` | 0.488 s | Thai sentence/token path |
+| `crfcut.segment` | 0.477 s | CRFsuite segmentation |
+| `word_tokenize/newmm` | 0.462 s | Thai dictionary tokenization |
+| Thai NER candidate path | 0.216/0.210 s | `thainer` and candidate generation |
 
-This is evidence of measurement variance, not evidence of a runtime
-improvement. No baseline move is justified by this evaluation.
+The profile also attributes meaningful work to PDF extraction and image/text
+conversion on the small fixture: `redact_pdf` 0.376 s, Pillow quantization
+0.239 s, and PDF text extraction 0.239 s. These values locate work; they do
+not establish production throughput.
 
-The final validation run returned detect 5.18 ms, sanitize 9.57 ms, restore
-0.31 ms, pdf_redact 67.72 ms, and 151.3 MiB RSS, with the existing script
-reporting within budget.
+The evidence does not identify FastAPI dispatch, localhost HTTP, the Tauri
+command boundary, or a small pure-Python overlap routine as the dominant cost.
+Future optimization should start with larger representative Thai/PDF corpora,
+dictionary initialization, tokenization reuse, or PDF conversion.
 
-### Process startup and HTTP latency
+## 5. Technology decision matrix
 
-The import-only measurement ran five fresh Python processes importing
-app.server: 637.01, 668.54, 676.88, 830.17, and 1891.32 ms; median
-676.88 ms. This includes Python/module import and is not fine-tuned model load.
+| Option | Decision | Evidence |
+| --- | --- | --- |
+| Keep Python/FastAPI/Tauri/Docker | Adopt | Running system, shared core, green gates, and lowest migration risk |
+| Optional ONNX Runtime backend | Future POC | Reversible boundary; only smoke evidence exists and INT8 failed |
+| Supplemental uv workflow | Evaluate later | Fast environment creation, but loose resolution differs from the committed lock |
+| Rust/PyO3 hot path | Future POC | Profile does not yet justify a native rewrite |
+| Go hosted gateway | Future option | No measured gateway bottleneck or platform requirement |
+| Full Rust, Go, Node, .NET, or C++ core | Reject now | Would reproduce Thai NLP, model labels, PDF coordinates, Thai shaping, and privacy contracts |
+| FastAPI/sidecar replacement | Reject now | No evidence that the transport/process boundary is the cost center |
+| Frontend framework rewrite | Reject now | No UI, bundle, or test bottleneck |
+| Free-threaded Python | Reject now | Native dependency compatibility and concurrency benefit are unproven |
 
-A fresh local Uvicorn process on 127.0.0.1:18252 returned:
+The decision is about evidence quality and reversibility. It does not claim
+that future hardware, models, deployment constraints, or native implementations
+cannot change the ranking.
 
-| Measurement | Result |
-| --- | ---: |
-| Process start to /api/health | 1203.58 ms |
-| First synthetic /api/sanitize | 501.01 ms |
-| Warm sanitize median over 10 calls | 4.32 ms |
-| Warm sanitize maximum | 6.79 ms |
+## 6. ONNX smoke evaluation
 
-The first request includes lazy initialization and should not be compared with
-the warm request as if it were only HTTP overhead.
+### Harness contract
 
-### Packaging and deployment
-
-The local PyInstaller sidecar build completed in 131.3 s. Both the one-file
-build and staged Tauri binary were 137,558,149 bytes (131.19 MiB). The build
-reported optional hidden-import and unauthenticated Hugging Face Hub analysis
-warnings, but it completed and the executable smoke test passed. No weights
-were included.
-
-Published v2.5.0 assets provide a separate release baseline:
-
-| Asset | Bytes |
-| --- | ---: |
-| Windows x64 setup | 69,456,194 |
-| macOS aarch64 DMG | 69,049,796 |
-| Linux amd64 AppImage | 172,308,984 |
-| Linux amd64 deb | 96,324,058 |
-| Linux aarch64 tar.gz | 68,981,723 |
-
-The local Docker daemon was unavailable, so a local image build and local
-cold-start measurement were not run. The successful CI run 30728747436 built
-an image of 320,978,341 bytes, reported the container up after 2 s, and passed
-the five-endpoint contract smoke. That is CI evidence, not a local Docker
-benchmark.
-
-### Fine-tuned model
-
-No valid external AI Guard model directory was discovered through
-AIGUARD_FINETUNED_MODEL_DIR, the repository's bounded temporary/model folders,
-or the inspected Hugging Face cache. The cached ThaiNER base checkpoint was
-rejected: it has a 36-label base-model mapping, while this product's training
-lane requires a fresh 11-label BIO head. No external weights were copied into
-the repository or committed.
-
-The training lane is present and internally consistent: it uses synthetic
-generator-disjoint train/dev data, seed 20260728, the ThaiNER base model, a
-fresh 11-label head, dev span-F1 selection, and optional synthetic-dev
-threshold calibration. It does not yet pin every upstream model/dataset
-revision or all training dependency versions, so it is documented and
-executable but not fully lock-reproducible.
-
-A bounded `training/train.py --max-steps 1` smoke created a temporary 11-label
-artifact in about 10.22 s. That artifact has a freshly initialized classifier
-head and was not used for accuracy claims. The optional harness then reported:
-
-- FP32: `SMOKE_ONLY`; export 4,560.23 ms, PyTorch warm median 84.995 ms/case,
-  ONNX warm median 59.771 ms/case. PyTorch current RSS samples were
-  478.2-848.7 MiB and ONNX samples were 897.9-920.6 MiB in separate worker
-  processes. All 12 synthetic probes agreed on spans, labels, and threshold
-  decisions; maximum confidence delta was 1.27e-6.
-- INT8: `FAIL` after the FP32 gate. Several probes changed spans, labels, or
-  threshold decisions; maximum confidence delta was 0.13401024. It is not
-  approved for production.
-- Accuracy: not executed. No approved raw-label gold set was used, and the
-  one-step model is not a quality candidate.
-
-## 4. Actual bottlenecks
-
-On the current representative synthetic Thai fixture, cProfile over 30
-detection calls attributes the largest measured share to:
-
-| Path | Cumulative time in profile | Meaning |
-| --- | ---: | --- |
-| detect_all | 0.756 s | Top-level detector |
-| detect_tb | 0.743 s | Thai contextual detector |
-| sent_tokenize | 0.488 s | PyThaiNLP sentence/token path |
-| crfcut.segment | 0.477 s | CRFsuite token segmentation |
-| word_tokenize/newmm | 0.462 s | Thai dictionary tokenization |
-| _ner_candidates / thainer | 0.216/0.210 s | Thai NER candidate path |
-
-The profile also showed a one-time 0.374 s Thai dictionary-trie construction.
-That is a startup or first-use concern, not a reason to rewrite the detector
-in Rust without measuring a warmed process and a larger corpus.
-
-A profile of the existing full performance harness showed PDF-specific work:
-
-- redact_pdf accumulated 0.376 s over the profiled calls.
-- Pillow ImagingCore.quantize accumulated 0.239 s.
-- PDF text extraction accumulated 0.239 s, including pypdfium2 text extraction.
-- pypdf page text-map extraction accumulated 0.140 s.
-
-The PDF profile has cProfile overhead and uses a small fixture, so these values
-locate work rather than establish production throughput. They do establish
-that PDF image/text conversion and Thai tokenization are better optimization
-targets than a thin FastAPI replacement or a small Python span utility.
-
-Measured maintenance costs are also concrete:
-
-- The core has separate web, ML, OCR, build, and platform dependency tiers.
-- The sidecar build excludes large optional ML/OCR modules and still produces a
-  131.19 MiB executable.
-- CI covers Python, core-only Python, Windows, Ubuntu, Docker, Rust, browser/
-  desktop JavaScript, Office Node 22, and packaging.
-- The local Office toolchain is Node-version-sensitive.
-- A loose uv resolution produced newer packages than the committed hash lock,
-  so uv alone does not make the current requirements reproducible.
-
-There is no measurement showing that FastAPI request dispatch, the localhost
-HTTP boundary, or the Tauri command boundary is the dominant cost.
-
-## 5. Technology options considered
-
-### Option A: Keep the current architecture
-
-Strengths:
-
-- One shared detector, anonymizer, vault, leak guard, provider boundary, and
-  PDF path serves all storefronts.
-- The full existing Python contract has 1482 passing tests and all current CI
-  lanes are green on main.
-- PyThaiNLP and CRFsuite already provide Thai segmentation and NER behavior
-  that a rewrite would need to reproduce at source-span level.
-- FastAPI is reused for local and hosted paths and is observable with ordinary
-  HTTP tools.
-- Tauri/Rust provides a narrow native boundary without duplicating PII logic.
-
-Weaknesses:
-
-- Python import and first-use startup are measurable costs.
-- The PyInstaller sidecar is large.
-- Optional ML/OCR dependency tiers increase install and CI complexity.
-- The PDF path has a meaningful conversion/redaction cost.
-
-The current combination is justified because the language boundaries match
-product surfaces. The measured core bottlenecks do not justify changing those
-boundaries.
-
-### Option B: Rewrite the shared core in Rust
-
-Rust could improve memory control and native packaging in a new implementation,
-but the repository would need replacements for PyThaiNLP segmentation,
-CRFsuite behavior, Transformers inference, PDFium extraction/redaction,
-ReportLab/HarfBuzz Thai shaping, and the existing character-offset semantics.
-The largest risk is a silent accuracy or offset regression, not raw CPU speed.
-
-The existing Rust code is valuable as the desktop shell. It is not evidence
-that the shared PII core should be rewritten.
-
-### Option C: Add a Go hosted gateway
-
-Go is well suited to a small authentication, rate-limit, and routing gateway.
-There is no measured gateway bottleneck and Go was not installed locally.
-Adding Go would retain the Python core behind another service, adding routing,
-deployment, observability, and trust-boundary work. It becomes reasonable only
-when a concrete hosted platform requirement calls for it.
-
-### Option D: Move the core to Node.js or TypeScript
-
-This would share syntax with browser and Office surfaces, but it would not
-share the Thai NLP, CRFsuite, PyTorch, PDFium, Pillow, ReportLab, or HarfBuzz
-behavior that currently defines the core. It would create a second accuracy
-implementation or force a large native-extension strategy. The storefront
-layer already gets the benefits of TypeScript where those benefits apply.
-
-### Option E: Move the product to C#/.NET
-
-.NET could be attractive for a Windows-first enterprise integration or a
-future Office-native component. It does not provide a low-risk replacement for
-the current Thai NLP/PDF core, and dotnet was not available for a local
-prototype. The current cross-platform desktop and hosted contracts would still
-need to be preserved.
-
-### Option F: Replace PyTorch inference with ONNX Runtime
-
-ONNX is the highest-priority experiment because it can potentially reduce
-runtime dependencies, memory, startup, and sidecar size while leaving the
-shared Python contract in place. It is not production-ready until the external
-model passes differential and accuracy gates.
-
-### Option G: Rust/PyO3 for selected hot paths
-
-The profile points to PyThaiNLP/CRFsuite and PDF/Pillow work, not a small pure
-Python overlap routine. Moving Thai NER rules to Rust would move the accuracy
-and maintenance boundary without evidence. A future isolated POC must preserve
-the Python API, have a pure-Python fallback, pass differential tests, and
-show a material improvement after packaging cost.
-
-### Option H: Adopt uv
-
-uv materially improves clean environment creation and can generate hash-pinned
-lock material, but the current experiment resolved loose requirements to newer
-packages than the committed lock. It is a promising supplemental workflow,
-not a reason to delete requirements files or change CI in this evaluation.
-
-### Option I: Free-threaded Python
-
-No free-threaded interpreter was installed or discoverable through py -0p.
-PyThaiNLP, python-crfsuite, PyTorch, Transformers, PDFium, Pillow, ReportLab,
-HarfBuzz, FastAPI, and packaging compatibility were therefore not proven. The
-current evidence is insufficient to accept the native-extension risk.
-
-### Option J: Replace FastAPI or the local sidecar
-
-Starlette, Flask, Litestar, gRPC, named pipes, direct Tauri commands, embedded
-Python, and a Rust-native service could all be built, but each would either
-change the existing HTTP contract or create a second execution path. The
-localhost HTTP boundary serves the desktop, browser, Office, and hosted
-adapter use cases and is easy to inspect. No measurement shows it is the
-dominant bottleneck.
-
-### Frontend and C++
-
-The existing JavaScript/TypeScript storefronts are small and their tests/builds
-are green. There is no measured UI or bundle bottleneck for a framework rewrite.
-C++ could offer native control but would have the same Thai NLP/PDF accuracy
-and migration problem as a Rust rewrite with a larger portability burden.
-
-## 6. Decision matrix
-
-For P, M, S, Pack, and Deploy, 1 is little benefit and 5 is strong benefit.
-For AR, PR, MI, MA, and Test, 1 is low risk/effort/burden and 5 is high
-risk/effort/burden. For Eco, Cross, and Rev, 1 is poor fit/reversibility and
-5 is strong fit/reversibility.
-
-| Option | P | M | S | Pack | Deploy | AR | PR | MI | MA | Eco | Cross | Test | Rev | Decision |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| A. Keep Python/FastAPI/Tauri | 3 | 3 | 3 | 3 | 4 | 1 | 1 | 1 | 2 | 5 | 4 | 1 | 5 | Adopt now |
-| B. Rust core rewrite | 5 | 4 | 4 | 4 | 3 | 5 | 3 | 5 | 5 | 2 | 4 | 5 | 1 | Reject now |
-| C. Go hosted gateway | 2 | 3 | 3 | 2 | 4 | 2 | 2 | 4 | 4 | 4 | 4 | 4 | 3 | Future option |
-| D. Node/TypeScript core | 2 | 3 | 4 | 3 | 4 | 5 | 3 | 5 | 4 | 2 | 4 | 5 | 1 | Reject now |
-| E. C#/.NET core | 3 | 3 | 3 | 3 | 3 | 4 | 2 | 5 | 4 | 3 | 3 | 5 | 1 | Reject now |
-| F. ONNX optional backend | 4 | 4 | 4 | 4 | 4 | 3 | 1 | 3 | 3 | 3 | 4 | 4 | 4 | Run POC |
-| G. Rust/PyO3 hot paths | 4 | 3 | 2 | 2 | 2 | 4 | 2 | 4 | 4 | 3 | 3 | 4 | 3 | Future POC |
-| H. uv supplemental workflow | 2 | 2 | 2 | 3 | 4 | 1 | 1 | 2 | 2 | 4 | 4 | 2 | 5 | Evaluate later |
-| I. Free-threaded Python | 2 | 2 | 2 | 2 | 2 | 4 | 2 | 4 | 4 | 2 | 2 | 4 | 3 | Reject now |
-| J. FastAPI/sidecar replacement | 2 | 2 | 3 | 2 | 2 | 4 | 3 | 4 | 4 | 3 | 3 | 4 | 2 | Reject now |
-| Frontend framework rewrite | 2 | 2 | 2 | 2 | 2 | 3 | 1 | 4 | 4 | 4 | 4 | 4 | 2 | Reject now |
-| C++ core rewrite | 4 | 4 | 4 | 2 | 3 | 5 | 3 | 5 | 5 | 3 | 3 | 5 | 1 | Reject now |
-
-The scores are grounded in the measured boundaries:
-
-- A has the strongest ecosystem, cross-platform, reversibility, and test
-  evidence because it is the running system with green gates.
-- F has the highest reversible upside among core-preserving options, but its
-  performance and memory scores are potential benefits, not measured results.
-- H has direct installation evidence but still needs lock and CI equivalence.
-- B, D, E, and C++ have high migration/test scores because they must reproduce
-  Thai tokenization, model labels, PDF coordinates, Thai shaping, and privacy
-  contracts.
-- G has no candidate hot path that the profile proves is worth a native build.
-- J adds risk without evidence that the HTTP or sidecar boundary is the cost
-  center.
-
-## 7. ONNX Runtime findings
-
-The current fine-tuned adapter uses a fast tokenizer with character offsets,
-240-token windows, a 60-token stride, max-confidence voting for overlapping
-windows, BIO decoding, and optional per-label thresholds loaded beside the
-external model. The optional harness mirrors this logical output:
+The current fine-tuned adapter returns character-offset spans, uses a fast
+tokenizer, 240-token windows, a 60-token overlap, maximum-confidence voting,
+BIO decoding, and optional per-label thresholds. The harness reuses the
+production window/overlap constants and compares the logical output:
 
     list[tuple[int, int, str, float]]
 
-No valid external 11-label artifact was available, so a production model
-evaluation remains blocked. The new harness is
-scripts/compare_finetuned_onnx.py. It includes synthetic probes for empty
-input, Thai names, Thai addresses, organizations, dates, student IDs, long
-stride, overlapping windows, Unicode offsets, combining Thai marks, unknown
-labels, and threshold filtering. It never uses blind-v1 as an evaluation
-dataset.
+It writes generated ONNX files and numeric JSON only under ignored `tmp/`,
+uses synthetic probes, and never uses `blind-v1`. Its result statuses are:
 
-The harness was exercised with the bounded one-step training artifact:
+- no model: `SKIPPED` (exit 0), or exit 2 with `--require-model`;
+- invalid existing artifact or evaluation error: `FAIL`;
+- successful bounded smoke: `SMOKE_ONLY`;
+- complete non-smoke evaluation: `PASS`.
 
-- FP32 status: `SMOKE_ONLY`. PyTorch and ONNX agreed on spans, labels, and
-  threshold decisions for all 12 probes. This is differential evidence only,
-  not accuracy evidence.
-- INT8 status: `FAIL`, executed only after FP32 passed. Span/label and
-  threshold decisions drifted on several probes, so the harness correctly
-  rejects this INT8 result.
-- Accuracy status: not executed. The run had no approved raw-label gold set,
-  and the model head was freshly initialized.
-- Memory status: current RSS samples from separate PyTorch and ONNX worker
-  processes; not a peak sampler. The harness reports that limitation in the
-  result JSON.
+### Model and training-pipeline review
 
-Without a model, the default command returns `SKIPPED` with exit 0. Adding
-`--require-model` makes the missing-model result exit 2. An incompatible model
-or failed export/inference is `FAIL`; a successful bounded run is
-`SMOKE_ONLY`; only a complete non-smoke evaluation can be `PASS`.
+No valid external AI Guard artifact was found through
+`AIGUARD_FINETUNED_MODEL_DIR`, bounded repository model folders, or the
+inspected Hugging Face cache. The available ThaiNER base checkpoint was
+rejected because its 36-label mapping is not the product's fine-tuned mapping.
 
-Required command when an external model is available:
+The repository training lane was checked directly against `training/`:
 
-    $env:AIGUARD_FINETUNED_MODEL_DIR='path/to/external-model'
-    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx
+- `training/train.py` uses base model
+  `pythainlp/thainer-corpus-v2-base-model` and a fresh 11-label BIO space:
+  `O` plus `B-`/`I-` for PERSON, LOCATION, ORGANIZATION, DATE, and STUDENT_ID.
+- The default seed is `20260728`; max length is 256; the default run uses
+  Trainer checkpoint selection on dev span-F1 and never benchmark gold.
+- `training/generate_data.py` uses synthetic lexicons, a held-out value shard
+  and template space for dev, O-only hard negatives, counterfactual pairs, and
+  optional ThaiNER rehearsal. It rechecks contamination against gold values.
+- The tracked manifest records 6,828 train documents / 16,310 entities and
+  680 dev documents / 1,720 entities with the same seed and content hashes.
+- `training/calibrate_thresholds.py` reads synthetic dev only and chooses the
+  highest grid threshold within 0.005 recall loss. It writes
+  `thresholds.json` beside the model artifact.
+- The pipeline saves standard Hugging Face config, weight, tokenizer, and
+  training metadata files. Weights and thresholds remain external to the repo.
+- Base-model, rehearsal-dataset, and all training-dependency revisions are
+  not fully pinned. The lane is executable, but not fully lock-reproducible.
 
-Only after FP32 differential validation passes:
+### Smoke evidence and interpretation
 
-    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx --quantize
+A previous bounded one-step training run created a temporary artifact in about
+10.22 s. Its classifier head was freshly initialized. No additional training
+or quantization was run in this cleanup pass.
 
-An approved synthetic gold JSONL can be supplied with --gold-jsonl to report
-exact-span precision, recall, and F1. The harness treats the PyTorch output as
-the current reference for differential checks, but it does not treat reference
-agreement as accuracy. The existing engine remains the default and no ONNX
-configuration was added to production code.
+| Evidence | Status | Result |
+| --- | --- | --- |
+| Training artifact | `SMOKE_ONLY` | Mechanics only; not a quality candidate |
+| PyTorch vs ONNX FP32 | `SMOKE_ONLY` | All 12 synthetic probes agreed on spans, labels, and threshold decisions |
+| PyTorch/ONNX absolute accuracy | `BLOCKED` | No approved raw-label gold JSONL; no precision, recall, or F1 claim |
+| Dynamic ONNX INT8 | `FAIL` | Current smoke model and current quantization method failed differential gates |
+| Sidecar/installer benefit | `BLOCKED` | No sidecar or installer delta was measured |
 
-Recommendation: keep this as a POC. Adopt ONNX only if an approved external
-model passes accuracy, source-offset, and differential gates and provides a
-material operational benefit after runtime and sidecar measurements. The
-current FP32 result is smoke-only and the current INT8 result failed.
+FP32 export took 4,560.23 ms. The maximum FP32 confidence delta was
+`1.27e-6`; that is differential mechanics, not absolute accuracy.
 
-## 8. uv findings
+The current dynamic INT8 smoke run failed differential span, label, and
+threshold gates. Re-evaluation requires a production-quality model. This
+result rejects the current smoke evidence and method for production; it does
+not prove that every production-quality model or quantization strategy will
+fail.
 
-uv 0.11.18 was tested in ignored tmp/technology-uv without changing the
-requirements files or committed locks.
+### Performance and memory limits
+
+The temporary artifact was approximately 420 MB. PyTorch and ONNX were loaded
+and measured in separate subprocesses:
+
+| Worker | Load | First probe set | Warm median | Current RSS samples |
+| --- | ---: | ---: | ---: | ---: |
+| PyTorch | 9,135.665 ms | 1,396.691 ms | 84.995 ms/case | 478.2-848.7 MiB |
+| ONNX FP32 | 8,813.201 ms | 1,060.572 ms | 59.771 ms/case | 897.9-920.6 MiB |
+
+These are **current RSS samples**, not a continuously sampled maximum or total
+runtime memory. The one-step artifact is not representative of a final
+optimized production artifact, and these samples do not justify an ONNX
+memory advantage or disadvantage.
+
+## 7. uv evaluation
+
+uv 0.11.18 was evaluated in ignored temporary environments without changing
+requirements, CI, Docker, or the sidecar workflow:
 
 | Experiment | Result |
 | --- | --- |
-| Clean Python 3.13 environment | Created in 270.3 ms |
-| Core plus web install | 3,620.33 ms |
-| Core plus web uv pip check | Passed |
-| Focused tests | 152 passed in 2.18 s; measured command duration 4.93 s |
-| ML install | 14,737.5 ms |
-| OCR install | 4,971.29 ms |
-| All optional uv pip check | Passed for 108 packages |
-| Hash lock generation | 1,197 lines; 43 resolved packages |
+| Environment creation | 270.3 ms |
+| Core/web installation | 3,620.33 ms |
+| ML installation | 14,737.5 ms |
+| OCR installation | 4,971.29 ms |
+| All-optional `uv pip check` | Passed for 108 packages |
+| Hash compilation | 1,197 lines / 43 resolved packages |
 
-The uv environment selected CPython 3.13.12, while the repository .venv uses
-3.13.14. The optional environment ended with torch 2.13.0, transformers 5.14.1,
-paddleocr 3.7.0, and paddlepaddle 3.2.2. It did not contain onnx or
-onnxruntime because those packages are not in the current requirements tiers.
-Paddle also emitted a no-ccache warning during import.
+The environment resolved newer packages than the committed hash lock. uv is
+useful for lock generation and a future migration pilot, but it is not an
+adopted default. Adoption requires equivalence across requirements, CI,
+Docker, ML/OCR tiers, and the sidecar build.
 
-The loose requirements resolved newer packages than the existing hash-locked
-requirements.lock. This demonstrates that uv is useful for generating a lock,
-not that an unpinned uv sync is already equivalent to production installation.
+## 8. Rejected rewrites
 
-Recommendation: keep requirements.txt, requirements-web.txt,
-requirements-ml.txt, requirements-ocr.txt, requirements.lock, and the current
-sidecar build. uv is an evaluated migration candidate and reversible lock
-generation tool, not an adopted default. A future pilot can add pyproject
-dependency groups and uv.lock, then compare pip and uv in every CI tier and
-Docker build before changing the default workflow.
+These options are rejected for the current product, not permanently:
 
-## 9. Rust/PyO3 findings
+- Full Rust or C++ core: migration would reproduce Thai NLP, model-backed
+  inference, PDF coordinates, Thai shaping, privacy behavior, and packaging.
+- Node/TypeScript or .NET core: storefront syntax or Windows integration does
+  not replace the current Thai NLP/PDF ecosystem.
+- FastAPI/sidecar replacement: a new transport would create another path
+  without evidence of a boundary bottleneck.
+- Go gateway: reasonable only after a concrete hosted gateway or rate-limit
+  requirement appears.
+- Free-threaded Python: requires a supported native-dependency matrix and a
+  measured concurrency benefit.
+- Frontend framework rewrite: no UI or bundle problem was measured.
 
-Rust/Tauri is already the correct desktop-shell boundary. The existing Rust
-tests passed 19 cases, and the shell owns native window/lifecycle concerns
-without owning PII detection.
+## 9. Recommended architecture
 
-The profile does not identify span overlap resolution, structured identifier
-scanning, or a small pure-Python normalization loop as a dominant cost. The
-dominant work is PyThaiNLP/CRFsuite tokenization and NER, followed by PDF
-extraction and Pillow conversion. Those paths depend on mature native or
-model-backed libraries already called from Python.
-
-No PyO3 prototype was built. A future candidate must:
-
-- preserve the Python API and have a pure-Python fallback;
-- pass entity-for-entity and offset differential tests;
-- use larger representative Thai/PDF corpora;
-- show a meaningful speed or memory improvement after build and packaging
-  overhead is included.
-
-Rust, Go, TypeScript, C#, and C++ therefore have clear boundary-specific uses,
-but none has evidence for replacing the shared core today.
-
-## 10. FastAPI and sidecar findings
-
-FastAPI should remain the adapter. It preserves the existing HTTP contract for
-local desktop, browser, Office, and hosted use, and it keeps the core
-implementation reusable and inspectable. The measured warm local request was
-4.32 ms median; the available evidence does not isolate FastAPI dispatch as a
-dominant cost.
-
-The Python sidecar should remain behind the Tauri shell. The current PyInstaller
-one-file artifact is 131.19 MiB, which is a real packaging cost, but replacing
-localhost HTTP with direct Tauri commands would create a second product path
-for the desktop and reduce reuse with browser/Office/hosted clients.
-
-Named pipes, Unix sockets, gRPC, embedded Python, a Rust-native local service,
-Starlette, Flask, and Litestar remain possible alternatives, but none was
-measured or required. A transport change should only follow a concrete
-security, throughput, or packaging requirement.
-
-For hosted deployment, keep the stateless FastAPI adapter and Docker image.
-The successful CI image build and five-endpoint smoke are sufficient current
-evidence; a separate Go or Rust gateway should wait for a platform requirement.
-
-## 11. Rejected rewrite options
-
-The following are rejected for the current product, not permanently impossible:
-
-- Full Rust core: highest migration and accuracy risk; current profile does not
-  prove enough benefit to reproduce the entire Thai/PDF/model stack.
-- Node/TypeScript core: storefront code sharing does not replace the Thai NLP,
-  CRFsuite, ML, PDF, and Thai shaping ecosystem.
-- C#/.NET core: a potential future Windows integration layer, not a low-risk
-  core replacement.
-- C++ core: native speed potential is outweighed by portability, build,
-  offset, accuracy, and maintenance costs.
-- FastAPI/sidecar rewrite: no evidence that the HTTP/process boundary is the
-  bottleneck; changing it would increase contract and packaging risk.
-- Frontend framework rewrite: no UI, bundle, or test bottleneck.
-- Free-threaded Python: no compatible interpreter or native dependency matrix
-  was proven, and no concurrency benefit was measured.
-
-## 12. Recommended architecture
-
-The recommended architecture keeps one core and makes future optimizations
-optional at explicit boundaries:
+Keep one core and make future optimization optional at explicit boundaries:
 
     flowchart LR
       S[Browser CLI Office Demo] --> A[FastAPI adapter]
@@ -608,66 +303,31 @@ optional at explicit boundaries:
       C -. optional external model .-> O[PyTorch now; ONNX POC later]
       A -. stateless hosted mode .-> H[Docker and reverse proxy]
 
-The ONNX path should be selected only by an explicit future configuration
-choice and should implement the same logical span interface. It must never
-move the pseudonym mapping, credentials, raw provider body, or restored answer
-into a client or log.
+An eventual ONNX path must implement the same span interface, remain behind
+explicit configuration, preserve source offsets, and never move pseudonym
+mappings, credentials, raw provider bodies, or restored answers into clients or
+logs.
 
-## 13. Recommended next actions
+## 10. Remaining evidence required
 
-1. Obtain an external fine-tuned model and an approved synthetic evaluation
-   file. Run the FP32 harness, then investigate INT8 only after FP32 passes.
-2. Record exact span/label agreement, confidence delta, Unicode offsets,
-   threshold behavior, gold precision/recall/F1, load/warm timing, RSS, model
-   size, runtime size, and sidecar impact.
-3. Pin the base model and rehearsal dataset revisions, and pin the training
-   dependency set before treating a full retraining run as reproducible.
-4. Profile larger representative Thai documents and PDFs. Optimize dictionary
-   initialization, tokenization reuse, or PDF conversion only where a measured
-   budget justifies it.
-5. Run a separate uv migration pilot with pyproject dependency groups and a
-   committed uv.lock only after requirements, Docker, CI, ML/OCR, and sidecar
-   compatibility are proven.
-6. Revisit Go only if the hosted platform specifies gateway, rate-limit, or
-   concurrency requirements that the current adapter cannot meet.
-7. Revisit free-threaded Python only with a supported interpreter and a full
-   native-dependency matrix.
+1. Obtain a production-quality external 11-label model and an approved
+   synthetic raw-label gold set.
+2. Pin the base model, rehearsal dataset revision, and training dependency
+   versions before calling full retraining reproducible.
+3. Run FP32 differential plus precision/recall/F1 and offset checks. Only then
+   investigate INT8, using the FP32-before-INT8 gate.
+4. Measure model load, warm inference, current RSS samples, artifact size,
+   sidecar impact, installer impact, and representative Thai/PDF throughput.
+5. Revisit uv only after all installation and CI tiers are equivalent.
+6. Revisit Go or native hot paths only when a measured product boundary or
+   platform requirement justifies them.
 
-No ADR was added: this evaluation recommends a stable direction, but ONNX and
-uv remain experiments and no production architecture decision needs to be
-made from unexecuted model evidence.
+## 11. Commands and environment
 
-## 14. Risks and limitations
-
-- No approved external fine-tuned model or raw-label evaluation set was
-  available. The one-step model run is smoke-only and does not establish
-  quality.
-- FP32 differential smoke passed, but the subsequent INT8 differential smoke
-  failed; no INT8 production recommendation is supported.
-- The training pipeline is executable but upstream base-model/dataset
-  revisions and all training dependency versions are not fully pinned.
-- The performance harness is small and local; one outlier exceeded the
-  historical restore/PDF comparison while later runs were within budget.
-- No local Docker daemon was available, so Docker cold-start evidence comes
-  from CI and local Docker image sizing was not measured.
-- Published installer sizes are v2.5.0 release artifacts, not a rebuild of
-  this evaluation branch.
-- The uv experiment used current loose requirement files and a temporary
-  environment; it is not a replacement for the committed lock.
-- No concurrent load test or multi-document memory soak was run.
-- No free-threaded native-wheel compatibility was established.
-- The PyInstaller build completed with optional-analysis warnings that should
-  be cleaned up or documented before a packaging-focused release change.
-- No model weights, ONNX files, binaries, large datasets, secrets, or personal
-  documents were added to the branch.
-
-## 15. Commands and evidence
-
-Repository and baseline:
+Repository and core gates:
 
     git status --short --branch
-    git switch -c research/technology-evaluation origin/main
-    rg --files | Measure-Object
+    git fetch origin
     $env:PYTHONUTF8='1'
     ./.venv/Scripts/python.exe -m pytest -q
     ./.venv/Scripts/python.exe -m ruff check .
@@ -675,57 +335,46 @@ Repository and baseline:
     ./.venv/Scripts/python.exe scripts/check_version.py
     ./.venv/Scripts/python.exe scripts/check_release_readiness.py
 
-Existing performance and process measurements:
+Production measurements:
 
     ./.venv/Scripts/python.exe scripts/measure_perf.py --iterations 5 --json tmp/technology-baseline.json
     ./.venv/Scripts/python.exe -c "import app.server"
     ./.venv/Scripts/python.exe -m cProfile -s cumulative ...
     uvicorn app.server:app --host 127.0.0.1 --port 18252 --log-level warning
 
-Packaging and storefront gates:
+Optional training smoke used for the evidence above (do not treat it as
+accuracy evaluation):
 
-    ./.venv/Scripts/python.exe scripts/build_sidecar.py
-    ./.venv/Scripts/python.exe scripts/smoke_exe.py
-    npm run test:js
-    node --check src/app.js
-    node --check src/api.js
-    cargo test --manifest-path src-tauri/Cargo.toml
-    npm run typecheck
-    npm test
-    npm run build
-    npm run validate:manifest
-    npm run validate:manifest:upstream
-    npm run validate:manifest:local
-    npm run package:manifest
+    ./.venv/Scripts/python.exe training/train.py --data training/data --out tmp/technology-model-smoke --max-steps 1 --epochs 1 --batch 1 --grad-accum 1
 
-uv experiment:
-
-    uv venv --python 3.13 tmp/technology-uv
-    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements.txt -r requirements-web.txt
-    uv pip check
-    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements-ml.txt
-    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements-ocr.txt
-    uv pip compile --universal --generate-hashes --python-version 3.13 --output-file tmp/requirements-uv-compile.lock requirements.txt requirements-web.txt
-
-ONNX harness:
+Harness without a model:
 
     ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --list-cases
     ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py
-    ./.venv/Scripts/python.exe training/train.py --data training/data --out tmp/technology-model-smoke --max-steps 1 --epochs 1 --batch 1 --grad-accum 1
-    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir tmp/technology-model-smoke --require-model --smoke-only --output-dir tmp/technology-onnx-fp32
-    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir tmp/technology-model-smoke --require-model --smoke-only --quantize --output-dir tmp/technology-onnx-smoke
 
-The no-model command returned `SKIPPED` with exit 0. The bounded training
-smoke completed, the FP32 harness returned `SMOKE_ONLY`, and the INT8 harness
-returned `FAIL` after the FP32 gate. No model-dependent result was reported as
-production `PASS`, and no accuracy claim was made.
+Harness with an approved external model:
 
-External CI evidence:
+    $env:AIGUARD_FINETUNED_MODEL_DIR='path/to/external-model'
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx --quantize
 
-    gh run view 30728747436 --json jobs
-    gh run view 30728747436 --job 91445102335 --log
-    gh release view v2.5.0 --json tagName,assets
+The second command is valid only after the first command's FP32 differential
+gate passes. An approved synthetic gold JSONL may be added with
+`--gold-jsonl`; agreement with PyTorch is never substituted for gold accuracy.
 
-CI run 30728747436 passed all listed jobs, including Docker image build and
-smoke, Windows packaged executable smoke, Rust, JavaScript, Python, Office,
-and version checks. The branch did not modify main.
+## 12. Limitations
+
+- PR #106 remains open. This branch must be refreshed after that cleanup PR
+  merges; no merge or rebase was performed here.
+- No valid external production-quality model or approved raw-label gold set
+  was available. Absolute model accuracy is therefore `BLOCKED`.
+- The training pipeline is executable but upstream revisions and dependency
+  pins are incomplete.
+- The ONNX smoke used a freshly initialized one-step classifier head. Its
+  current RSS samples and approximately 420 MB artifact are not production
+  resource evidence.
+- No sidecar/installer ONNX delta, concurrent load soak, local Docker cold
+  start, live provider acceptance, or real browser/Office host acceptance was
+  run in this evaluation.
+- No model weights, ONNX files, binaries, large datasets, secrets, personal
+  documents, or new blind datasets were added to the branch.
