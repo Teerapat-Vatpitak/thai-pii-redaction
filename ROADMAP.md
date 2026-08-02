@@ -48,6 +48,13 @@ release rules live in [docs/release-process.md](docs/release-process.md).
   pending; the queue worker is retained only as a local failure/retry
   emulator, not the official delivery path.
 
+The source tree keeps live product code, required synthetic/reproducibility
+inputs, and privacy-reviewed evidence. Local environments, runtime logs,
+generated reports, model caches, and build output are deliberately ignored.
+`blind-v1` remains only as a closed historical audit trail after its six reveals;
+it is not a current blind evaluation set. Any future blind evaluation requires
+a newly frozen `blind-v2` dataset under the same protocol.
+
 ## Definition of done for a feature
 
 A feature is not complete merely because its function exists. Before it moves
