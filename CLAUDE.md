@@ -203,12 +203,21 @@ Post-detection:
 
 **Step 3 - Pseudonymization** (`pii_redactor/anonymizer/`)
 
-Session mapping table (in-memory only, never written to disk; keyed by `entity_id`):
+Session mapping table (in-memory only, never written to disk; keyed by `entity_id`).
+The UUID is the vault identity only; it is not used as a pseudonym seed:
 - If entity already in table → reuse existing pseudonym (consistency)
 - If new entity → route by `redact_type`:
-  - **FP**: `anonymizer/fp_generator.py` `generate_fp()` — format-preserving generator per `data_type` (valid checksum, SHA256-seeded per entity for reproducibility; no LLM)
-  - **TB**: `anonymizer/tb_generator.py` `generate_tb()` — realistic Thai names/addresses from local hardcoded pools, seeded per entity (no LLM; nothing is sent anywhere)
+  - **FP**: `anonymizer/fp_generator.py` `generate_fp()` — format-preserving generator per `data_type` (valid checksum, SHA256-seeded from the caller's `salt` and the original value, with deterministic `attempt=` rerolls; no LLM)
+  - **TB**: `anonymizer/tb_generator.py` `generate_tb()` — realistic Thai names/addresses from local hardcoded pools, seeded from the caller's `salt`, original value, and deterministic `attempt=` reroll; name cues and full-name shape also come from the supplied context (no LLM; nothing is sent anywhere)
   - **Collision-safe**: the fake pools are small, so two different people can draw the same pseudonym. `anonymizer.py _generate_unique_pseudonym` rejects a candidate that is already vaulted for a different original, equals another entity's real value, or appears verbatim in the source text; it re-rolls the seed (generators take `attempt=`) up to 8 times, then forces uniqueness with a `#N` suffix (mirrors the web path). Same original → same pseudonym is still allowed (consistency).
+
+For fixed generator inputs, the result is deterministic. `SessionService` keeps
+one random salt for a session, so the same original remains consistent within
+that vault. `run_pipeline()` generates a fresh salt when none is supplied, and
+independent sessions/runs therefore are not guaranteed to produce the same
+surrogate. The stateless API is reproducible only when the caller supplies the
+same salt (or passes a prior mapping). Restoration uses the vault/mapping and
+does not require cross-run identical surrogates.
 
 Replace real data using character spans from the entity registry (tail-first so earlier offsets stay valid) → consistency check (same entity everywhere) → post-replace scan with `detect_fp` (verify no real structured PII remains; halt + alert if found).
 
