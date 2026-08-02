@@ -2,7 +2,7 @@
 
 Evaluation target: AI Guard 2.5.0
 Branch: `research/technology-evaluation`
-Baseline: `origin/main` at `97ba756`
+Baseline: `origin/main` at `01aa793`
 Scope: evidence-based technology evaluation only. Runtime APIs, defaults,
 `VERSION`, the shared core, and the product architecture were not changed.
 
@@ -364,8 +364,8 @@ gate passes. An approved synthetic gold JSONL may be added with
 
 ## 12. Limitations
 
-- PR #106 remains open. This branch must be refreshed after that cleanup PR
-  merges; no merge or rebase was performed here.
+- PR #106 was merged into `main`, and this branch was refreshed with a normal
+  merge from `origin/main`; no rebase was performed.
 - No valid external production-quality model or approved raw-label gold set
   was available. Absolute model accuracy is therefore `BLOCKED`.
 - The training pipeline is executable but upstream revisions and dependency
