@@ -8,6 +8,10 @@ Diagnostic and failed-gate records:
 
 - [2026-07-31 Government-form synthetic regression (functional fail)](2026-07-31-government-form-synthetic-run.md)
 
+Detection regression record:
+
+- [2026-08-02 Issue #82 Thai NER span regression](2026-08-02-issue-82-ner-span-run.md)
+
 Other acceptance and qualified runtime records:
 
 - [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
