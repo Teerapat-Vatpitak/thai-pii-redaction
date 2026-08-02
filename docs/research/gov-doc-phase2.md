@@ -2,7 +2,8 @@
 
 บันทึกนี้แยกสี่สถานะออกจากกัน: ดาวน์โหลดต้นฉบับ, สร้างอินพุตสังเคราะห์,
 รัน probe แบบ text layer และรัน OCR. ผลวันที่ 2026-07-31 ยังไม่ใช่ accuracy
-benchmark. Runner ไม่เรียก `blind-v1` และ reveal log ยังอยู่ที่ 4/6.
+benchmark. Runner ไม่เรียก `blind-v1`. (reveal log อยู่ที่ 4/6 ตลอดช่วงพัฒนา
+งานนี้; reveal 5 เกิดหลังงาน land แล้วตามคำสั่ง owner — ดู project-status.)
 
 ## แหล่งและความครบถ้วน
 
@@ -110,7 +111,7 @@ decoy extraction check. Detection กับ type match เป็น telemetry �
 ได้ยังให้ overall recall 0.937 / F2 0.910, NAME recall 0.910 / precision 0.953 /
 F2 0.918, exact recall 0.793 และ gov-form slice recall 0.857. กฎกว้างแบบ
 “ชื่ออยู่ใกล้ ID/วันที่” ไม่ถูกเก็บไว้หลัง visible-gold regression test. Runner
-ไม่เรียก `blind-v1` และ reveal log ยังอยู่ที่ 4/6.
+ไม่เรียก `blind-v1` และ reveal log ขณะรันวันนั้นอยู่ที่ 4/6.
 
 ## ข้อจำกัด
 

@@ -83,8 +83,10 @@ that survives being checked.
 Ordered so that evaluation integrity comes before tuning:
 
 1. **Keep the blind set locked during tuning.** `blind-v1` is frozen. The
-   government-form runner does not access it, and the reveal log remains at
-   4/6.
+   government-form runner does not access it. The reveal log stands at 5/6:
+   reveal 5 (owner-approved, 2026-08-02) scored the gov-form campaign after
+   it landed — blind F2 flat within CI, character coverage and exact-boundary
+   recall up, negative slice identical — tuning never touched the set.
 2. **Separate automatic and human evidence.** Gold v4 already has its recorded
    two-reviewer adjudication. Government-form synthetic expectations are
    developer-authored and not independently adjudicated. Independent annotation
