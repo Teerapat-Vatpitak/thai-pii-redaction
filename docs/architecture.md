@@ -88,9 +88,24 @@ PII detection and not a complete injection defense.
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters; it holds `session_id`, never the mapping. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
+| `research/` | Privacy-reviewed external evidence and reproducibility records; not a runtime package. |
+| `training/` | Optional, gold-disjoint training inputs and lexicons; model weights stay outside the repository. |
+| `examples/` | Synthetic prompts, sample documents, and reproducible example builders. |
+| `assets/` | Published documentation/store artwork and other intentionally shipped visual assets. |
 | `tests/` | Contract, security, feature, benchmark, and release regression tests. |
 | `scripts/` | Build, version, release, and smoke tooling. |
 | `docs/` | Current operating docs plus historical ADRs. |
+
+The repository root keeps public entry points, project metadata, and governing
+files: `ai_guard.py` and `demo_cli.py` are supported CLI commands, `run.ps1`/`run.sh`
+start the local backend, and `pyproject.toml`, requirements files, package
+manifests, and lock files define the supported Python, JavaScript, Office, and
+Rust environments.
+Generated reports, logs, caches, virtual environments, model downloads, and
+packaged output are local-only and must not be committed. The encrypted
+`blind-v1` corpus, its aggregate audit log, synthetic gold data, and sanitized
+government-form inputs are deliberate evidence/reproducibility artifacts; the
+blind budget is exhausted and future blind evaluation requires `blind-v2`.
 
 This boundary is already test-covered. Moving modules for appearance alone
 would add release risk without improving the product, so source reorganization

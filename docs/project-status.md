@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-07-31
+Updated: 2026-08-02
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -9,6 +9,13 @@ This document answers one question: **what is actually finished, and what is the
 evidence**. It is not the code map ([CLAUDE.md](../CLAUDE.md)) and it does not set
 priority or order ([ROADMAP.md](../ROADMAP.md)). Every storefront named in the
 code map must have a row here; `tests/test_docs_coverage.py` enforces that.
+
+Benchmark note: `blind-v1` is a closed historical evidence set. Its six-reveal
+budget is exhausted, so it must not be described as an active blind evaluation
+or used for further tuning. A future blind measurement requires a newly frozen
+`blind-v2` dataset. The synthetic government-form privacy gate is green, but
+physical scans, handwriting, and broader real-form annotation remain outside
+that evidence.
 
 ## Status vocabulary
 
