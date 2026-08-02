@@ -118,9 +118,10 @@ Precondition: install the exact candidate artifact, not a dev web page.
 If no candidate binary is installed or built, status is **Blocked**, not Pass.
 
 The exact published Windows `2.5.0` installer completed this checklist on
-2026-07-24. Visual evidence was inspected in the operator session but not
-committed; the dated record contains only version, hashes, aggregate outcomes,
-and privacy-safe observations.
+2026-07-24 and was revalidated for Issue #69 on 2026-08-02. Visual evidence
+was inspected in the operator session but not committed; the dated records
+contain only version, hashes, aggregate outcomes, and privacy-safe
+observations. See the [Issue #69 run record](2026-08-02-desktop-2.5.0-issue-69-run.md).
 
 ## Playground checklist
 
