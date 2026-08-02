@@ -74,6 +74,27 @@ a hosted service.
 All storefronts call the same core under `pii_redactor/`; they do not maintain
 separate detection implementations.
 
+## Repository structure
+
+| Path | Responsibility |
+|---|---|
+| `pii_redactor/` | Shared detection, masking, vault, provider, restore, validation, report, and PDF logic. |
+| `app/` | FastAPI and provisional worker adapters; no separate detection or vault implementation. |
+| `ai_guard.py` / `demo_cli.py` | Supported CLI entry points for reports, sanitization, compliance tools, and the end-to-end demo. |
+| `extension/` | Chrome MV3 storefront and site adapters. |
+| `desktop/` | Tauri shell, static UI, and packaged-sidecar integration. |
+| `office-addin/` | Word, Excel, and PowerPoint task pane and host adapters. |
+| `demo/` | Opt-in browser playground. |
+| `benchmark/` / `research/` / `training/` | Synthetic evaluation, privacy-reviewed evidence, and optional training material. |
+| `scripts/` | Build, acceptance, performance, dependency-lock, version, and release helpers. |
+| `tests/` | Core, adapter, privacy, benchmark, packaging, and release contract tests. |
+| `docs/` | Current operating documents and historical decision records. |
+
+Generated reports, runtime logs, local environments, model caches, and build
+output are intentionally not part of the published source tree. The committed
+benchmark locks, synthetic gold data, sanitized government-form inputs, and
+privacy-reviewed evidence are reproducibility inputs and remain versioned.
+
 ## Install the local product
 
 Download the installer for your platform from the
@@ -96,6 +117,90 @@ To add the in-page browser bar, load `extension/` unpacked at
 To develop or sideload the Windows Office task pane, see
 [office-addin/README.md](office-addin/README.md). It reuses the running local
 backend and does not ship in the current installer.
+
+## Develop from source
+
+Requirements are Python 3.11+ and Git. Node 22 is required for the Office
+Add-in and JavaScript test harness; Rust is required only to build the desktop
+shell. Windows is the primary local development platform.
+
+The quickest local start is:
+
+```powershell
+$env:PYTHONUTF8='1'
+./run.ps1
+```
+
+`run.ps1` creates `.venv` and installs the core plus web dependencies on first
+run. The equivalent Git Bash/Linux/macOS command is `./run.sh`. The backend
+serves `http://localhost:8000`; check `http://localhost:8000/api/health` before
+starting a storefront.
+
+For a manual setup, install the same dependencies with:
+
+```powershell
+$env:PYTHONUTF8='1'
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-web.txt
+```
+
+Use [`.env.example`](.env.example) as the safe configuration reference. Keep
+provider keys and the local boot/API tokens in the environment of the backend;
+the extension and Office clients hold only a `session_id` and never the vault.
+
+### API and CLI
+
+The FastAPI adapter exposes `/api/health`, `/api/detect`, `/api/sanitize`,
+`/api/reidentify`, `/api/roundtrip`, `/api/analyze`, `/api/analyze-report`,
+`/api/guard`, and `/api/redact-pdf`. Stateful local use pairs `sanitize` with
+`reidentify`; hosted roundtrip use masks, calls the selected provider, and
+restores inside one request without retaining the mapping.
+
+Interactive API documentation is available at `http://localhost:8000/docs`.
+The CLI keeps the file-oriented path reproducible:
+
+```powershell
+.\.venv\Scripts\python.exe ai_guard.py sanitize examples/prompts/01_sick_leave_email.txt
+.\.venv\Scripts\python.exe ai_guard.py report examples/prompts/02_medical_consult.txt
+.\.venv\Scripts\python.exe demo_cli.py
+```
+
+Use synthetic fixtures from `examples/` for demonstrations and acceptance.
+
+### Storefront development
+
+- Extension: load `extension/` unpacked in `chrome://extensions` while the
+  backend is running; see [extension/README.md](extension/README.md).
+- Desktop: run `python scripts/build_sidecar.py`, then `cd desktop`, `npm ci`,
+  and `npm run tauri dev`; see [desktop/README.md](desktop/README.md).
+- Office: start the backend, then `cd office-addin`, `npm ci`, and `npm run dev`;
+  use the documented `start:*` commands for a host-specific or unified
+  manifest; see [office-addin/README.md](office-addin/README.md).
+- Demo: set `AIGUARD_DEMO=1` before starting the backend and open `/demo`.
+
+### Tests and development workflow
+
+```powershell
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+npm ci
+npm run test:js
+```
+
+The full Office and desktop gates are separate because they use their own
+package managers and host/runtime tools:
+
+```powershell
+cd office-addin; npm ci; npm test; npm run build
+cd ..\desktop\src-tauri; cargo test
+```
+
+CI also runs the core-only dependency tier, Docker-context checks, version
+checks, and packaged-runtime smoke gates. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and the [release process](docs/release-process.md)
+before changing version-bearing files.
 
 ## Run the API container
 
@@ -124,16 +229,26 @@ gh attestation verify <file> -R Teerapat-Vatpitak/thai-pii-redaction
 This verifies origin and integrity. It is not a claim of bit-for-bit
 reproducibility.
 
-## Status
+## Current status and limitations
 
 Feature acceptance on the local storefronts is complete except the remaining
 Office real-host items tracked in the acceptance checklist. Current work
 focuses on detection accuracy against a hand-authored gold benchmark (see
 `benchmark/`); accuracy numbers live in generated benchmark reports with
 corpus size and limitations — do not infer a public accuracy claim from
-prose. On the hosted side, AI for Thai group access, the HTTP/Compose
-participant guide, and private LLM access have arrived; the deployment
-project and the exact public route/auth contract are still pending.
+prose.
+
+`blind-v1` is a closed historical evidence set, not an active blind evaluation:
+its six-reveal budget is exhausted. Do not tune against it or present its
+historical results as a new blind measurement. Any future blind evaluation must
+use a newly frozen `blind-v2` dataset.
+
+Synthetic government-form privacy acceptance has passed for the committed
+probe inputs. That evidence does not cover physical scans, handwriting, or
+broader real-form annotation; those remain incomplete. Microsoft 365 host and
+packaged-manifest acceptance also remain open. Hosted AI-for-Thai deployment is
+externally blocked while the deployment project and exact public route/auth
+contract are confirmed.
 
 - [Current feature status](docs/project-status.md)
 - [Roadmap](ROADMAP.md)

@@ -1,74 +1,90 @@
-.venv/
-.superpowers/
+# Python environments, caches, and local build metadata
+/.venv/
+/.venv-*/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
-dist/
-build/
+
+# JavaScript, Office, Tauri, and packaged build output
+**/node_modules/
+**/dist/
+**/build/
+**/.vite/
+**/coverage/
+**/target/
 *.spec
+*.tgz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local configuration, credentials, certificates, and databases
 .env
-.DS_Store
-step1-7_*.pdf
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+
+# Runtime output and generated evaluation artifacts
 logs/
 benchmark/reports/
-artifacts/acceptance/
+artifacts/
+out/
 /tmp/
+*.log
+*.jsonl
+audit_*.jsonl
+step1-7_*.pdf
 
-# stray scratch files (kept out of repo root)
-/*.jpg
-/*.jpeg
-/*.png
-# Third-party competition brief (PSU) — not ours to redistribute. Match anywhere,
-# not just at root: a copy under docs/reference/ escaped the old anchored rule.
-AI_Innovation_for_Future_Society.pdf
-node_modules/
+# Hand-authored or privacy-reviewed JSONL evidence remains committed.
+!benchmark/data/gold.jsonl
+!benchmark/data/blind-scores.jsonl
+!research/stt52/evidence/*.jsonl
 
-# Local Claude Code / agent workspace (machine-specific, not shipped)
+# Model and tool caches
+.cache/
+.hf_cache/
+.huggingface/
+model_cache/
+models/
+
+# Local agent workspaces and superseded private working notes
 .claude/
 .superpowers/
-
-# Working notes kept locally: AI-agent task plans and superseded design docs,
-# and competition-submission artifacts from an event that has ended. Useful to
-# the maintainer, noise to a reader of a public repo.
 docs/superpowers/
 docs/submission/
 docs/demo/
 docs/reference/
 
-# Runtime output of the tool itself. audit.py defaults output_dir to "." (the
-# repo root when run from here) and writes audit_<session>_<type>.jsonl, which
-# per audit finding VAULT-4 still contains pseudonyms; exporter.py / `ai_guard
-# --output` write the re-identified text, i.e. real PII. .dockerignore already
-# excluded these — this closes the same gap on the git side.
-*.jsonl
-out/
-*.log
+# Operating-system metadata and editor swap files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
 
-# ...but the hand-authored gold set is source data, not runtime output: every
-# value in it is fabricated (see benchmark/gold.py) and benchmark/gold.py cannot
-# load without it, so a fresh clone must carry it.
-!benchmark/data/gold.jsonl
+# Stray scratch files kept out of the repository root
+/*.jpg
+/*.jpeg
+/*.png
 
-# STT52 paper evidence is committed by design: prediction files carry offsets
-# and types only, never document text or entity values (research/stt52/README.md).
-!research/stt52/evidence/*.jsonl
-
-# The blind-set audit log is committed by design: every scoring run of the
-# blind holdout appends a hash-chained aggregate entry there, so how often the
-# holdout was consulted stays auditable (benchmark/blind.py). It contains only
-# metrics, never corpus text. The corpus itself is committed as
-# benchmark/data/blind-*.enc, which *.jsonl does not match.
-!benchmark/data/blind-scores.jsonl
-
-# .env alone does not match .env.local / .env.production, and AIGUARD_TOKEN is
-# a real secret in this project's threat model.
-.env.*
-!.env.example
-
-# `.coverage` alone misses the XML report and coverage.py's parallel-mode files.
-coverage.xml
-.coverage.*
+# Third-party competition brief — not ours to redistribute. Match anywhere,
+# not just at root: a copy under docs/reference escaped the old anchored rule.
+AI_Innovation_for_Future_Society.pdf
