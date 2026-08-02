@@ -25,14 +25,15 @@ Adopt now:
 - Keep the existing requirements and hash-locked installation paths.
 - Keep the optional ONNX evaluation harness in
   scripts/compare_finetuned_onnx.py.
-- Use uv as a reversible development and lock-generation experiment, not as a
-  replacement for the current requirements workflow yet.
+- Treat model-backed ONNX and uv work as reversible evaluation experiments, not
+  as production changes.
 
 Run a proof of concept:
 
 - ONNX Runtime FP32, then dynamic INT8 only after FP32 differential validation,
   when an external fine-tuned model and an approved synthetic gold set are
-  available.
+  available. The one-step training smoke reached FP32 `SMOKE_ONLY`; its INT8
+  gate failed, so neither backend is a production candidate.
 - A uv migration pilot only after the generated lock can be proven equivalent
   across CI, Docker, ML/OCR optional tiers, and the PyInstaller sidecar build.
 
@@ -110,7 +111,7 @@ Measurements were run on Windows 11 build 26200 with:
 | uv | 0.11.18 |
 | Docker | CLI present; local Docker Desktop Linux daemon unavailable |
 | Go/.NET | Not installed on the evaluation machine |
-| Fine-tuned model | AIGUARD_FINETUNED_MODEL_DIR unset |
+| Fine-tuned model | No valid external 11-label artifact discovered; environment variable unset |
 
 The Office package declares Node 22.12 through <23. The local machine used
 Node 24, so the Office command emitted an engine warning; the successful
@@ -120,9 +121,9 @@ Node 22 CI job is the authoritative compatibility result.
 
 | Check | Result |
 | --- | --- |
-| Python pytest | 1473 passed, 5 skipped, 1 warning in 193.39 s |
+| Python pytest | 1482 passed, 5 skipped, 1 warning in 246.77 s |
 | Ruff lint | All checks passed |
-| Ruff format | 208 files already formatted |
+| Ruff format | 210 files already formatted |
 | Version check | All version-bearing files match 2.5.0 |
 | Release readiness | Version targets, changelog, and release metadata agree |
 | Root JavaScript tests | 60 tests passed in 12 files |
@@ -152,7 +153,7 @@ The committed historical baseline in perf/baseline.json is:
 Command:
 
     $env:PYTHONUTF8='1'
-    ..venvScriptspython.exe scriptsmeasure_perf.py --iterations 5 --json tmp	echnology-baseline.json
+    ./.venv/Scripts/python.exe scripts/measure_perf.py --iterations 5 --json tmp/technology-baseline.json
 
 The first post-build run in this session reported detect 6.81 ms, sanitize
 13.10 ms, restore 0.79 ms, pdf_redact 110.36 ms, and 151.3 MiB. The command
@@ -220,15 +221,39 @@ benchmark.
 
 ### Fine-tuned model
 
-No model directory was available through AIGUARD_FINETUNED_MODEL_DIR. Therefore
-model load time, model inference time, model size, PyTorch accuracy, ONNX
-accuracy, ONNX memory, and ONNX package/sidecar deltas are intentionally
-unexecuted. No result is fabricated from a missing artifact.
+No valid external AI Guard model directory was discovered through
+AIGUARD_FINETUNED_MODEL_DIR, the repository's bounded temporary/model folders,
+or the inspected Hugging Face cache. The cached ThaiNER base checkpoint was
+rejected: it has a 36-label base-model mapping, while this product's training
+lane requires a fresh 11-label BIO head. No external weights were copied into
+the repository or committed.
+
+The training lane is present and internally consistent: it uses synthetic
+generator-disjoint train/dev data, seed 20260728, the ThaiNER base model, a
+fresh 11-label head, dev span-F1 selection, and optional synthetic-dev
+threshold calibration. It does not yet pin every upstream model/dataset
+revision or all training dependency versions, so it is documented and
+executable but not fully lock-reproducible.
+
+A bounded `training/train.py --max-steps 1` smoke created a temporary 11-label
+artifact in about 10.22 s. That artifact has a freshly initialized classifier
+head and was not used for accuracy claims. The optional harness then reported:
+
+- FP32: `SMOKE_ONLY`; export 4,560.23 ms, PyTorch warm median 84.995 ms/case,
+  ONNX warm median 59.771 ms/case. PyTorch current RSS samples were
+  478.2-848.7 MiB and ONNX samples were 897.9-920.6 MiB in separate worker
+  processes. All 12 synthetic probes agreed on spans, labels, and threshold
+  decisions; maximum confidence delta was 1.27e-6.
+- INT8: `FAIL` after the FP32 gate. Several probes changed spans, labels, or
+  threshold decisions; maximum confidence delta was 0.13401024. It is not
+  approved for production.
+- Accuracy: not executed. No approved raw-label gold set was used, and the
+  one-step model is not a quality candidate.
 
 ## 4. Actual bottlenecks
 
-The strongest evidence comes from cProfile over 30 detection calls on the
-repository's synthetic Thai fixture:
+On the current representative synthetic Thai fixture, cProfile over 30
+detection calls attributes the largest measured share to:
 
 | Path | Cumulative time in profile | Meaning |
 | --- | ---: | --- |
@@ -277,7 +302,7 @@ Strengths:
 
 - One shared detector, anonymizer, vault, leak guard, provider boundary, and
   PDF path serves all storefronts.
-- The full existing Python contract has 1473 passing tests and all current CI
+- The full existing Python contract has 1482 passing tests and all current CI
   lanes are green on main.
 - PyThaiNLP and CRFsuite already provide Thai segmentation and NER behavior
   that a rewrite would need to reproduce at source-span level.
@@ -392,7 +417,7 @@ risk/effort/burden. For Eco, Cross, and Rev, 1 is poor fit/reversibility and
 | E. C#/.NET core | 3 | 3 | 3 | 3 | 3 | 4 | 2 | 5 | 4 | 3 | 3 | 5 | 1 | Reject now |
 | F. ONNX optional backend | 4 | 4 | 4 | 4 | 4 | 3 | 1 | 3 | 3 | 3 | 4 | 4 | 4 | Run POC |
 | G. Rust/PyO3 hot paths | 4 | 3 | 2 | 2 | 2 | 4 | 2 | 4 | 4 | 3 | 3 | 4 | 3 | Future POC |
-| H. uv supplemental workflow | 2 | 2 | 2 | 3 | 4 | 1 | 1 | 2 | 2 | 4 | 4 | 2 | 5 | Adopt as POC |
+| H. uv supplemental workflow | 2 | 2 | 2 | 3 | 4 | 1 | 1 | 2 | 2 | 4 | 4 | 2 | 5 | Evaluate later |
 | I. Free-threaded Python | 2 | 2 | 2 | 2 | 2 | 4 | 2 | 4 | 4 | 2 | 2 | 4 | 3 | Reject now |
 | J. FastAPI/sidecar replacement | 2 | 2 | 3 | 2 | 2 | 4 | 3 | 4 | 4 | 3 | 3 | 4 | 2 | Reject now |
 | Frontend framework rewrite | 2 | 2 | 2 | 2 | 2 | 3 | 1 | 4 | 4 | 4 | 4 | 4 | 2 | Reject now |
@@ -421,31 +446,41 @@ external model. The optional harness mirrors this logical output:
 
     list[tuple[int, int, str, float]]
 
-The experiment was not executed because AIGUARD_FINETUNED_MODEL_DIR was unset.
-Consequently the following remain unexecuted:
+No valid external 11-label artifact was available, so a production model
+evaluation remains blocked. The new harness is
+scripts/compare_finetuned_onnx.py. It includes synthetic probes for empty
+input, Thai names, Thai addresses, organizations, dates, student IDs, long
+stride, overlapping windows, Unicode offsets, combining Thai marks, unknown
+labels, and threshold filtering. It never uses blind-v1 as an evaluation
+dataset.
 
-- PyTorch model load and inference timing.
-- ONNX export success and model compatibility.
-- FP32 span, label, character-offset, confidence, precision, recall, and F1
-  comparison.
-- INT8 span/label/offset/confidence and accuracy comparison.
-- First-load time, warm inference, RSS, model size, runtime dependency size,
-  sidecar size, and installer size deltas.
+The harness was exercised with the bounded one-step training artifact:
 
-The new harness is scripts/compare_finetuned_onnx.py. It includes synthetic
-probes for empty input, Thai names, Thai addresses, organizations, dates,
-student IDs, long stride, overlapping windows, Unicode offsets, combining
-Thai marks, unknown labels, and threshold filtering. It never uses blind-v1
-as an evaluation dataset.
+- FP32 status: `SMOKE_ONLY`. PyTorch and ONNX agreed on spans, labels, and
+  threshold decisions for all 12 probes. This is differential evidence only,
+  not accuracy evidence.
+- INT8 status: `FAIL`, executed only after FP32 passed. Span/label and
+  threshold decisions drifted on several probes, so the harness correctly
+  rejects this INT8 result.
+- Accuracy status: not executed. The run had no approved raw-label gold set,
+  and the model head was freshly initialized.
+- Memory status: current RSS samples from separate PyTorch and ONNX worker
+  processes; not a peak sampler. The harness reports that limitation in the
+  result JSON.
+
+Without a model, the default command returns `SKIPPED` with exit 0. Adding
+`--require-model` makes the missing-model result exit 2. An incompatible model
+or failed export/inference is `FAIL`; a successful bounded run is
+`SMOKE_ONLY`; only a complete non-smoke evaluation can be `PASS`.
 
 Required command when an external model is available:
 
-    $env:AIGUARD_FINETUNED_MODEL_DIR='C:/external/model'
-    ..venvScriptspython.exe scriptscompare_finetuned_onnx.py --model-dir C:/external/model --output-dir tmp	echnology-onnx
+    $env:AIGUARD_FINETUNED_MODEL_DIR='path/to/external-model'
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx
 
 Only after FP32 differential validation passes:
 
-    ..venvScriptspython.exe scriptscompare_finetuned_onnx.py --model-dir C:/external/model --output-dir tmp	echnology-onnx --quantize
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir path/to/external-model --require-model --output-dir tmp/technology-onnx --quantize
 
 An approved synthetic gold JSONL can be supplied with --gold-jsonl to report
 exact-span precision, recall, and F1. The harness treats the PyTorch output as
@@ -453,9 +488,10 @@ the current reference for differential checks, but it does not treat reference
 agreement as accuracy. The existing engine remains the default and no ONNX
 configuration was added to production code.
 
-Recommendation: run this as a POC. Adopt ONNX only if it preserves the
-required accuracy and source-offset gates and provides a material operational
-benefit after runtime and sidecar measurements.
+Recommendation: keep this as a POC. Adopt ONNX only if an approved external
+model passes accuracy, source-offset, and differential gates and provides a
+material operational benefit after runtime and sidecar measurements. The
+current FP32 result is smoke-only and the current INT8 result failed.
 
 ## 8. uv findings
 
@@ -485,7 +521,8 @@ not that an unpinned uv sync is already equivalent to production installation.
 
 Recommendation: keep requirements.txt, requirements-web.txt,
 requirements-ml.txt, requirements-ocr.txt, requirements.lock, and the current
-sidecar build during the next pilot. A future migration can add pyproject
+sidecar build. uv is an evaluated migration candidate and reversible lock
+generation tool, not an adopted default. A future pilot can add pyproject
 dependency groups and uv.lock, then compare pip and uv in every CI tier and
 Docker build before changing the default workflow.
 
@@ -579,19 +616,21 @@ into a client or log.
 ## 13. Recommended next actions
 
 1. Obtain an external fine-tuned model and an approved synthetic evaluation
-   file. Run the FP32 harness, then INT8 only after FP32 passes.
+   file. Run the FP32 harness, then investigate INT8 only after FP32 passes.
 2. Record exact span/label agreement, confidence delta, Unicode offsets,
    threshold behavior, gold precision/recall/F1, load/warm timing, RSS, model
    size, runtime size, and sidecar impact.
-3. Profile larger representative Thai documents and PDFs. Optimize dictionary
+3. Pin the base model and rehearsal dataset revisions, and pin the training
+   dependency set before treating a full retraining run as reproducible.
+4. Profile larger representative Thai documents and PDFs. Optimize dictionary
    initialization, tokenization reuse, or PDF conversion only where a measured
    budget justifies it.
-4. Run a separate uv migration pilot with pyproject dependency groups and a
+5. Run a separate uv migration pilot with pyproject dependency groups and a
    committed uv.lock only after requirements, Docker, CI, ML/OCR, and sidecar
    compatibility are proven.
-5. Revisit Go only if the hosted platform specifies gateway, rate-limit, or
+6. Revisit Go only if the hosted platform specifies gateway, rate-limit, or
    concurrency requirements that the current adapter cannot meet.
-6. Revisit free-threaded Python only with a supported interpreter and a full
+7. Revisit free-threaded Python only with a supported interpreter and a full
    native-dependency matrix.
 
 No ADR was added: this evaluation recommends a stable direction, but ONNX and
@@ -600,8 +639,13 @@ made from unexecuted model evidence.
 
 ## 14. Risks and limitations
 
-- The fine-tuned model was unavailable, so ONNX accuracy and operational
-  benefit remain unproven.
+- No approved external fine-tuned model or raw-label evaluation set was
+  available. The one-step model run is smoke-only and does not establish
+  quality.
+- FP32 differential smoke passed, but the subsequent INT8 differential smoke
+  failed; no INT8 production recommendation is supported.
+- The training pipeline is executable but upstream base-model/dataset
+  revisions and all training dependency versions are not fully pinned.
 - The performance harness is small and local; one outlier exceeded the
   historical restore/PDF comparison while later runs were within budget.
 - No local Docker daemon was available, so Docker cold-start evidence comes
@@ -625,27 +669,27 @@ Repository and baseline:
     git switch -c research/technology-evaluation origin/main
     rg --files | Measure-Object
     $env:PYTHONUTF8='1'
-    ..venvScriptspython.exe -m pytest -q
-    ..venvScriptspython.exe -m ruff check .
-    ..venvScriptspython.exe -m ruff format --check .
-    ..venvScriptspython.exe scriptscheck_version.py
-    ..venvScriptspython.exe scriptscheck_release_readiness.py
+    ./.venv/Scripts/python.exe -m pytest -q
+    ./.venv/Scripts/python.exe -m ruff check .
+    ./.venv/Scripts/python.exe -m ruff format --check .
+    ./.venv/Scripts/python.exe scripts/check_version.py
+    ./.venv/Scripts/python.exe scripts/check_release_readiness.py
 
 Existing performance and process measurements:
 
-    ..venvScriptspython.exe scriptsmeasure_perf.py --iterations 5 --json tmp	echnology-baseline.json
-    ..venvScriptspython.exe -c "import app.server"
-    ..venvScriptspython.exe -m cProfile -s cumulative ...
+    ./.venv/Scripts/python.exe scripts/measure_perf.py --iterations 5 --json tmp/technology-baseline.json
+    ./.venv/Scripts/python.exe -c "import app.server"
+    ./.venv/Scripts/python.exe -m cProfile -s cumulative ...
     uvicorn app.server:app --host 127.0.0.1 --port 18252 --log-level warning
 
 Packaging and storefront gates:
 
-    ..venvScriptspython.exe scriptsuild_sidecar.py
-    ..venvScriptspython.exe scriptssmoke_exe.py
+    ./.venv/Scripts/python.exe scripts/build_sidecar.py
+    ./.venv/Scripts/python.exe scripts/smoke_exe.py
     npm run test:js
-    node --check srcapp.js
-    node --check srcapi.js
-    cargo test --manifest-path src-tauriCargo.toml
+    node --check src/app.js
+    node --check src/api.js
+    cargo test --manifest-path src-tauri/Cargo.toml
     npm run typecheck
     npm test
     npm run build
@@ -656,21 +700,25 @@ Packaging and storefront gates:
 
 uv experiment:
 
-    uv venv --python 3.13 tmp	echnology-uv
-    uv pip install --python tmp	echnology-uvScriptspython.exe -r requirements.txt -r requirements-web.txt
+    uv venv --python 3.13 tmp/technology-uv
+    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements.txt -r requirements-web.txt
     uv pip check
-    uv pip install --python tmp	echnology-uvScriptspython.exe -r requirements-ml.txt
-    uv pip install --python tmp	echnology-uvScriptspython.exe -r requirements-ocr.txt
-    uv pip compile --universal --generate-hashes --python-version 3.13 --output-file tmpequirements-uv-compile.lock requirements.txt requirements-web.txt
+    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements-ml.txt
+    uv pip install --python tmp/technology-uv/Scripts/python.exe -r requirements-ocr.txt
+    uv pip compile --universal --generate-hashes --python-version 3.13 --output-file tmp/requirements-uv-compile.lock requirements.txt requirements-web.txt
 
 ONNX harness:
 
-    ..venvScriptspython.exe scriptscompare_finetuned_onnx.py --list-cases
-    ..venvScriptspython.exe scriptscompare_finetuned_onnx.py
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --list-cases
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py
+    ./.venv/Scripts/python.exe training/train.py --data training/data --out tmp/technology-model-smoke --max-steps 1 --epochs 1 --batch 1 --grad-accum 1
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir tmp/technology-model-smoke --require-model --smoke-only --output-dir tmp/technology-onnx-fp32
+    ./.venv/Scripts/python.exe scripts/compare_finetuned_onnx.py --model-dir tmp/technology-model-smoke --require-model --smoke-only --quantize --output-dir tmp/technology-onnx-smoke
 
-The last command passed with the expected
-MODEL_UNAVAILABLE/ONNX comparison not executed result. No model-dependent
-command was reported as passed.
+The no-model command returned `SKIPPED` with exit 0. The bounded training
+smoke completed, the FP32 harness returned `SMOKE_ONLY`, and the INT8 harness
+returned `FAIL` after the FP32 gate. No model-dependent result was reported as
+production `PASS`, and no accuracy claim was made.
 
 External CI evidence:
 
