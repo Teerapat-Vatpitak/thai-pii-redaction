@@ -363,7 +363,7 @@ _RE_MOO = re.compile(r"(?:หมู่ที่|หมู่|ม\.)\s*(\d{1,3})(
 # dedupe_spans then used to evict the TB NAME span the CRF had correctly found
 # -- so adding an address detector made a NAME leak. Same for เขต in ผู้อำนวยการเขต.
 _RE_ADMIN_AREA = re.compile(
-    r"(?:แขวง|ตำบล|ต\.|(?<!นาย)(?<!ปลัด)(?<!รอง)(?<!ท่าน)(?:อำเภอ|เขต)|อ\.|จังหวัด|จ\.)\s*([ก-๛]{2,})"
+    r"(?:แขวง|ตำบล|ต\.|(?<!นาย)(?<!ปลัด)(?<!รอง)(?<!ท่าน)(?:อำเภอ|เขต(?!บริการ))|อ\.|จังหวัด|จ\.)\s*([ก-๛]{2,})"
 )
 # A bare 5-digit run is far too common to mask on sight (quantities, years in
 # tables, reference numbers), so the postal code is only claimed when an address
@@ -395,8 +395,16 @@ _BIRTH_CUE_RE = re.compile(r"เกิด")
 # Address cue for the postal code. The window is wider than _CUE_WINDOW because
 # a postal code sits at the END of the address line, so the nearest cue is a
 # whole district/province name away ("แขวงวังทองหลาง กรุงเทพมหานคร 10310").
-_POSTAL_CUE_RE = re.compile(r"รหัสไปรษณีย์|จังหวัด|แขวง|ตำบล|อำเภอ|เขต|กรุงเทพ|ที่อยู่")
+_POSTAL_CUE_RE = re.compile(r"รหัสไปรษณีย์|จังหวัด|แขวง|ตำบล|อำเภอ|เขต(?!บริการ)|กรุงเทพ|ที่อยู่")
 _POSTAL_CUE_WINDOW = 45
+# Two or more OTHER bare five-digit groups this close mean an enumeration —
+# but only when nothing except enumeration glue (whitespace, comma, slash,
+# และ/หรือ) sits between the codes. Thai words between them mean distinct
+# addresses sharing one line ("แขวงบางรัก 10500 ตำบลสุเทพ 50200 ..."), where
+# every code is real PII — the adversarial review caught the middle one
+# shipping unmasked under a distance-only sibling rule.
+_POSTAL_SIBLING_WINDOW = 25
+_POSTAL_GLUE_RE = re.compile(r"(?:\s|,|/|และ|หรือ)*")
 # Cues that mean "this number identifies an enrolled person". นักเรียน/ผู้เรียน
 # were missing, so a school pupil's id fell through to the generic ID_NUMBER
 # while a university student's did not. Bare "รหัส" is deliberately NOT here: it
@@ -438,6 +446,38 @@ _NON_STUDENT_NUM_CUE_RE = re.compile(
     re.IGNORECASE,
 )
 _PASSPORT_CUE_RE = re.compile(r"พาสปอร์ต|หนังสือเดินทาง|passport", re.IGNORECASE)
+
+# A KNOWN document-code prefix glued straight onto the digits
+# ("PO-2569-004512", "SKU-8891042376") marks the whole token as one
+# organizational code. A closed list, one entry per observed false positive —
+# NOT any letters- prefix: the adversarial review (2026-08-03) showed the
+# generic form silences real accounts written as SCB-/KBANK-/A/C-<digits> in
+# payment chat and org-issued personal ids (EMP-...), which keep the
+# recall-first base behavior instead. Checksum-backed types are never
+# affected either way.
+_GLUED_CODE_PREFIX_RE = re.compile(r"(?:PO|RC|TX|SKU|ITM)-\Z", re.IGNORECASE)
+_GLUED_PREFIX_LOOKBACK = 12
+
+
+def _glued_code_prefix(text: str, start: int) -> bool:
+    return bool(_GLUED_CODE_PREFIX_RE.search(text[max(0, start - _GLUED_PREFIX_LOOKBACK) : start]))
+
+
+# Field labels that introduce an organizational number (procurement project,
+# ISSN serial, patent application) — full field names, not topic words, the
+# same philosophy as the student blockers (bare โครงการ AND bare สิทธิบัตร
+# are topic words and deliberately absent: "เงินรางวัลสิทธิบัตรจะโอนเข้า
+# <บัญชี>" is a royalty transfer, caught by the adversarial review when the
+# first cut used the bare word). Nearest-cue-wins against the bank cue.
+# Unlike the recall-first ID_NUMBER demotions, these labels are positive
+# evidence the number identifies a document, so nothing is emitted at all.
+_ORG_NUM_CUE_RE = re.compile(r"เลขที่โครงการ|ISSN|คำขอรับสิทธิบัตร|สิทธิบัตรเลขที่", re.IGNORECASE)
+
+
+def _org_number_cued(text: str, start: int) -> bool:
+    ctx = text[max(0, start - _CUE_WINDOW) : start]
+    org = _rightmost_cue(_ORG_NUM_CUE_RE, ctx)
+    return org >= 0 and org > _rightmost_cue(_BANK_CUE_RE, ctx)
 
 
 def _cue_before(cue_re: re.Pattern, text: str, start: int) -> bool:
@@ -551,6 +591,8 @@ def detect_fp(text: str) -> list[Entity]:
             line_start = text.rfind("\n", 0, start) + 1
             intro_ctx = text[max(line_start, start - _STUDENT_INTRO_WINDOW) : start]
             bank_cued = _rightmost_cue(_BANK_CUE_RE, text[max(0, start - _CUE_WINDOW) : start]) >= 0
+            if not bank_cued and (_glued_code_prefix(text, start) or _org_number_cued(text, start)):
+                continue
             if not bank_cued and _bank_separators_nonstandard(m.group(1)):
                 candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
             elif (
@@ -615,7 +657,7 @@ def detect_fp(text: str) -> list[Entity]:
     for m in _RE_PASSPORT.finditer(text):
         if _cue_before(_PASSPORT_CUE_RE, text, m.start(1)):
             candidates.append(_make_entity("PASSPORT", m, text, score=1.0))
-        else:
+        elif not _glued_code_prefix(text, m.start(1)):
             candidates.append(_make_entity("ID_NUMBER", m, text, score=0.8))
 
     # 10. STUDENT_ID when the tiered evidence fires (person cue nearest-wins,
@@ -624,6 +666,10 @@ def detect_fp(text: str) -> list[Entity]:
     # overlap).
     for m in _RE_STUDENT_ID.finditer(text):
         has_student = _student_evidence(text, m.start(1), m.end(1)) is not None
+        if not has_student and (
+            _glued_code_prefix(text, m.start(1)) or _org_number_cued(text, m.start(1))
+        ):
+            continue
         dtype = "STUDENT_ID" if has_student else "ID_NUMBER"
         candidates.append(_make_entity(dtype, m, text, score=0.8))
 
@@ -671,10 +717,32 @@ def detect_fp(text: str) -> list[Entity]:
             candidates.append(_make_entity("ADDRESS", m, text, score=0.85))
 
     # 12. POSTAL_CODE — only with an address cue in front (see _RE_POSTAL_CODE).
-    for m in _RE_POSTAL_CODE.finditer(text):
+    # A run of >=3 five-digit groups chained by nothing but enumeration glue
+    # is a coverage list (service-area postcodes), not the tail of an address
+    # — one address ends in exactly one postcode. Runs are built by ADJACENT
+    # gluing, so Thai words between codes (three drop-off addresses on one
+    # courier line) break the chain and every real code stays claimed.
+    # Matches are collected once from the full text, which also keeps the
+    # (?<!\d)/(?!\d) boundaries honest — an endpos-bounded rescan truncated a
+    # six-digit neighbor into a phantom five-digit sibling (review finding).
+    postal_matches = list(_RE_POSTAL_CODE.finditer(text))
+    run_lengths: list[int] = []
+    run_len = 1
+    for prev, cur in zip(postal_matches, postal_matches[1:]):
+        gap = text[prev.end(1) : cur.start(1)]
+        if len(gap) <= _POSTAL_SIBLING_WINDOW and _POSTAL_GLUE_RE.fullmatch(gap):
+            run_len += 1
+        else:
+            run_lengths.extend([run_len] * run_len)
+            run_len = 1
+    run_lengths.extend([run_len] * run_len)
+    for m, run in zip(postal_matches, run_lengths):
+        if run >= 3:
+            continue
         ctx = text[max(0, m.start(1) - _POSTAL_CUE_WINDOW) : m.start(1)]
-        if _POSTAL_CUE_RE.search(ctx):
-            candidates.append(_make_entity("POSTAL_CODE", m, text, score=0.85))
+        if not _POSTAL_CUE_RE.search(ctx):
+            continue
+        candidates.append(_make_entity("POSTAL_CODE", m, text, score=0.85))
 
     # 13. MEDICAL_ID (HN) — cue-gated, so the label is earned rather than assumed.
     for m in _RE_MEDICAL_ID.finditer(text):

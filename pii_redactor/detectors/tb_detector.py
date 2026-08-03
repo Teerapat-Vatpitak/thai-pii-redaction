@@ -127,12 +127,48 @@ _NAME_DOC_COMPOUND_RE = re.compile(
 _NAME_SEGMENT_TRIM_CHARS = ",.;:!?)]}\"'"
 
 
-def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str:
+# A CRF "location" that is really หนังสือราชการ numbering, in two shapes seen
+# on the gold negative slice: the span IS a เลขที่<document> field label
+# (เลขที่คำสั่ง / เลขที่ใบเสนอราคา ... — same compound list the ADDRESS cue
+# already refuses to upgrade on), or the span carries digits with no Thai
+# letter RUN and a Buddhist-year component ("จ.44/2569" — a contract number
+# whose only Thai is the abbreviation letter). The year requirement is what
+# separates it from a bare house number ("214/9"), which the adversarial
+# review showed the finetuned engine emits as its own LOCATION span — no
+# Thai, digits and a slash, and absolutely PII. A real place with a digit
+# ("เชียงใหม่ 50200", "อาคาร 7") keeps its Thai run and survives either way.
+_DOC_NUMBER_LABEL_RE = re.compile(r"เลขที่(?:บัญชี|ใบ|สัญญา|เอกสาร|คำสั่ง|กรมธรรม์|พัสดุ|คดี|หนังสือ)")
+_THAI_RUN_RE = re.compile(r"[ก-๛]{2,}")
+_BUDDHIST_YEAR_RE = re.compile(r"(?<!\d)2[456]\d{2}(?!\d)")
+# A "date" right after the Thai industrial-standard designation is the
+# standard's number ("มอก. 2540-2555"), not a calendar date. The left
+# boundary keeps common words ending in the same letters (ทะเลหมอก) from
+# swallowing a real date after them.
+_STANDARD_CUE_RE = re.compile(r"(?<![ก-๛])มอก\.?\s*$")
+_STANDARD_CUE_LOOKBACK = 10
+# No calendar date component has five digits in a row — a run that long
+# inside a "date" means the CRF swallowed a serial/reference number into the
+# span ("ที่ 27 ISSN 08571724 เผยแพร่เดือนกันยายน 2568", surfaced on the gold
+# negative slice once the FP ID_NUMBER stopped out-competing it in dedupe).
+_DATE_SERIAL_RE = re.compile(r"\d{5,}")
+
+
+def _apply_cue_upgrades(text: str, start: int, end: int, data_type: str) -> str | None:
+    """Cue-driven label upgrade, or ``None`` when the span is no PII at all."""
     if data_type == "LOCATION":
+        entity_text = text[start:end]
+        if _DOC_NUMBER_LABEL_RE.match(entity_text):
+            return None
+        if _BUDDHIST_YEAR_RE.search(entity_text) and not _THAI_RUN_RE.search(entity_text):
+            return None
         ctx = text[max(0, start - _TB_CUE_WINDOW) : end]
         if _ADDR_CUE_RE.search(ctx):
             return "ADDRESS"
     elif data_type == "DATE":
+        if _STANDARD_CUE_RE.search(text[max(0, start - _STANDARD_CUE_LOOKBACK) : start]):
+            return None
+        if _DATE_SERIAL_RE.search(text[start:end]):
+            return None
         ctx = text[max(0, start - _TB_CUE_WINDOW) : start]
         if _TB_BIRTH_CUE_RE.search(ctx):
             return "DATE_OF_BIRTH"
@@ -258,6 +294,8 @@ def _detect_tb_finetuned(text: str) -> list[Entity]:
             for seg_start, seg_end in segments:
                 model_name_spans.append((seg_start, seg_end))
                 seg_data_type = _apply_cue_upgrades(text, seg_start, seg_end, data_type)
+                if seg_data_type is None:
+                    continue
                 candidates.append(
                     Entity(
                         entity_id=str(uuid.uuid4()),
@@ -270,6 +308,8 @@ def _detect_tb_finetuned(text: str) -> list[Entity]:
                 )
             continue
         data_type = _apply_cue_upgrades(text, start, end, data_type)
+        if data_type is None:
+            continue
         candidates.append(
             Entity(
                 entity_id=str(uuid.uuid4()),
@@ -510,6 +550,8 @@ def _finalize_tb_candidate(text: str, orig_start: int, orig_end: int, label: str
     entities: list[Entity] = []
     for seg_start, seg_end in segments:
         seg_data_type = _apply_cue_upgrades(text, seg_start, seg_end, data_type)
+        if seg_data_type is None:
+            continue
         entities.append(
             Entity(
                 entity_id=str(uuid.uuid4()),
