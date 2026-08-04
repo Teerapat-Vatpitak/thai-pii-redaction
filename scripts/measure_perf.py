@@ -36,7 +36,10 @@ import argparse
 import json
 import statistics
 import sys
+import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -146,6 +149,20 @@ def _time_it(fn, iterations: int) -> tuple[float, list[float]]:
     return statistics.median(samples), samples
 
 
+@contextmanager
+def _temporary_pdf_output() -> Iterator[Path]:
+    """Yield an isolated PDF path and remove its directory on exit.
+
+    The performance gate is often run while another local measurement or
+    agent is active. A fixed output filename lets those runs overwrite each
+    other's PDF and produces a misleading OSError instead of a measurement.
+    """
+    temp_root = ROOT / "tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="perf-", dir=temp_root) as temp_dir:
+        yield Path(temp_dir) / "perf-redacted.pdf"
+
+
 def measure(iterations: int = DEFAULT_ITERATIONS) -> dict:
     """Run every hot path and return the raw measurement document."""
     # Imported here, not at module scope, so the comparison logic stays
@@ -181,29 +198,27 @@ def measure(iterations: int = DEFAULT_ITERATIONS) -> dict:
     record("restore", lambda: service.restore(seeded.session_id, seeded.sanitized_text))
 
     if SAMPLE_PDF_PATH.is_file():
-        out_path = ROOT / "tmp" / "perf-redacted.pdf"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with _temporary_pdf_output() as out_path:
 
-        def redact_once() -> None:
-            # Use the same detector as the PDF endpoint.
-            source_type = detect_source_type(str(SAMPLE_PDF_PATH))
-            raw_text, word_bboxes, _meta = extract(str(SAMPLE_PDF_PATH), source_type)
-            detect_text = clean_length_preserving(raw_text)
-            entities = detect_all(detect_text)
-            fp_count = sum(entity.redact_type == "FP" for entity in entities)
-            redact_pdf(
-                str(SAMPLE_PDF_PATH),
-                EntityRegistry(
-                    entities=entities,
-                    fp_count=fp_count,
-                    tb_count=len(entities) - fp_count,
-                ),
-                word_bboxes,
-                str(out_path),
-            )
+            def redact_once() -> None:
+                # Use the same detector as the PDF endpoint.
+                source_type = detect_source_type(str(SAMPLE_PDF_PATH))
+                raw_text, word_bboxes, _meta = extract(str(SAMPLE_PDF_PATH), source_type)
+                detect_text = clean_length_preserving(raw_text)
+                entities = detect_all(detect_text)
+                fp_count = sum(entity.redact_type == "FP" for entity in entities)
+                redact_pdf(
+                    str(SAMPLE_PDF_PATH),
+                    EntityRegistry(
+                        entities=entities,
+                        fp_count=fp_count,
+                        tb_count=len(entities) - fp_count,
+                    ),
+                    word_bboxes,
+                    str(out_path),
+                )
 
-        record("pdf_redact", redact_once)
-        out_path.unlink(missing_ok=True)
+            record("pdf_redact", redact_once)
 
     return {
         "operations": operations,

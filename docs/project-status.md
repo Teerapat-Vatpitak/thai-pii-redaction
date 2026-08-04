@@ -28,6 +28,17 @@ campaign's accepted owner decisions, known OCR rerun block, and performance
 interpretation are recorded in
 [the 2026-08-04 campaign record](decisions/2026-08-04-weakness-closure-campaign.md).
 
+Performance-gate follow-up (2026-08-04): `scripts/measure_perf.py` now gives
+each PDF-redaction measurement an isolated temporary output directory and
+removes it afterward, so concurrent local runs cannot collide on one fixed
+`tmp/perf-redacted.pdf`. This closes a harness defect found during the
+campaign. The committed `perf/baseline.json` remains unchanged: an unmodified
+`20a9a1d` run on the same machine was already above it, and repeated runs
+varied widely; the campaign's controlled in-process detector comparison
+remained +7.5%, inside the 20% budget. The baseline is a local comparison
+anchor, not a production SLO; recalibration requires a deliberately controlled
+measurement.
+
 ## Status vocabulary
 
 - **Verified** - implemented and covered on its intended automated/runtime path.

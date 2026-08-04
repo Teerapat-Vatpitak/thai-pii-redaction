@@ -17,7 +17,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from measure_perf import DEFAULT_MEMORY_TOLERANCE, DEFAULT_TIME_TOLERANCE, compare
+from measure_perf import (
+    DEFAULT_MEMORY_TOLERANCE,
+    DEFAULT_TIME_TOLERANCE,
+    _temporary_pdf_output,
+    compare,
+)
 
 
 def _sample(detect_ms: float = 10.0, rss_mb: float = 200.0) -> dict:
@@ -28,6 +33,16 @@ def _sample(detect_ms: float = 10.0, rss_mb: float = 200.0) -> dict:
         },
         "peak_rss_mb": rss_mb,
     }
+
+
+def test_pdf_measurement_outputs_are_isolated_and_cleaned_up():
+    with _temporary_pdf_output() as first, _temporary_pdf_output() as second:
+        assert first != second
+        assert first.parent.is_dir()
+        assert second.parent.is_dir()
+
+    assert not first.parent.exists()
+    assert not second.parent.exists()
 
 
 def test_identical_measurements_are_not_a_regression():
