@@ -71,6 +71,115 @@ export interface AIGuardApi {
   roundtrip(text: string, mode: GuardMode): Promise<RoundtripResponse>;
 }
 
+type ResponseValidator<T> = (value: unknown) => T;
+type JsonRecord = Record<string, unknown>;
+
+function invalidResponse(): never {
+  // Keep the thrown value generic: a backend response can contain document data.
+  throw new Error("invalid response shape");
+}
+
+function record(value: unknown): JsonRecord {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalidResponse();
+  return value as JsonRecord;
+}
+
+function stringValue(value: unknown, nonEmpty = false): string {
+  if (typeof value !== "string" || (nonEmpty && value.length === 0)) invalidResponse();
+  return value;
+}
+
+function nonNegativeInteger(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) invalidResponse();
+  return value;
+}
+
+function finiteNumber(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) invalidResponse();
+  return value;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) invalidResponse();
+  return value as string[];
+}
+
+function countMap(value: unknown): Record<string, number> {
+  const counts = record(value);
+  for (const count of Object.values(counts)) nonNegativeInteger(count);
+  return counts as Record<string, number>;
+}
+
+function entities(value: unknown): EntityDto[] {
+  if (!Array.isArray(value)) invalidResponse();
+  for (const item of value) {
+    const entity = record(item);
+    const start = nonNegativeInteger(entity.start);
+    const end = nonNegativeInteger(entity.end);
+    if (end < start) invalidResponse();
+    stringValue(entity.data_type, true);
+    stringValue(entity.redact_type, true);
+    if (entity.token !== undefined) stringValue(entity.token);
+  }
+  return value as EntityDto[];
+}
+
+function validateHealth(value: unknown): HealthResponse {
+  const body = record(value);
+  stringValue(body.status, true);
+  stringValue(body.version, true);
+  if (body.capabilities !== undefined) record(body.capabilities);
+  return value as HealthResponse;
+}
+
+function validateDetect(value: unknown): DetectResponse {
+  const body = record(value);
+  entities(body.entities);
+  countMap(body.entity_type_counts);
+  return value as DetectResponse;
+}
+
+function validateAnalyze(value: unknown): AnalyzeResponse {
+  const body = record(value);
+  finiteNumber(body.overall_score);
+  stringValue(body.overall_grade, true);
+  stringValue(body.risk_label, true);
+  nonNegativeInteger(body.direct_pii_count);
+  stringArray(body.recommendations);
+  return value as AnalyzeResponse;
+}
+
+function validateSanitize(value: unknown): SanitizeResponse {
+  const body = record(value);
+  stringValue(body.session_id, true);
+  stringValue(body.sanitized_text);
+  entities(body.entities);
+  countMap(body.entity_type_counts);
+  stringArray(body.warnings);
+  return value as SanitizeResponse;
+}
+
+function validateReidentify(value: unknown): ReidentifyResponse {
+  const body = record(value);
+  stringValue(body.restored_text);
+  nonNegativeInteger(body.replaced_count);
+  stringArray(body.leftover_tokens);
+  stringArray(body.warnings);
+  return value as ReidentifyResponse;
+}
+
+function validateRoundtrip(value: unknown): RoundtripResponse {
+  const body = record(value);
+  stringValue(body.sanitized_text);
+  stringValue(body.ai_response_masked);
+  stringValue(body.restored_text);
+  countMap(body.entity_type_counts);
+  stringValue(body.provider_used, true);
+  stringArray(body.warnings);
+  if (body.entities !== undefined) entities(body.entities);
+  return value as RoundtripResponse;
+}
+
 export class ApiClient implements AIGuardApi {
   constructor(
     private readonly baseUrl = "/api",
@@ -78,42 +187,42 @@ export class ApiClient implements AIGuardApi {
   ) {}
 
   async health(): Promise<HealthResponse> {
-    return this.request<HealthResponse>("/health", { method: "GET" });
+    return this.request("/health", { method: "GET" }, validateHealth);
   }
 
   async detect(text: string): Promise<DetectResponse> {
-    return this.post<DetectResponse>("/detect", { text });
+    return this.post("/detect", { text }, validateDetect);
   }
 
   async analyze(text: string): Promise<AnalyzeResponse> {
-    return this.post<AnalyzeResponse>("/analyze", { text });
+    return this.post("/analyze", { text }, validateAnalyze);
   }
 
   async sanitize(text: string, mode: GuardMode, sessionId?: string): Promise<SanitizeResponse> {
-    return this.post<SanitizeResponse>("/sanitize", {
+    return this.post("/sanitize", {
       text,
       mode,
       ...(sessionId ? { session_id: sessionId } : {}),
-    });
+    }, validateSanitize);
   }
 
   async reidentify(sessionId: string, text: string): Promise<ReidentifyResponse> {
-    return this.post<ReidentifyResponse>("/reidentify", { session_id: sessionId, text });
+    return this.post("/reidentify", { session_id: sessionId, text }, validateReidentify);
   }
 
   async roundtrip(text: string, mode: GuardMode): Promise<RoundtripResponse> {
-    return this.post<RoundtripResponse>("/roundtrip", { text, mode, provider: "pathumma" });
+    return this.post("/roundtrip", { text, mode, provider: "pathumma" }, validateRoundtrip);
   }
 
-  private post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-    return this.request<T>(path, {
+  private post<T>(path: string, body: Record<string, unknown>, validate: ResponseValidator<T>): Promise<T> {
+    return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, validate);
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, validate: ResponseValidator<T>): Promise<T> {
     let response: Response;
     try {
       // Calling a native Window.fetch through an object property changes its
@@ -151,7 +260,7 @@ export class ApiClient implements AIGuardApi {
     }
 
     try {
-      return (await response.json()) as T;
+      return validate(await response.json());
     } catch {
       throw new ApiError(response.status, "รูปแบบคำตอบจาก AI Guard ไม่ถูกต้อง", "request");
     }

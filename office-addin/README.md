@@ -42,6 +42,8 @@ Insert response หลังผู้ใช้กดอย่างชัดเ�
 - `AIFORTHAI_API_KEY` อยู่ที่ backend เท่านั้น
 - task pane เก็บเพียงข้อความที่กำลังแสดงและ `session_id` ใน memory ห้ามเก็บ
   mapping หรือข้อความใน `localStorage`/`sessionStorage`
+- API success responses ผ่านการตรวจ schema ก่อนเข้า controller; response ที่ผิดรูป
+  จะกลายเป็น error ทั่วไป และ body จาก backend/provider จะไม่ถูกแสดงเป็น error
 - ปิด backend หรือ task pane แล้ว session อาจหายและ Restore ไม่ได้ ระบบต้องแจ้ง
   failure และไม่เดาข้อมูลเดิม
 - คำตอบ Pathumma อาจไม่คืน token ทุกตัว; warning คือผลที่ถูกต้องและห้ามเติมค่าเอง
