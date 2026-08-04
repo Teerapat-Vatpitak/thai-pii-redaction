@@ -14,7 +14,8 @@ const localManifests = localManifestSpecs.map((spec) => ({
   source: readFileSync(resolve(root, spec.file), "utf8"),
 }));
 const errors = [];
-const promotedScopes = ["document", "workbook", "presentation"];
+// Excel and PowerPoint stay acceptance-only until their real-host gates pass.
+const promotedScopes = ["document"];
 
 if (manifest.version !== packageJson.version) errors.push("manifest version must match package version");
 if (manifest.manifestVersion !== "1.25") errors.push("unified manifestVersion must be 1.25");
@@ -33,11 +34,11 @@ if (!Array.isArray(manifest.extensions) || manifest.extensions.length !== 1) err
 const extension = manifest.extensions?.[0];
 const scopes = new Set(extension?.requirements?.scopes ?? []);
 if (scopes.size !== promotedScopes.length || !promotedScopes.every((scope) => scopes.has(scope))) {
-  errors.push("release manifest must expose exactly Word/document, Excel/workbook, and PowerPoint/presentation");
+  errors.push("release manifest must expose Word/document only until Excel and PowerPoint real-host acceptance pass");
 }
 const ribbonScopes = new Set(extension?.ribbons?.[0]?.requirements?.scopes ?? []);
 if (ribbonScopes.size !== promotedScopes.length || !promotedScopes.every((scope) => ribbonScopes.has(scope))) {
-  errors.push("release ribbon must expose exactly Word/document, Excel/workbook, and PowerPoint/presentation");
+  errors.push("release ribbon must expose Word/document only until Excel and PowerPoint real-host acceptance pass");
 }
 const permissions = manifest.authorization?.permissions?.resourceSpecific;
 if (

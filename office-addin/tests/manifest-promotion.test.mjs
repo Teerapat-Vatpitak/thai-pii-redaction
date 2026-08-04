@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 const root = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(readFileSync(resolve(root, "manifest.json"), "utf8"));
 const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-const promotedScopes = ["document", "workbook", "presentation"];
+const promotedScopes = ["document"];
 
 describe("promoted unified Office manifest", () => {
-  it("exposes exactly Word, Excel, and PowerPoint with the document write permission", () => {
+  it("exposes Word only until Excel and PowerPoint real-host gates pass", () => {
     expect(manifest.extensions).toHaveLength(1);
     const extension = manifest.extensions[0];
     expect(extension.requirements.scopes).toEqual(promotedScopes);
@@ -18,9 +18,11 @@ describe("promoted unified Office manifest", () => {
     ]);
   });
 
-  it("provides repeatable unified sideload commands for every promoted host", () => {
+  it("does not expose unverified hosts through unified sideload commands", () => {
     expect(packageJson.scripts["start:word"]).toContain("manifest.json desktop --app word");
-    expect(packageJson.scripts["start:excel"]).toContain("manifest.json desktop --app excel");
-    expect(packageJson.scripts["start:powerpoint"]).toContain("manifest.json desktop --app powerpoint");
+    expect(packageJson.scripts["start:excel"]).toBeUndefined();
+    expect(packageJson.scripts["start:powerpoint"]).toBeUndefined();
+    expect(packageJson.scripts["start:excel:local"]).toContain("manifest.dev.excel.xml desktop --app excel");
+    expect(packageJson.scripts["start:powerpoint:local"]).toContain("manifest.dev.powerpoint.xml desktop --app powerpoint");
   });
 });
