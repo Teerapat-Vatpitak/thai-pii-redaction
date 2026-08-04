@@ -236,6 +236,33 @@ def test_tiny_logo_degrades_loudly_without_optional_ocr(tmp_path, monkeypatch):
     assert any("OCR is not installed" in warning for warning in meta["warnings"])
 
 
+def test_extract_surfaces_ocr_engine_retry_warnings_in_meta(tmp_path, monkeypatch):
+    """A bare-RuntimeError engine retry inside ocr_page must never be silent:
+    the page-level warning reaches extract() meta warnings, which is what the
+    acceptance harness counts into evidence (warning_count)."""
+    from pii_redactor.ingest import ocr_processor
+
+    retry_warning = "page 1: OCR attempt 1 raised RuntimeError; retried once"
+    path = _make_hybrid_test_pdf(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: True)
+    monkeypatch.setattr(
+        ocr_processor,
+        "ocr_page",
+        lambda page, page_num, **kw: ocr_processor.OCRPageResult(
+            words=[WordBbox(text="สวัสดี", page=1, x=0, y=0, width=10, height=10)],
+            text="สวัสดี",
+            confidence=0.95,
+            attempts=2,
+            human_review=False,
+            warnings=[retry_warning],
+        ),
+    )
+
+    _text, _bboxes, meta = extract(path, "pdf_hybrid")
+
+    assert retry_warning in meta["warnings"]
+
+
 def test_hybrid_drops_the_same_text_from_the_same_place(tmp_path, monkeypatch):
     from pii_redactor.detectors.aggregate import detect_all
     from pii_redactor.ingest import ocr_processor

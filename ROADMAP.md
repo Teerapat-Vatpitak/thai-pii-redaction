@@ -106,6 +106,22 @@ Ordered so that evaluation integrity comes before tuning:
 3. **Fix in impact order:** scorer/boundary defects, structured (FP) misses,
    NAME context coverage, ADDRESS coverage, then false-positive reduction.
    Prefer recall over precision, but keep type labels honest.
+   Worked end to end in the 2026-08-04 weakness-closure campaign
+   ([record](docs/decisions/2026-08-04-weakness-closure-campaign.md)): an
+   enumerated inventory drove four implementation waves, and a four-lens
+   adversarial review then found seven realistic sentences the corpus could
+   not see, all of them from span-*removing* mechanisms. What remains on this
+   rung is owner-gated rather than unfinished — the STUDENT_ID label-honesty
+   scope question, generic administrative dates, and a gold self-contradiction
+   in `ng06` — and each is recorded in that document. The whole ladder
+   was worked in the 2026-08-04
+   [weakness-closure campaign](docs/decisions/2026-08-04-weakness-closure-campaign.md),
+   driven by an enumerated inventory rather than a sample; the items it left
+   open are owner calls (STUDENT_ID exam-roster scope, salutation addressees,
+   generic administrative dates, one gold self-contradiction) and are listed
+   in that record. Its structural outcome — a span-removing mechanism may
+   consume only closed-lexicon evidence, because trimming unmasks — applies to
+   any future rule of that shape.
 4. **Compare engines on the same corpus** before changing any default:
    CRF, WangchanBERTa, union, and routed strategies via the benchmark CLI.
    TNER is a remote service with a narrower label set; it gets a separate,

@@ -203,3 +203,75 @@ def test_date_span_swallowing_a_serial_number_is_rejected():
     # date component has five digits in a row.
     text = "วารสารฉบับที่ 4 ปีที่ 27 ISSN 08571724 เผยแพร่เดือนกันยายน 2568"
     assert "DATE" not in _tb_types_for(text, "08571724")
+
+
+# ── F. card-number labels (เลขที่บัตร...) are field labels, not addresses ──
+
+
+def test_card_number_labels_are_not_addresses():
+    # FP-gf08/FP-lf11: เลขที่บัตร... is a card-number field label — บัตร
+    # always means "card", so no real Thai address takes this shape. Pinned
+    # on the chokepoint so the rule holds for every engine routing through it.
+    from pii_redactor.detectors.tb_detector import _apply_cue_upgrades
+
+    for text, label in (
+        ("ชื่อ กฤษณะ โพธิ์ทองคำ เลขที่บัตรประชาชน 7878130827727", "เลขที่บัตรประชาชน"),
+        (
+            "สิทธิการรักษา ประกันสังคม เลขที่บัตรเครดิตสำหรับสำรองจ่าย 4716-1487-3380-6719",
+            "เลขที่บัตรเครดิตสำหรับสำรองจ่าย",
+        ),
+    ):
+        lo = text.index(label)
+        assert _apply_cue_upgrades(text, lo, lo + len(label), "LOCATION") is None, label
+        got = _tb_types_for(text, label)
+        assert "ADDRESS" not in got and "LOCATION" not in got, (label, got)
+
+
+def test_card_digits_keep_their_checksum_types():
+    # The digits beside the label stay claimed by their own FP detectors —
+    # rejecting the label must not cost the values (finding's recall control).
+    assert "THAI_ID" in _types_for("เลขที่บัตรประชาชน 1101700230708 ออกโดยเขตบางรัก", "1101700230708")
+    assert "CREDIT_CARD" in _types_for(
+        "สิทธิการรักษา ประกันสังคม เลขที่บัตรเครดิตสำหรับสำรองจ่าย 4716-1487-3380-6719",
+        "4716-1487-3380-6719",
+    )
+
+
+def test_bare_lekthi_and_district_still_cue_addresses():
+    # Recall controls: เลขที่ with a real address keeps upgrading, and the
+    # issuing district behind the card label keeps its own claim.
+    from pii_redactor.detectors.tb_detector import _apply_cue_upgrades
+
+    text = "ส่งเอกสารไปที่เลขที่ 99/1 บางกะปิ"
+    lo = text.index("บางกะปิ")
+    assert _apply_cue_upgrades(text, lo, lo + len("บางกะปิ"), "LOCATION") == "ADDRESS"
+
+    card = "เลขที่บัตรประชาชน 1101700230708 ออกโดยเขตบางรัก"
+    lo = card.index("บางรัก")
+    assert _apply_cue_upgrades(card, lo, lo + len("บางรัก"), "LOCATION") == "ADDRESS"
+
+
+# ── G. fee-schedule labels (ค่า + noun) are not organizations ──────────────
+
+
+def test_fee_schedule_labels_are_not_organizations():
+    # ng42: a tuition-fee category label the CRF tags ORGANIZATION — in
+    # surrogate mode it became a fake org name inside a price list.
+    from pii_redactor.detectors.tb_detector import _apply_cue_upgrades
+
+    text = "ค่าธรรมเนียมการศึกษาภาคปกติ 18,500 บาทต่อภาคการศึกษา ค่าหอพัก 6,000 บาท"
+    for label in ("ค่าธรรมเนียมการศึกษาภาคปกติ", "ค่าหอพัก"):
+        lo = text.index(label)
+        assert _apply_cue_upgrades(text, lo, lo + len(label), "ORGANIZATION") is None, label
+    assert "ORGANIZATION" not in _tb_types_for(text, "ค่าธรรมเนียมการศึกษาภาคปกติ")
+
+
+def test_camp_orgs_survive_the_fee_rejection():
+    # ค่าย (a camp / a record label) is the one real-org shape sharing the
+    # prefix — the ย lookahead keeps it (finding's counterexamples).
+    from pii_redactor.detectors.tb_detector import _apply_cue_upgrades
+
+    for span in ("ค่ายอาสาพัฒนาชนบท", "ค่ายสุรนารี", "ค่ายเพลงจีเอ็มเอ็ม แกรมมี่"):
+        text = "รายงานตัวที่" + span + " ตามกำหนดการ"
+        lo = text.index(span)
+        assert _apply_cue_upgrades(text, lo, lo + len(span), "ORGANIZATION") == "ORGANIZATION", span

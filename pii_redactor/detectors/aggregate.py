@@ -97,8 +97,12 @@ _STRICT_GAP_RE = re.compile(r"[ , ]{0,3}")
 # labels themselves live in the gaps between fragments. A bridgeable gap is
 # short, single-line, and must contain an address label or structure word;
 # digit runs are capped at 3 so a moo/floor number may sit in the gap but a
-# phone or id cannot.
-_BRIDGE_CHARSET_RE = re.compile(r"[ .,ก-๎0-9]{1,18}")
+# phone or id cannot. The cap was raised 18 -> 25 (2026-08-04) for building
+# names between fragments (" คอนโดริเวอร์ไซด์ ชั้น " is 23); every other gap
+# rule — glue word required, no digit run > 3, no newline, no
+# ownership/introducer veto — still stands, so the two-party split cases the
+# 18 was chosen against remain unmergeable (re-measured on gold + negative).
+_BRIDGE_CHARSET_RE = re.compile(r"[ .,ก-๎0-9]{1,25}")
 _ADDRESS_GLUE_RE = re.compile(
     r"ตำบล|อำเภอ|จังหวัด|แขวง|เขต|หมู่ที่|หมู่|ซอย|ถนน|ต\.|อ\.|จ\.|ม\."
     r"|อาคาร|หมู่บ้าน|ตึก|ชั้น|ห้อง|คอนโด|ตรอก|แยก|นิคม"
@@ -106,9 +110,16 @@ _ADDRESS_GLUE_RE = re.compile(
 _BRIDGE_VETO_RE = re.compile(
     r"บ้านเลขที่|ที่อยู่|เลขที่|ผู้ซื้อ|ผู้ขาย|ผู้กู้|ผู้ค้ำ|ผู้เช่า|ผู้ให้เช่า|ส่งที่|ติดต่อ|นาย|นาง|นางสาว"
 )
+# A postal code may merge BACKWARD across exactly one bare Thai token — the
+# label-less khwaeng/province word that ends most Thai addresses ("เขตหลักสี่
+# กทม 10210"): the code already required an address cue within 45 chars to
+# exist at all, so the worst case is over-masking one word in front of a real
+# postcode, never a new claim. One token only; digits, newlines, and every
+# veto word still break it.
+_POSTAL_BACKSTEP_RE = re.compile(r" ?[ก-๎]{2,18} ?")
 
 
-def _gap_ok(gap: str, prev_type: str) -> bool:
+def _gap_ok(gap: str, prev_type: str, next_type: str) -> bool:
     if _STRICT_GAP_RE.fullmatch(gap):
         return True
     # Bridges continue an ADDRESS, never extend forward from a postal code.
@@ -122,7 +133,9 @@ def _gap_ok(gap: str, prev_type: str) -> bool:
         return False
     if _BRIDGE_VETO_RE.search(gap):
         return False
-    return bool(_ADDRESS_GLUE_RE.search(gap))
+    if _ADDRESS_GLUE_RE.search(gap):
+        return True
+    return next_type == "POSTAL_CODE" and bool(_POSTAL_BACKSTEP_RE.fullmatch(gap))
 
 
 def merge_address_spans(text: str, entities: list[Entity]) -> list[Entity]:
@@ -145,7 +158,7 @@ def merge_address_spans(text: str, entities: list[Entity]) -> list[Entity]:
         j = i + 1
         while j < len(entities) and entities[j].data_type in _MERGE_TYPES:
             gap = text[chain[-1].span[1] : entities[j].span[0]]
-            if not _gap_ok(gap, chain[-1].data_type):
+            if not _gap_ok(gap, chain[-1].data_type, entities[j].data_type):
                 break
             chain.append(entities[j])
             j += 1
@@ -166,6 +179,118 @@ def merge_address_spans(text: str, entities: list[Entity]) -> list[Entity]:
         )
         i = j
     return out
+
+
+def _extend_address_chains(text: str, entities: list[Entity], tb: list[Entity]) -> list[Entity]:
+    """Union a retained ADDRESS span with raw TB ADDRESS spans dedupe dropped.
+
+    FP-first dedupe keeps the precise label-keyed fragments and discards a
+    wider CRF ADDRESS span covering the same ground — but that wider span is
+    often the only thing that saw the label-less tail ("อำเภอเมือง ขอนแก่น":
+    the bare province lives in no FP capture). The CRF has already asserted
+    the whole region is one address, so the retained span may grow to the
+    union — clamped at the neighboring retained entities so a NAME beside the
+    address can never be swallowed (over-masking within the CRF's own span is
+    the worst case, never a new claim). Chains are re-merged afterwards
+    because an extension can close the gap to a POSTAL_CODE fragment.
+    """
+    tb_addr = [t for t in tb if t.data_type == "ADDRESS"]
+    if not tb_addr:
+        return entities
+    ents = sorted(entities, key=lambda e: e.span[0])
+    out: list[Entity] = []
+    changed = False
+    floor = 0  # end of the previous (possibly already extended) entity
+    for i, e in enumerate(ents):
+        ceiling = ents[i + 1].span[0] if i + 1 < len(ents) else len(text)
+        if e.data_type != "ADDRESS":
+            out.append(e)
+            floor = e.span[1]
+            continue
+        start, end = e.span
+        for t in tb_addr:
+            if t.span[0] < end and start < t.span[1]:
+                start = min(start, t.span[0])
+                end = max(end, t.span[1])
+        start = max(start, floor)
+        end = min(end, ceiling)
+        if (start, end) == e.span:
+            out.append(e)
+        else:
+            changed = True
+            out.append(
+                Entity(
+                    entity_id=e.entity_id,
+                    redact_type="TB",
+                    data_type="ADDRESS",
+                    span=(start, end),
+                    score=e.score,
+                    original_text=text[start:end],
+                )
+            )
+        floor = end
+    if not changed:
+        return entities
+    return merge_address_spans(text, out)
+
+
+# Bare facility designators (ng19): a bookable meeting room in a facilities
+# notice is furniture, not a place tied to a person. thainer maps FACILITY to
+# nothing by design, but the CRF emits these as LOCATION. Runs post-merge,
+# where a facility word inside a real address has already been absorbed into
+# its ADDRESS chain.
+#
+# Dropping UNMASKS, so absence of evidence is not evidence: the first cut
+# dropped the span whenever NOTHING else was detected nearby, and a bare
+# delivery line ("ส่งเอกสารมาที่ อาคาร 7 ชั้น 3") has no neighbours by
+# construction — it lost its building outright (2026-08-04 review). Two
+# conditions are now required together, both of which must point AT a
+# facilities notice:
+#
+#  - positive register evidence in the window (booking/capacity/meeting
+#    vocabulary), read with the facility spans themselves blanked out so
+#    "ห้องประชุม 1204" cannot vouch for itself; and
+#  - no retained non-facility entity nearby (a name, a phone, an address, an
+#    organization keeps the span masked; facility siblings never anchor each
+#    other, or the three ng19 spans would keep each other alive).
+_FACILITY_SPAN_RE = re.compile(r"(?:ห้องประชุม|ห้องเรียน|ห้อง|อาคาร|ตึก|ชั้น)\s*\d+")
+_FACILITY_ANCHOR_WINDOW = 80
+# Booking/capacity/event vocabulary. Bare สอบ is deliberately absent — it is a
+# substring of ตรวจสอบ/สอบถาม, which are ordinary prose and would license an
+# unmasking; the exam-room forms are spelled out instead.
+_FACILITY_REGISTER_RE = re.compile(
+    r"ความจุ|ที่นั่ง|จอง|ประชุม|อบรม|สัมมนา|บรรยาย|ห้องสอบ|สนามสอบ|ตารางสอบ|ผู้เข้าสอบ"
+)
+
+
+def _drop_unanchored_facility_spans(text: str, entities: list[Entity]) -> list[Entity]:
+    facility = {
+        i
+        for i, e in enumerate(entities)
+        if e.data_type == "LOCATION" and _FACILITY_SPAN_RE.fullmatch(text[e.span[0] : e.span[1]])
+    }
+    if not facility:
+        return entities
+    # Blank the facility spans so their own designator words are not read as
+    # register evidence for themselves.
+    masked = list(text)
+    for i in facility:
+        for pos in range(*entities[i].span):
+            masked[pos] = " "
+    masked_text = "".join(masked)
+    anchors = [e for i, e in enumerate(entities) if i not in facility]
+    drop = set()
+    for i in facility:
+        s, t = entities[i].span
+        lo = max(0, s - _FACILITY_ANCHOR_WINDOW)
+        hi = min(len(text), t + _FACILITY_ANCHOR_WINDOW)
+        if not _FACILITY_REGISTER_RE.search(masked_text[lo:hi]):
+            continue
+        if not any(a.span[0] < hi and lo < a.span[1] for a in anchors):
+            drop.add(i)
+    if not drop:
+        return entities
+    return [e for i, e in enumerate(entities) if i not in drop]
 
 
 def _relabel_student_ids(tb: list[Entity], kept: list[Entity]) -> list[Entity]:
@@ -211,4 +336,6 @@ def detect_all(
     record_names = detect_parallel_record_names(text, fp + tb + fn)
     deduped = dedupe_spans(fp + tb + fn + record_names)
     kept = merge_address_spans(text, _prefer_record_names(deduped, record_names))
+    kept = _extend_address_chains(text, kept, tb)
+    kept = _drop_unanchored_facility_spans(text, kept)
     return _relabel_student_ids(tb, kept)

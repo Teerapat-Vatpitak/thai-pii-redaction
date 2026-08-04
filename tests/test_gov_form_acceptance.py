@@ -327,11 +327,12 @@ def test_declared_value_in_safe_field_nulls_the_probe(tmp_path, monkeypatch):
 
 
 def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
+    message = "private text สมชาย ใจดี 1312271505581"
     _install_fakes(monkeypatch)
     monkeypatch.setattr(
         run_acceptance,
         "probe",
-        lambda _document, _expectations: (_ for _ in ()).throw(RuntimeError("private text")),
+        lambda _document, _expectations: (_ for _ in ()).throw(RuntimeError(message)),
     )
 
     summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
@@ -343,7 +344,187 @@ def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
     assert summary["aggregate_metrics"]["expected_values"] == 0
     assert all(item["metrics"] is None for item in summary["inputs"])
     raw = (tmp_path / "reports" / "summary.json").read_text(encoding="utf-8")
-    assert "private text" not in raw
+    result_raws = [
+        (tmp_path / "reports" / item["result_json"]).read_text(encoding="utf-8")
+        for item in summary["inputs"]
+    ]
+    for artifact in [raw, *result_raws]:
+        assert "private text" not in artifact
+        assert "สมชาย" not in artifact
+        assert "1312271505581" not in artifact
+    # The fingerprint IS present: type names + code locations, never message text.
+    fingerprint = json.loads(result_raws[0])["exception_fingerprint"]
+    assert fingerprint["exception_chain"] == ["builtins.RuntimeError"]
+    tail = fingerprint["traceback_tail"]
+    assert tail and all(isinstance(entry, str) for entry in tail)
+    for entry in tail:
+        assert "\\" not in entry  # relative posix paths only, never absolute
+        assert not entry.startswith("C:")
+        _path_part, lineno, _func = entry.rsplit(":", 2)
+        assert lineno.isdigit()
+    assert "error_code_token" not in fingerprint
+
+
+def test_probe_error_prints_the_full_traceback_to_stderr_only(tmp_path, monkeypatch, capsys):
+    _install_fakes(monkeypatch)
+    monkeypatch.setattr(
+        run_acceptance,
+        "probe",
+        lambda _document, _expectations: (_ for _ in ()).throw(
+            RuntimeError("operator-only detail")
+        ),
+    )
+
+    run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+
+    err = capsys.readouterr().err
+    assert "Traceback" in err
+    assert "operator-only detail" in err
+
+
+def test_probe_error_fingerprint_extracts_only_the_whitelisted_error_code_token(
+    tmp_path, monkeypatch
+):
+    _install_fakes(monkeypatch)
+    message = "(PreconditionNotMet) tensor holds สมชาย 1312271505581"
+    monkeypatch.setattr(
+        run_acceptance,
+        "probe",
+        lambda _document, _expectations: (_ for _ in ()).throw(RuntimeError(message)),
+    )
+
+    summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+
+    result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
+    raw = result_path.read_text(encoding="utf-8")
+    fingerprint = json.loads(raw)["exception_fingerprint"]
+    assert fingerprint["error_code_token"] == "PreconditionNotMet"
+    assert "สมชาย" not in raw
+    assert "1312271505581" not in raw
+    assert "tensor holds" not in raw
+
+
+def test_probe_error_fingerprint_walks_the_cause_chain(tmp_path, monkeypatch):
+    _install_fakes(monkeypatch)
+
+    def raise_chained(_document, _expectations):
+        try:
+            raise ValueError("inner private detail")
+        except ValueError as inner:
+            raise RuntimeError("outer private detail") from inner
+
+    monkeypatch.setattr(run_acceptance, "probe", raise_chained)
+
+    summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+
+    result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
+    raw = result_path.read_text(encoding="utf-8")
+    fingerprint = json.loads(raw)["exception_fingerprint"]
+    assert fingerprint["exception_chain"] == ["builtins.RuntimeError", "builtins.ValueError"]
+    assert "private detail" not in raw
+
+
+def test_fingerprint_carrying_a_declared_value_is_nulled(tmp_path, monkeypatch):
+    """Defense-in-depth: the fingerprint is structurally PII-free, but it still
+    passes the same _contains_declared_value guard as the probe payload."""
+    _install_fakes(monkeypatch)
+    poisoned = type("SYNTHETIC-0", (RuntimeError,), {})
+    monkeypatch.setattr(
+        run_acceptance,
+        "probe",
+        lambda _document, _expectations: (_ for _ in ()).throw(poisoned("boom")),
+    )
+
+    summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
+
+    result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert saved["exception_fingerprint"] is None
+    assert summary["failure_counts"]["unsafe_evidence"] == 9
+    assert summary["failure_counts"]["probe_error"] == 9
+
+
+def test_rerun_refuses_to_overwrite_prior_evidence(tmp_path, monkeypatch):
+    """A failing run's artifacts must survive its rerun: summary.json present
+    means refuse unless the caller opts in (exporter.py's overwrite idiom)."""
+    _install_fakes(monkeypatch)
+    reports = tmp_path / "reports"
+    first = run_acceptance.run_batch(tmp_path / "corpus", reports)
+    summary_path = reports / "summary.json"
+    result_path = reports / first["inputs"][0]["result_json"]
+    summary_before = summary_path.read_bytes()
+    result_before = result_path.read_bytes()
+
+    with pytest.raises(FileExistsError, match="overwrite"):
+        run_acceptance.run_batch(tmp_path / "corpus", reports)
+
+    assert summary_path.read_bytes() == summary_before
+    assert result_path.read_bytes() == result_before
+
+
+def test_rerun_with_overwrite_replaces_evidence(tmp_path, monkeypatch):
+    _install_fakes(monkeypatch)
+    reports = tmp_path / "reports"
+    run_acceptance.run_batch(tmp_path / "corpus", reports)
+
+    summary = run_acceptance.run_batch(tmp_path / "corpus", reports, overwrite=True)
+
+    assert summary["acceptance_passed"] is True
+
+
+def test_interrupted_overwrite_rerun_leaves_no_stale_verdict(tmp_path, monkeypatch):
+    """An overwrite rerun that dies mid-loop must not leave the PREVIOUS run's
+    pass verdict behind: summary.json is written last, so a crash would
+    otherwise present a clean verdict pointing at half-replaced result files.
+    """
+    _install_fakes(monkeypatch)
+    reports = tmp_path / "reports"
+    run_acceptance.run_batch(tmp_path / "corpus", reports)
+    summary_path = reports / "summary.json"
+    assert json.loads(summary_path.read_text(encoding="utf-8"))["acceptance_passed"] is True
+
+    real_write = run_acceptance._write_json
+    calls = {"n": 0}
+
+    def exploding_write(path, payload):
+        calls["n"] += 1
+        if calls["n"] > 4:
+            raise OSError("disk full")
+        real_write(path, payload)
+
+    monkeypatch.setattr(run_acceptance, "_write_json", exploding_write)
+    with pytest.raises(OSError, match="disk full"):
+        run_acceptance.run_batch(tmp_path / "corpus", reports, overwrite=True)
+
+    assert not summary_path.exists()
+
+
+def test_declared_value_guard_sees_through_json_escaping(tmp_path, monkeypatch):
+    """The guard must catch a declared value regardless of how json.dumps
+    would escape it — a quote or backslash inside the value made the
+    serialized-blob search miss it entirely."""
+    for value in ('AB"CD', "AB\\CD", "สมชาย ใจดี"):
+        payload = {"frame": f"leak {value} end"}
+        assert run_acceptance._contains_declared_value(payload, [value]) is True
+    assert run_acceptance._contains_declared_value({"frame": "clean"}, ['AB"CD']) is False
+
+
+def test_cli_refuses_a_rerun_into_the_same_output_dir(tmp_path, monkeypatch, capsys):
+    _install_fakes(monkeypatch)
+    args = [
+        "--corpus-dir",
+        str(tmp_path / "corpus"),
+        "--output-dir",
+        str(tmp_path / "reports"),
+    ]
+    assert run_acceptance.main(args) == 0
+
+    exit_code = run_acceptance.main(args)
+
+    assert exit_code == 2
+    assert "--overwrite" in capsys.readouterr().err
+
+    assert run_acceptance.main([*args, "--overwrite"]) == 0
 
 
 @pytest.mark.parametrize(

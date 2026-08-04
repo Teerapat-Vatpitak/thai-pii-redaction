@@ -1,5 +1,9 @@
 """Run the nine-input synthetic government-form acceptance batch locally.
 
+All nine inputs exercise OCR (every modality, including "digital", embeds a
+raster of the page and routes pdf_hybrid), so an OCR-stack transient can
+strike any input.
+
 This produces synthetic local regression evidence only. It is not evidence of
 general government-form accuracy, physical-scan accuracy, or a blind holdout.
 """
@@ -11,8 +15,10 @@ import importlib.metadata
 import json
 import math
 import platform
+import re
 import subprocess
 import sys
+import traceback
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -518,9 +524,75 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _iter_str_leaves(node: Any):
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield str(key)
+            yield from _iter_str_leaves(value)
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _iter_str_leaves(item)
+
+
 def _contains_declared_value(payload: dict[str, Any], values: list[str]) -> bool:
+    # Leaf-wise first: a value carrying a quote or backslash survives
+    # json.dumps only in escaped form, so scanning the serialized blob alone
+    # would miss it. The serialized pass stays as a second net for values
+    # split across neighbouring keys.
+    leaves = list(_iter_str_leaves(payload))
+    if any(value and any(value in leaf for leaf in leaves) for value in values):
+        return True
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return any(value and value in serialized for value in values)
+
+
+# Paddle prefixes enforce-class messages with "(PreconditionNotMet) ...". The
+# closed alphabetic vocabulary cannot encode digits or Thai text, so the token
+# is safe to keep; nothing else of the message ever is.
+_ERROR_CODE_TOKEN = re.compile(r"^\(([A-Za-z]{3,32})\)")
+_TRACEBACK_TAIL_FRAMES = 8
+
+
+def _frame_location(filename: str) -> str:
+    """Relativize a traceback frame path to the repo root or site-packages;
+    anything else keeps its basename only (never an absolute path)."""
+    path = Path(filename)
+    parts = path.parts
+    for marker in ("site-packages", "dist-packages"):
+        if marker in parts:
+            return Path(*parts[parts.index(marker) + 1 :]).as_posix()
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except (OSError, ValueError):
+        return path.name
+
+
+def _exception_fingerprint(exc: BaseException) -> dict[str, Any]:
+    """Structurally PII-free attribution for a probe failure.
+
+    Exception type names and code locations only -- message text never enters
+    evidence (and no hash of it either: a hash of a value counts as a value).
+    The one message-derived field, error_code_token, is matched by the
+    whitelist regex above.
+    """
+    chain: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        chain.append(f"{type(current).__module__}.{type(current).__qualname__}")
+        current = current.__cause__ or current.__context__
+    tail = [
+        f"{_frame_location(frame.filename)}:{frame.lineno}:{frame.name}"
+        for frame in traceback.extract_tb(exc.__traceback__)[-_TRACEBACK_TAIL_FRAMES:]
+    ]
+    fingerprint: dict[str, Any] = {"exception_chain": chain, "traceback_tail": tail}
+    token = _ERROR_CODE_TOKEN.match(str(exc))
+    if token:
+        fingerprint["error_code_token"] = token.group(1)
+    return fingerprint
 
 
 def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -829,11 +901,25 @@ def run_batch(
     output_dir: str | Path = DEFAULT_OUTPUT,
     *,
     record_only: bool = False,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Build and check all nine inputs in one process."""
 
     corpus_dir = Path(corpus_dir)
     output_dir = Path(output_dir)
+    summary_path = output_dir / "summary.json"
+    if summary_path.exists() and not overwrite:
+        # A failing run's artifacts must survive its rerun (same idiom as
+        # exporter.py): refuse before anything under output_dir is touched.
+        raise FileExistsError(
+            f"Evidence already exists: {summary_path}. "
+            "Use --overwrite (run_batch(overwrite=True)) to replace it."
+        )
+    if summary_path.exists():
+        # Overwriting: drop the old verdict FIRST. summary.json is written
+        # last, so a run interrupted mid-loop would otherwise leave a stale
+        # pass verdict pointing at result files from two different runs.
+        summary_path.unlink()
     input_dir = output_dir / "inputs"
     result_dir = output_dir / "results"
     rows = generate_corpus(corpus_dir, input_dir)
@@ -859,8 +945,11 @@ def run_batch(
         expectations_path = input_dir / row.expectations
         result_path = result_dir / _result_filename(row)
 
+        declared_values: list[str] = []
         try:
             expectations = load_expectations(expectations_path)
+            declared_values = [value.value for value in expectations["values"]]
+            declared_values.extend(str(value) for value in expectations.get("decoys", []))
             result = probe(document, expectations)
             expected_indices = tuple(value.index for value in expectations["values"])
             failures = evaluate_result(row.modality, expected_indices, result)
@@ -876,8 +965,6 @@ def run_batch(
                 "failures": failures,
                 "probe": safe_probe,
             }
-            declared_values = [value.value for value in expectations["values"]]
-            declared_values.extend(str(value) for value in expectations.get("decoys", []))
             if _contains_declared_value(result_payload, declared_values):
                 failures.append(
                     _failure(
@@ -887,6 +974,9 @@ def run_batch(
                 )
                 result_payload["probe"] = None
         except Exception as exc:
+            # Full raw traceback goes to the operator's console only -- it is
+            # never an artifact.
+            print(traceback.format_exc(), file=sys.stderr)
             metrics = None
             failures = [
                 _failure(
@@ -894,6 +984,15 @@ def run_batch(
                     f"probe raised {type(exc).__name__}; exception text is omitted from evidence",
                 )
             ]
+            fingerprint: dict[str, Any] | None = _exception_fingerprint(exc)
+            if _contains_declared_value(fingerprint, declared_values):
+                failures.append(
+                    _failure(
+                        "unsafe_evidence",
+                        "a declared value reached the exception fingerprint",
+                    )
+                )
+                fingerprint = None
             result_payload = {
                 "schema_version": EVIDENCE_SCHEMA_VERSION,
                 "evidence_scope": EVIDENCE_SCOPE,
@@ -903,6 +1002,7 @@ def run_batch(
                 "expectations": row.expectations,
                 "failures": failures,
                 "probe": None,
+                "exception_fingerprint": fingerprint,
             }
 
         _write_json(result_path, result_payload)
@@ -950,13 +1050,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="write baseline evidence but return zero even when binding gates fail",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace an existing summary.json and its result files",
+    )
     args = parser.parse_args(argv)
 
-    summary = run_batch(
-        corpus_dir=args.corpus_dir,
-        output_dir=args.output_dir,
-        record_only=args.record_only,
-    )
+    try:
+        summary = run_batch(
+            corpus_dir=args.corpus_dir,
+            output_dir=args.output_dir,
+            record_only=args.record_only,
+            overwrite=args.overwrite,
+        )
+    except FileExistsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if not summary["acceptance_passed"]:
         status = "FUNCTIONAL FAIL"
     elif summary["evidence_status"] == "synthetic_local_pass_clean":

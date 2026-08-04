@@ -10,7 +10,7 @@ OCRUnavailableError) before relying on OCR extraction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pii_redactor.detectors.fn_scanner import scan_fn
 from pii_redactor.detectors.fp_detector import detect_fp
@@ -84,6 +84,7 @@ class OCRPageResult:
     confidence: float  # lowest confidence among kept text
     attempts: int  # 1..MAX_OCR_RETRIES
     human_review: bool  # true when kept text has low confidence
+    warnings: list[str] = field(default_factory=list)  # e.g. engine-fault retries
 
 
 def _render_page_to_array(page, dpi: int):
@@ -268,11 +269,28 @@ def ocr_page(
     best_conf = -1.0
     attempt_results: list[tuple[list[WordBbox], float]] = []
     attempts = 0
+    warnings: list[str] = []
     for attempt in range(1, max_retries + 1):
         attempts = attempt
         arr = _render_page_to_array(page, cur_dpi)
         arr = preprocess_image(arr, level=attempt - 1)
-        words, conf = _run_ocr_once(arr, page_num, cur_dpi)
+        try:
+            words, conf = _run_ocr_once(arr, page_num, cur_dpi)
+        except RuntimeError as exc:
+            if type(exc) is not RuntimeError:
+                raise
+            # PaddlePaddle's pybind layer translates transient native faults
+            # to BARE builtins.RuntimeError ("Unknown exception",
+            # enforce-class errors like PreconditionNotMet). Retry the failed
+            # attempt once, visibly: the warning is recorded on the page
+            # result and surfaced through extract() meta warnings, so
+            # evidence shows every retry. A second failure propagates
+            # unchanged, and RuntimeError SUBCLASSES (PdfiumError,
+            # OCRUnavailableError) never retry.
+            warnings.append(
+                f"page {page_num}: OCR attempt {attempt} raised RuntimeError; retried once"
+            )
+            words, conf = _run_ocr_once(arr, page_num, cur_dpi)
         attempt_results.append((words, conf))
         if conf > best_conf:
             best_conf = conf
@@ -293,4 +311,5 @@ def ocr_page(
         confidence=max(retained_conf, 0.0),
         attempts=attempts,
         human_review=retained_conf < OCR_CONFIDENCE_THRESHOLD,
+        warnings=warnings,
     )

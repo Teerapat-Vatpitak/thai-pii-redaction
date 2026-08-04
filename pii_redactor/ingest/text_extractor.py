@@ -303,6 +303,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
 
             if needs_ocr:
                 result = ocr_processor.ocr_page(page, page_num)
+                warnings.extend(result.warnings)
                 pages_ocred.append(page_num)
                 confidences.append(result.confidence)
                 ocr_observations.append(result.text)

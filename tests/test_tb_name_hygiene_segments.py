@@ -136,7 +136,11 @@ def _hygiene_texts(entity_text: str) -> list[str]:
     [
         ("สมชาย ใจดี,\nที่อยู่ 99 ถนนสุขุมวิท", "สมชาย ใจดี,"),
         ("สมชาย ใจดี (ผู้ยื่น)\nวันที่ 1 สิงหาคม", "สมชาย ใจดี (ผู้ยื่น)"),
-        ("สมชาย ใจดี 45 ปี\nอาชีพ", "สมชาย ใจดี 45 ปี"),
+        # 2026-08-04 (fn10 digit-run truncation): the head is now cut at its
+        # first digit run — the NAME survives, the age suffix does not. A
+        # digits-glued head kept whole is exactly what let dedupe_spans drop
+        # a whole name for overlapping the FP span on its tail.
+        ("สมชาย ใจดี 45 ปี\nอาชีพ", "สมชาย ใจดี"),
         ("John Smith\nAddress 12", "John Smith"),
     ],
 )

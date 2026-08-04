@@ -138,6 +138,30 @@ def test_run_ocr_once_empty_result_has_zero_confidence(monkeypatch):
 # --- Tier 1: ocr_page() retry / human_review control flow -------------------
 
 
+class _FlakyEngine:
+    """predict() raises for the first `failures` calls, then reads normally."""
+
+    def __init__(self, failures: int, exception_factory=None):
+        self.failures = failures
+        self.calls = 0
+        self.raised: list[BaseException] = []
+        self._factory = exception_factory or (lambda: RuntimeError("Unknown exception"))
+
+    def predict(self, image):
+        self.calls += 1
+        if self.calls <= self.failures:
+            exc = self._factory()
+            self.raised.append(exc)
+            raise exc
+        return [
+            {
+                "rec_texts": ["ทดสอบ"],
+                "rec_scores": [0.95],
+                "rec_boxes": [[0, 0, 100, 20]],
+            }
+        ]
+
+
 def _patch_render_and_preprocess(monkeypatch):
     monkeypatch.setattr(ocr_processor, "_render_page_to_array", lambda page, dpi: dpi)
     monkeypatch.setattr(ocr_processor, "preprocess_image", lambda img, level=0: img)
@@ -418,6 +442,63 @@ def test_ocr_page_keeps_structured_line_from_lower_confidence_retry(monkeypatch)
     assert result.words[1].text == "เลข 1234567890123"
     assert result.words[1].x == 40
     assert result.text == "ผลหลัก\nเลข 1234567890123"
+
+
+def test_ocr_page_retries_once_on_a_bare_engine_runtime_error(monkeypatch):
+    """PaddlePaddle's pybind layer translates transient native faults to bare
+    builtins.RuntimeError. One visible retry of the failed attempt; the warning
+    reaches OCRPageResult.warnings so evidence can never absorb it silently."""
+    _patch_render_and_preprocess(monkeypatch)
+    engine = _FlakyEngine(failures=1)
+    monkeypatch.setattr(ocr_processor, "_get_engine", lambda: engine)
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    # attempt 1: raise + one retry; attempt 2: normal (MIN_OCR_ATTEMPTS=2).
+    assert engine.calls == 3
+    assert result.attempts == 2
+    assert [word.text for word in result.words] == ["ทดสอบ"]
+    assert result.warnings == ["page 1: OCR attempt 1 raised RuntimeError; retried once"]
+
+
+def test_ocr_page_second_engine_failure_propagates_unchanged(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    engine = _FlakyEngine(failures=2)
+    monkeypatch.setattr(ocr_processor, "_get_engine", lambda: engine)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert engine.calls == 2  # exactly one retry, never a third call
+    assert excinfo.value is engine.raised[1]  # the second failure, unchanged
+
+
+def test_ocr_page_never_retries_a_runtime_error_subclass(monkeypatch):
+    """PdfiumError and OCRUnavailableError subclass RuntimeError; only the
+    BARE type is the paddle native-fault signature, so subclasses propagate
+    immediately."""
+
+    class _PdfiumLikeError(RuntimeError):
+        pass
+
+    _patch_render_and_preprocess(monkeypatch)
+    engine = _FlakyEngine(failures=1, exception_factory=lambda: _PdfiumLikeError("render failed"))
+    monkeypatch.setattr(ocr_processor, "_get_engine", lambda: engine)
+
+    with pytest.raises(_PdfiumLikeError):
+        ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert engine.calls == 1
+
+
+def test_ocr_page_reports_no_warnings_without_an_engine_fault(monkeypatch):
+    _patch_render_and_preprocess(monkeypatch)
+    engine = _FlakyEngine(failures=0)
+    monkeypatch.setattr(ocr_processor, "_get_engine", lambda: engine)
+
+    result = ocr_processor.ocr_page(page=object(), page_num=1)
+
+    assert result.warnings == []
 
 
 def test_ocr_page_drops_unstructured_line_from_lower_confidence_retry(monkeypatch):
