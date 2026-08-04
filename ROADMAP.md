@@ -149,6 +149,10 @@ Ordered so that evaluation integrity comes before tuning:
    privacy gate was red at the
    [2026-07-31 dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md)
    and passed green 9/9 on the 2026-08-01 branch rerun, detailed next.
+   A fresh clean-tree rerun on 2026-08-04 timed out after 7/9 per-input
+   results without an aggregate summary, so that historical 9/9 result is not
+   promoted to current-tree evidence; the current OCR runtime issue is
+   recorded in the phase-2 addendum.
    That failed gate's cause was not what it first looked like: near-miss OCR
    reads were already tolerated, and "an OCR read one character off is
    treated as absent" was not why values leaked. Investigation found four

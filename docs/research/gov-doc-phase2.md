@@ -205,3 +205,21 @@ recall 0.945 precision 0.954 negative false positive 33 เอกสาร (ไ�
   ผ่านปกติและไม่มี code path ใดโยน bare `RuntimeError` ตรง ๆ รอบถัดไปรันซ้ำ
   ผ่านทั้ง 9/9 และเป็นรอบที่บันทึกไว้ข้างต้น.
 - Blind set ไม่ถูกแตะต้องในงานนี้ reveal log คงเดิม.
+
+## ส่วนเพิ่มเติม 2026-08-04: current-tree rerun ยังไม่จบ
+
+บน `main` ที่ commit `595b0aa` และ working tree สะอาด เรียก runner ด้วย
+`.venv-full` และ output ใหม่ `benchmark/reports/gov-forms-2026-08-04-current-long`
+โดยไม่ใช้ `--record-only`. Builder สร้าง input ครบ 9 รายการ แต่ process
+หมดเวลา 30 นาทีหลังเขียนผลรายอินพุต 7 รายการแรก (คร.1 ทั้ง 3, ภ.ง.ด.91 ทั้ง 3
+และ สปส.1-03 digital) จึงไม่มี `summary.json` และไม่มี aggregate verdict.
+
+ผลรายอินพุตทั้ง 7 ไฟล์ไม่มี gate failure, ไม่มี residual exposure และไม่มีค่า
+ที่ unmeasurable; นี่เป็น partial diagnostic evidence เท่านั้น ไม่ใช่ strict
+acceptance pass. การรันก่อนหน้านี้ยังมี access violation ของ PaddlePaddle
+Windows ที่จุดอื่นของ process ซึ่งเกิดซ้ำเมื่อ revert OCR กลับ `main`; รอบ
+ปัจจุบันแสดงปัญหาอีกแบบคือเวลารันและ memory สูง (ประมาณ 3.4 GiB peak ที่
+สังเกตได้) จนไม่จบภายใน timeout. ไม่มีการลด threshold, เปลี่ยน expected value
+หรือข้าม modality. รายละเอียดนี้จึงคงสถานะ current-tree strict OCR เป็น
+**unverified** และต้องใช้ environment/runtime ที่จบรันทั้ง 9 input ก่อนจึง
+จะเลื่อนหลักฐานขึ้นเป็น pass.
