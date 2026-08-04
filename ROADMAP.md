@@ -149,10 +149,15 @@ Ordered so that evaluation integrity comes before tuning:
    privacy gate was red at the
    [2026-07-31 dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md)
    and passed green 9/9 on the 2026-08-01 branch rerun, detailed next.
-   A fresh clean-tree rerun on 2026-08-04 timed out after 7/9 per-input
-   results without an aggregate summary, so that historical 9/9 result is not
-   promoted to current-tree evidence; the current OCR runtime issue is
-   recorded in the phase-2 addendum.
+   A current-tree WSL rerun on 2026-08-04 completed 9/9 with zero gate failures
+   (45/45 removed, zero exposed or unmeasurable, residual OCR measured 9/9,
+   and decoy controls clean). The runner conservatively labeled its summary
+   `functional_pass_repository_dirty` during the WSL run; immediately after,
+   both Windows and WSL Git status were clean at the same commit. This closes
+   the current-tree functional evidence gap, but not the runtime limitation:
+   the WSL run took about 34 minutes and peaked near 8 GiB RSS, the Windows
+   run still has a 30-minute timeout, and an earlier Windows access violation
+   remains recorded in the phase-2 addendum.
    That failed gate's cause was not what it first looked like: near-miss OCR
    reads were already tolerated, and "an OCR read one character off is
    treated as absent" was not why values leaked. Investigation found four

@@ -223,3 +223,28 @@ Windows ที่จุดอื่นของ process ซึ่งเกิด
 หรือข้าม modality. รายละเอียดนี้จึงคงสถานะ current-tree strict OCR เป็น
 **unverified** และต้องใช้ environment/runtime ที่จบรันทั้ง 9 input ก่อนจึง
 จะเลื่อนหลักฐานขึ้นเป็น pass.
+
+## ส่วนเพิ่มเติม 2026-08-04: WSL current-tree rerun จบครบ
+
+ส่วน timeout ข้างต้นเป็นสถานะก่อนรัน WSL และถูก supersede ในแง่ functional
+evidence โดยผลรอบนี้; ข้อจำกัด Windows และ resource ยังมีผลเช่นเดิม.
+
+เพื่อแยกปัญหา Windows runtime ออกจาก product path รันคำสั่งเดิมบน WSL ด้วย
+output ใหม่ `benchmark/reports/gov-forms-2026-08-04-wsl-current-60m` ที่ commit
+`ded67d3912297c4cee67a5cbdfd07276109c6c89` และไม่ใช้ `--record-only`.
+กระบวนการจบครบ 9/9 inputs ในเวลาประมาณ 34 นาที และเขียน `summary.json` โดยมี
+`acceptance_passed=true`, gate failures เป็นศูนย์, expected values 45,
+extraction found 39/45, detection 45/45, type matches 40/42,
+pixel coverage 45/45, residual removed 45, exposed 0, unmeasurable 0,
+residual OCR measured 9/9, surviving 0 และ decoy controls 9/9. ตัวเลข
+detection/type เป็น telemetry ตาม contract; strict gate คือ route/OCR,
+extraction, coverage, residual และ decoy.
+
+Runner ระบุ `functional_pass_repository_dirty` ระหว่างรัน WSL จึงไม่อ้างว่า
+artifact นี้เป็น `synthetic_local_pass_clean`. ตรวจซ้ำทันทีหลัง process จบแล้ว
+ทั้ง Windows และ WSL `git status --porcelain` สะอาด และอยู่ที่ commit เดียวกัน;
+ดังนั้นผลนี้ใช้ปิดช่องว่าง **current-tree functional evidence** ได้ แต่ยังไม่
+ลบ runtime limitation: WSL ใช้ memory สูงสุดที่สังเกตได้ใกล้ 8 GiB RSS,
+Windows ยังมี timeout 30 นาที และยังมีประวัติ PaddlePaddle access violation
+ที่บันทึกไว้ข้างต้น. ไม่มีการลด threshold, เปลี่ยน expected value หรือข้าม
+modality ในรอบนี้.
