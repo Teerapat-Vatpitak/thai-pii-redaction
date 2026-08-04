@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
