@@ -78,9 +78,11 @@ until new scope is explicitly approved. Still open, per the
   missing-key/provider/expired-session cases; Excel changed-value/formula
   cancellation and Pathumma Copy-only; PowerPoint full unselected-content
   isolation, missing API 1.5, and Pathumma Copy-only); and
-- one real-host run proving the exact packaged three-host unified manifest
-  activates its ribbon/task pane. Schema validation, acquisition metadata, and
-  local XML transports do not close that distribution gate.
+- after the remaining host-functional checks pass, one real-host run proving the
+  exact promoted three-host unified manifest activates its ribbon/task pane.
+  The release manifest remains Word-only until then; schema validation,
+  acquisition metadata, and local XML transports do not close that distribution
+  gate.
 
 ## Track A - Detection accuracy (current focus)
 

@@ -156,10 +156,11 @@ Office evidence has two levels that must not be combined:
    and `office-addin/` HTTPS development server through a Microsoft-validated
    host-specific XML transport. It proves task-pane behavior in that host, but
    does not prove the release package or unified acquisition path.
-2. **Packaged unified-manifest acceptance** installs the exact promoted
-   three-host package and proves that its ribbon/task pane visibly activates in
-   Word, Excel, and PowerPoint. Only this level closes the Office distribution
-   gate.
+2. **Packaged unified-manifest acceptance** installs the exact promoted package
+   and proves that its ribbon/task pane visibly activates in every promoted host.
+   The current release manifest is deliberately Word-only; the three-host
+   package is not promoted until Excel and PowerPoint host gates pass. Only this
+   level closes the Office distribution gate.
 
 Use synthetic PII only. Record Office host, full build number, add-in commit,
 backend version, transport, and pass/fail. Do not capture raw selection,
@@ -203,9 +204,10 @@ manifest.
 
 The 2.5.0 preparation record adds local XML evidence for all three hosts, plus
 authoritative validation, deterministic packaging, and exact 2.5.0 acquisition
-metadata for the promoted three-host unified manifest. Packaged custom-ribbon
-visibility remains an Office client-cache/distribution follow-up and is not
-represented as Marketplace acceptance.
+metadata for a proposed three-host unified manifest. The current release
+manifest remains Word-only until the remaining host gates pass. Packaged
+custom-ribbon visibility remains an Office client-cache/distribution follow-up
+and is not represented as Marketplace acceptance.
 
 ### Local host-functional acceptance
 
@@ -253,13 +255,14 @@ using Microsoft-validated local XML transports.
 
 ### Packaged unified-manifest acceptance
 
-- [x] The exact three-host manifest passes authoritative schema validation,
-  contains Document, Workbook, and Presentation acquisition metadata, and
-  packages deterministically.
-- [ ] Install the exact promoted package and verify that the AI Guard ribbon and
-  task pane visibly activate in Word, Excel, and PowerPoint. Record all three
-  host builds and the package hash. Local XML runs, schema validation, and
-  acquisition metadata do not close this gate.
+- [x] The current Word-only manifest passes authoritative schema validation and
+  packages deterministically. The acceptance-only XML transports for Excel and
+  PowerPoint also pass their schema checks.
+- [ ] Install the exact promoted package only after the Excel and PowerPoint
+  host gates pass, then verify that the AI Guard ribbon and task pane visibly
+  activate in Word, Excel, and PowerPoint. Record all three host builds and the
+  package hash. Local XML runs, schema validation, and acquisition metadata do
+  not close this gate.
 
 ## PDF checklist
 

@@ -5,11 +5,10 @@ codebase เดียวกันใน Word, Excel และ PowerPoint โด�
 ผ่าน HTTPS development proxy ไม่มี detection หรือ mapping implementation แยกใน
 Add-in
 
-สถานะปัจจุบัน: **In development / real-host acceptance pending**. Adapter และ
-release unified manifest เปิด Word, Excel และ PowerPoint แล้วหลัง local acceptance;
-ยังต้องทำ unified-transport real-host promotion smoke ของ Excel/PowerPoint บน
-candidate เดียวกันก่อนปิด Office lane โครงการนี้ยังไม่ใช่ Marketplace package และยัง
-ไม่รวม production hosting
+สถานะปัจจุบัน: **In development / real-host acceptance pending**. Adapter มีครบทั้ง
+สาม host แต่ release unified manifest เปิด Word เท่านั้นจนกว่า real-host acceptance
+ของ Excel และ PowerPoint จะผ่าน; XML manifests ของสอง host เป็น acceptance-only
+transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting
 
 การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
 host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
@@ -31,9 +30,9 @@ Excel follow-up ยืนยันว่าเปลี่ยนเฉพาะ 
 อยู่ที่
 [Office local acceptance run](../docs/acceptance/2026-07-23-office-local-run.md)
 Unified Word follow-up ยืนยัน multiple-paragraph Copy-only, Pathumma preview และ
-Insert response หลังผู้ใช้กดอย่างชัดเจนแล้ว ขณะนี้ unified manifest ถูก promote
-ให้ครอบคลุมทั้งสาม host; ต้องยืนยัน ribbon/task pane และ host smoke ผ่าน transport
-นี้ก่อนปิด checklist ทั้งหมด
+Insert response หลังผู้ใช้กดอย่างชัดเจนแล้ว unified manifest จึงยังเปิด Word เท่านั้น;
+Excel และ PowerPoint ต้องผ่าน host-functional และ unified-transport smoke ก่อนจึง
+ค่อย promote เข้า release manifest
 
 ## Trust boundary
 
@@ -67,16 +66,13 @@ npm run dev
 
 การรัน `npm run dev` จะสร้างและ trust development certificate ผ่าน
 `office-addin-dev-certs` แล้วเปิด `https://localhost:3000`. จากนั้น sideload
-unified manifest ตาม host ที่ต้องการ:
+unified manifest สำหรับ Word:
 
 ```powershell
 npm run start:word
-npm run start:excel
-npm run start:powerpoint
 ```
 
-หาก unified manifest ไม่ถูก Office client รับ ให้ทดสอบ code path เดิมผ่าน local
-add-in-only XML manifest:
+ทดสอบ code path ของ Excel และ PowerPoint ผ่าน local add-in-only XML manifest:
 
 ```powershell
 npm run start:word:local
@@ -121,8 +117,8 @@ npm run package:manifest
 npm run build
 ```
 
-`validate:manifest` ตรวจว่า release manifest ยังเปิดเฉพาะ host ที่ผ่าน promotion
-gate รวมถึง unified schema 1.25, HTTPS runtime, icon assets และ version
+`validate:manifest` ตรวจว่า release manifest เปิดเฉพาะ host ที่ผ่าน promotion gate
+(ปัจจุบัน Word เท่านั้น) รวมถึง unified schema 1.25, HTTPS runtime, icon assets และ version
 consistency แบบ deterministic. `validate:manifest:upstream` ดึง schema 1.25
 จาก Microsoft โดยตรง ตรวจ SHA-256 ที่ review แล้ว และตรวจ JSON ด้วย JSON Schema
 validator; ใช้แทน CLI รุ่นที่แปลง unified ribbon fields ผิดรูปแบบ. คำสั่งนี้ต้องใช้
