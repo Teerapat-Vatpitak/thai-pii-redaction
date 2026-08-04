@@ -365,7 +365,7 @@ def test_runner_keeps_a_safe_summary_when_probe_raises(tmp_path, monkeypatch):
     assert "error_code_token" not in fingerprint
 
 
-def test_probe_error_prints_the_full_traceback_to_stderr_only(tmp_path, monkeypatch, capsys):
+def test_probe_error_prints_only_a_safe_fingerprint_to_stderr(tmp_path, monkeypatch, capsys):
     _install_fakes(monkeypatch)
     monkeypatch.setattr(
         run_acceptance,
@@ -378,12 +378,14 @@ def test_probe_error_prints_the_full_traceback_to_stderr_only(tmp_path, monkeypa
     run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
 
     err = capsys.readouterr().err
-    assert "Traceback" in err
-    assert "operator-only detail" in err
+    assert "Traceback" not in err
+    assert "operator-only detail" not in err
+    assert "RuntimeError" in err
+    assert "exception text omitted" in err
 
 
 def test_probe_error_fingerprint_extracts_only_the_whitelisted_error_code_token(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ):
     _install_fakes(monkeypatch)
     message = "(PreconditionNotMet) tensor holds สมชาย 1312271505581"
@@ -395,6 +397,13 @@ def test_probe_error_fingerprint_extracts_only_the_whitelisted_error_code_token(
 
     summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
 
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "สมชาย" not in err
+    assert "1312271505581" not in err
+    assert "tensor holds" not in err
+    assert "PreconditionNotMet" in err
+
     result_path = tmp_path / "reports" / summary["inputs"][0]["result_json"]
     raw = result_path.read_text(encoding="utf-8")
     fingerprint = json.loads(raw)["exception_fingerprint"]
@@ -402,6 +411,12 @@ def test_probe_error_fingerprint_extracts_only_the_whitelisted_error_code_token(
     assert "สมชาย" not in raw
     assert "1312271505581" not in raw
     assert "tensor holds" not in raw
+
+
+def test_probe_error_fingerprint_drops_unknown_parenthesized_text():
+    fingerprint = run_acceptance._exception_fingerprint(RuntimeError("(JohnDoe) private detail"))
+
+    assert "error_code_token" not in fingerprint
 
 
 def test_probe_error_fingerprint_walks_the_cause_chain(tmp_path, monkeypatch):
@@ -422,6 +437,10 @@ def test_probe_error_fingerprint_walks_the_cause_chain(tmp_path, monkeypatch):
     fingerprint = json.loads(raw)["exception_fingerprint"]
     assert fingerprint["exception_chain"] == ["builtins.RuntimeError", "builtins.ValueError"]
     assert "private detail" not in raw
+
+
+def test_external_traceback_paths_use_a_fixed_marker():
+    assert run_acceptance._frame_location(r"C:\temp\สมชาย_1312271505581.py") == "<external>"
 
 
 def test_fingerprint_carrying_a_declared_value_is_nulled(tmp_path, monkeypatch):
