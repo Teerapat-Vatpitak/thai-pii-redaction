@@ -57,10 +57,11 @@ a hosted service.
 - Browser extension: in-page Mask/Restore for supported AI sites plus a docked
   side panel.
 - Desktop app: bundled Tauri shell and local FastAPI sidecar.
-- Microsoft 365 Add-in: one Thai task pane for Word, Excel, and PowerPoint.
-  Automated checks and a partial local XML real-host functional slice pass with
-  synthetic PII. Remaining host scenarios and exact packaged three-host
-  ribbon/task-pane activation are tracked separately; schema and acquisition
+- Microsoft 365 Add-in: one Thai task pane with Word, Excel, and PowerPoint
+  adapters. Automated checks and a partial local XML real-host functional slice
+  pass with synthetic PII. The current unified release manifest is Word-only;
+  Excel and PowerPoint remain acceptance-only until their host gates and the
+  packaged three-host ribbon/task-pane activation pass. Schema and acquisition
   metadata are not a Marketplace or broad Office-distribution claim.
 - HTTP API: detection, sanitization, re-identification, analysis, reporting,
   guard, PDF, and demo endpoints.
@@ -174,8 +175,9 @@ Use synthetic fixtures from `examples/` for demonstrations and acceptance.
 - Desktop: run `python scripts/build_sidecar.py`, then `cd desktop`, `npm ci`,
   and `npm run tauri dev`; see [desktop/README.md](desktop/README.md).
 - Office: start the backend, then `cd office-addin`, `npm ci`, and `npm run dev`;
-  use the documented `start:*` commands for a host-specific or unified
-  manifest; see [office-addin/README.md](office-addin/README.md).
+  use `start:word` for the unified Word manifest or the documented `*:local`
+  commands for host-specific acceptance; see
+  [office-addin/README.md](office-addin/README.md).
 - Demo: set `AIGUARD_DEMO=1` before starting the backend and open `/demo`.
 
 ### Tests and development workflow
