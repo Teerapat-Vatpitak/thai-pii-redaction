@@ -20,7 +20,7 @@ import subprocess
 import sys
 import traceback
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from benchmark.data.probe.gov_forms.generate_inputs import (
@@ -562,6 +562,11 @@ def _frame_location(filename: str) -> str:
     anything else is reduced to a fixed marker (never an absolute path or a
     user-controlled basename)."""
     path = Path(filename)
+    # A traceback path can come from a cross-platform test or a native layer.
+    # On POSIX, pathlib treats ``C:\\...`` as a relative filename, so reject
+    # Windows absolute paths before resolve() could place them under the repo.
+    if PureWindowsPath(filename).drive and not path.is_absolute():
+        return "<external>"
     parts = path.parts
     for marker in ("site-packages", "dist-packages"):
         if marker in parts:
