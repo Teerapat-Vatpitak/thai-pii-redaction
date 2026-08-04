@@ -558,23 +558,30 @@ _TRACEBACK_TAIL_FRAMES = 8
 
 
 def _frame_location(filename: str) -> str:
-    """Relativize a traceback frame path to the repo root or site-packages;
-    anything else is reduced to a fixed marker (never an absolute path or a
-    user-controlled basename)."""
+    """Return a safe location class for a traceback frame.
+
+    Only paths inside this repository retain their relative location. A
+    dependency path is reduced to a fixed class marker: even a package loaded
+    from a user-named directory must not put that directory into evidence.
+    """
     path = Path(filename)
+    parts = {part.casefold() for part in (*path.parts, *PureWindowsPath(filename).parts)}
+    package_marker = (
+        "<site-packages>"
+        if "site-packages" in parts
+        else "<dist-packages>"
+        if "dist-packages" in parts
+        else None
+    )
     # A traceback path can come from a cross-platform test or a native layer.
     # On POSIX, pathlib treats ``C:\\...`` as a relative filename, so reject
     # Windows absolute paths before resolve() could place them under the repo.
     if PureWindowsPath(filename).drive and not path.is_absolute():
-        return "<external>"
-    parts = path.parts
-    for marker in ("site-packages", "dist-packages"):
-        if marker in parts:
-            return Path(*parts[parts.index(marker) + 1 :]).as_posix()
+        return package_marker or "<external>"
     try:
         return path.resolve().relative_to(REPO_ROOT).as_posix()
     except (OSError, ValueError):
-        return "<external>"
+        return package_marker or "<external>"
 
 
 def _exception_fingerprint(exc: BaseException) -> dict[str, Any]:
@@ -631,14 +638,15 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
             target["value_chars"] = len(str(source["value"]))
 
     ocr = result.get("ocr", {})
-    safe_ocr = pick(ocr, ("status", "reason", "mean_char_accuracy"))
+    # OCR's top-level reason can contain the original optional-dependency
+    # exception text. Keep the status and measurements, never that message.
+    safe_ocr = pick(ocr, ("status", "mean_char_accuracy"))
     safe_ocr["values"] = rows(
         ocr.get("values") if isinstance(ocr, dict) else None,
         (
             "index",
             "field",
             "status",
-            "reason",
             "start",
             "end",
             "edit_distance",
@@ -688,8 +696,6 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
         coverage,
         (
             "status",
-            "reason",
-            "note",
             "render_scale",
             "values_measured",
             "fully_covered",
@@ -714,7 +720,7 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
     residual = result.get("residual", {})
     safe_residual = pick(
         residual,
-        ("status", "reason", "removed", "exposed", "unmeasurable"),
+        ("status", "removed", "exposed", "unmeasurable"),
     )
     safe_residual["values"] = rows(
         residual.get("values") if isinstance(residual, dict) else None,
@@ -722,7 +728,6 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
             "index",
             "field",
             "verdict",
-            "reason",
             "alignment",
             "text_arm_survives",
             "render_ocr_survives",
@@ -733,7 +738,7 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
     text_arm = residual.get("text_arm") if isinstance(residual, dict) else None
     safe_text_arm = pick(
         text_arm,
-        ("redacted_source_type", "text_layer_chars", "vacuous", "note"),
+        ("redacted_source_type", "text_layer_chars", "vacuous"),
     )
     if isinstance(text_arm, dict) and "values_surviving_in_text" in text_arm:
         survivors = text_arm["values_surviving_in_text"]
@@ -745,7 +750,7 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
     render_ocr = residual.get("render_ocr") if isinstance(residual, dict) else None
     safe_render_ocr = pick(
         render_ocr,
-        ("status", "reason", "minimum_accuracy", "text_chars", "surviving"),
+        ("status", "minimum_accuracy", "text_chars", "surviving"),
     )
     safe_render_ocr["values"] = rows(
         render_ocr.get("values") if isinstance(render_ocr, dict) else None,
@@ -772,14 +777,13 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
             "placed_order",
             "extracted_order",
             "meaningful",
-            "reason",
             "layout",
             "layout_source",
         ),
     )
     safe_order["columns"] = pick(
         order.get("columns") if isinstance(order, dict) else None,
-        ("verdict", "reason", "rows", "wide_gap_rows", "max_gap_pt"),
+        ("verdict", "rows", "wide_gap_rows", "max_gap_pt"),
     )
 
     meta = result.get("extract_meta", {})
@@ -792,7 +796,7 @@ def _safe_probe_result(result: dict[str, Any]) -> dict[str, Any]:
         safe_meta["warning_count"] = len(meta.get("warnings", []))
 
     decoy = result.get("decoy_control", {})
-    safe_decoy = pick(decoy, ("checked", "note"))
+    safe_decoy = pick(decoy, ("checked",))
     if isinstance(decoy, dict) and "false_hits" in decoy:
         false_hits = decoy["false_hits"]
         safe_decoy["false_hit_count"] = len(false_hits) if isinstance(false_hits, list) else None
@@ -920,8 +924,7 @@ def run_batch(
         # A failing run's artifacts must survive its rerun (same idiom as
         # exporter.py): refuse before anything under output_dir is touched.
         raise FileExistsError(
-            f"Evidence already exists: {summary_path}. "
-            "Use --overwrite (run_batch(overwrite=True)) to replace it."
+            "Evidence already exists. Use --overwrite (run_batch(overwrite=True)) to replace it."
         )
     if summary_path.exists():
         # Overwriting: drop the old verdict FIRST. summary.json is written
@@ -1082,9 +1085,20 @@ def main(argv: list[str] | None = None) -> int:
             record_only=args.record_only,
             overwrite=args.overwrite,
         )
-    except FileExistsError as exc:
-        print(str(exc), file=sys.stderr)
+    except FileExistsError:
+        print(
+            "Evidence already exists. Use --overwrite to replace it.",
+            file=sys.stderr,
+        )
         return 2
+    except Exception as exc:
+        fingerprint = _exception_fingerprint(exc)
+        print(
+            "acceptance runner failed; exception text omitted; "
+            f"fingerprint={json.dumps(fingerprint, ensure_ascii=False, sort_keys=True)}",
+            file=sys.stderr,
+        )
+        return 1
     if not summary["acceptance_passed"]:
         status = "FUNCTIONAL FAIL"
     elif summary["evidence_status"] == "synthetic_local_pass_clean":
@@ -1098,7 +1112,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{status}: {summary['generated_inputs']} input(s), "
         f"{sum(summary['failure_counts'].values())} gate failure(s)"
     )
-    print(f"summary: {(args.output_dir / 'summary.json').resolve()}")
+    print("summary: summary.json written under the requested output directory")
     return 0 if args.record_only or summary["acceptance_passed"] else 1
 
 

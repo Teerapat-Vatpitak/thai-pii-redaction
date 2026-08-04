@@ -60,7 +60,8 @@ Runner สร้างและ probe ทั้ง 9 อินพุตใน pr
 ใช้ `--record-only` ได้เฉพาะเก็บ baseline; failure ยังอยู่ใน JSON ตามเดิม.
 `summary.json` เป็นหลักฐานหลักและมี per-input/aggregate metrics ที่ไม่มีค่า
 entity. Result รายอินพุตเป็น diagnostic ที่ตัด expected value, OCR text,
-surviving value และ decoy string ออกก่อนเขียนไฟล์.
+surviving value, decoy string และข้อความ exception/free-text reason ออกก่อน
+เขียนไฟล์; CLI ก็ไม่พิมพ์ absolute path หรือ traceback.
 
 ## ผล local full OCR environment
 

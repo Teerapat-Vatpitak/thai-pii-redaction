@@ -314,7 +314,7 @@ def test_unknown_value_field_is_not_saved(tmp_path, monkeypatch):
 
 def test_declared_value_in_safe_field_nulls_the_probe(tmp_path, monkeypatch):
     def add_declared_value(result, _modality):
-        result["coverage"]["note"] = "unsafe SYNTHETIC-0"
+        result["coverage"]["render_scale"] = "unsafe SYNTHETIC-0"
 
     _install_fakes(monkeypatch, add_declared_value)
     summary = run_acceptance.run_batch(tmp_path / "corpus", tmp_path / "reports")
@@ -443,6 +443,13 @@ def test_external_traceback_paths_use_a_fixed_marker():
     assert run_acceptance._frame_location(r"C:\temp\สมชาย_1312271505581.py") == "<external>"
 
 
+def test_site_package_traceback_paths_use_a_fixed_marker():
+    assert (
+        run_acceptance._frame_location(r"C:\Users\สมชาย\site-packages\JohnDoe\worker.py")
+        == "<site-packages>"
+    )
+
+
 def test_fingerprint_carrying_a_declared_value_is_nulled(tmp_path, monkeypatch):
     """Defense-in-depth: the fingerprint is structurally PII-free, but it still
     passes the same _contains_declared_value guard as the probe payload."""
@@ -537,13 +544,56 @@ def test_cli_refuses_a_rerun_into_the_same_output_dir(tmp_path, monkeypatch, cap
         str(tmp_path / "reports"),
     ]
     assert run_acceptance.main(args) == 0
+    first_output = capsys.readouterr()
+    assert str(tmp_path) not in first_output.out + first_output.err
 
     exit_code = run_acceptance.main(args)
+    second_output = capsys.readouterr()
 
     assert exit_code == 2
-    assert "--overwrite" in capsys.readouterr().err
+    assert "--overwrite" in second_output.err
+    assert str(tmp_path) not in second_output.out + second_output.err
 
     assert run_acceptance.main([*args, "--overwrite"]) == 0
+
+
+def test_cli_reports_early_failure_without_traceback_or_path(tmp_path, monkeypatch, capsys):
+    def fail_before_inputs(_corpus_dir, _output_dir):
+        raise RuntimeError("private text สมชาย 1312271505581")
+
+    monkeypatch.setattr(run_acceptance, "generate_corpus", fail_before_inputs)
+    args = [
+        "--corpus-dir",
+        str(tmp_path / "corpus"),
+        "--output-dir",
+        str(tmp_path / "reports"),
+    ]
+
+    assert run_acceptance.main(args) == 1
+
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "private text" not in err
+    assert "สมชาย" not in err
+    assert "1312271505581" not in err
+    assert str(tmp_path) not in err
+    assert "RuntimeError" in err
+    assert "exception text omitted" in err
+
+
+def test_safe_probe_result_drops_unbounded_ocr_reason():
+    payload = _result("digital")
+    payload["ocr"]["reason"] = "private text C:\\Users\\สมชาย\\1312271505581.txt"
+    payload["ocr"]["values"][0]["reason"] = "private text สมชาย"
+
+    saved = run_acceptance._safe_probe_result(payload)
+    serialized = json.dumps(saved, ensure_ascii=False)
+
+    assert "private text" not in serialized
+    assert "สมชาย" not in serialized
+    assert "1312271505581" not in serialized
+    assert "reason" not in saved["ocr"]
+    assert "reason" not in saved["ocr"]["values"][0]
 
 
 @pytest.mark.parametrize(
