@@ -20,7 +20,7 @@ import subprocess
 import sys
 import traceback
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from benchmark.data.probe.gov_forms.generate_inputs import (
@@ -548,17 +548,25 @@ def _contains_declared_value(payload: dict[str, Any], values: list[str]) -> bool
     return any(value and value in serialized for value in values)
 
 
-# Paddle prefixes enforce-class messages with "(PreconditionNotMet) ...". The
-# closed alphabetic vocabulary cannot encode digits or Thai text, so the token
-# is safe to keep; nothing else of the message ever is.
+# Paddle prefixes enforce-class messages with "(PreconditionNotMet) ...". Do
+# not keep arbitrary alphabetic text in parentheses: an English name can look
+# like an error code. Only the observed native code is allowlisted; all other
+# message text stays out of the fingerprint.
 _ERROR_CODE_TOKEN = re.compile(r"^\(([A-Za-z]{3,32})\)")
+_SAFE_ERROR_CODES = frozenset({"PreconditionNotMet"})
 _TRACEBACK_TAIL_FRAMES = 8
 
 
 def _frame_location(filename: str) -> str:
     """Relativize a traceback frame path to the repo root or site-packages;
-    anything else keeps its basename only (never an absolute path)."""
+    anything else is reduced to a fixed marker (never an absolute path or a
+    user-controlled basename)."""
     path = Path(filename)
+    # A traceback path can come from a cross-platform test or a native layer.
+    # On POSIX, pathlib treats ``C:\\...`` as a relative filename, so reject
+    # Windows absolute paths before resolve() could place them under the repo.
+    if PureWindowsPath(filename).drive and not path.is_absolute():
+        return "<external>"
     parts = path.parts
     for marker in ("site-packages", "dist-packages"):
         if marker in parts:
@@ -566,7 +574,7 @@ def _frame_location(filename: str) -> str:
     try:
         return path.resolve().relative_to(REPO_ROOT).as_posix()
     except (OSError, ValueError):
-        return path.name
+        return "<external>"
 
 
 def _exception_fingerprint(exc: BaseException) -> dict[str, Any]:
@@ -590,7 +598,7 @@ def _exception_fingerprint(exc: BaseException) -> dict[str, Any]:
     ]
     fingerprint: dict[str, Any] = {"exception_chain": chain, "traceback_tail": tail}
     token = _ERROR_CODE_TOKEN.match(str(exc))
-    if token:
+    if token and token.group(1) in _SAFE_ERROR_CODES:
         fingerprint["error_code_token"] = token.group(1)
     return fingerprint
 
@@ -974,9 +982,6 @@ def run_batch(
                 )
                 result_payload["probe"] = None
         except Exception as exc:
-            # Full raw traceback goes to the operator's console only -- it is
-            # never an artifact.
-            print(traceback.format_exc(), file=sys.stderr)
             metrics = None
             failures = [
                 _failure(
@@ -993,6 +998,19 @@ def run_batch(
                     )
                 )
                 fingerprint = None
+            # The message may contain document text or a provider/native error
+            # body. Keep operator diagnostics to the same safe fingerprint
+            # written to the artifact; never print the raw exception or full
+            # traceback.
+            safe_fingerprint = (
+                json.dumps(fingerprint, ensure_ascii=False, sort_keys=True)
+                if fingerprint is not None
+                else "suppressed"
+            )
+            print(
+                f"probe failed; exception text omitted; fingerprint={safe_fingerprint}",
+                file=sys.stderr,
+            )
             result_payload = {
                 "schema_version": EVIDENCE_SCHEMA_VERSION,
                 "evidence_scope": EVIDENCE_SCOPE,
