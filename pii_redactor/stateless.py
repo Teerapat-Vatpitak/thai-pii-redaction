@@ -172,8 +172,8 @@ def restore_stateless(text: str, *, mapping: dict[str, str]) -> StatelessRestore
         flags = list(result.flags)
     finally:
         # The originals were handed in by the caller and copied into the
-        # result; clearing only scrubs this throwaway vault. Runs on error
-        # paths too, so a failed restore leaves nothing behind either.
+        # result; clearing only drops this throwaway vault's references. Runs on error
+        # paths too, so a failed restore leaves no lookup entries in this vault.
         vault.clear()
 
     # Counted here rather than taken from the audit summary: the caller's
@@ -238,8 +238,8 @@ def sanitize_stateless(
         residual = scan_residual_signals(core.sanitized_text, vault)
     finally:
         # The map has already been copied out as plain strings; clearing only
-        # scrubs this throwaway vault. Runs on the error paths too, so a failed
-        # mask does not leave originals sitting in memory.
+        # drops this throwaway vault's references. Runs on the error paths too, so a failed
+        # mask leaves no lookup entries in this throwaway vault.
         vault.clear()
 
     return StatelessSanitizeResult(

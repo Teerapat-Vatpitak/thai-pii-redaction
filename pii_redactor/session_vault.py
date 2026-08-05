@@ -4,11 +4,14 @@ SECURITY-CRITICAL MODULE:
 - Never write to disk
 - Never send to network
 - Audit log never contains original or pseudonym (only entity_id + action + timestamp)
-- clear() overwrites original with null bytes before releasing reference
+- clear() drops vault-owned references; Python immutable strings cannot be
+  guaranteed to be zeroized
 """
 
+import threading
 import time
 import uuid
+from typing import NamedTuple
 
 from pii_redactor.models import VaultRecord
 
@@ -17,6 +20,15 @@ from pii_redactor.models import VaultRecord
 # sentinel is treated as a wildcard by get_by_original(), which is the lookup
 # the anonymizer uses to decide "this person already has a pseudonym".
 SEEDED_DATA_TYPE = "SEEDED"
+
+
+class _VaultAuditEntry(NamedTuple):
+    """Immutable internal audit row; `audit_log()` retains the public dict shape."""
+
+    action: str
+    entity_id: str
+    timestamp: float
+    session_id: str
 
 
 class VaultTimeoutError(Exception):
@@ -35,6 +47,8 @@ class SessionVault:
     - _idle_timeout_s: timeout threshold in seconds
     - session_id: UUID string for audit trail
     - _audit_entries: local audit log (never contains PII)
+    - _clear_epoch: prevents stale rollback snapshots from reviving cleared data
+    - _lifecycle_lock: serializes snapshot/restore/clear generation decisions
     """
 
     def __init__(self, idle_timeout_s: int = 1800):
@@ -48,7 +62,9 @@ class SessionVault:
         self._last_access: float = time.monotonic()
         self._idle_timeout_s = idle_timeout_s
         self.session_id: str = str(uuid.uuid4())
-        self._audit_entries: list[dict] = []  # local audit log
+        self._audit_entries: list[_VaultAuditEntry] = []  # local audit log
+        self._clear_epoch = 0
+        self._lifecycle_lock = threading.RLock()
 
     def write(self, record: VaultRecord) -> None:
         """Store a vault record. Updates both _table and _reverse.
@@ -202,38 +218,70 @@ class SessionVault:
             )
         )
 
+    def clone(self) -> "SessionVault":
+        """Return a complete detached copy for an unpublished transaction.
+
+        The constructor is deliberately bypassed so cloning does not generate a
+        new vault ID or access timestamp. Immutable records and audit entries
+        are shared behind detached lookup/list containers. Clearing or mutating
+        those containers cannot affect live state.
+        """
+        with self._lifecycle_lock:
+            clone = object.__new__(type(self))
+            clone._table = dict(self._table)
+            clone._reverse = dict(self._reverse)
+            clone._last_access = self._last_access
+            clone._idle_timeout_s = self._idle_timeout_s
+            clone.session_id = self.session_id
+            # Entries are immutable tuples, so the detached list can share them
+            # safely. Staged actions append only to the clone's list.
+            clone._audit_entries = list(self._audit_entries)
+            clone._clear_epoch = self._clear_epoch
+            clone._lifecycle_lock = threading.RLock()
+        return clone
+
     def snapshot(self) -> dict:
         """Return a shallow copy of current state for rollback.
 
         Returns:
-            Dict with '_table' and '_reverse' keys containing shallow copies
+            Detached indexes plus the clear epoch that authorizes restoration.
         """
-        return {
-            "_table": dict(self._table),
-            "_reverse": dict(self._reverse),
-        }
+        with self._lifecycle_lock:
+            return {
+                "_table": dict(self._table),
+                "_reverse": dict(self._reverse),
+                "_clear_epoch": self._clear_epoch,
+            }
 
-    def restore(self, snapshot: dict) -> None:
+    def restore(self, snapshot: dict) -> bool:
         """Restore vault to a previous snapshot state.
 
         Args:
             snapshot: Dict returned by snapshot()
+
+        Returns:
+            True when restored. False when clear() invalidated the snapshot.
         """
-        self._table = dict(snapshot["_table"])
-        self._reverse = dict(snapshot["_reverse"])
-        self._audit("restore", "snapshot")
+        with self._lifecycle_lock:
+            if snapshot.get("_clear_epoch") != self._clear_epoch:
+                return False
+            self._table = dict(snapshot["_table"])
+            self._reverse = dict(snapshot["_reverse"])
+            self._audit("restore", "snapshot")
+            return True
 
     def clear(self) -> None:
-        """Overwrite all originals with null bytes before clearing.
+        """Drop the vault-owned lookup references.
 
-        This reduces in-memory exposure time of PII by overwriting the string
-        before releasing the reference from our dicts.
+        Python strings and immutable records cannot be overwritten. External
+        references can outlive this vault, so this is exposure reduction rather
+        than a secure-zeroization guarantee.
         """
-        for record in self._table.values():
-            record.original = "\x00" * len(record.original)
-        self._table.clear()
-        self._reverse.clear()
-        self._audit("clear", "all")
+        with self._lifecycle_lock:
+            self._clear_epoch += 1
+            self._table.clear()
+            self._reverse.clear()
+            self._audit("clear", "all")
 
     def is_idle(self) -> bool:
         """Return True if idle timeout has been exceeded.
@@ -258,7 +306,8 @@ class SessionVault:
         Returns:
             List of audit entries (each a dict with action, entity_id, timestamp, session_id)
         """
-        return list(self._audit_entries)
+        with self._lifecycle_lock:
+            return [entry._asdict() for entry in self._audit_entries]
 
     # ========== Private Helpers ==========
 
@@ -276,10 +325,10 @@ class SessionVault:
             entity_id: The entity ID involved (or special value like "all" or "snapshot")
         """
         self._audit_entries.append(
-            {
-                "action": action,
-                "entity_id": entity_id,
-                "timestamp": time.monotonic(),
-                "session_id": self.session_id,
-            }
+            _VaultAuditEntry(
+                action=action,
+                entity_id=entity_id,
+                timestamp=time.monotonic(),
+                session_id=self.session_id,
+            )
         )

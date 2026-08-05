@@ -48,21 +48,28 @@ variance, so the baseline was not moved. Exact commands, warnings, and
 unverified paths are in the
 [dated baseline record](acceptance/2026-08-05-hardening-baseline.md).
 
-That control also freezes the pre-fix truth. Rejected local sanitization can
-retain session/vault state; HTTP contract v1 returns fields containing or
-permitting reconstruction of mappings; residual warnings do not fail every
-local client or HTTP/worker provider path; seeded pseudonyms can enter vault audit
-IDs; there is no general expiry sweep, so an idle entry can remain until it is
-accessed, explicitly dropped, evicted, or the process ends; the fixed localhost
-data plane does not authenticate the process that owns the port; session-bearing
-process audit files/stdout retain live session IDs in filenames and entries; explicit TNER
-chunk failures can degrade to partial detection; provider roundtrip
-orchestration differs by adapter; and PDF boxes are selected through global
-original-text-fragment matching rather than authoritative source offsets. The
-implementation gaps are code/runtime verified. Their effects in real browsers,
-installed Desktop, Office hosts, live providers, or official platforms remain
-inferred or unverified unless a dated record exercises that composition. No
-hardening fix is claimed by this documentation branch.
+That control freezes the pre-fix truth at `93a7108`. Current source now stages
+local sanitization on a detached session/vault graph and publishes it once only
+after core processing, Section 26, guard projection, response encoding, and a
+correlation-only process-audit write succeed. Failure-injection coverage
+preserves the published graph, token ordinals, capacity/LRU state, and
+concurrent visibility. Known-session expiry remains request-driven lifecycle
+disposal outside rollback; displaced-vault cleanup after publication is best
+effort. A clear generation prevents a stale provider rollback snapshot from
+reviving disposed mappings.
+
+The other baseline gaps remain open: HTTP contract v1 returns fields containing
+or permitting reconstruction of mappings; residual warnings do not fail every
+local client or HTTP/worker provider path; seeded pseudonyms can enter vault
+audit IDs; there is no general expiry sweep, so an idle entry can remain until
+it is accessed, explicitly dropped, evicted, or the process ends; the fixed
+localhost data plane does not authenticate the process that owns the port;
+explicit TNER chunk failures can degrade to partial detection; provider
+roundtrip orchestration differs by adapter; and PDF boxes are selected through
+global original-text-fragment matching rather than authoritative source
+offsets. Their effects in real browsers, installed Desktop, Office hosts, live
+providers, or official platforms remain inferred or unverified unless a dated
+record exercises that composition.
 
 ## Status vocabulary
 
@@ -91,7 +98,7 @@ hardening fix is claimed by this documentation branch.
 | Detection benchmark | Verified | `python -m benchmark` scores synthetic and hand-authored gold corpora (including a negative slice) at entity, character, and exact-boundary level, plus an engine/strategy comparison and an external LLM baseline. Gold is at v4: adjudicated 2026-07-28 by two independent reviewers against [annotation-guidelines.md](annotation-guidelines.md) ([record](decisions/2026-07-28-gold-adjudication.md)). The latest local gold result is recorded above; reports are generated locally and gitignored. |
 | Government-form phase-2 probe harness | Verified locally | Source and sanitized-artifact hashes are pinned for official blank คร.1, ภ.ง.ด.91 and สปส.1-03; raw downloads are not committed, and tests reject metadata or hidden payload structures in the page-only copies. The strict runner builds and checks all nine synthetic inputs in one process, including real OCR, pixel coverage, residual, declared-decoy extraction, cardinality, unique-alignment, repository-state, dependency, and PII-free evidence checks. A current-tree WSL rerun at commit `ded67d3` completed all 9/9 inputs with 0 gate failures: 45/45 values removed, 0 exposed, 0 unmeasurable, residual OCR measured on 9/9, and no decoy false hits. The runner summary was conservatively labeled `functional_pass_repository_dirty` during the WSL run; immediately afterward both Windows and WSL `git status` were clean at the same commit. This is current-tree functional evidence, not general-form accuracy: synthetic expectations remain developer-authored and not independently adjudicated; ท.ร.6, physical scans, handwriting, and broader real-form annotation remain outside this evidence. Runtime remains a limitation: the WSL run took about 34 minutes and peaked near 8 GiB RSS, while the Windows run still has a 30-minute timeout/access-violation history. Exact sources, commands, results and limitations: [gov-doc-phase2.md](research/gov-doc-phase2.md) (2026-08-04 addenda), the superseded [dated failed-gate record](acceptance/2026-07-31-government-form-synthetic-run.md), and the gitignored run directory `benchmark/reports/gov-forms-2026-08-04-wsl-current-60m`. |
 | Blind evaluation set | Verified | `blind-v1` frozen 2026-07-28: 185 documents / 479 entities across the 11 types plus a 52-document negative slice, authored and reviewed in isolated contexts and committed only as an authenticated blob + lock (counts pinned in `benchmark/data/blind-v1.lock.json`). Scoring is aggregate-only under a 6-reveal budget with a hash-chained committed audit log. Reveals used — the freeze baseline; campaign 1 (PRs #90-#91), which generalized (F2 0.837 to 0.903, non-overlapping CIs); campaign 2 (PR #93, NAME cues), which did NOT generalize (blind F2 flat, NAME precision 0.748 to 0.700) and pointed at engine-level work; campaign 3 (PR #97 + the fine-tune), which answered campaign 2's open question — blind NAME precision 0.700 to 0.922 at recall 1.000, overall F2 0.914, negative clean rate 0.346 to 0.423 ([results](decisions/2026-07-28-finetuned-ner-results.md)); and campaign 4 (the gov-form OCR detection gaps, main `553c8af`, owner-approved reveal on 2026-08-02, default CRF engine), which was generalization-neutral by design expectation — overall F2 0.8977 to 0.8981 (flat, within the 0.877-0.916 CI), precision and both family macros unchanged, negative slice byte-identical (54 FP, clean rate 0.346) — while character coverage recall rose 0.914 to 0.929 and exact-boundary recall 0.614 to 0.639 with one fewer false positive: no overfit to gold, no regression, and the campaign's OCR-specific gains are not expressible on a prose corpus (they are evidenced by the gov-form gate instead). Reveal 6 (same day, also owner-approved) spent the final reveal re-certifying the fine-tuned opt-in engine on the same code, since the campaign changed rule layers that engine shares: overall F2 0.914 to 0.916, exact-boundary recall 0.647 to 0.666, coverage recall 0.919 to 0.931, NAME precision 0.922 to 0.915 at recall 1.000 (within noise), negative slice identical (54 FP, clean rate 0.423) — the reveal-4 certification stands on current main. The budget is EXHAUSTED at 6 of 6; any future blind measurement requires a frozen blind-v2. Protocol: [2026-07-28 ADR](decisions/2026-07-28-blind-set-protocol.md). |
-| Token and surrogate sanitization | Hardening open | Historical local-session and stateless-worker positive paths and the structured-PII residual guard remain covered. At `93a7108`, a rejected local sanitize can retain provisional session/vault state, while residual signals are warning-only on local clients and HTTP/worker provider roundtrips. Transactional failure behavior and mandatory residual blocking require new evidence. |
+| Token and surrogate sanitization | Hardening open | New and existing sessions now have automated coverage across core, Section 26, guard, response-render, and audit-write failure seams; a separate cap-full regression preserves the selected victim and LRU state. For non-expiry pre-publication failures, published state, ordinals, timestamps, and concurrent restore/drop visibility remain unchanged. Historical stateless-worker positive paths and the structured-PII residual guard remain covered. Mandatory text-based residual blocking is still open for local clients and HTTP/worker provider roundtrips. |
 | Local multi-turn re-identification | Hardening open | The backend vault, TTL/LRU, collision, and concurrency behavior have historical test evidence. Contract-v1 sanitize/reidentify responses expose direct or reconstructable mapping fields. Expiry is request-driven, with cleanup on session access, explicit drop, cap-driven eviction, or process exit rather than a general sweep. Seeded audit/collision defects affect stateless prior-mapping paths rather than the normal `SessionService` flow, but share the same vault implementation. |
 | Stateless core and worker sanitization | Hardening open | The in-process stateless result returns a transient mapping to its adapter for immediate restoration; the worker wire result omits it unless `include_mapping` is the exact JSON boolean `true`. Positive contract tests remain historical evidence. The worker is an emulator, not official hosted delivery; vault seed/audit hygiene, outbound-residual behavior, and shared provider-orchestration parity remain open. |
 | Protected provider roundtrip | Hardening open | Repeatable live Pathumma acceptance passed on 2026-07-23: raw synthetic PII stayed out of provider-visible text and every returned token restored for that exact path. HTTP and worker bypass the CLI's guarded retry orchestrator and invoke providers even when stateless sanitization reports residual warnings, so adapter parity and fail-closed recertification remain open. Official hosted deployment is a separate platform gate. |
@@ -103,7 +110,7 @@ hardening fix is claimed by this documentation branch.
 | PDF redaction and preview | Hardening open | Historical text-layer and optional OCR positive paths are covered end to end and flattened. Current `WordBbox` values have no authoritative source interval; the redactor does not consume `Entity.span`, instead globally substring-matching normalized `Entity.original_text` fragments to boxes and excluding one-character boxes. Exact repeated-value/decoy, negative-pixel, and missing-box behavior requires fresh acceptance. |
 | Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
 | Local HTTP authentication | Hardening open | A control-plane boot token protects shutdown/session disposal when configured, but contract-v1 PII-bearing endpoints do not authenticate the process owning fixed localhost port 8000. CORS and host validation are not server identity. The accepted direction is a native broker; hosted caller authentication remains a separate platform gate. |
-| Public errors and audit logs | Hardening open | Public error and worker safety tests plus the government-form structural-error checks remain historical evidence, and `/api/audit-log` projects no session ID. However, session-bearing sanitize/reidentify audit events write the live security-sensitive session ID into local JSONL filenames and entries, or hosted stdout when configured; other operations use labels or fresh non-restoration IDs. A non-authorizing operation/log ID, retention tests, and renewed disk/stdout scans are required. Official platform-visible log acceptance remains pending. |
+| Public errors and audit logs | Hardening open | Current-source API process-audit callers use fresh non-authorizing operation UUIDs for sanitize, reidentify, and roundtrip; local disk/stdout regressions reject live session IDs, originals, and pseudonyms. Successful sanitize records `prepared` before publication, while a safe blocked-attempt record may remain after rejection. The audit schema retains the legacy `session_id` field name, operation-specific files still have no timed retention policy, and the published 2.5.0 artifact predates this change. Seeded internal vault-audit hygiene and official platform-visible logging remain open. |
 
 ## Compliance documents
 

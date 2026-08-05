@@ -68,9 +68,10 @@ Hosted security relies on:
   in normal hosted results. The internal worker-v1 result can still include a
   mapping after an exact opt-in and is not the official delivery contract;
 - application logs and public errors without request text, raw PII, or bearer
-  authority. Current shared-server session-bearing audit can write a live
-  session ID to stdout, so safe correlation and official log acceptance remain
-  open;
+  authority. Current-source API process-audit callers use fresh
+  non-authorizing operation UUIDs rather than live restoration session IDs.
+  The separately versioned sibling port, official log transport/retention, and
+  platform-visible scan remain unverified;
 - separation between the AI Guard caller credential and Pathumma/TNER provider
   credentials; and
 - an intended protected roundtrip that sends only verified masked text. Current
@@ -88,9 +89,12 @@ platform owner when they are outside this repository's code.
 - Tests, demos, issues, and vulnerability reproductions use synthetic PII.
 - Application logs are intended to contain only event types, counts, timings,
   and non-authorizing correlation IDs—never request text, entity values,
-  mappings, provider response bodies, or secrets. Current session-bearing
-  sanitize/reidentify JSONL filenames/entries retain the live session ID on
-  disk or configured stdout; replacing it is an open hardening gate.
+  mappings, provider response bodies, or secrets. Current-source sanitize,
+  reidentify, and roundtrip callers pass fresh operation UUIDs to disk or
+  configured stdout; the legacy field is still named `session_id`. In file
+  mode, fresh IDs create operation-specific files and no timed retention policy
+  exists; configured stdout mode creates no file. Published 2.5.0 predates this
+  source change; official-platform logging remains outside this evidence.
 - Public errors expose stable categories, not payloads or upstream bodies.
 - PDF temporary files are bounded and removed after processing.
 - Session/container restart may discard mappings by design; persistence added

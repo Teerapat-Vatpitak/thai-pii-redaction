@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-05 F-01 transactional sanitize](2026-08-05-f01-transactional-sanitize.md)
 - [2026-08-05 hardening baseline at `93a7108`](2026-08-05-hardening-baseline.md)
 - [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
@@ -55,6 +56,10 @@ The open hardening recertification boundaries are:
 
 None of those bullets is marked passed by this index or by the 2026-08-05
 baseline.
+
+The F-01 record closes current-source automated transaction and API audit-ID
+checks only. Published-package and official-platform recertification remain
+open, as do the other hardening boundaries above.
 
 ## Automated HTTP and live-provider run
 

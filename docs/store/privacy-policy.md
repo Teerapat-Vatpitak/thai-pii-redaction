@@ -35,7 +35,7 @@ extension ไม่จงใจเก็บข้อความที่คุ�
 
 ### Audit log ของ backend
 
-Backend v1 เขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping สำหรับ event ของ sanitize/reidentify ที่มี session ชื่อไฟล์และ entry ปัจจุบันมี live `session_id` ซึ่งเป็น bearer-like restoration reference ที่มีความสำคัญด้านความปลอดภัย; operation อื่นใช้ label หรือ ID ใหม่ที่ไม่มีสิทธิ์ restore `/api/audit-log` ไม่ส่ง field นี้ออกมา แต่ไฟล์/stdout ต้นทางยังเก็บไว้ และ audit log บนดิสก์ทั้ง source และ packaged app ไม่มีการลบตามเวลาอัตโนมัติ การเปลี่ยนเป็น correlation ID ที่ไม่มีสิทธิ์ restore เป็น hardening gate ที่เปิดอยู่
+Backend v1 เขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping source ปัจจุบันใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend ที่เผยแพร่ใน Desktop 2.5.0 ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และยังไม่มี package ที่รวม correlation change ปัจจุบันผ่าน acceptance
 
 ### สิทธิ์ (permissions) ที่ขอ และเหตุผล
 
@@ -88,14 +88,16 @@ The extension does not deliberately persist the text you type, detected PII, or 
 
 The v1 backend writes process/security audit JSONL to the source or packaged
 application log directory (or stdout when hosted mode is enabled). It does not
-write request text, pseudonyms, or the mapping. For session-bearing
-sanitize/reidentify events, the underlying filename and entry contain the live
-`session_id`, a security-sensitive bearer-like restoration reference; other
-operations use non-authorizing labels or fresh IDs. `/api/audit-log` omits that
-field, while the disk/stdout source retains it. Local disk audit logs in both
-source and packaged operation have no timed automatic deletion. Replacing the
-live session ID with a non-authorizing correlation ID is an open hardening
-gate.
+write request text, pseudonyms, or the mapping. Current source uses a fresh
+non-authorizing operation UUID for sanitize, reidentify, and roundtrip
+filenames and entries, while retaining the legacy `session_id` field name.
+Local tests cover disk and configured stdout, and `/api/audit-log` omits the
+field. In file mode, each operation creates an operation-specific file and
+those files have no timed automatic deletion; configured stdout mode creates no
+file. The backend published with Desktop 2.5.0 still uses the live session ID
+for sanitize/reidentify audit events; its roundtrip event used a fixed
+non-session label. No package containing the current correlation change has
+been accepted.
 
 ### Permissions requested, and why
 

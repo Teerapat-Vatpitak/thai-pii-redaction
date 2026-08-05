@@ -74,6 +74,19 @@ extension tab close and Office reset clear client references without
 authenticated backend disposal. The broker/lifecycle work must not introduce
 or retain an unauthenticated disposal path.
 
+Local sanitize runs under the existing coarse `RLock`. A complete detached
+session state is staged through masking, residual scanning, response
+projection, Section 26, guard projection, JSON rendering, and required
+process-audit work, then published through one `_sessions` assignment. An
+exception before that assignment discards staged references without changing
+the published graph or capacity/LRU state. Known-session expiry disposal is
+lifecycle cleanup outside this rollback guarantee. Cleanup of a replaced or
+evicted vault happens after publication and is best effort; it cannot turn an
+already-published success into a caller-visible failure. Immutable entity,
+mapping, and internal-audit records permit detached containers to share prior
+values without a growing deep-copy cost. A clear generation and lifecycle lock
+prevent a stale provider rollback snapshot from reviving disposed mappings.
+
 ## Trust boundary B - hosted platform
 
 Calling a hosted AI Guard service necessarily sends the request to the hosting
@@ -114,12 +127,16 @@ metadata. Before seed hardening, a seeded record derives its audit
 `clear()` drops vault-owned references but cannot securely zeroize Python
 immutable strings.
 
-For session-bearing sanitize/reidentify events, the separate process/security
-audit currently writes the live `session_id` into the JSONL entry and audit
-filename (or stdout in hosted mode). Other operations use non-authorizing
-labels or fresh IDs. The public `/api/audit-log` projection omits the field, but
-disk/stdout retention still violates the intended no-credential log boundary.
-Audit hardening must use a non-authorizing operation/log correlation ID.
+Current API process-audit call sites pass fresh operation UUIDs rather than
+live restoration session IDs. Successful sanitize writes a `prepared` record
+before publication, and blocked residual requests may retain one safe
+`blocked` attempt record. The legacy filename/JSON field is still named
+`session_id`; the audit primitive does not enforce safe identifiers for
+arbitrary future callers. `/api/audit-log` omits that field. Each operation
+creates an operation-specific file in file mode, and those files have no timed
+retention policy; configured stdout mode creates no file. The published 2.5.0
+artifact predates this source change, and official hosted log transport and
+retention acceptance remain pending.
 
 Provider orchestration is not yet one choke point. The CLI pipeline uses
 `send_to_ai()` for guards, retries, validation, and rollback; the HTTP

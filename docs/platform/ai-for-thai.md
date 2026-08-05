@@ -144,9 +144,12 @@ intended hosted boundaries, with current hardening exceptions called out, are:
   roundtrip consumes its mapping internally, while the sibling port's v1
   projection requires separate verification;
 - application logs and public errors must not contain request text, raw PII, or
-  bearer authority. Current shared-server session-bearing audit can emit a live
-  session ID to stdout, so the hosted adapter must replace/exclude it and the
-  official platform-visible log scan remains pending;
+  bearer authority. Current-source shared-server API callers use fresh
+  non-authorizing operation UUIDs rather than live restoration session IDs,
+  while retaining the legacy audit field name. Local disk/configured-stdout
+  regressions cover that source path. The separately versioned sibling port and
+  official platform log transport, retention, and visible scan remain
+  unverified;
 - the protected roundtrip is intended to send only verified masked text to the
   LLM. Current HTTP/worker code can invoke the provider after stateless
   residual warnings, so masked-only/fail-closed recertification remains open.

@@ -4,18 +4,21 @@ One brain: SessionVault + accumulated EntityRegistry + per-session salt/mode,
 with the same cap/TTL policy the old app/server.py _SESSIONS dict had.
 Owns session lifecycle plus the sanitize/restore flows.
 
-SECURITY: sessions live in memory only; dropping/evicting a session always
-null-byte-clears its vault first.
+SECURITY: sessions live in memory only. Dropping or replacing a published
+session removes the service-owned reference and invokes the vault cleanup path;
+Python immutable strings cannot be guaranteed to be zeroized.
 """
 
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from pii_redactor.leak_guard import scan_outbound_leaks
 from pii_redactor.models import AIResponse, Entity, EntityRegistry
@@ -25,6 +28,9 @@ from pii_redactor.report import scan_section26
 from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 from pii_redactor.stateless import StatelessLeakError, sanitize_into_vault
+
+_LOG = logging.getLogger(__name__)
+_ResultT = TypeVar("_ResultT")
 
 
 class SessionExpiredError(Exception):
@@ -64,6 +70,10 @@ class SanitizeOutcome:
     warnings: list[str]
 
 
+def _identity_finalize(outcome: SanitizeOutcome) -> SanitizeOutcome:
+    return outcome
+
+
 @dataclass
 class RestoreOutcome:
     restored_text: str
@@ -96,8 +106,8 @@ class SessionService:
         self._ttl_s = ttl_s
         self._now = now_fn
         # FastAPI runs sync endpoints in a threadpool, so every public entry
-        # point serializes on this lock: without it, drop/evict null-byte-clears
-        # a vault another thread is mid-restore on. RLock because sanitize/
+        # point serializes on this lock: without it, drop/evict can clear vault
+        # lookup state while another thread is mid-restore. RLock because sanitize/
         # restore call drop() on their expiry paths while already holding it.
         # Deliberately coarse — it serializes heavy NER work across sessions,
         # but only the localhost extension (one user) goes through this class;
@@ -171,49 +181,145 @@ class SessionService:
         mode: str | None = None,
         session_id: str | None = None,
     ) -> SanitizeOutcome:
-        with self._lock:
-            return self._sanitize_locked(text, mode=mode, session_id=session_id)
+        return self.sanitize_transaction(
+            text,
+            mode=mode,
+            session_id=session_id,
+            finalize=_identity_finalize,
+        )
 
-    def _sanitize_locked(
+    def sanitize_transaction(
         self,
         text: str,
         *,
-        mode: str | None,
-        session_id: str | None,
-    ) -> SanitizeOutcome:
-        sid, session = self._get_or_create_locked(session_id, mode)
+        mode: str | None = None,
+        session_id: str | None = None,
+        finalize: Callable[[SanitizeOutcome], _ResultT],
+    ) -> _ResultT:
+        """Prepare, finalize, then atomically publish one sanitize turn.
 
-        try:
+        `finalize` runs under the same coarse lock and receives only the public
+        outcome. A caller can finish response projection, encoding, and required
+        audit work there. Any exception before the final dictionary assignment
+        leaves the published session graph unchanged, except that a genuine
+        staged-vault expiry disposes the expired published session. The callback
+        must not re-enter this service or mutate its private session graph.
+        """
+        with self._lock:
+            sid, staged, is_new = self._stage_sanitize_locked(session_id, mode)
             try:
-                # Same body the platform's stateless entry point runs; the only
-                # difference is that the vault handed over here is the session's
-                # and outlives the call. scan_outbound_leaks is passed
-                # explicitly so this module's reference is the one used.
-                core = sanitize_into_vault(
-                    text,
-                    session.vault,
-                    mode=session.mode,
-                    salt=session.salt,
-                    scan_leaks=scan_outbound_leaks,
+                try:
+                    # Same body the platform's stateless entry point runs; the
+                    # detached vault becomes live only after every later stage
+                    # succeeds. This module's guard reference stays injectable.
+                    core = sanitize_into_vault(
+                        text,
+                        staged.vault,
+                        mode=staged.mode,
+                        salt=staged.salt,
+                        scan_leaks=scan_outbound_leaks,
+                    )
+                except StatelessLeakError as e:
+                    raise OutboundLeakError(e.leak_types) from e
+                except VaultTimeoutError:
+                    # Confirm provenance before treating this exception name as
+                    # lifecycle expiry. An injected detector/finalizer can
+                    # coincidentally raise the same public exception type.
+                    if not staged.vault.is_idle():
+                        raise
+                    if not is_new:
+                        self.drop(sid)
+                    raise SessionExpiredError("Session not found or expired") from None
+
+                staged.entities.extend(core.detected)
+                outcome = SanitizeOutcome(
+                    session_id=sid,
+                    original_text=text,
+                    sanitized_text=core.sanitized_text,
+                    entities=core.entities,
+                    entity_type_counts=core.entity_type_counts,
+                    section26=scan_section26(text),
+                    warnings=core.warnings,
                 )
-            except StatelessLeakError as e:
-                raise OutboundLeakError(e.leak_types) from e
+                prepared = finalize(outcome)
+                discarded = self._publish_sanitize_locked(sid, staged, is_new=is_new)
+            except Exception:
+                self._discard_detached(staged)
+                raise
 
-            # only register this turn once the guard has cleared the output
-            session.entities.extend(core.detected)
+            if discarded is not None:
+                self._discard_detached(discarded)
+            return prepared
 
-            return SanitizeOutcome(
-                session_id=sid,
-                original_text=text,
-                sanitized_text=core.sanitized_text,
-                entities=core.entities,
-                entity_type_counts=core.entity_type_counts,
-                section26=scan_section26(text),
-                warnings=core.warnings,
+    def _stage_sanitize_locked(
+        self,
+        session_id: str | None,
+        mode: str | None,
+    ) -> tuple[str, _Session, bool]:
+        """Build a detached target without touching or evicting live state."""
+        now = self._now()
+        if session_id is not None:
+            published = self._sessions.get(session_id)
+            if published is None or now - published.last_access > self._ttl_s:
+                if published is not None:
+                    self.drop(session_id)
+                raise SessionExpiredError("Session not found or expired")
+            if mode is not None and mode != published.mode:
+                raise ModeMismatchError(f"session mode is '{published.mode}', got '{mode}'")
+            staged = _Session(
+                vault=published.vault.clone(),
+                mode=published.mode,
+                salt=published.salt,
+                created=published.created,
+                last_access=now,
+                # Entity is immutable, so a detached list can safely share
+                # prior records and append only this turn's detections.
+                entities=list(published.entities),
             )
-        except VaultTimeoutError:
-            self.drop(sid)
-            raise SessionExpiredError("Session not found or expired") from None
+            return session_id, staged, False
+
+        resolved_mode = mode or "token"
+        if resolved_mode not in ("token", "surrogate"):
+            raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
+        sid = str(uuid.uuid4())
+        staged = _Session(
+            vault=SessionVault(idle_timeout_s=self._ttl_s),
+            mode=resolved_mode,
+            salt=secrets.token_hex(16),
+            created=now,
+            last_access=now,
+        )
+        return sid, staged, True
+
+    def _publish_sanitize_locked(
+        self,
+        sid: str,
+        staged: _Session,
+        *,
+        is_new: bool,
+    ) -> _Session | None:
+        """Publish with one assignment after building the complete next graph."""
+        next_sessions = dict(self._sessions)
+        discarded: _Session | None = None
+        if is_new:
+            if len(next_sessions) >= self._cap:
+                lru = min(self._sessions, key=lambda key: self._sessions[key].last_access)
+                discarded = next_sessions.pop(lru)
+        else:
+            discarded = next_sessions.get(sid)
+        next_sessions[sid] = staged
+        self._sessions = next_sessions
+        return discarded
+
+    @staticmethod
+    def _discard_detached(session: _Session) -> None:
+        """Release detached or displaced vault data without changing outcomes."""
+        try:
+            session.vault.clear()
+        except Exception:
+            # The service reference is already absent (or was never published).
+            # Do not turn a completed commit into a caller-visible failure.
+            _LOG.error("Session vault cleanup did not complete")
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
         with self._lock:
