@@ -96,14 +96,18 @@ reviewed, independently revertible squashes in this order:
    constant value-free error. The safe `SEEDED` provenance marker remains
    internal, and `clear()` drops vault-owned references rather than claiming to
    zeroize immutable strings.
-4. **Decide HTTP contract v2 in an ADR.** The main API moves directly to strict,
-   response DTOs with no explicit mapping fields unless a real external v1
-   consumer is found. Clients still necessarily handle submitted and returned
-   text. The worker's internal envelope remains version 1.
+4. **Decide HTTP contract v2 in an ADR — delivered in current source.** The
+   [accepted decision](docs/decisions/2026-08-05-http-contract-v2.md) moves the
+   main API directly to strict response DTOs with no explicit mapping fields;
+   the repository/deployment inventory found no evidenced external v1
+   consumer, while unknown consumers remain possible. Clients still
+   necessarily handle submitted and returned text. The worker's internal
+   envelope remains version 1. Runtime implementation remains open in item 5.
 5. **Fail closed on outbound residuals and cut over server plus first-party
    clients atomically.** Health separates control-plane and data-plane
-   capability fields. Browser, Desktop, and Office reject malformed, extra,
-   missing, version-mismatched, or unsafe responses.
+   capability fields. Browser, Desktop, and Office enable operations only
+   after exact v2 health validation, then reject malformed, extra, missing, or
+   unsafe operation responses.
 6. **Verify packaged-backend and Office development composition.** Automated
    sidecar plus HTTPS-proxy evidence must remain distinct from the eight open
    real-host/package checks; no certificate trust or sideload is implied.
