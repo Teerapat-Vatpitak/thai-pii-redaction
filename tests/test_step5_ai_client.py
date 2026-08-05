@@ -81,6 +81,23 @@ def test_send_to_ai_vault_snapshot_restored_on_fatal_error():
     assert len(vault._table) == original_table_size
 
 
+def test_provider_rollback_cannot_resurrect_a_cleared_vault():
+    vault, _ = _make_vault_with_record()
+    registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+    class ClearingBrokenProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            vault.clear()
+            raise RuntimeError("Fatal failure")
+
+    with pytest.raises(RuntimeError, match="Fatal failure"):
+        send_to_ai("text", registry, vault, ClearingBrokenProvider())
+
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert vault.audit_log()[-1]["action"] == "clear"
+
+
 def test_provider_is_abc():
     """Test that AIProvider is an ABC and FakeLLMProvider is a subclass."""
     assert issubclass(FakeLLMProvider, AIProvider)

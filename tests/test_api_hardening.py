@@ -248,6 +248,7 @@ def test_reidentify_audit_log_never_records_the_pseudonym(tmp_path, monkeypatch)
     on_disk = "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("audit_*_process.jsonl"))
     assert on_disk, "no audit log was written"
     assert secret_token not in on_disk, f"pseudonym written to disk: {on_disk}"
+    assert '"s1"' not in on_disk
     assert "leftover_count:1" in on_disk
 
     served = _client().get("/api/audit-log").text

@@ -5,10 +5,9 @@ on chatgpt.com / claude.ai and calls these endpoints on localhost.
 
 AI Guard uses TOKEN-mode pseudonymization (e.g. [ชื่อ_1]) so the round-trip
 through an external AI is robust and visually explicit. The token -> original
-map lives in `pii_redactor.session_service.SessionService` (in-memory, keyed
-by session_id). It is never written to disk and never sent over the network
-— consistent with the "vault never leaves the device" invariant for a local
-deployment.
+map is owned by `pii_redactor.session_service.SessionService` in backend
+memory. Contract-v1 responses still expose direct or reconstructable mapping
+fields to local clients; removing those fields is a separate v2 contract gate.
 """
 
 from __future__ import annotations
@@ -300,6 +299,7 @@ def _now() -> float:
 from pii_redactor.session_service import (
     ModeMismatchError,
     OutboundLeakError,
+    SanitizeOutcome,
     SessionExpiredError,
     SessionService,
 )
@@ -405,6 +405,7 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
 @app.post("/api/sanitize")
 def sanitize(request: SanitizeRequest):
     start = time.time()
+    operation_id = str(uuid.uuid4())
     _validate_text_input(request.text)
     if request.mode is not None and request.mode not in ("token", "surrogate"):
         raise HTTPException(
@@ -413,15 +414,49 @@ def sanitize(request: SanitizeRequest):
         )
     mode = request.mode
     clean_text = clean(request.text).text
+
+    def finalize(out: SanitizeOutcome) -> JSONResponse:
+        guard_findings = to_wire(scan_injection(request.text))
+        payload = {
+            "session_id": out.session_id,
+            "original_text": out.original_text,
+            "sanitized_text": out.sanitized_text,
+            "entities": out.entities,
+            "entity_type_counts": out.entity_type_counts,
+            "section26": out.section26,
+            "warnings": out.warnings,
+            "guard": guard_findings,
+        }
+        # Constructing the response renders JSON immediately. The transaction
+        # is still unpublished if encoding rejects any value.
+        response = JSONResponse(content=payload)
+        write_process_log(
+            session_id=operation_id,
+            step="api_sanitize",
+            entity_count=len(out.entities),
+            # The process record is written before the one-assignment publish.
+            # "prepared" stays truthful even if the write itself then fails.
+            validation_result="prepared",
+            flags=list(out.warnings),
+            latency_ms=(time.time() - start) * 1000,
+            output_dir=_get_audit_log_dir(),
+        )
+        return response
+
     try:
-        out = SERVICE.sanitize(clean_text, mode=mode, session_id=request.session_id)
+        return SERVICE.sanitize_transaction(
+            clean_text,
+            mode=mode,
+            session_id=request.session_id,
+            finalize=finalize,
+        )
     except SessionExpiredError:
         raise HTTPException(status_code=404, detail="Session not found or expired")
     except ModeMismatchError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OutboundLeakError as e:
         write_process_log(
-            session_id="blocked",
+            session_id=operation_id,
             step="api_sanitize",
             entity_count=0,
             validation_result="blocked",
@@ -434,33 +469,12 @@ def sanitize(request: SanitizeRequest):
             detail={"error": "pii_leak_risk", "types": e.leak_types},
         )
 
-    guard_findings = to_wire(scan_injection(request.text))
-
-    write_process_log(
-        session_id=out.session_id,
-        step="api_sanitize",
-        entity_count=len(out.entities),
-        validation_result="warn" if out.warnings else "pass",
-        flags=list(out.warnings),
-        latency_ms=(time.time() - start) * 1000,
-        output_dir=_get_audit_log_dir(),
-    )
-    return {
-        "session_id": out.session_id,
-        "original_text": out.original_text,
-        "sanitized_text": out.sanitized_text,
-        "entities": out.entities,
-        "entity_type_counts": out.entity_type_counts,
-        "section26": out.section26,
-        "warnings": out.warnings,
-        "guard": guard_findings,
-    }
-
 
 @app.post("/api/reidentify")
 def reidentify(request: ReidentifyRequest):
     """Restore original PII via the core reverse mapper + output validation."""
     start = time.time()
+    operation_id = str(uuid.uuid4())
     _validate_text_input(request.text)
     try:
         out = SERVICE.restore(request.session_id, request.text)
@@ -468,7 +482,7 @@ def reidentify(request: ReidentifyRequest):
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     write_process_log(
-        session_id=request.session_id,
+        session_id=operation_id,
         step="api_reidentify",
         entity_count=out.replaced_count,
         validation_result="warn" if (out.leftover_tokens or out.warnings) else "pass",
@@ -645,7 +659,7 @@ def roundtrip(request: RoundtripRequest):
     guard_findings = to_wire(scan_injection(request.text))
 
     write_process_log(
-        session_id="roundtrip",
+        session_id=str(uuid.uuid4()),
         step="api_roundtrip",
         entity_count=len(masked.entities),
         validation_result="warn" if (masked.warnings or restored.warnings) else "pass",

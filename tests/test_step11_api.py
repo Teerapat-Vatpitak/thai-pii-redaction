@@ -6,6 +6,10 @@ Covers the v2 token-mode contract:
 - /api/analyze   -> full PDPA report (score, grade, reid, breakdown, recs)
 """
 
+import json
+import uuid
+from dataclasses import asdict
+
 import pytest
 
 # Skip entire module if fastapi not installed
@@ -31,6 +35,37 @@ def client():
     from app.server import app
 
     return TestClient(app, base_url="http://localhost")
+
+
+def _service_state(service):
+    """Serialize ordered, identity-bearing session state without touching it."""
+    return [
+        (
+            sid,
+            {
+                "session_object_id": id(session),
+                "vault_object_id": id(session.vault),
+                "mode": session.mode,
+                "salt": session.salt,
+                "created": session.created,
+                "last_access": session.last_access,
+                "entities": [asdict(entity) for entity in session.entities],
+                "vault": {
+                    "table": {
+                        entity_id: asdict(record)
+                        for entity_id, record in session.vault._table.items()
+                    },
+                    "reverse": dict(session.vault._reverse),
+                    "last_access": session.vault._last_access,
+                    "idle_timeout_s": session.vault._idle_timeout_s,
+                    "session_id": session.vault.session_id,
+                    "clear_epoch": session.vault._clear_epoch,
+                    "audit_entries": [entry._asdict() for entry in session.vault._audit_entries],
+                },
+            },
+        )
+        for sid, session in service._sessions.items()
+    ]
 
 
 def test_health(client):
@@ -222,6 +257,167 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
     assert called.get("scheduled") is True
 
 
+@pytest.mark.parametrize("with_existing_session", [False, True])
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "guard_scan",
+        "guard_projection",
+        "audit_path",
+        "audit_write",
+        "response_encoding",
+    ],
+)
+def test_sanitize_api_stage_failure_preserves_complete_session_state(
+    monkeypatch,
+    tmp_path,
+    with_existing_session,
+    stage,
+):
+    import app.server as server
+    from pii_redactor.session_service import SessionService
+
+    service = SessionService(now_fn=lambda: 1000.0)
+    monkeypatch.setattr(server, "SERVICE", service)
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    existing = service.sanitize("โทร 081-234-5678") if with_existing_session else None
+    before = _service_state(service)
+    audit_calls = []
+
+    def fail_stage(*_args, **_kwargs):
+        raise RuntimeError("forced API transaction stage failure")
+
+    if stage == "guard_scan":
+        monkeypatch.setattr(server, "scan_injection", fail_stage)
+    elif stage == "guard_projection":
+        monkeypatch.setattr(server, "to_wire", fail_stage)
+    elif stage == "audit_path":
+        monkeypatch.setattr(server, "_get_audit_log_dir", fail_stage)
+    elif stage == "audit_write":
+        monkeypatch.setattr(server, "write_process_log", fail_stage)
+    else:
+        monkeypatch.setattr(server, "JSONResponse", fail_stage)
+        monkeypatch.setattr(
+            server,
+            "write_process_log",
+            lambda **row: audit_calls.append(row),
+        )
+
+    request = server.SanitizeRequest(
+        text="อีเมล first@example.com",
+        session_id=existing.session_id if existing else None,
+    )
+    with pytest.raises(RuntimeError, match="forced API transaction stage failure"):
+        server.sanitize(request)
+
+    assert _service_state(service) == before
+    assert list(tmp_path.glob("audit_*_process.jsonl")) == []
+    if stage == "response_encoding":
+        assert audit_calls == []
+
+
+@pytest.mark.parametrize("stdout_mode", [False, True])
+def test_sanitize_audit_uses_operation_id_without_mapping_material(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    stdout_mode,
+):
+    from fastapi.testclient import TestClient
+
+    import app.server as server
+    from pii_redactor.session_service import SessionService
+
+    service = SessionService(now_fn=lambda: 1000.0)
+    monkeypatch.setattr(server, "SERVICE", service)
+    monkeypatch.setattr(server, "_API_KEY", None)
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    if stdout_mode:
+        monkeypatch.setenv("AIGUARD_AUDIT_STDOUT", "1")
+    else:
+        monkeypatch.delenv("AIGUARD_AUDIT_STDOUT", raising=False)
+
+    response = TestClient(server.app, base_url="http://localhost").post(
+        "/api/sanitize",
+        json={"text": "โทร 081-234-5678", "mode": "token"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    if stdout_mode:
+        rows = [
+            json.loads(line)
+            for line in capsys.readouterr().out.splitlines()
+            if line.strip().startswith("{")
+        ]
+        assert not list(tmp_path.glob("audit_*_process.jsonl"))
+        audit_text = json.dumps(rows, ensure_ascii=False)
+        record = rows[-1]
+    else:
+        paths = list(tmp_path.glob("audit_*_process.jsonl"))
+        assert len(paths) == 1
+        assert body["session_id"] not in paths[0].name
+        audit_text = paths[0].read_text(encoding="utf-8")
+        record = json.loads(audit_text.splitlines()[-1])
+
+    assert record["session_id"] != body["session_id"]
+    assert record["validation_result"] == "prepared"
+    assert str(uuid.UUID(record["session_id"])) == record["session_id"]
+    forbidden = [
+        "081-234-5678",
+        body["session_id"],
+        *(entity["token"] for entity in body["entities"]),
+    ]
+    assert all(value not in audit_text for value in forbidden)
+
+
+def test_blocked_sanitize_audit_is_safe_and_non_authorizing(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import app.server as server
+    import pii_redactor.session_service as service_module
+    from pii_redactor.models import Entity
+    from pii_redactor.session_service import SessionService
+
+    service = SessionService(now_fn=lambda: 1000.0)
+    monkeypatch.setattr(server, "SERVICE", service)
+    monkeypatch.setattr(server, "_API_KEY", None)
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    monkeypatch.delenv("AIGUARD_AUDIT_STDOUT", raising=False)
+    monkeypatch.setattr(
+        service_module,
+        "scan_outbound_leaks",
+        lambda _text, _vault: [
+            Entity(
+                entity_id="synthetic-leak",
+                redact_type="FP",
+                data_type="THAI_ID",
+                span=(0, 1),
+                score=1.0,
+                original_text="synthetic-checksum-value",
+            )
+        ],
+    )
+
+    response = TestClient(server.app, base_url="http://localhost").post(
+        "/api/sanitize",
+        json={"text": "โทร 081-234-5678", "mode": "token"},
+    )
+
+    assert response.status_code == 422
+    assert service.session_count == 0
+    paths = list(tmp_path.glob("audit_*_process.jsonl"))
+    assert len(paths) == 1
+    assert "081-234-5678" not in paths[0].name
+    assert "synthetic-checksum-value" not in paths[0].name
+    audit_text = paths[0].read_text(encoding="utf-8")
+    record = json.loads(audit_text.splitlines()[-1])
+    assert record["validation_result"] == "blocked"
+    assert str(uuid.UUID(record["session_id"])) == record["session_id"]
+    assert "081-234-5678" not in audit_text
+    assert "synthetic-checksum-value" not in audit_text
+
+
 def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
     import app.server as server
 
@@ -237,8 +433,6 @@ def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
 
     logs = list(tmp_path.glob("audit_*_process.jsonl"))
     assert len(logs) == 1
-    import json
-
     rec = json.loads(logs[0].read_text(encoding="utf-8").splitlines()[0])
     assert rec["type"] == "process"
     assert rec["step"] == "api_sanitize"

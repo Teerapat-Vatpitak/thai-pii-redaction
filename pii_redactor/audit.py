@@ -3,8 +3,9 @@
 SECURITY-CRITICAL:
 - Logs are written only to local disk
 - Logs NEVER contain original PII, pseudonyms, or vault content
-- Logs contain only: step names, timestamps, counts, flags (which may contain entity_ids),
-  error types, session_id, layer names, access counts, retry counts, rollback flags
+- Logs contain only: step names, timestamps, counts, safe flags, error types,
+  non-authorizing correlation IDs, layer names, access counts, retry counts,
+  and rollback flags
 """
 
 import json
@@ -13,9 +14,9 @@ import re
 import time
 from pathlib import Path
 
-# Allowlist for characters permitted in the session_id part of a log filename;
-# anything else (path separators, dots, ...) is replaced so a hostile
-# session_id cannot traverse out of output_dir.
+# Allowlist for characters permitted in the correlation-ID part of a log
+# filename. `session_id` remains the legacy parameter/key name, but production
+# callers pass a fresh operation ID, never a live session authority.
 _SESSION_ID_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 # Hosted mode: AIGUARD_AUDIT_STDOUT=1 emits each entry as one JSON line on
@@ -50,7 +51,7 @@ def _log_path(session_id: str, log_type: str, output_dir: str) -> Path:
     Construct the path for an audit log file.
 
     Args:
-        session_id: The session identifier (sanitized before use in the filename)
+        session_id: Non-authorizing correlation ID (legacy parameter name)
         log_type: Type of log ("process" or "security")
         output_dir: Directory to write logs to
 
@@ -77,10 +78,11 @@ def write_process_log(
     Only: step name, timestamp, entity count, result, flags, latency.
 
     Args:
-        session_id: The session identifier
+        session_id: Non-authorizing correlation ID (legacy parameter name)
         step: Step name (e.g., "step1_ingest", "step6_reverse")
         entity_count: Number of entities processed
-        validation_result: "pass" | "fail" | "warn"
+        validation_result: Safe status such as "prepared", "blocked", "pass",
+            "fail", or "warn"
         flags: List of flag strings (may contain entity_ids only, never PII values)
         latency_ms: Processing time in milliseconds
         output_dir: Directory to write logs to (default: current directory)
@@ -117,7 +119,7 @@ def write_security_log(
     SECURITY: Never log original PII, pseudonyms, or vault content.
 
     Args:
-        session_id: The session identifier
+        session_id: Non-authorizing correlation ID (legacy parameter name)
         layer: Layer name (e.g., "layer1", "layer2", "layer3")
         pii_scan_result: "clean" | "unexpected_pii" | "expected_pii"
         mapping_table_access_count: Number of times vault was accessed

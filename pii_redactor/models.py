@@ -30,7 +30,7 @@ class NormalizedDocumentModel:
     )  # ocr_confidence, quality_score, warnings, human_review flag, etc.
 
 
-@dataclass
+@dataclass(frozen=True)
 class Entity:
     """A single detected PII entity. Output of Step 2 (Detection)."""
 
@@ -69,7 +69,7 @@ class PseudonymizedDocument:
     session_id: str  # links to the SessionVault
 
 
-@dataclass
+@dataclass(frozen=True)
 class VaultRecord:
     """One entry in the SessionVault's in-memory mapping table."""
 

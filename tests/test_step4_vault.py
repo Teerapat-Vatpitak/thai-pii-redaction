@@ -10,7 +10,10 @@ from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
 
 def _make_record(
-    entity_id: str = None, original: str = "John", pseudonym: str = "Alice"
+    entity_id: str = None,
+    original: str = "John",
+    pseudonym: str = "Alice",
+    data_type: str = "NAME",
 ) -> VaultRecord:
     """Helper to create a VaultRecord for testing."""
     return VaultRecord(
@@ -18,7 +21,7 @@ def _make_record(
         original=original,
         pseudonym=pseudonym,
         type="TB",
-        data_type="NAME",
+        data_type=data_type,
         span=(0, len(original)),
         timestamp=time.monotonic(),
     )
@@ -83,6 +86,114 @@ def test_vault_snapshot_and_restore():
     assert vault.get_by_entity_id(record.entity_id) is not None
 
 
+def test_vault_clone_is_complete_and_mutation_is_detached():
+    vault = SessionVault(idle_timeout_s=123)
+    record = _make_record()
+    vault.write(record)
+    clone = vault.clone()
+
+    assert clone is not vault
+    assert clone._table is not vault._table
+    assert clone._reverse is not vault._reverse
+    assert clone._audit_entries is not vault._audit_entries
+    assert clone._table[record.entity_id] is record
+    assert clone._table[record.entity_id] == record
+    assert clone._reverse == vault._reverse
+    assert clone._last_access == vault._last_access
+    assert clone._idle_timeout_s == vault._idle_timeout_s
+    assert clone.session_id == vault.session_id
+    assert clone._clear_epoch == vault._clear_epoch
+    assert clone._lifecycle_lock is not vault._lifecycle_lock
+    assert clone._audit_entries == vault._audit_entries
+    assert all(
+        clone_entry is live_entry
+        for clone_entry, live_entry in zip(
+            clone._audit_entries,
+            vault._audit_entries,
+            strict=True,
+        )
+    )
+    with pytest.raises(AttributeError):
+        clone._audit_entries[0].action = "mutated"
+    with pytest.raises(AttributeError):
+        clone._table[record.entity_id].original = "mutated"
+
+    clone.clear()
+
+    assert record.original != "\x00" * len(record.original)
+    assert vault._table[record.entity_id] is record
+    assert vault._reverse
+
+
+def test_clear_invalidates_a_stale_snapshot():
+    vault = SessionVault()
+    vault.write(_make_record(original="RealSecret"))
+    snapshot = vault.snapshot()
+
+    vault.clear()
+
+    assert vault.restore(snapshot) is False
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert vault.audit_log()[-1]["action"] == "clear"
+
+
+def test_clear_wins_when_restore_already_holds_the_lifecycle_lock():
+    import threading
+
+    vault = SessionVault()
+    vault.write(_make_record(original="RealSecret"))
+    restore_reached_assignment = threading.Event()
+    release_restore = threading.Event()
+    cleared = threading.Event()
+    errors = []
+
+    class PausingSnapshot(dict):
+        def __getitem__(self, key):
+            if key == "_table":
+                restore_reached_assignment.set()
+                release_restore.wait(timeout=5)
+            return super().__getitem__(key)
+
+    snapshot = PausingSnapshot(vault.snapshot())
+
+    def restore_snapshot():
+        try:
+            vault.restore(snapshot)
+        except Exception as exc:
+            errors.append(exc)
+
+    restorer = threading.Thread(target=restore_snapshot)
+    restorer.start()
+    assert restore_reached_assignment.wait(timeout=5)
+
+    clearer = threading.Thread(target=lambda: (vault.clear(), cleared.set()))
+    clearer.start()
+    assert not cleared.wait(timeout=0.05)
+
+    release_restore.set()
+    restorer.join(timeout=5)
+    clearer.join(timeout=5)
+
+    assert not restorer.is_alive()
+    assert not clearer.is_alive()
+    assert errors == []
+    assert cleared.is_set()
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert vault.audit_log()[-1]["action"] == "clear"
+
+
+def test_audit_log_returns_mutable_copies_not_internal_rows():
+    vault = SessionVault()
+    vault.write(_make_record())
+
+    public_rows = vault.audit_log()
+    public_rows[0]["action"] = "mutated"
+
+    assert vault.audit_log()[0]["action"] == "write"
+
+
 def test_vault_clear_removes_all():
     """Test that clear() removes all entries."""
     vault = SessionVault()
@@ -95,14 +206,15 @@ def test_vault_clear_removes_all():
     assert len(vault._reverse) == 0
 
 
-def test_vault_clear_overwrites_original():
-    """Test that clear() overwrites original with null bytes."""
+def test_vault_clear_drops_references_without_claiming_zeroization():
+    """External references survive because Python strings are immutable."""
     vault = SessionVault()
     record = _make_record(original="RealSecret")
     vault.write(record)
     vault.clear()
-    # Original should be overwritten with null bytes
-    assert record.original == "\x00" * len("RealSecret")
+    assert record.original == "RealSecret"
+    assert vault._table == {}
+    assert vault._reverse == {}
 
 
 def test_vault_idle_timeout():
@@ -175,10 +287,16 @@ def test_get_by_original_returns_record():
 
 def test_get_by_original_filters_by_data_type():
     vault = SessionVault()
-    a = _make_record(original="1234", pseudonym="[บัตรประชาชน_1]")
-    a.data_type = "THAI_ID"
-    b = _make_record(original="1234", pseudonym="[โทรศัพท์_1]")
-    b.data_type = "PHONE"
+    a = _make_record(
+        original="1234",
+        pseudonym="[บัตรประชาชน_1]",
+        data_type="THAI_ID",
+    )
+    b = _make_record(
+        original="1234",
+        pseudonym="[โทรศัพท์_1]",
+        data_type="PHONE",
+    )
     vault.write(a)
     vault.write(b)
     assert vault.get_by_original("1234", data_type="PHONE") is b
@@ -277,7 +395,10 @@ def test_seeded_record_is_reusable_by_get_by_original_regardless_of_data_type():
 def test_a_real_record_still_wins_over_a_seeded_one_for_its_own_data_type():
     vault = SessionVault()
     vault.seed("[ชื่อ_1]", "1234")
-    real = _make_record(original="1234", pseudonym="[โทรศัพท์_1]")
-    real.data_type = "PHONE"
+    real = _make_record(
+        original="1234",
+        pseudonym="[โทรศัพท์_1]",
+        data_type="PHONE",
+    )
     vault.write(real)
     assert vault.get_by_original("1234", data_type="PHONE") is real
