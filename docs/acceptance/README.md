@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-05 F-04 vault seed and audit hygiene](2026-08-05-f04-vault-seed-hygiene.md)
 - [2026-08-05 F-01 transactional sanitize](2026-08-05-f01-transactional-sanitize.md)
 - [2026-08-05 hardening baseline at `93a7108`](2026-08-05-hardening-baseline.md)
 - [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
@@ -60,6 +61,11 @@ baseline.
 The F-01 record closes current-source automated transaction and API audit-ID
 checks only. Published-package and official-platform recertification remain
 open, as do the other hardening boundaries above.
+
+The F-04 record closes current-source automated vault seed/audit and
+public-method locking checks only; public wire, packaged/installed, real-host,
+live-provider, release, deployment, and official-platform recertification
+remain open.
 
 ## Automated HTTP and live-provider run
 

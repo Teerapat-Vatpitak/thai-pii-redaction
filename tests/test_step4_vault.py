@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 
+from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.models import VaultRecord
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 
@@ -356,9 +357,351 @@ def test_seed_round_trips_through_export_mapping():
 
 def test_seed_is_idempotent_for_the_same_pair():
     vault = SessionVault()
-    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
-    vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    first = vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    audit_after_first = vault.audit_log()
+    access_after_first = vault._last_access
+
+    second = vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+
+    assert second is first
     assert vault.export_mapping() == {"[ชื่อ_1]": "สมชาย ใจดี"}
+    assert len(vault._table) == 1
+    assert vault.audit_log() == audit_after_first
+    assert vault._last_access == access_after_first
+    assert [entry["action"] for entry in audit_after_first] == ["seed"]
+
+
+def test_seed_rejects_repointing_a_previously_seeded_pseudonym():
+    vault = SessionVault()
+    pseudonym = "[ชื่อ_1]"
+    first_original = "สมชาย ใจดี"
+    conflicting_original = "สมหญิง ร้ายกาจ"
+    first = vault.seed(pseudonym, first_original)
+    before_table = dict(vault._table)
+    before_reverse = dict(vault._reverse)
+    before_audit = vault.audit_log()
+    before_access = vault._last_access
+
+    with pytest.raises(ValueError, match=r"^seed pseudonym collision$") as exc:
+        vault.seed(pseudonym, conflicting_original)
+
+    assert str(exc.value) == "seed pseudonym collision"
+    assert pseudonym not in str(exc.value)
+    assert first_original not in str(exc.value)
+    assert conflicting_original not in str(exc.value)
+    assert vault._table == before_table
+    assert vault._reverse == before_reverse
+    assert vault.audit_log() == before_audit
+    assert vault._last_access == before_access
+    assert vault._table == {first.entity_id: first}
+
+
+def test_seed_same_pair_returns_an_existing_written_record_without_mutation():
+    vault = SessionVault()
+    written = _make_record(original="สมชาย ใจดี", pseudonym="[ชื่อ_1]")
+    vault.write(written)
+    before_table = dict(vault._table)
+    before_reverse = dict(vault._reverse)
+    before_audit = vault.audit_log()
+    before_access = vault._last_access
+
+    returned = vault.seed(written.pseudonym, written.original)
+
+    assert returned is written
+    assert vault._table == before_table
+    assert vault._reverse == before_reverse
+    assert vault.audit_log() == before_audit
+    assert vault._last_access == before_access
+
+
+def test_seed_uses_an_opaque_uuid_and_keeps_audit_safe_after_clear():
+    vault = SessionVault()
+    pseudonym = "1101700230708"
+    original = "บุคคลทดสอบ-0812345678"
+    assert any(entity.data_type == "THAI_ID" for entity in detect_fp(pseudonym))
+
+    record = vault.seed(pseudonym, original)
+
+    assert record.entity_id.startswith("seed:")
+    assert uuid.UUID(record.entity_id.removeprefix("seed:"))
+    assert record.data_type == "SEEDED"
+    before_clear = vault.audit_log()
+    assert len(before_clear) == 1
+    assert before_clear[0]["action"] == "seed"
+    assert before_clear[0]["entity_id"] == record.entity_id
+    assert set(before_clear[0]) == {"action", "entity_id", "timestamp", "session_id"}
+
+    vault.clear()
+
+    assert vault._table == {}
+    assert vault._reverse == {}
+    retained_audit = vault.audit_log()
+    assert [entry["action"] for entry in retained_audit] == ["seed", "clear"]
+    for unsafe_value in (pseudonym, original):
+        assert unsafe_value not in str(before_clear)
+        assert unsafe_value not in str(retained_audit)
+
+
+def test_clone_preserves_safe_seed_audit_without_sharing_mutable_state():
+    vault = SessionVault()
+    first = vault.seed("[ชื่อ_1]", "สมชาย ใจดี")
+    original_audit = vault.audit_log()
+
+    clone = vault.clone()
+    assert clone.audit_log() == original_audit
+    assert clone._table[first.entity_id] is first
+
+    clone.seed("[ชื่อ_2]", "สมหญิง ร้ายกาจ")
+
+    assert vault.export_mapping() == {"[ชื่อ_1]": "สมชาย ใจดี"}
+    assert vault.audit_log() == original_audit
+    assert clone.export_mapping() == {
+        "[ชื่อ_1]": "สมชาย ใจดี",
+        "[ชื่อ_2]": "สมหญิง ร้ายกาจ",
+    }
+    assert [entry["action"] for entry in clone.audit_log()] == ["seed", "seed"]
+
+
+def test_seed_audit_failure_rolls_back_and_retry_records_once():
+    vault = SessionVault()
+    pseudonym = "[ชื่อ_1]"
+    original = "สมชาย ใจดี"
+    before_access = vault._last_access
+    real_audit = vault._audit
+    fail_once = True
+
+    def injected_audit(action, entity_id):
+        nonlocal fail_once
+        if action == "seed" and fail_once:
+            fail_once = False
+            real_audit(action, entity_id)
+            raise RuntimeError("injected audit failure")
+        real_audit(action, entity_id)
+
+    vault._audit = injected_audit
+
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        vault.seed(pseudonym, original)
+
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert vault.audit_log() == []
+    assert vault._last_access == before_access
+
+    record = vault.seed(pseudonym, original)
+
+    assert vault.export_mapping() == {pseudonym: original}
+    assert vault.audit_log() == [
+        {
+            "action": "seed",
+            "entity_id": record.entity_id,
+            "timestamp": vault.audit_log()[0]["timestamp"],
+            "session_id": vault.session_id,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "observer",
+    [
+        "get_by_entity_id",
+        "get_by_pseudonym",
+        "get_by_original",
+        "export_mapping",
+        "trusted_pseudonyms",
+    ],
+)
+def test_failing_seed_is_not_visible_to_concurrent_observers(observer):
+    import threading
+
+    vault = SessionVault()
+    pseudonym = "[ชื่อ_1]"
+    original = "สมชาย ใจดี"
+    seed_reached_audit = threading.Event()
+    release_seed = threading.Event()
+    observer_finished = threading.Event()
+    real_audit = vault._audit
+    published_id = {}
+    seed_errors = []
+    observer_errors = []
+    observed = []
+
+    def failing_audit(action, entity_id):
+        real_audit(action, entity_id)
+        if action == "seed":
+            published_id["value"] = entity_id
+            seed_reached_audit.set()
+            release_seed.wait(timeout=5)
+            raise RuntimeError("injected audit failure")
+
+    vault._audit = failing_audit
+
+    def run_seed():
+        try:
+            vault.seed(pseudonym, original)
+        except Exception as exc:
+            seed_errors.append(exc)
+
+    def run_observer():
+        try:
+            if observer == "get_by_entity_id":
+                result = vault.get_by_entity_id(published_id["value"])
+            elif observer == "get_by_pseudonym":
+                result = vault.get_by_pseudonym(pseudonym)
+            elif observer == "get_by_original":
+                result = vault.get_by_original(original)
+            else:
+                result = getattr(vault, observer)()
+            observed.append(result)
+        except Exception as exc:
+            observer_errors.append(exc)
+        finally:
+            observer_finished.set()
+
+    seeder = threading.Thread(target=run_seed)
+    reader = threading.Thread(target=run_observer)
+    seeder.start()
+    assert seed_reached_audit.wait(timeout=5)
+    reader.start()
+    assert not observer_finished.wait(timeout=0.05)
+
+    release_seed.set()
+    seeder.join(timeout=5)
+    reader.join(timeout=5)
+
+    assert not seeder.is_alive()
+    assert not reader.is_alive()
+    assert len(seed_errors) == 1
+    assert isinstance(seed_errors[0], RuntimeError)
+    assert observer_errors == []
+    if observer in {"export_mapping", "trusted_pseudonyms"}:
+        assert observed == [{} if observer == "export_mapping" else set()]
+    else:
+        assert observed == [None]
+    assert vault._table == {}
+    assert vault._reverse == {}
+    retained_audit = vault.audit_log()
+    assert all(entry["action"] != "seed" for entry in retained_audit)
+    assert pseudonym not in str(retained_audit)
+    assert original not in str(retained_audit)
+
+
+def test_concurrent_seed_and_write_cannot_claim_one_pseudonym():
+    import threading
+
+    vault = SessionVault()
+    pseudonym = "[ชื่อ_1]"
+    seed_reached_publish = threading.Event()
+    release_seed = threading.Event()
+    write_finished = threading.Event()
+    real_touch = vault._touch
+    seed_errors = []
+    write_errors = []
+
+    def pausing_touch():
+        seed_reached_publish.set()
+        release_seed.wait(timeout=5)
+        real_touch()
+
+    vault._touch = pausing_touch
+
+    def run_seed():
+        try:
+            vault.seed(pseudonym, "สมชาย ใจดี")
+        except Exception as exc:
+            seed_errors.append(exc)
+
+    def run_write():
+        try:
+            vault.write(_make_record(original="สมหญิง ร้ายกาจ", pseudonym=pseudonym))
+        except Exception as exc:
+            write_errors.append(exc)
+        finally:
+            write_finished.set()
+
+    seeder = threading.Thread(target=run_seed)
+    writer = threading.Thread(target=run_write)
+    seeder.start()
+    assert seed_reached_publish.wait(timeout=5)
+    writer.start()
+    assert not write_finished.wait(timeout=0.05)
+
+    release_seed.set()
+    seeder.join(timeout=5)
+    writer.join(timeout=5)
+
+    assert not seeder.is_alive()
+    assert not writer.is_alive()
+    assert seed_errors == []
+    assert len(write_errors) == 1
+    assert isinstance(write_errors[0], ValueError)
+    assert vault.export_mapping() == {pseudonym: "สมชาย ใจดี"}
+    assert len(vault._table) == 1
+    assert [entry["action"] for entry in vault.audit_log()] == ["seed"]
+
+
+@pytest.mark.parametrize("operation", ["clone", "snapshot", "clear"])
+def test_write_blocks_lifecycle_operation_until_its_audit_finishes(operation):
+    import threading
+
+    vault = SessionVault()
+    write_reached_audit = threading.Event()
+    release_write = threading.Event()
+    lifecycle_finished = threading.Event()
+    real_audit = vault._audit
+    errors = []
+    outcome = {}
+
+    def pausing_audit(action, entity_id):
+        if action == "write":
+            write_reached_audit.set()
+            release_write.wait(timeout=5)
+        real_audit(action, entity_id)
+
+    vault._audit = pausing_audit
+    record = _make_record()
+
+    def run_write():
+        try:
+            vault.write(record)
+        except Exception as exc:
+            errors.append(exc)
+
+    def run_lifecycle_operation():
+        try:
+            outcome["value"] = getattr(vault, operation)()
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            lifecycle_finished.set()
+
+    writer = threading.Thread(target=run_write)
+    lifecycle = threading.Thread(target=run_lifecycle_operation)
+    writer.start()
+    assert write_reached_audit.wait(timeout=5)
+    lifecycle.start()
+    assert not lifecycle_finished.wait(timeout=0.05)
+
+    release_write.set()
+    writer.join(timeout=5)
+    lifecycle.join(timeout=5)
+
+    assert not writer.is_alive()
+    assert not lifecycle.is_alive()
+    assert errors == []
+    if operation == "clone":
+        cloned = outcome["value"]
+        assert cloned._table == {record.entity_id: record}
+        assert [entry["action"] for entry in cloned.audit_log()] == ["write"]
+    elif operation == "snapshot":
+        snapshot = outcome["value"]
+        assert snapshot["_table"] == {record.entity_id: record}
+        assert snapshot["_reverse"] == {record.pseudonym: record.entity_id}
+    else:
+        assert outcome["value"] is None
+        assert vault._table == {}
+        assert vault._reverse == {}
+        assert [entry["action"] for entry in vault.audit_log()] == ["write", "clear"]
 
 
 def test_seed_rejects_repointing_a_pseudonym_at_a_different_original():

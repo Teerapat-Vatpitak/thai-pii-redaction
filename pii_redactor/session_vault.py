@@ -20,6 +20,7 @@ from pii_redactor.models import VaultRecord
 # sentinel is treated as a wildcard by get_by_original(), which is the lookup
 # the anonymizer uses to decide "this person already has a pseudonym".
 SEEDED_DATA_TYPE = "SEEDED"
+_SEED_COLLISION_ERROR = "seed pseudonym collision"
 
 
 class _VaultAuditEntry(NamedTuple):
@@ -77,23 +78,26 @@ class SessionVault:
                 original — a silent reverse-index overwrite would restore
                 the wrong person's data.
         """
-        self._touch()
-        existing_owner_id = self._reverse.get(record.pseudonym)
-        if existing_owner_id is not None and existing_owner_id != record.entity_id:
-            existing_owner = self._table.get(existing_owner_id)
-            if existing_owner is not None and existing_owner.original != record.original:
-                # SECURITY: no pseudonym/original in the message (audit-safe)
-                raise ValueError(
-                    f"pseudonym collision: entity {record.entity_id[:8]} vs {existing_owner_id[:8]}"
-                )
-        # Clean up stale reverse mapping if entity_id already exists with a different pseudonym
-        if record.entity_id in self._table:
-            old_pseudonym = self._table[record.entity_id].pseudonym
-            if old_pseudonym != record.pseudonym:
-                self._reverse.pop(old_pseudonym, None)
-        self._table[record.entity_id] = record
-        self._reverse[record.pseudonym] = record.entity_id
-        self._audit("write", record.entity_id)
+        with self._lifecycle_lock:
+            self._touch()
+            existing_owner_id = self._reverse.get(record.pseudonym)
+            if existing_owner_id is not None and existing_owner_id != record.entity_id:
+                existing_owner = self._table.get(existing_owner_id)
+                if existing_owner is not None and existing_owner.original != record.original:
+                    # SECURITY: no pseudonym/original in the message (audit-safe)
+                    raise ValueError(
+                        f"pseudonym collision: entity {record.entity_id[:8]} "
+                        f"vs {existing_owner_id[:8]}"
+                    )
+            # Clean up stale reverse mapping if entity_id already exists with a
+            # different pseudonym.
+            if record.entity_id in self._table:
+                old_pseudonym = self._table[record.entity_id].pseudonym
+                if old_pseudonym != record.pseudonym:
+                    self._reverse.pop(old_pseudonym, None)
+            self._table[record.entity_id] = record
+            self._reverse[record.pseudonym] = record.entity_id
+            self._audit("write", record.entity_id)
 
     def get_by_entity_id(self, entity_id: str) -> VaultRecord | None:
         """Lookup by entity_id. Returns None if not found. Touches idle timer.
@@ -107,11 +111,12 @@ class SessionVault:
         Raises:
             VaultTimeoutError: If vault has been idle past timeout threshold
         """
-        self.check_idle()
-        self._touch()
-        record = self._table.get(entity_id)
-        self._audit("read_by_id", entity_id)
-        return record
+        with self._lifecycle_lock:
+            self.check_idle()
+            self._touch()
+            record = self._table.get(entity_id)
+            self._audit("read_by_id", entity_id)
+            return record
 
     def get_by_pseudonym(self, pseudonym: str) -> VaultRecord | None:
         """Lookup by pseudonym. Returns None if not found. Touches idle timer.
@@ -125,13 +130,14 @@ class SessionVault:
         Raises:
             VaultTimeoutError: If vault has been idle past timeout threshold
         """
-        self.check_idle()
-        self._touch()
-        entity_id = self._reverse.get(pseudonym)
-        if entity_id is None:
-            return None
-        self._audit("read_by_pseudonym", entity_id)
-        return self._table.get(entity_id)
+        with self._lifecycle_lock:
+            self.check_idle()
+            self._touch()
+            entity_id = self._reverse.get(pseudonym)
+            if entity_id is None:
+                return None
+            self._audit("read_by_pseudonym", entity_id)
+            return self._table.get(entity_id)
 
     def get_by_original(self, original: str, data_type: str | None = None) -> VaultRecord | None:
         """Lookup by original value (optionally narrowed by data_type).
@@ -149,20 +155,21 @@ class SessionVault:
         Raises:
             VaultTimeoutError: If vault has been idle past timeout threshold
         """
-        self.check_idle()
-        self._touch()
-        seeded_match: VaultRecord | None = None
-        for record in self._table.values():
-            if record.original != original:
-                continue
-            if data_type is None or record.data_type == data_type:
-                self._audit("read_by_original", record.entity_id)
-                return record
-            if record.data_type == SEEDED_DATA_TYPE and seeded_match is None:
-                seeded_match = record
-        if seeded_match is not None:
-            self._audit("read_by_original", seeded_match.entity_id)
-        return seeded_match
+        with self._lifecycle_lock:
+            self.check_idle()
+            self._touch()
+            seeded_match: VaultRecord | None = None
+            for record in self._table.values():
+                if record.original != original:
+                    continue
+                if data_type is None or record.data_type == data_type:
+                    self._audit("read_by_original", record.entity_id)
+                    return record
+                if record.data_type == SEEDED_DATA_TYPE and seeded_match is None:
+                    seeded_match = record
+            if seeded_match is not None:
+                self._audit("read_by_original", seeded_match.entity_id)
+            return seeded_match
 
     def export_mapping(self) -> dict[str, str]:
         """Return {pseudonym: original} for handing back to a stateless caller.
@@ -170,12 +177,13 @@ class SessionVault:
         This is the whole point of the platform contract: the map leaves as a
         value the caller owns instead of staying here.
         """
-        out: dict[str, str] = {}
-        for pseudonym, entity_id in self._reverse.items():
-            record = self._table.get(entity_id)
-            if record is not None:
-                out[pseudonym] = record.original
-        return out
+        with self._lifecycle_lock:
+            out: dict[str, str] = {}
+            for pseudonym, entity_id in self._reverse.items():
+                record = self._table.get(entity_id)
+                if record is not None:
+                    out[pseudonym] = record.original
+            return out
 
     def trusted_pseudonyms(self) -> set[str]:
         """Pseudonyms this vault minted itself, excluding caller-supplied ones.
@@ -189,26 +197,43 @@ class SessionVault:
         have the guard fall silent on it. Callers that need the full set for
         positional bookkeeping still read `_reverse` directly.
         """
-        return {
-            record.pseudonym
-            for record in self._table.values()
-            if record.data_type != SEEDED_DATA_TYPE and record.pseudonym
-        }
+        with self._lifecycle_lock:
+            return {
+                record.pseudonym
+                for record in self._table.values()
+                if record.data_type != SEEDED_DATA_TYPE and record.pseudonym
+            }
 
-    def seed(self, pseudonym: str, original: str) -> None:
+    def seed(self, pseudonym: str, original: str) -> VaultRecord:
         """Re-admit a pair from a previous turn's exported mapping.
 
-        Goes through write() so the duplicate-pseudonym guard still applies —
-        a caller replaying a tampered mapping must not be able to point an
-        existing pseudonym at a different person. entity_id/span are
-        synthesised because an exported mapping does not carry them; data_type
-        is the SEEDED sentinel, which get_by_original() treats as a wildcard so
-        a re-admitted pair still satisfies the anonymizer's data_type-narrowed
-        reuse lookup.
+        The pseudonym is checked directly before any record or audit row is
+        added. Replaying the same pair returns its existing record without a
+        new audit event. Reusing the pseudonym for a different original fails
+        with a constant message and leaves the first mapping intact.
+
+        entity_id/span are synthesised because an exported mapping does not
+        carry them. The entity ID is an opaque UUID, never caller text.
+        SEEDED_DATA_TYPE is the safe provenance marker that get_by_original()
+        treats as a wildcard for data-type-narrowed reuse.
+
+        Returns:
+            The existing or newly created seeded record.
+
+        Raises:
+            ValueError: If the pseudonym is already owned by another original
+                or the existing owner cannot be verified.
         """
-        self.write(
-            VaultRecord(
-                entity_id=f"seed:{pseudonym}",
+        with self._lifecycle_lock:
+            existing_id = self._reverse.get(pseudonym)
+            if existing_id is not None:
+                existing = self._table.get(existing_id)
+                if existing is None or existing.original != original:
+                    raise ValueError(_SEED_COLLISION_ERROR)
+                return existing
+
+            record = VaultRecord(
+                entity_id=f"seed:{uuid.uuid4()}",
                 original=original,
                 pseudonym=pseudonym,
                 type="FP",
@@ -216,7 +241,21 @@ class SessionVault:
                 span=(0, 0),
                 timestamp=time.monotonic(),
             )
-        )
+            prior_access = self._last_access
+            prior_audit_length = len(self._audit_entries)
+            try:
+                self._touch()
+                self._table[record.entity_id] = record
+                self._reverse[record.pseudonym] = record.entity_id
+                self._audit("seed", record.entity_id)
+            except BaseException:
+                self._table.pop(record.entity_id, None)
+                if self._reverse.get(record.pseudonym) == record.entity_id:
+                    self._reverse.pop(record.pseudonym, None)
+                del self._audit_entries[prior_audit_length:]
+                self._last_access = prior_access
+                raise
+            return record
 
     def clone(self) -> "SessionVault":
         """Return a complete detached copy for an unpublished transaction.
@@ -289,7 +328,8 @@ class SessionVault:
         Returns:
             True if time since last access exceeds idle_timeout_s, False otherwise
         """
-        return (time.monotonic() - self._last_access) > self._idle_timeout_s
+        with self._lifecycle_lock:
+            return (time.monotonic() - self._last_access) > self._idle_timeout_s
 
     def check_idle(self) -> None:
         """Raise VaultTimeoutError if idle timeout exceeded.
@@ -297,8 +337,9 @@ class SessionVault:
         Raises:
             VaultTimeoutError: If vault idle timeout has been exceeded
         """
-        if self.is_idle():
-            raise VaultTimeoutError(f"Session vault idle timeout after {self._idle_timeout_s}s")
+        with self._lifecycle_lock:
+            if self.is_idle():
+                raise VaultTimeoutError(f"Session vault idle timeout after {self._idle_timeout_s}s")
 
     def audit_log(self) -> list[dict]:
         """Return a copy of the audit log entries.
