@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-05 hardening baseline at `93a7108`](2026-08-05-hardening-baseline.md)
 - [2026-07-24 Pathumma/TNER and HTTP live acceptance](2026-07-24-live-run.md)
 - [2026-07-22 Pathumma/TNER live acceptance](2026-07-22-live-run.md)
 - [2026-07-23 Storefront release acceptance](2026-07-23-storefront-release-run.md)
@@ -28,6 +29,32 @@ Use only the synthetic fixtures in `examples/`, this document, and
 `benchmark/data/probe/gov_forms/manifest.json` with its generated corpus.
 Evidence must never contain request text, entity values, mappings, credentials,
 or provider response bodies.
+
+Checked boxes and dated records below remain evidence of what the exact named
+commits and artifacts passed. They are not revoked. The hardening campaign
+identified additional gates those runs did not exercise; a modified API/client,
+broker, lifecycle, TNER, provider-orchestration, or PDF candidate requires
+fresh evidence at the corresponding automated, packaged, real-host,
+live-provider, or official-platform level.
+
+The open hardening recertification boundaries are:
+
+- recursive response minimization and fail-closed contract-version/schema
+  mismatch;
+- no composer, clipboard, document, or provider write after any residual-PII
+  signal;
+- authenticated local backend identity before a PII-bearing request;
+- no live session ID or other bearer authority in audit filenames, entries,
+  stdout, public projections, or retained evidence;
+- request-driven expiry, session continuity, and authenticated disposal;
+- whole-request failure for any failed or incomplete explicitly selected TNER
+  chunk;
+- shared provider guards, retries, rollback, and safe error semantics; and
+- exact entity-span-to-PDF-box alignment with untouched negative-control
+  pixels.
+
+None of those bullets is marked passed by this index or by the 2026-08-05
+baseline.
 
 ## Automated HTTP and live-provider run
 

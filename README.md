@@ -20,7 +20,8 @@
   <img src="assets/demo-before-after.png" alt="AI Guard before and after: real Thai PII on the left, masked tokens on the right" width="760" />
 </p>
 
-AI Guard finds Thai personal data before it reaches a downstream AI. It combines
+AI Guard is designed to find Thai personal data before the user submits it to a
+downstream AI model. It combines
 regex and checksum validation for structured identifiers with Thai NER and
 context rules for names and addresses. It can replace detected values with
 tokens such as `[ชื่อ_1]` or realistic surrogates, restore them when the caller
@@ -35,7 +36,7 @@ risk report.
 | Mask and restore | Token or surrogate anonymization with an in-memory mapping and outbound leak checks. |
 | PDF redaction | Paints PII at word bounding boxes and flattens the result so the original text layer is not recoverable. |
 | PDPA analysis | Reports direct PII, Section 26 signals, and re-identification risk without including raw values in the generated report. |
-| Protected AI roundtrip | Masks a prompt, calls a configured provider such as Pathumma, and restores the answer without exporting the transient mapping. |
+| Protected AI roundtrip | Masks a prompt, calls a configured provider such as Pathumma, and restores the answer. Shared adapter guards/retries and response minimization are active hardening gates. |
 | Prompt-injection signals | Flags known Thai and English attacks with explicit rules plus bounded normalization/intent features. It warns; it is not a complete defense. |
 
 ## Two deployment contexts
@@ -45,12 +46,29 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local desktop, browser extension, and Office Add-in | Detection, pseudonymization, and the mapping stay on the user's device. An external AI receives only the masked text. |
-| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. AI Guard does not persist the transient mapping or write user text to its logs; a protected Pathumma roundtrip sends only masked text to Pathumma. |
+| Local desktop, browser extension, and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. AI Guard-controlled provider calls target masked text. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. Current contract-v1 response, residual-warning, and localhost-identity gaps are tracked below. |
+| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. AI Guard does not persist the transient mapping. The intended protected Pathumma boundary is masked-only, but current HTTP/worker roundtrips can send sanitizer output after a residual warning; fail-closed recertification is open. |
 
 The hosted statement is intentionally narrower than the local statement. AI
 Guard does not claim that raw PII stays on the user's device when the user calls
 a hosted service.
+
+The browser's in-page Mask flow starts after raw text has been typed into an AI
+site's provider-controlled DOM. That page's code can observe or transmit the
+draft before AI Guard acts. Use the extension side panel for raw entry and
+paste only the reviewed masked result when that stronger isolation boundary is
+required.
+
+Current source at `93a7108` is under an owner-approved hardening campaign.
+Contract v1 can project direct or reconstructable mapping fields into
+first-party client response objects; local clients can write output after a
+text-based residual warning; and fixed-port clients do not authenticate the
+localhost process. Session-bearing sanitize/reidentify audit filenames/entries
+also retain the live, security-sensitive session ID. Historical
+release/storefront evidence remains valid for the exact named artifacts, but
+those paths require recertification after the explicit-mapping-free DTO,
+fail-closed policy, safe audit correlation, and native-broker changes. Review
+current source output before submitting it to an external AI.
 
 ## Storefronts
 
@@ -147,7 +165,10 @@ python -m venv .venv
 
 Use [`.env.example`](.env.example) as the safe configuration reference. Keep
 provider keys and the local boot/API tokens in the environment of the backend;
-the extension and Office clients hold only a `session_id` and never the vault.
+the canonical vault belongs in backend memory. Clients necessarily handle
+submitted and returned text, and may retain a security-sensitive `session_id`;
+current contract v1 also returns mapping-bearing fields that contract v2 must
+remove.
 
 ### API and CLI
 
@@ -233,12 +254,14 @@ reproducibility.
 
 ## Current status and limitations
 
-Feature acceptance on the local storefronts is complete except the remaining
-Office real-host items tracked in the acceptance checklist. Current work
-focuses on detection accuracy against a hand-authored gold benchmark (see
-`benchmark/`); accuracy numbers live in generated benchmark reports with
-corpus size and limitations — do not infer a public accuracy claim from
-prose.
+Dated acceptance remains evidence for the exact local storefront candidates
+named in those records. Current source has open privacy/security/correctness
+hardening gates, and Office still has eight real-host/package items in the
+acceptance checklist. Detection accuracy remains the declared normal Track A
+priority; the owner-approved eight-phase hardening campaign is an explicit
+temporary exception, not completion of Track A. Accuracy numbers live in
+generated benchmark reports with corpus size and limitations — do not infer a
+public accuracy claim from prose.
 
 `blind-v1` is a closed historical evidence set, not an active blind evaluation:
 its six-reveal budget is exhausted. Do not tune against it or present its

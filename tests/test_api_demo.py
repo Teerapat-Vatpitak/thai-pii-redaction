@@ -178,7 +178,9 @@ class TestDemoGate:
         assert "text/html" in resp.headers["content-type"]
         assert "AI Guard" in resp.text
         assert "ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้" not in resp.text
-        assert "ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง" in resp.text
+        assert "ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง" not in resp.text
+        assert "demo อาจเรียกโมเดลก่อนแสดง residual warning" in resp.text
+        assert "คำเตือนหลังประมวลผล (อาจเรียกโมเดลแล้ว)" in resp.text
 
     def test_roundtrip_failure_clears_the_pending_restore_state(self, client, monkeypatch):
         monkeypatch.setenv("AIGUARD_DEMO", "1")

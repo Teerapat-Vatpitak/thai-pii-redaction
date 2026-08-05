@@ -8,7 +8,9 @@ Add-in
 สถานะปัจจุบัน: **In development / real-host acceptance pending**. Adapter มีครบทั้ง
 สาม host แต่ release unified manifest เปิด Word เท่านั้นจนกว่า real-host acceptance
 ของ Excel และ PowerPoint จะผ่าน; XML manifests ของสอง host เป็น acceptance-only
-transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting
+transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting.
+HTTP contract v2, packaged-backend composition และการแยก health capability ระหว่าง
+control token กับ data-plane API key ยังเป็น hardening gate ที่ไม่ผ่าน acceptance
 
 การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
 host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
@@ -39,10 +41,24 @@ Excel และ PowerPoint ต้องผ่าน host-functional และ un
 - Add-in เรียก relative `/api/*`; Vite proxy ส่งต่อไป
   `http://127.0.0.1:8000` จึงไม่เพิ่ม wildcard CORS
 - `AIFORTHAI_API_KEY` อยู่ที่ backend เท่านั้น
-- task pane เก็บเพียงข้อความที่กำลังแสดงและ `session_id` ใน memory ห้ามเก็บ
-  mapping หรือข้อความใน `localStorage`/`sessionStorage`
+- canonical vault อยู่ใน memory ของ backend และ task pane ไม่จงใจ persist mapping
+  หรือข้อความใน `localStorage`/`sessionStorage`; อย่างไรก็ตาม contract v1 ปัจจุบัน
+  ส่ง field ที่มีหรือใช้ประกอบ token-to-original mapping กลับมาใน response object
+  ของ task pane ได้ `session_id` ไม่ใช่ mapping แต่เป็น bearer-like restoration
+  reference ที่มีความสำคัญด้านความปลอดภัย ขอบเขตที่ไม่มี explicit mapping DTO
+  ต้องบังคับด้วย contract v2
 - API success responses ผ่านการตรวจ schema ก่อนเข้า controller; response ที่ผิดรูป
   จะกลายเป็น error ทั่วไป และ body จาก backend/provider จะไม่ถูกแสดงเป็น error
+- health v1 ใช้ `token_required` สำหรับ control-plane boot token แต่ Office
+  ตีความเป็น data-plane credential requirement ทำให้ packaged backend ที่ปลอดภัย
+  สามารถถูกปฏิเสธได้ v2 ต้องแยก `control_token_required` กับ
+  `api_key_required`; automated composition และ real-host acceptance ยังไม่ผ่าน
+- warning ของ text-based residual ใน v1 ยังไม่ปิด Apply/Copy/Insert ทุกกรณี
+  และ backend provider call อาจเกิดก่อน Office แสดง warning จึงต้องตรวจผลและ
+  ห้ามถือ source candidate ปัจจุบันเป็น fail-closed production package จนกว่า
+  mandatory residual gate และ client safety checks จะผ่าน
+- detector ปกติอยู่ในเครื่อง แต่ถ้า backend เลือก
+  `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน จะส่ง raw pre-mask chunk ไป AI for Thai
 - ปิด backend หรือ task pane แล้ว session อาจหายและ Restore ไม่ได้ ระบบต้องแจ้ง
   failure และไม่เดาข้อมูลเดิม
 - คำตอบ Pathumma อาจไม่คืน token ทุกตัว; warning คือผลที่ถูกต้องและห้ามเติมค่าเอง
