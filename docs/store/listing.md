@@ -5,9 +5,21 @@
 AI Guard detects and masks Thai personally identifiable information (PII) in
 text before the user sends it to an external AI chat service (ChatGPT,
 Claude, Gemini, Grok, Perplexity, GLM/Z.ai), and restores the original values
-locally once the AI's reply comes back. All detection, masking, and
-restoration runs against a backend on the user's own machine — nothing is
-sent to a third-party server.
+locally once the AI's reply comes back. The extension calls a backend on the
+user's machine. Detection is local by default; explicitly selected remote TNER
+sends raw pre-mask chunks from that backend to AI for Thai.
+
+The current source candidate is not accepted as a fail-closed production store
+package: contract v1 exposes mapping-bearing response fields, text-based
+residual warnings do not always block composer writes, and direct fixed-port
+localhost operation does not authenticate server identity. Contract v2 and the
+native broker must land and receive fresh store/browser acceptance before this
+copy is used for a new package.
+
+In-page Mask acts only after raw text has been entered into the AI site's
+provider-controlled DOM, whose code can observe or transmit the draft. For the
+stronger isolation boundary, users must enter raw text in the extension side
+panel and paste only the reviewed masked result into the site.
 
 ## Category
 
@@ -25,11 +37,15 @@ AI Guard — ปกปิดข้อมูลส่วนบุคคลก่�
 
 **คำอธิบายสั้น (short description, ≤132 ตัวอักษร)**
 
-ปกปิดข้อมูลส่วนบุคคลไทยก่อนส่งให้แชท AI แล้วคืนค่าในเครื่องคุณ ประมวลผลทั้งหมดในเครื่อง ไม่ส่งข้อมูลออกที่อื่น
+ปกปิด PII ไทยก่อนส่งแชท AI; side panel แยกข้อความดิบได้ดีกว่า Detector ในเครื่องเป็น default; remote TNER ต้องเลือกเอง
 
 **คำอธิบายแบบละเอียด (detailed description)**
 
-AI Guard เป็น extension ที่ช่วยปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทย เช่น ชื่อ-นามสกุล เลขบัตรประชาชน เบอร์โทรศัพท์ อีเมล ที่อยู่ วันเกิด เลขบัญชีธนาคาร ก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงกลับเข้าไปในคำตอบให้อัตโนมัติ โดยที่ข้อมูลจริงไม่เคยถูกส่งออกจากเครื่องของคุณเลย
+AI Guard เป็น extension ที่ช่วยตรวจและปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทยก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงในเครื่อง Detector ปกติทำงานใน backend บนเครื่อง; หากผู้ใช้เลือก remote TNER อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai
+
+Source build v1 ปัจจุบันยังไม่ใช่ fail-closed production package: text-based residual warning ยังไม่บล็อกการเขียน composer ทุกกรณี, response ยังมี field ที่เกี่ยวกับ mapping และ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port ผู้ใช้ต้องตรวจผลก่อนส่ง ระบบ contract v2 และ native broker ยังรอ hardening และ acceptance ใหม่
+
+การกด Mask ในหน้าเว็บเริ่มหลังจากข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว โค้ดเว็บอาจเห็นหรือส่ง draft ก่อน extension แทนที่ หากต้องการขอบเขตที่เข้มกว่า ต้องพิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ
 
 วิธีใช้งาน:
 1. ติดตั้ง extension แล้วรัน backend ของ AI Guard บนเครื่องคุณ (ดูวิธีที่ README ของโปรเจกต์)
@@ -38,9 +54,9 @@ AI Guard เป็น extension ที่ช่วยปกปิด (mask) ข�
 4. เมื่อ AI ตอบกลับ กดปุ่ม "Restore PII" เพื่อคืนค่าข้อมูลจริงกลับมา — ทำในเครื่องคุณเท่านั้น
 
 จุดเด่นด้านความเป็นส่วนตัว:
-- ประมวลผลทั้งหมดในเครื่องของคุณ (backend แบบ localhost) ไม่มีเซิร์ฟเวอร์ภายนอก
+- detector ปกติ, masking, restoration และ canonical vault อยู่ใน backend บนเครื่อง; remote TNER เป็นตัวเลือกที่ส่ง raw chunk ไป AI for Thai
 - ไม่มี analytics หรือ tracking
-- ตาราง mapping ข้อมูลจริง↔รหัสปลอมอยู่ในหน่วยความจำเท่านั้น ไม่เขียนลงดิสก์
+- canonical mapping อยู่ในหน่วยความจำและไม่จงใจเขียนลงดิสก์; contract v1 ยังส่ง mapping-bearing field เข้า memory ของ extension และต้องถูกตัดออกใน v2
 - รองรับ 2 โหมด: token (เช่น `[ชื่อ_1]`) หรือ surrogate (ข้อมูลปลอมที่สมจริง อ่านลื่นไหลสำหรับ AI)
 
 AI Guard เป็นโปรเจกต์ open source ภายใต้สัญญาอนุญาต Apache-2.0 ตรวจสอบซอร์สโค้ดทั้งหมดได้ที่ GitHub
@@ -55,7 +71,7 @@ AI Guard — Thai PII Protection for AI Chats
 
 **Short description (≤132 chars)**
 
-Masks Thai PII before sending to AI chats, restores it locally from the reply. All processing stays on your device.
+Masks Thai PII before AI chats; side-panel entry gives stronger isolation. Default detection is local; remote TNER is opt-in.
 
 **Detailed description**
 
@@ -64,7 +80,20 @@ information (PII) — names, national ID numbers, phone numbers, emails,
 addresses, dates of birth, bank account numbers — before you send text to an
 external AI chat service such as ChatGPT, Claude, Gemini, Grok, Perplexity,
 or GLM/Z.ai. When the AI replies, AI Guard restores the real values back into
-the reply for you. The real data is never sent off your machine.
+the reply for you. The default detector runs in the local backend. If the user
+explicitly selects remote TNER, the backend sends raw pre-mask chunks to AI for
+Thai.
+
+The current v1 source build is not yet an accepted fail-closed production
+package: text-based residual warnings do not block every composer write,
+responses still carry mapping-bearing fields, and fixed-port clients do not
+authenticate the localhost process. Review the result before submitting it.
+Contract v2 and the native broker require fresh hardening acceptance.
+
+In-page Mask acts after raw text is already in the AI site's
+provider-controlled DOM, whose code can observe or transmit the draft. For the
+stronger boundary, enter raw text in the side panel and paste only the reviewed
+masked result into the site.
 
 How it works:
 1. Install the extension and run the AI Guard backend on your own machine
@@ -76,11 +105,13 @@ How it works:
    done entirely on your device.
 
 Privacy highlights:
-- All processing happens on your own machine (a localhost backend) — no
-  external server.
+- Default detection, masking, restoration, and the canonical vault run in the
+  local backend; remote TNER is an explicit option that sends raw chunks to AI
+  for Thai.
 - No analytics or tracking.
-- The real-data ↔ placeholder mapping lives in memory only, never written
-  to disk.
+- The canonical real-data ↔ placeholder mapping lives in memory and is not
+  deliberately written to disk. Contract v1 still places mapping-bearing
+  fields in extension memory; contract v2 must remove those DTO fields.
 - Two modes: token (e.g. `[Name_1]`) or surrogate (realistic fake data that
   reads naturally to the AI).
 

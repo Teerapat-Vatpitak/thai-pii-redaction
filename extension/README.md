@@ -1,9 +1,31 @@
 # AI Guard browser extension
 
 Masks Thai PII in your AI chat prompt before you send it, then restores the
-real values locally from the AI's reply. The PII never leaves your machine:
-the extension talks only to the local backend, and the token -> original vault
-stays in the backend's memory.
+real values locally from the AI's reply. The canonical token -> original vault
+stays in the local backend's memory and is not deliberately persisted.
+
+Current source uses HTTP contract v1. Its responses can contain fields with, or
+allowing reconstruction of, token-to-original pairs in extension process
+memory even though the extension does not deliberately persist them. It also
+trusts whichever process owns the configured fixed localhost port; CORS does
+not authenticate that process. Text-based residual warnings also do not block
+every composer or Copy write. Contract v2 with no explicit mapping DTO,
+mandatory residual blocking, and the native broker are open hardening gates.
+Run the source extension only with a local backend you started and trust,
+review output before submitting it, and do not treat it as a fail-closed
+production package; historical browser acceptance does not cover those future
+changes.
+
+The default detector is local. If the backend is explicitly configured with
+`AIGUARD_NER_ENGINE=tner`, it sends raw pre-mask chunks to AI for Thai. The
+security-sensitive `session_id` is an opaque restoration reference, not the
+mapping.
+
+In-page Mask runs after raw text has been typed into the AI site's
+provider-controlled DOM. Site code can observe or transmit that draft before
+the extension replaces it; no localhost broker can undo that earlier boundary.
+For stronger isolation, enter raw text in the side panel, review/copy the
+masked result, and paste only that result into the AI site.
 
 Works on **ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM / Z.ai**. Site
 DOM selectors live in `sites.js`; each site also has a generic fallback, so

@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-07-28
+Updated: 2026-08-05
 
 ## Submitted service
 
@@ -9,13 +9,25 @@ data-analysis system, and organizational automation component. Pathumma is a
 protected downstream integration, not the identity of the product. TNER is an
 explicit supplementary AI for Thai integration.
 
-The hosted core offered to the platform is:
+On current main, explicitly selecting TNER sends raw, pre-mask text chunks to
+that remote detector. Default local detection does not. The separately
+versioned sibling port may select or configure detectors differently, so its
+runtime choice must be verified in that repository rather than inferred from
+this document.
+
+The historical submission capability concept was:
 
 1. `detect` - identify PII and return spans/types;
 2. `sanitize` - return masked text without returning the mapping by default;
 3. `analyze` - return PDPA-oriented counts, risk, and Section 26 signals; and
 4. `roundtrip` - optional protected Pathumma call with mapping lifetime limited
    to the job.
+
+The current sibling port does not expose that list verbatim. Its nginx
+exact-match allowlist contains `health`, `detect`, `guard`, `roundtrip`,
+`analyze-report`, and `redact-pdf`, plus `/v1/<same>` aliases. It intentionally
+returns 404 for `/sanitize` and `/reidentify`. This describes the current local
+port configuration, not a completed official platform deployment.
 
 Local session-based re-identification remains available to the desktop and
 extension product. It is not assumed to survive platform container restarts or
@@ -84,8 +96,11 @@ the port is a thin service shell around a vendored slice of the core:
   strips, exposes only a six-endpoint exact-match allowlist, injects the service
   key, and logs without the query string; and
 - a five-scene product page and a stateless roundtrip (mask → thaillm-8b →
-  restore within one request; the mapping returns to the caller and no vault is
-  held server-side).
+  restore within one request; the current main-repository roundtrip consumes
+  its transient mapping internally and does not return it). The sibling port
+  remains a separately versioned v1 contract; its exact response projection
+  must be verified in that repository before official acceptance and must not
+  be described as migrated to this campaign's future v2.
 
 The port passed a full local Docker phase: the ก-ฌ checklist, fail-loud and 503
 failure modes, and a service-level soak (an 8-way 10-minute run with no 5xx, a
@@ -122,14 +137,21 @@ PII-free log scan. It is local readiness evidence only.
 ## Trust boundary
 
 The platform receives the raw request before AI Guard can sanitize it. The
-hosted guarantees are:
+intended hosted boundaries, with current hardening exceptions called out, are:
 
 - mappings remain transient and are not persisted;
-- normal sanitize/analyze results do not export mappings;
-- application logs and public errors do not contain request text or raw PII;
-- the LLM receives only the masked prompt on the protected roundtrip — on the
-  port repo that is thaillm-8b through the tokenmind gateway, which is the only
-  provider the hosted allowlist enables; and
+- normal hosted results must not export explicit mapping DTOs; current main
+  roundtrip consumes its mapping internally, while the sibling port's v1
+  projection requires separate verification;
+- application logs and public errors must not contain request text, raw PII, or
+  bearer authority. Current shared-server session-bearing audit can emit a live
+  session ID to stdout, so the hosted adapter must replace/exclude it and the
+  official platform-visible log scan remains pending;
+- the protected roundtrip is intended to send only verified masked text to the
+  LLM. Current HTTP/worker code can invoke the provider after stateless
+  residual warnings, so masked-only/fail-closed recertification remains open.
+  The port uses thaillm-8b through the tokenmind gateway, the only provider its
+  hosted allowlist enables; and
 - provider credentials and the AI Guard caller key are separate secrets.
 
 Do not use the local-product claim "PII never leaves the device" for this

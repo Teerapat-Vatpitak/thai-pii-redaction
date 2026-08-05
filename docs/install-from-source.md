@@ -32,29 +32,40 @@ Check it: open `http://localhost:8000/api/health` and you should see
 `{"status":"ok"}` with the current version. Interactive API docs are at
 `http://localhost:8000/docs`.
 
-## Hosted/container deployment
+Current source uses HTTP contract v1. Its responses can carry direct or
+reconstructable mapping fields, residual warnings do not block every local or
+HTTP/worker provider path, and fixed-port clients do not authenticate the
+localhost process. The default detector is local; explicitly selecting
+`AIGUARD_NER_ENGINE=tner` sends raw pre-mask chunks to AI for Thai. See the
+[current status](project-status.md) before using this checkout.
 
-The Docker image exposes the five-endpoint platform contract documented in
-[the integration decision](decisions/2026-07-22-platform-integration-contract.md).
-For a hosted deployment, set a strong API key before starting it:
+## Local container adapter (not the official hosted contract)
+
+The Docker image runs the broader local FastAPI adapter. The historical
+[five-endpoint integration decision](decisions/2026-07-22-platform-integration-contract.md)
+does not describe every current route. `AIGUARD_API_KEY` protects only the four
+declared POST paths (`sanitize`, `reidentify`, `analyze`, and `guard`) when
+configured; other local routes are not thereby made public-safe. Keep this
+profile loopback-only:
 
 ```bash
 export AIGUARD_API_KEY='replace-with-a-long-random-secret'
 docker compose up --build ai-guard
 ```
 
-Send that value in `X-AIGuard-Key` on `sanitize`, `reidentify`, `analyze`, and
-`guard` requests. `health` deliberately remains unauthenticated for
-orchestrator probes. Terminate TLS at the platform gateway and keep the key in
-its secret manager rather than in the image or repository. Compose leaves the
-variable optional only to preserve the existing localhost extension workflow
-and to let `docker compose --profile worker` run independently; do not leave it
-unset on a network-accessible deployment.
+Send that value in `X-AIGuard-Key` on those four paths. `health` remains
+unauthenticated for probes. Compose leaves the variable optional for local
+extension/worker compatibility; do not expose this adapter as a production
+hosted surface. The official reverse-proxy route/auth boundary and remaining
+external gates are documented in
+[AI for Thai integration](platform/ai-for-thai.md).
 
-The token-to-original mapping exists only in the serving process. A load
-balancer must use sticky routing so `sanitize` and `reidentify` for one
-`session_id` reach the same container. Restarting or replacing that container
-intentionally destroys its sessions; no PII mapping is persisted to disk.
+The canonical token-to-original mapping exists in the serving process, and
+restart destroys sessions; it is not deliberately persisted. Contract-v1
+sanitize/reidentify responses still project mapping-bearing fields to clients,
+and session-bearing audit filenames/entries persist the live session ID. These
+are open hardening gates, not authority to add sticky multi-instance production
+routing around the local adapter.
 
 ## Browser extension
 
@@ -68,8 +79,10 @@ app or this from-source backend.
    bar activates on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `grok.com`,
    `perplexity.ai`, and `chat.z.ai` / `chatglm.cn`.
 
-Using it: type a prompt containing PII, click **Mask PII**, send with the site's
-own Send button, then click **Restore PII** on the reply.
+Using it: type a prompt containing PII, click **Mask PII**, review the result,
+send with the site's own Send button, then click **Restore PII** on the reply.
+Raw text typed in the site's composer is already in provider-controlled DOM;
+use the side panel for the stronger raw-entry boundary.
 
 See [extension/README.md](../extension/README.md) for details.
 

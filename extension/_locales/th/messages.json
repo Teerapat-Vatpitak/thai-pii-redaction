@@ -4,7 +4,7 @@
     "description": "Extension name shown in chrome://extensions and the Chrome Web Store listing."
   },
   "appDesc": {
-    "message": "ปกปิดข้อมูลส่วนบุคคลไทยก่อนส่งให้แชท AI แล้วคืนค่าในเครื่องคุณ ประมวลผลทั้งหมดในเครื่อง ไม่ส่งข้อมูลออกที่อื่น",
+    "message": "ปกปิด PII ไทยก่อนส่งแชท AI; side panel แยกข้อความดิบได้ดีกว่า Detector ในเครื่องเป็น default; remote TNER ต้องเลือกเอง",
     "description": "Extension description shown in chrome://extensions and the Chrome Web Store listing."
   }
 }

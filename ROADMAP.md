@@ -4,11 +4,13 @@ AI Guard is an open-source (Apache-2.0) Thai PII detection, anonymization, and
 redaction toolkit. It has one product core and two delivery contexts:
 
 1. a local-first product — browser extension, Windows desktop app, and
-   Microsoft 365 add-in — where the PII mapping never leaves the user's
-   device; and
+   Microsoft 365 add-in — where the canonical PII mapping is intended to remain
+   in backend memory on the user's device; and
 2. a hosted service shape where the platform receives the request, AI Guard
    avoids persistence and PII-bearing logs, and downstream provider calls
-   receive only masked text.
+   are intended to receive only verified masked text. Current HTTP/worker
+   roundtrips can proceed after residual warnings; closing that gap is part of
+   the active hardening campaign.
 
 This document answers one question: **what gets built next, in what order, and
 what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
@@ -33,11 +35,11 @@ release rules live in [docs/release-process.md](docs/release-process.md).
 - `v2.5.0` is released with checksums and build provenance. The release
   pipeline (tag, CI, cross-platform builds, attestation) has run end to end on
   a real tag.
-- Feature acceptance on the real delivery paths is complete for the extension,
-  desktop app, CLI, API, container, and demo playground. The Microsoft 365
-  add-in is the one storefront still Acceptance pending: several host
-  scenarios and the packaged unified-manifest activation run remain open (see
-  below).
+- Dated feature acceptance exists for the exact extension, desktop, CLI, API,
+  container, and demo candidates named in those records. It remains historical
+  evidence for those artifacts, not acceptance of later hardening changes.
+  The Microsoft 365 add-in remains Acceptance pending: several host scenarios
+  and the packaged unified-manifest activation run remain open (see below).
 - A detection benchmark exists: a seeded synthetic corpus plus a hand-authored
   gold corpus with a negative (no-PII) slice, scored entity-level,
   character-level, and exact-boundary, with an external LLM baseline. Numbers
@@ -68,6 +70,64 @@ to Done it must have:
 - a repeatable demo or acceptance fixture using synthetic PII; and
 - no known critical path that returns raw PII in logs or an unintended mapping.
 
+## Security hardening campaign (active owner-approved exception)
+
+Track A detection remains the declared normal product priority. The owner has
+approved this bounded privacy/security/correctness campaign as an explicit
+exception; it does not mean Track A is complete. Work proceeds as small,
+reviewed, independently revertible squashes in this order:
+
+1. **Preserve the clean baseline and correct current truth.** Record the
+   `93a7108` gates without promoting historical evidence or changing runtime
+   behavior.
+2. **Make local sanitize transactional.** A failed request must publish no new
+   session, mapping, audit item, ordinal, timestamp, or eviction. Replace live
+   session IDs in process/security audit filenames and entries with
+   non-authorizing operation/log correlation IDs across every caller.
+3. **Harden vault seeding and audit.** Seed IDs become opaque, identical seeds
+   are idempotent, conflicting originals fail safely, and `clear()` is described
+   as dropping references rather than zeroizing immutable strings.
+4. **Decide HTTP contract v2 in an ADR.** The main API moves directly to strict,
+   response DTOs with no explicit mapping fields unless a real external v1
+   consumer is found. Clients still necessarily handle submitted and returned
+   text. The worker's internal envelope remains version 1.
+5. **Fail closed on outbound residuals and cut over server plus first-party
+   clients atomically.** Health separates control-plane and data-plane
+   capability fields. Browser, Desktop, and Office reject malformed, extra,
+   missing, version-mismatched, or unsafe responses.
+6. **Verify packaged-backend and Office development composition.** Automated
+   sidecar plus HTTPS-proxy evidence must remain distinct from the eight open
+   real-host/package checks; no certificate trust or sideload is implied.
+7. **Make request-driven lifecycle behavior eager and preserve Desktop
+   continuity.** Sweep on normal service activity, reuse Desktop sessions, and
+   avoid any unauthenticated disposal endpoint.
+8. **Converge longer-term choke points.** Specify and implement the native
+   localhost broker, fail-closed explicit TNER behavior, shared protected
+   provider orchestration, and authoritative PDF source-to-box intervals in
+   separately reviewable branches. The shared NER catch currently degrades all
+   engines; the locked policy makes TNER fail closed while preserving
+   appropriate local/default resilience.
+
+Contract-v2 client changes, broker enforcement, lifecycle changes, explicit
+TNER failure semantics, provider orchestration, and PDF offset changes each
+invalidate carry-forward evidence only for their affected paths. Fresh
+automated, packaged, real-host, live-provider, or official-platform evidence
+must match the strength of the changed path. `VERSION` remains `2.5.0` during
+development; a release containing the breaking HTTP contract is expected to be
+prepared as `3.0.0`, but release work requires separate authorization.
+
+The browser in-page flow cannot guarantee that provider page code did not
+observe raw text typed into its composer before Mask. This campaign can protect
+AI Guard-controlled calls and place reviewed masked text into the composer; it
+does not intercept or attest the provider page's model request or erase that
+earlier DOM boundary. Requiring extension-side-panel entry for all raw text
+would change product direction and requires a separate owner decision.
+
+The separately versioned sibling `aiguard-aift` v1 port is outside this
+campaign and must not be described as migrated. Official AI for Thai
+deployment, public routes/auth policy, and live platform evidence remain
+externally gated.
+
 ## Outstanding feature acceptance — Microsoft 365 add-in
 
 The Office lane receives only blocker/security fixes and acceptance evidence
@@ -84,7 +144,7 @@ until new scope is explicitly approved. Still open, per the
   acquisition metadata, and local XML transports do not close that distribution
   gate.
 
-## Track A - Detection accuracy (current focus)
+## Track A - Detection accuracy
 
 Goal: improve what the accepted product demonstrably misses, with evidence
 that survives being checked.

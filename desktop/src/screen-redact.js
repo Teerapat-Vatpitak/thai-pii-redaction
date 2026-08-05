@@ -54,7 +54,7 @@ function b64ToBlob(b64, type) {
 
 export function renderRedact(root) {
   root.innerHTML = `
-    ${screenHeader("Redact PDF", "อัปโหลด PDF เพื่อดำกล่องทับข้อมูลส่วนบุคคล (ประมวลผลในเครื่องทั้งหมด)")}
+    ${screenHeader("Redact PDF", "อัปโหลด PDF เพื่อดำกล่องทับข้อมูลส่วนบุคคล (ค่าเริ่มต้นทำงานในเครื่อง; explicit TNER ส่งข้อความที่สกัดไปยังบริการภายนอก)")}
     <div class="dropzone" id="r-drop" tabindex="0" role="button">
       <svg class="dropzone__icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path d="M6 2h9l3 3v17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
