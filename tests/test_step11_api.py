@@ -274,6 +274,8 @@ def test_sanitize_api_stage_failure_preserves_complete_session_state(
     with_existing_session,
     stage,
 ):
+    from fastapi import HTTPException
+
     import app.server as server
     from pii_redactor.session_service import SessionService
 
@@ -284,8 +286,10 @@ def test_sanitize_api_stage_failure_preserves_complete_session_state(
     before = _service_state(service)
     audit_calls = []
 
+    retained_error = RuntimeError("forced API transaction stage failure")
+
     def fail_stage(*_args, **_kwargs):
-        raise RuntimeError("forced API transaction stage failure")
+        raise retained_error
 
     if stage == "guard_scan":
         monkeypatch.setattr(server, "scan_injection", fail_stage)
@@ -307,13 +311,97 @@ def test_sanitize_api_stage_failure_preserves_complete_session_state(
         text="อีเมล first@example.com",
         session_id=existing.session_id if existing else None,
     )
-    with pytest.raises(RuntimeError, match="forced API transaction stage failure"):
+    with pytest.raises(HTTPException) as excinfo:
         server.sanitize(request)
 
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.detail == "Internal processing failed"
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
     assert _service_state(service) == before
     assert list(tmp_path.glob("audit_*_process.jsonl")) == []
     if stage == "response_encoding":
         assert audit_calls == []
+
+
+def test_blocked_sanitize_audit_failure_drops_retained_exception(monkeypatch):
+    from fastapi import HTTPException
+
+    import app.server as server
+    import pii_redactor.session_service as session_module
+    from pii_redactor.session_service import SessionService
+
+    retained_error = RuntimeError("synthetic blocked audit failure")
+    service = SessionService()
+    monkeypatch.setattr(server, "SERVICE", service)
+    monkeypatch.setattr(
+        session_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+    )
+
+    def fail_audit(**_kwargs):
+        raise retained_error
+
+    monkeypatch.setattr(server, "write_process_log", fail_audit)
+    with pytest.raises(HTTPException) as excinfo:
+        server.sanitize(server.SanitizeRequest(text="โทร 081-234-5678"))
+
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.detail == "Internal processing failed"
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert service.session_count == 0
+
+
+@pytest.mark.parametrize("hostile_detail", [False, True])
+def test_untrusted_downstream_http_exception_becomes_fixed_500(monkeypatch, hostile_detail):
+    from fastapi import HTTPException
+
+    import app.server as server
+    from pii_redactor.session_service import SessionService
+
+    private_marker = "SYNTHETIC_PRIVATE_HTTP_DETAIL"
+    service = SessionService()
+    seeded = service.sanitize("โทร 081-234-5678")
+    monkeypatch.setattr(server, "SERVICE", service)
+
+    if hostile_detail:
+
+        class HostileHTTPException(HTTPException):
+            @property
+            def detail(self):
+                raise RuntimeError(private_marker)
+
+            @detail.setter
+            def detail(self, value):
+                self._stored_detail = value
+
+        retained_error = HostileHTTPException(status_code=418, detail=private_marker)
+    else:
+        retained_error = HTTPException(status_code=418, detail=private_marker)
+
+    def fail_audit(**_kwargs):
+        raise retained_error
+
+    monkeypatch.setattr(server, "write_process_log", fail_audit)
+    with pytest.raises(HTTPException) as excinfo:
+        server.reidentify(
+            server.ReidentifyRequest(
+                session_id=seeded.session_id,
+                text=seeded.sanitized_text,
+            )
+        )
+
+    assert excinfo.value is not retained_error
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.detail == "Internal processing failed"
+    assert private_marker not in str(excinfo.value)
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
 
 
 @pytest.mark.parametrize("stdout_mode", [False, True])
@@ -405,6 +493,7 @@ def test_blocked_sanitize_audit_is_safe_and_non_authorizing(tmp_path, monkeypatc
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "residual_pii"
     assert service.session_count == 0
     paths = list(tmp_path.glob("audit_*_process.jsonl"))
     assert len(paths) == 1
@@ -416,6 +505,51 @@ def test_blocked_sanitize_audit_is_safe_and_non_authorizing(tmp_path, monkeypatc
     assert str(uuid.UUID(record["session_id"])) == record["session_id"]
     assert "081-234-5678" not in audit_text
     assert "synthetic-checksum-value" not in audit_text
+
+
+def test_detector_independent_sanitize_block_is_safe_and_transactional(
+    tmp_path,
+    monkeypatch,
+):
+    from fastapi.testclient import TestClient
+
+    import app.server as server
+    import pii_redactor.session_service as service_module
+    from pii_redactor.session_service import SessionService
+
+    service = SessionService(now_fn=lambda: 1000.0)
+    monkeypatch.setattr(server, "SERVICE", service)
+    monkeypatch.setattr(server, "_API_KEY", None)
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        service_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+        raising=False,
+    )
+
+    response = TestClient(server.app, base_url="http://localhost").post(
+        "/api/sanitize",
+        json={"text": "เอกสารหมายเลข 6801234", "mode": "token"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["types"] == ["ORPHAN_DIGITS"]
+    assert "6801234" not in response.text
+    assert service.session_count == 0
+    paths = list(tmp_path.glob("audit_*_process.jsonl"))
+    assert len(paths) == 1
+    audit_text = paths[0].read_text(encoding="utf-8")
+    assert json.loads(audit_text)["validation_result"] == "blocked"
+    assert "6801234" not in audit_text
+
+
+@pytest.mark.parametrize("path", ["/api/detect", "/api/analyze", "/api/guard"])
+def test_inspection_routes_do_not_apply_outbound_digit_policy(client, path):
+    response = client.post(path, json={"text": "ยอดขาย 100000 บาท"})
+
+    assert response.status_code == 200
+    assert "ORPHAN_DIGITS" not in response.text
 
 
 def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):

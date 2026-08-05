@@ -10,11 +10,13 @@ user's machine. Detection is local by default; explicitly selected remote TNER
 sends raw pre-mask chunks from that backend to AI for Thai.
 
 The current source candidate is not accepted as a fail-closed production store
-package: contract v1 exposes mapping-bearing response fields, text-based
-residual warnings do not always block composer writes, and direct fixed-port
-localhost operation does not authenticate server identity. Contract v2 and the
-native broker must land and receive fresh store/browser acceptance before this
-copy is used for a new package.
+package. Its backend source now rejects structured FP, text-based TB,
+detector-independent contiguous 6+ digit residuals, and missing replacement
+records, but contract v1 still exposes mapping-bearing response fields and
+direct fixed-port localhost operation does not authenticate server identity.
+The published 2.5.0 backend and historical store/browser evidence predate the
+new outbound policy. Contract v2, the native broker, and fresh package/browser
+acceptance must land before this copy is used for a new package.
 
 In-page Mask acts only after raw text has been entered into the AI site's
 provider-controlled DOM, whose code can observe or transmit the draft. For the
@@ -43,7 +45,7 @@ AI Guard — ปกปิดข้อมูลส่วนบุคคลก่�
 
 AI Guard เป็น extension ที่ช่วยตรวจและปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทยก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงในเครื่อง Detector ปกติทำงานใน backend บนเครื่อง; หากผู้ใช้เลือก remote TNER อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai
 
-Source build v1 ปัจจุบันยังไม่ใช่ fail-closed production package: text-based residual warning ยังไม่บล็อกการเขียน composer ทุกกรณี, response ยังมี field ที่เกี่ยวกับ mapping และ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port ผู้ใช้ต้องตรวจผลก่อนส่ง ระบบ contract v2 และ native broker ยังรอ hardening และ acceptance ใหม่
+Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว แต่ source build v1 ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ response ยังมี field ที่เกี่ยวกับ mapping และ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port หลักฐาน store/browser และ backend ที่เผยแพร่ใน Desktop 2.5.0 เกิดก่อน outbound policy ใหม่นี้ ระบบ contract v2, native broker และการทดสอบ package/browser ใหม่ยังเป็น gate ที่เปิดอยู่
 
 การกด Mask ในหน้าเว็บเริ่มหลังจากข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว โค้ดเว็บอาจเห็นหรือส่ง draft ก่อน extension แทนที่ หากต้องการขอบเขตที่เข้มกว่า ต้องพิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ
 
@@ -85,10 +87,13 @@ explicitly selects remote TNER, the backend sends raw pre-mask chunks to AI for
 Thai.
 
 The current v1 source build is not yet an accepted fail-closed production
-package: text-based residual warnings do not block every composer write,
-responses still carry mapping-bearing fields, and fixed-port clients do not
-authenticate the localhost process. Review the result before submitting it.
-Contract v2 and the native broker require fresh hardening acceptance.
+package. Current backend source rejects structured FP, text-based TB,
+detector-independent contiguous 6+ digit residuals, and missing replacement
+records. Responses still carry mapping-bearing fields, however, and fixed-port
+clients do not authenticate the localhost process. The published 2.5.0 backend
+and historical store/browser evidence predate the new outbound policy.
+Contract v2, the native broker, and fresh package/browser acceptance remain
+open.
 
 In-page Mask acts after raw text is already in the AI site's
 provider-controlled DOM, whose code can observe or transmit the draft. For the

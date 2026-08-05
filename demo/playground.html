@@ -170,7 +170,7 @@
 </head>
 <body>
 <h1>AI Guard — สนามทดลอง</h1>
-<p class="sub">ใช้ข้อมูลสังเคราะห์เพื่อดูว่าระบบพยายามตรวจ ปกปิด และกู้คืนอย่างไร ปัจจุบัน demo อาจเรียกโมเดลก่อนแสดง residual warning หลังประมวลผล</p>
+<p class="sub">ใช้ข้อมูลสังเคราะห์เพื่อดูว่าระบบพยายามตรวจ ปกปิด และกู้คืนอย่างไร ก่อนเรียกโมเดล demo จะบล็อก residual PII ที่ตัวตรวจปัจจุบันพบ</p>
 
 <div class="tabs">
   <button data-tab="tab-text" class="active">ข้อความ</button>
@@ -382,7 +382,7 @@ document.getElementById("send").addEventListener("click", async () => {
     tag.textContent = body.provider_used;
     tag.hidden = false;
     meta.innerHTML = body.warnings.length
-      ? `<span class="warn">คำเตือนหลังประมวลผล (อาจเรียกโมเดลแล้ว) ${esc(body.warnings.join(" | "))}</span>`
+      ? `<span class="warn">คำเตือนจากคำตอบหลังเรียกโมเดล ${esc(body.warnings.join(" | "))}</span>`
       : `ประมวลผล ${body.entities.length} รายการ ไม่พบคำเตือนจากตัวตรวจปัจจุบัน`;
   } catch (err) {
     masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;

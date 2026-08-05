@@ -1,4 +1,4 @@
-"""Executable contract for the five stable platform HTTP endpoints."""
+"""Legacy current-main HTTP v1 contract checks, not hosted acceptance."""
 
 import logging
 
@@ -17,6 +17,7 @@ pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 
 API_KEY = "platform-key-under-test-0123456789abcdef"
 PRIVATE_TEXT = "ข้อมูลลับ 0812345678"
+VALIDATION_PRIVATE_MARKER = "ข้อมูลสังเคราะห์-Ω-private-marker"
 
 
 def _client():
@@ -53,7 +54,7 @@ def test_health_stays_open_when_api_key_is_configured(monkeypatch):
     assert response.json()["contract_version"] == 1
 
 
-def test_sanitize_contract_shape_has_no_mapping(open_client):
+def test_sanitize_v1_omits_literal_mapping_key_but_is_mapping_bearing(open_client):
     response = open_client.post("/api/sanitize", json={"text": "โทร 0812345678"})
 
     assert response.status_code == 200
@@ -73,9 +74,11 @@ def test_sanitize_contract_shape_has_no_mapping(open_client):
     assert isinstance(body["entities"], list)
     assert isinstance(body["entity_type_counts"], dict)
     assert "mapping" not in body
+    assert body["original_text"] == "โทร 0812345678"
+    assert any("token" in entity for entity in body["entities"])
 
 
-def test_reidentify_contract_shape_has_no_mapping(open_client):
+def test_reidentify_v1_exports_mapping_bearing_replacement_records(open_client):
     sanitized = open_client.post("/api/sanitize", json={"text": "โทร 0812345678"}).json()
     response = open_client.post(
         "/api/reidentify",
@@ -174,6 +177,70 @@ def test_api_key_rejection_happens_before_request_body_parsing(monkeypatch):
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid or missing API key"}
     assert PRIVATE_TEXT not in response.text
+
+
+def test_api_key_rejection_precedes_private_shape_validation(monkeypatch):
+    monkeypatch.setattr(server, "_API_KEY", API_KEY)
+
+    response = _client().post(
+        "/api/sanitize",
+        json={"text": {"nested": [VALIDATION_PRIVATE_MARKER]}},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid or missing API key"}
+    assert VALIDATION_PRIVATE_MARKER not in response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/sanitize", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+        (
+            "/api/reidentify",
+            {
+                "session_id": "safe-session",
+                "text": {"nested": [VALIDATION_PRIVATE_MARKER]},
+            },
+        ),
+        ("/api/analyze", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+        ("/api/analyze-report", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+        ("/api/detect", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+        ("/api/roundtrip", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+        ("/api/guard", {"text": {"nested": [VALIDATION_PRIVATE_MARKER]}}),
+    ],
+)
+def test_request_model_validation_never_echoes_rejected_input(open_client, path, payload):
+    response = open_client.post(path, json=payload)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid request"}
+    assert VALIDATION_PRIVATE_MARKER not in response.text
+    assert "input" not in response.text
+
+
+def test_query_validation_never_echoes_rejected_input(open_client):
+    response = open_client.get(
+        "/api/audit-log",
+        params={"limit": VALIDATION_PRIVATE_MARKER},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid request"}
+    assert VALIDATION_PRIVATE_MARKER not in response.text
+    assert "input" not in response.text
+
+
+def test_missing_field_validation_never_echoes_the_surrounding_body(open_client):
+    response = open_client.post(
+        "/api/sanitize",
+        json={"mode": VALIDATION_PRIVATE_MARKER},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid request"}
+    assert VALIDATION_PRIVATE_MARKER not in response.text
+    assert "input" not in response.text
 
 
 def test_correct_api_key_authorizes_all_four_declared_post_endpoints(monkeypatch, tmp_path):

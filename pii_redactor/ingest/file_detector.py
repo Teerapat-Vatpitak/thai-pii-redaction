@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pii_redactor.safe_errors import discard_exception_graph
+
 PAGE_TEXT_LAYER_MIN_CHARS = 20
 
 
@@ -13,7 +15,8 @@ def page_needs_ocr(page) -> bool:
 
     try:
         return any(obj.type == pdfium_raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects())
-    except Exception:
+    except Exception as exc:
+        discard_exception_graph(exc)
         return True
 
 
@@ -58,6 +61,7 @@ def validate_encoding(content: bytes) -> str:
     for encoding in ("utf-8", "tis-620", "cp874"):
         try:
             return content.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
+        except (UnicodeDecodeError, LookupError) as exc:
+            discard_exception_graph(exc)
             continue
     raise ValueError("Content could not be decoded as UTF-8, tis-620, or cp874")

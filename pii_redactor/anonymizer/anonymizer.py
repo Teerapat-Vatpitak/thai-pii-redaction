@@ -6,7 +6,7 @@ bracket tokens like [ชื่อ_1] via token_generator (web AI-Guard default).
 
 Algorithm:
 1. Sort entities by span[0] DESCENDING (tail-first) to preserve offsets during replacement.
-2. For each entity: vault cache hit -> reuse pseudonym; miss -> generate -> write to vault.
+2. For each entity: reuse only a safe vault hit; otherwise generate -> write.
 3. Replace span in text (tail-first preserves earlier spans).
 4. Consistency scan: replace remaining verbatim occurrences of each original.
 5. Post-replace PII leak check via detect_fp -> raise PIILeakError if any found.
@@ -16,14 +16,21 @@ Algorithm:
 from __future__ import annotations
 
 import time
+import unicodedata
 
 from pii_redactor.anonymizer.fp_generator import generate_fp
 from pii_redactor.anonymizer.tb_generator import generate_tb
-from pii_redactor.anonymizer.token_generator import generate_token
+from pii_redactor.anonymizer.token_generator import TOKEN_LABEL, generate_token
 from pii_redactor.detectors.fp_detector import detect_fp
-from pii_redactor.leak_guard import pseudonym_ranges
+from pii_redactor.leak_guard import (
+    OutboundGuardContext,
+    pseudonym_ranges,
+    scan_outbound_leaks,
+    scan_residual_signals,
+)
 from pii_redactor.models import Entity, EntityRegistry, PseudonymizedDocument, VaultRecord
-from pii_redactor.session_vault import SessionVault
+from pii_redactor.scan_common import canonical_value
+from pii_redactor.session_vault import SEEDED_DATA_TYPE, SessionVault
 
 
 class PIILeakError(Exception):
@@ -60,6 +67,57 @@ _MAX_COLLISION_REROLLS = 8
 _MAX_EXTENDED_REROLLS = 64
 
 
+def _compact_identity(value: str) -> str:
+    """Fold case, width, spacing, and punctuation for conservative comparison."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(char for char in normalized if unicodedata.category(char)[0] in {"L", "M", "N"})
+
+
+def _safe_to_reuse(
+    candidate: str,
+    original: str,
+    source_text: str,
+    data_type: str,
+) -> bool:
+    """Return whether a prior pseudonym can safely represent this turn."""
+    if not candidate:
+        return False
+    typed_candidate = canonical_value(data_type, candidate)
+    typed_original = canonical_value(data_type, original)
+    compact_candidate = _compact_identity(candidate)
+    compact_original = _compact_identity(original)
+    compact_source = _compact_identity(source_text)
+    return (
+        bool(compact_candidate)
+        and (not typed_original or typed_original not in typed_candidate)
+        and compact_original not in compact_candidate
+        and compact_candidate not in compact_source
+    )
+
+
+def _seeded_candidate_is_admissible(record: VaultRecord, data_type: str, mode: str) -> bool:
+    """Require caller-supplied replacements to pass this turn's safety policy."""
+    if record.data_type != SEEDED_DATA_TYPE:
+        return True
+
+    candidate = record.pseudonym
+    empty_context = OutboundGuardContext()
+    if scan_outbound_leaks(candidate, empty_context) or scan_residual_signals(
+        candidate,
+        empty_context,
+    ):
+        return False
+
+    if mode != "token":
+        return True
+    label = TOKEN_LABEL.get(data_type, data_type)
+    prefix = f"[{label}_"
+    if not candidate.startswith(prefix) or not candidate.endswith("]"):
+        return False
+    ordinal = candidate[len(prefix) : -1]
+    return ordinal.isascii() and ordinal.isdigit() and int(ordinal) > 0
+
+
 def _generate_unique_pseudonym(
     entity: Entity,
     text: str,
@@ -72,6 +130,7 @@ def _generate_unique_pseudonym(
     The fake-value pools (esp. Thai names) are small, so two different people
     can deterministically draw the same pseudonym — the vault reverse index
     would then restore the wrong person. A candidate is rejected when it:
+    - is empty or contains the original;
     - is already vaulted for a DIFFERENT original (same original = consistency,
       allowed), or
     - equals another entity's real value, or appears verbatim in the source
@@ -92,12 +151,21 @@ def _generate_unique_pseudonym(
     # otherwise the same person can get a different fake name/address each
     # turn depending on which sentence-context tb_generator happened to see.
     existing = vault.get_by_original(original, data_type=entity.data_type)
-    if existing is not None:
+    if (
+        existing is not None
+        and _seeded_candidate_is_admissible(existing, entity.data_type, "surrogate")
+        and _safe_to_reuse(
+            existing.pseudonym,
+            original,
+            text,
+            entity.data_type,
+        )
+    ):
         return existing.pseudonym
 
     def _available(candidate: str) -> bool:
-        if candidate == original:
-            return False  # a pseudonym identical to its original masks nothing
+        if not _safe_to_reuse(candidate, original, text, entity.data_type):
+            return False  # empty, identity, and embedded-original values do not mask
         owner_id = vault._reverse.get(candidate)
         if owner_id is not None:
             owner = vault._table.get(owner_id)
@@ -120,9 +188,8 @@ def _generate_unique_pseudonym(
     base = candidate
     suffix_ok = (
         entity.redact_type != "FP"
-        and base != original
+        and _safe_to_reuse(base, original, text, entity.data_type)
         and base not in all_originals
-        and base not in text
     )
     if suffix_ok:
         n = 2
@@ -144,11 +211,18 @@ def _generate_unique_pseudonym(
 
 
 def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
-    """Token-mode pseudonym: reuse the token of the same (data_type, original);
-    otherwise take the next ordinal for that data_type (continues across turns
-    because the count comes from the vault, not from this call)."""
+    """Reuse a safe token or take the next ordinal for this data type."""
     existing = vault.get_by_original(entity.original_text, data_type=entity.data_type)
-    if existing is not None:
+    if (
+        existing is not None
+        and _seeded_candidate_is_admissible(existing, entity.data_type, "token")
+        and _safe_to_reuse(
+            existing.pseudonym,
+            entity.original_text,
+            text,
+            entity.data_type,
+        )
+    ):
         return existing.pseudonym
     distinct = {r.original for r in vault._table.values() if r.data_type == entity.data_type}
     ordinal = len(distinct) + 1

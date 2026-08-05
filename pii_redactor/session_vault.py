@@ -172,10 +172,10 @@ class SessionVault:
             return seeded_match
 
     def export_mapping(self) -> dict[str, str]:
-        """Return {pseudonym: original} for handing back to a stateless caller.
+        """Return {pseudonym: original} to an in-process stateless adapter.
 
-        This is the whole point of the platform contract: the map leaves as a
-        value the caller owns instead of staying here.
+        Hosted roundtrip consumes the value inside one request. Only the legacy
+        worker-v1 opt-in path exports it; the accepted HTTP v2 wire does not.
         """
         with self._lifecycle_lock:
             out: dict[str, str] = {}
@@ -194,14 +194,17 @@ class SessionVault:
         claim on the platform path). The outbound leak guard excuses anything
         it believes is a pseudonym, so treating the two alike let a caller
         declare a real, checksum-valid national ID to be "their pseudonym" and
-        have the guard fall silent on it. Callers that need the full set for
-        positional bookkeeping still read `_reverse` directly.
+        have the guard fall silent on it. Empty values and replacements that
+        contain their own original are also never trusted. Callers that need
+        the full set for positional bookkeeping still read `_reverse` directly.
         """
         with self._lifecycle_lock:
             return {
                 record.pseudonym
                 for record in self._table.values()
-                if record.data_type != SEEDED_DATA_TYPE and record.pseudonym
+                if record.data_type != SEEDED_DATA_TYPE
+                and record.pseudonym
+                and record.original not in record.pseudonym
             }
 
     def seed(self, pseudonym: str, original: str) -> VaultRecord:

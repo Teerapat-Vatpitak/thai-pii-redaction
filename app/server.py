@@ -25,17 +25,24 @@ import tempfile
 import threading
 import time
 import uuid
+from functools import wraps
 from pathlib import Path
 from typing import Annotated
 
-import httpx
-from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Header, Query, Request, UploadFile
+from fastapi import HTTPException as FastAPIHTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
+from pii_redactor.ai_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    ProviderCallError,
+    complete_provider_call,
+    get_provider_factories,
+)
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.guard.injection import scan_injection, to_wire
@@ -43,15 +50,66 @@ from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
 from pii_redactor.ingest.text_extractor import extract
+from pii_redactor.leak_guard import (
+    OutboundPolicyError,
+    enforce_outbound_policy,
+    normalize_outbound_leak_types,
+    scan_outbound_leaks,
+    scan_residual_signals,
+)
 from pii_redactor.models import EntityRegistry
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.report import analyze_text, scan_section26
 from pii_redactor.report_pdf import render_pdpa_report
+from pii_redactor.safe_errors import discard_exception_graph
 from pii_redactor.stateless import (
     StatelessLeakError,
     restore_stateless,
     sanitize_stateless,
 )
+
+
+class _PublicHTTPError(FastAPIHTTPException):
+    """An endpoint-authored error whose detail is safe for the current wire."""
+
+
+# Keep the existing call sites compact while separating trusted endpoint errors
+# from FastAPI exceptions raised by fallible downstream code.
+HTTPException = _PublicHTTPError
+
+
+def _contain_public_errors(func):
+    """Sever failed endpoint frames before a fixed public exception escapes."""
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        failure = None
+        try:
+            return func(*args, **kwargs)
+        except _PublicHTTPError as error:
+            if type(error) is _PublicHTTPError:
+                failure = (error.status_code, error.detail, error.headers)
+            else:
+                failure = (500, "Internal processing failed", None)
+            discard_exception_graph(error)
+        except FastAPIHTTPException as error:
+            failure = (500, "Internal processing failed", None)
+            discard_exception_graph(error)
+        except Exception as error:
+            failure = (500, "Internal processing failed", None)
+            discard_exception_graph(error)
+
+        args = ()
+        kwargs = {}
+        status_code, detail, headers = failure
+        failure = None
+        raise FastAPIHTTPException(
+            status_code=status_code,
+            detail=detail,
+            headers=headers,
+        )
+
+    return wrapped
 
 
 def _read_version() -> str:
@@ -91,17 +149,33 @@ app = FastAPI(
     version=__version__,
 )
 
-_DECLARED_PLATFORM_POST_PATHS = frozenset(
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(_request: Request, error: RequestValidationError):
+    """Return a fixed 422 without echoing invalid body/query values."""
+    discard_exception_graph(error)
+    try:
+        object.__setattr__(error, "body", None)
+        object.__setattr__(error, "_errors", [])
+        BaseException.__setattr__(error, "args", ())
+    except BaseException:
+        pass
+    _request = None
+    error = None
+    return JSONResponse(status_code=422, content={"detail": "Invalid request"})
+
+
+_LEGACY_V1_API_KEY_POST_PATHS = frozenset(
     {"/api/sanitize", "/api/reidentify", "/api/analyze", "/api/guard"}
 )
 
 
 @app.middleware("http")
-async def authenticate_declared_platform_endpoints(request: Request, call_next):
-    """Gate the stable platform POST surface before parsing request bodies."""
+async def authenticate_legacy_v1_endpoints(request: Request, call_next):
+    """Gate the legacy local v1 POST set before parsing request bodies."""
     path = request.url.path.rstrip("/") or "/"
-    if request.method == "POST" and path in _DECLARED_PLATFORM_POST_PATHS:
-        if not _platform_api_key_ok(request.headers.get("X-AIGuard-Key")):
+    if request.method == "POST" and path in _LEGACY_V1_API_KEY_POST_PATHS:
+        if not _legacy_v1_api_key_ok(request.headers.get("X-AIGuard-Key")):
             # Deliberately generic: neither the supplied key nor request
             # content crosses into the response or application logs.
             return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
@@ -135,6 +209,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def contain_framework_errors(request: Request, call_next):
+    """Contain pre-response-start failures, including JSON rendering."""
+    try:
+        return await call_next(request)
+    except Exception as error:
+        discard_exception_graph(error)
+        request = None
+        call_next = None
+        error = None
+        return JSONResponse(status_code=500, content={"detail": "Internal processing failed"})
+
+
 # ── boot token (Horizon-1 #2) ──────────────────────────────────────────
 # Random shared secret read once at import from the AIGUARD_TOKEN env var.
 # Enforced ONLY on the control plane (`POST /api/shutdown`,
@@ -145,10 +232,11 @@ app.add_middleware(
 # module global directly, so the checks below read it dynamically at call time.
 _BOOT_TOKEN: str | None = os.environ.get("AIGUARD_TOKEN") or None
 
-# Optional authentication for the four POST endpoints in the declared
-# platform contract. Like the control-plane boot token above, this is read
-# once when the service starts and is never logged. Keeping the unset path
-# open preserves the existing localhost extension/desktop workflow.
+# Optional authentication for the four legacy v1 POST endpoints in the main
+# local server. This is not the unconfirmed official hosted public surface.
+# Like the control-plane boot token above, it is read once when the service
+# starts and never logged. Keeping the unset path open preserves the existing
+# localhost extension/desktop workflow.
 _API_KEY: str | None = os.environ.get("AIGUARD_API_KEY") or None
 _LOGGER = logging.getLogger(__name__)
 
@@ -157,7 +245,7 @@ def _warn_if_api_key_unset() -> None:
     """Make an unauthenticated deployment visible without logging user data."""
     if _API_KEY is None:
         _LOGGER.warning(
-            "AIGUARD_API_KEY is not configured; declared platform API endpoints are unauthenticated"
+            "AIGUARD_API_KEY is not configured; legacy v1 API endpoints are unauthenticated"
         )
 
 
@@ -182,8 +270,8 @@ def _boot_token_ok(supplied: str | None) -> bool:
     return secrets.compare_digest(supplied, _BOOT_TOKEN)
 
 
-def _platform_api_key_ok(supplied: str | None) -> bool:
-    """Authorize a declared platform endpoint when AIGUARD_API_KEY is set."""
+def _legacy_v1_api_key_ok(supplied: str | None) -> bool:
+    """Authorize a legacy local v1 endpoint when AIGUARD_API_KEY is set."""
     if _API_KEY is None:
         return True
     if not supplied:
@@ -235,6 +323,7 @@ def _schedule_exit() -> None:
 
 
 @app.post("/api/shutdown")
+@_contain_public_errors
 def shutdown(
     x_aiguard_local: Annotated[str | None, Header()] = None,
     x_aiguard_token: Annotated[str | None, Header()] = None,
@@ -305,6 +394,13 @@ from pii_redactor.session_service import (
 )
 
 SERVICE = SessionService(cap=_SESSION_CAP, ttl_s=_SESSION_TTL_S, now_fn=lambda: _now())
+
+
+def _residual_detail(values: object) -> dict[str, object]:
+    return {
+        "error": "residual_pii",
+        "types": normalize_outbound_leak_types(values),
+    }
 
 
 # ── request models ─────────────────────────────────────────────────────
@@ -403,6 +499,7 @@ def get_audit_log(limit: int = Query(100, ge=1, le=1000), offset: int = Query(0,
 
 
 @app.post("/api/sanitize")
+@_contain_public_errors
 def sanitize(request: SanitizeRequest):
     start = time.time()
     operation_id = str(uuid.uuid4())
@@ -443,8 +540,9 @@ def sanitize(request: SanitizeRequest):
         )
         return response
 
+    residual_failure = None
     try:
-        return SERVICE.sanitize_transaction(
+        result = SERVICE.sanitize_transaction(
             clean_text,
             mode=mode,
             session_id=request.session_id,
@@ -454,23 +552,34 @@ def sanitize(request: SanitizeRequest):
         raise HTTPException(status_code=404, detail="Session not found or expired")
     except ModeMismatchError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except OutboundLeakError as e:
+    except (OutboundLeakError, OutboundPolicyError) as e:
+        residual_failure = normalize_outbound_leak_types(e.leak_types)
+        discard_exception_graph(e)
+
+    if residual_failure is not None:
+        safe_types = residual_failure
         write_process_log(
             session_id=operation_id,
             step="api_sanitize",
             entity_count=0,
             validation_result="blocked",
-            flags=[f"leak_type:{t}" for t in e.leak_types],
+            flags=[f"leak_type:{t}" for t in safe_types],
             latency_ms=(time.time() - start) * 1000,
             output_dir=_get_audit_log_dir(),
         )
+        request = None
+        clean_text = ""
+        finalize = None
+        mode = None
         raise HTTPException(
             status_code=422,
-            detail={"error": "pii_leak_risk", "types": e.leak_types},
+            detail={"error": "residual_pii", "types": safe_types},
         )
+    return result
 
 
 @app.post("/api/reidentify")
+@_contain_public_errors
 def reidentify(request: ReidentifyRequest):
     """Restore original PII via the core reverse mapper + output validation."""
     start = time.time()
@@ -503,6 +612,7 @@ def reidentify(request: ReidentifyRequest):
 
 
 @app.delete("/api/session/{session_id}")
+@_contain_public_errors
 def delete_session(
     session_id: str,
     x_aiguard_token: Annotated[str | None, Header()] = None,
@@ -515,6 +625,7 @@ def delete_session(
 
 
 @app.post("/api/analyze")
+@_contain_public_errors
 def analyze(request: AnalyzeRequest):
     start = time.time()
     _validate_text_input(request.text)
@@ -533,6 +644,7 @@ def analyze(request: AnalyzeRequest):
 
 
 @app.post("/api/analyze-report")
+@_contain_public_errors
 def analyze_report(request: AnalyzeRequest):
     """PDPA risk report as a downloadable PDF — the compliance artifact.
 
@@ -564,6 +676,7 @@ def analyze_report(request: AnalyzeRequest):
 
 
 @app.post("/api/detect")
+@_contain_public_errors
 def detect(request: DetectRequest):
     """Detection only — no session, no vault, no persistence.
 
@@ -601,12 +714,14 @@ _PROVIDER_FACTORIES = get_provider_factories(
 
 
 @app.post("/api/roundtrip")
+@_contain_public_errors
 def roundtrip(request: RoundtripRequest):
     """mask -> LLM -> restore in one request, on the stateless core.
 
-    The mapping lives only inside this request; nothing is stored server-side
-    (the platform contract). `fake` is the identity provider so the demo can
-    always run offline.
+    This endpoint consumes the mapping inside the request, does not serialize
+    it, and creates no SessionService entry. Platform logging and persistence
+    acceptance remain separate. In the default local provider registry, `fake`
+    is the offline identity provider used by the demo.
     """
     start = time.time()
     _validate_text_input(request.text)
@@ -618,43 +733,101 @@ def roundtrip(request: RoundtripRequest):
             status_code=400,
             detail=f"Unknown provider: expected one of {sorted(_PROVIDER_FACTORIES)}",
         )
+    provider_unavailable = False
     try:
         provider = factory()
-    except ValueError as e:
-        # provider knows its own missing-credential story (e.g. AIFORTHAI_API_KEY)
-        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as error:
+        discard_exception_graph(error)
+        provider_unavailable = True
+    if provider_unavailable:
+        request = None
+        factory = None
+        raise HTTPException(status_code=503, detail="AI provider unavailable")
 
     clean_text = clean(request.text).text
+    sanitize_failure = None
     try:
         masked = sanitize_stateless(clean_text, mode=request.mode, salt=uuid.uuid4().hex)
-    except StatelessLeakError as e:
-        raise HTTPException(
-            status_code=422, detail={"error": "pii_leak_risk", "types": e.leak_types}
-        )
+    except (OutboundPolicyError, StatelessLeakError) as error:
+        sanitize_failure = normalize_outbound_leak_types(error.leak_types)
+        discard_exception_graph(error)
+    if sanitize_failure is not None:
+        detail = _residual_detail(sanitize_failure)
+        provider = None
+        factory = None
+        request = None
+        clean_text = ""
+        masked = None
+        error = None
+        raise HTTPException(status_code=422, detail=detail)
 
+    rescan_failure = None
     try:
-        ai_text = provider.complete(DEFAULT_SYSTEM_PROMPT, masked.sanitized_text)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"AI provider error: {type(e).__name__}")
-    except (IndexError, KeyError, TypeError, ValueError) as e:
-        # A 200 with a malformed/unexpected body (e.g. missing "content") lands
-        # here via the providers' resp.json()[...] — still a provider failure,
-        # still a 502. Only the exception class name crosses the boundary.
-        raise HTTPException(
-            status_code=502,
-            detail=f"AI provider error: malformed response ({type(e).__name__})",
+        enforce_outbound_policy(
+            masked.sanitized_text,
+            guard_context=masked.guard_context,
+            scan_leaks=scan_outbound_leaks,
+            scan_residual=scan_residual_signals,
         )
+    except OutboundPolicyError as error:
+        rescan_failure = normalize_outbound_leak_types(error.leak_types)
+        discard_exception_graph(error)
+    if rescan_failure is not None:
+        detail = _residual_detail(rescan_failure)
+        provider = None
+        factory = None
+        request = None
+        clean_text = ""
+        masked = None
+        error = None
+        raise HTTPException(status_code=422, detail=detail)
 
-    if not isinstance(ai_text, str):
-        raise HTTPException(
-            status_code=502, detail="AI provider error: malformed response (non-text)"
+    provider_error_detail = None
+    try:
+        ai_text = complete_provider_call(
+            provider,
+            DEFAULT_SYSTEM_PROMPT,
+            masked.sanitized_text,
         )
+    except ProviderCallError as error:
+        if error.category == "malformed":
+            provider_error_detail = f"AI provider error: malformed response ({error.error_type})"
+        elif error.category == "non_text":
+            provider_error_detail = "AI provider error: malformed response (non-text)"
+        else:
+            provider_error_detail = f"AI provider error: {error.error_type}"
+        discard_exception_graph(error)
+    if provider_error_detail is not None:
+        # The traceback is inspectable until FastAPI renders this exception.
+        # Clear all locals that can reach credentials, input, or the transient
+        # mapping before raising the fixed wire-safe error.
+        provider = None
+        factory = None
+        request = None
+        clean_text = ""
+        masked = None
+        ai_text = ""
+        raise HTTPException(status_code=502, detail=provider_error_detail)
+    restore_error_type = None
     try:
         restored = restore_stateless(ai_text, mapping=masked.mapping)
-    except Exception as e:
+    except Exception as error:
+        restore_error_type = type(error).__name__
+        discard_exception_graph(error)
+    if restore_error_type is not None:
         # A defect on OUR side after a successful provider call is a 500, not a
         # 502 -- and its message is not for the wire. Type name only.
-        raise HTTPException(status_code=500, detail=f"restore failed ({type(e).__name__})")
+        provider = None
+        factory = None
+        request = None
+        clean_text = ""
+        masked = None
+        ai_text = ""
+        restored = None
+        raise HTTPException(
+            status_code=500,
+            detail=f"restore failed ({restore_error_type})",
+        )
 
     guard_findings = to_wire(scan_injection(request.text))
 
@@ -685,6 +858,7 @@ def roundtrip(request: RoundtripRequest):
 
 
 @app.post("/api/guard")
+@_contain_public_errors
 def guard(request: GuardRequest):
     """Dependency-light prompt-injection warning scan; blocks nothing.
 
@@ -769,6 +943,7 @@ def _check_pdf_work_caps(pdf_path: Path) -> None:
 
 
 @app.post("/api/redact-pdf")
+@_contain_public_errors
 def redact_pdf(pdf_file: Annotated[UploadFile, File()]):
     """Redact PII in a text-layer or scanned PDF and return the redacted file + previews.
 

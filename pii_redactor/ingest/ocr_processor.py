@@ -17,6 +17,7 @@ from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.ingest.quality_validator import OCR_CONFIDENCE_THRESHOLD
 from pii_redactor.ingest.text_cleaner import clean_length_preserving
 from pii_redactor.models import WordBbox
+from pii_redactor.safe_errors import discard_exception_graph
 
 MAX_OCR_RETRIES = 3
 MIN_OCR_ATTEMPTS = 2
@@ -42,8 +43,8 @@ def _prime_torch_if_present() -> None:
     """
     try:
         import torch  # noqa: F401
-    except Exception:
-        pass
+    except Exception as exc:
+        discard_exception_graph(exc)
 
 
 def is_available() -> bool:
@@ -52,7 +53,8 @@ def is_available() -> bool:
     try:
         import cv2  # noqa: F401
         import paddleocr  # noqa: F401
-    except Exception:
+    except Exception as exc:
+        discard_exception_graph(exc)
         return False
     return True
 
@@ -279,6 +281,7 @@ def ocr_page(
         except RuntimeError as exc:
             if type(exc) is not RuntimeError:
                 raise
+            discard_exception_graph(exc)
             # PaddlePaddle's pybind layer translates transient native faults
             # to BARE builtins.RuntimeError ("Unknown exception",
             # enforce-class errors like PreconditionNotMet). Retry the failed

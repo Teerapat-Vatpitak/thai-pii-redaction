@@ -271,7 +271,8 @@ def test_anonymize_rerolls_on_pseudonym_collision(monkeypatch):
     def fake_generate_tb(data_type, context, *, salt, original, attempt=0):
         if attempt == 0:
             return "ชนกัน"  # everyone collides on the first attempt
-        return f"คนละคน{attempt}-{original}"
+        suffix = "หนึ่ง" if original == "สมชาย ใจดี" else "สอง"
+        return f"คนละคน{attempt}-{suffix}"
 
     monkeypatch.setattr(anon_mod, "generate_tb", fake_generate_tb)
 
@@ -411,7 +412,8 @@ def test_anonymize_avoids_pseudonym_equal_to_other_original(monkeypatch):
     def unlucky_generate_tb(data_type, context, *, salt, original, attempt=0):
         if original == "วิชัย ทองแท้" and attempt == 0:
             return "สมชาย ใจดี"  # fake for B happens to equal A's real name
-        return f"ปลอม{attempt}-{original}"
+        suffix = "หนึ่ง" if original == "สมชาย ใจดี" else "สอง"
+        return f"ปลอม{attempt}-{suffix}"
 
     monkeypatch.setattr(anon_mod, "generate_tb", unlucky_generate_tb)
 

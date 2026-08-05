@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pii_redactor.ai_client import FakeLLMProvider
+from pii_redactor.ai_client import AIProvider, FakeLLMProvider, PreSendValidationError
 from pii_redactor.output_validator import ValidationResult
 from pii_redactor.pipeline import PipelineResult, run_pipeline
 
@@ -25,6 +25,29 @@ def test_pipeline_no_pii_text():
     assert result.entity_registry.fp_count == 0
     # Output should equal input (no PII to pseudonymize)
     assert result.reverse_result.text == "The weather is nice today."
+
+
+def test_pipeline_detector_independent_residual_never_reaches_provider(monkeypatch):
+    import pii_redactor.ai_client as client_module
+
+    calls = []
+
+    class SpyProvider(AIProvider):
+        def complete(self, system, user, *, timeout=30.0):
+            calls.append((system, user))
+            return user
+
+    monkeypatch.setattr(
+        client_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+        raising=False,
+    )
+
+    with pytest.raises(PreSendValidationError):
+        run_pipeline(text="เอกสารหมายเลข 6801234", provider=SpyProvider())
+
+    assert calls == []
 
 
 def test_pipeline_with_email_roundtrip():

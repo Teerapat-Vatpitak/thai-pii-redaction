@@ -9,12 +9,111 @@ cue-preserving name_context re-check (see PR #33/#34 history).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Protocol
 
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.name_context import detect_name_context
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import Entity
-from pii_redactor.session_vault import SessionVault
+
+
+class _GuardContext(Protocol):
+    """Minimum trusted state needed by the outbound policy."""
+
+    def trusted_pseudonyms(self) -> set[str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OutboundGuardContext:
+    """Original-free, repr-hidden context for rechecking a masked result."""
+
+    _trusted: frozenset[str] = field(default_factory=frozenset, repr=False)
+
+    def trusted_pseudonyms(self) -> set[str]:
+        return set(self._trusted)
+
+
+SAFE_OUTBOUND_LEAK_TYPES = frozenset(
+    {
+        "ADDRESS",
+        "ANONYMIZE_FAILED",
+        "BANK_ACCOUNT",
+        "CREDIT_CARD",
+        "CRIMINAL",
+        "DATE",
+        "DATE_OF_BIRTH",
+        "DISABILITY",
+        "EMAIL",
+        "ETHNICITY",
+        "HEALTH",
+        "IBAN",
+        "ID_NUMBER",
+        "LOCATION",
+        "MEDICAL_ID",
+        "MISSING_REPLACEMENT_RECORD",
+        "NAME",
+        "ORGANIZATION",
+        "ORPHAN_DIGITS",
+        "PASSPORT",
+        "PHONE",
+        "POLITICAL_OPINION",
+        "POSTAL_CODE",
+        "RELIGION",
+        "STUDENT_ID",
+        "SURNAME",
+        "THAI_ID",
+        "UNCLASSIFIED_RESIDUAL",
+        "UNION",
+        "VEHICLE_PLATE",
+    }
+)
+_POLICY_CATEGORIES = frozenset(
+    {"structured", "text", "detector_independent", "replacement_integrity"}
+)
+
+
+def normalize_outbound_leak_types(labels: object) -> list[str]:
+    """Deduplicate fixed type labels without retaining injected values."""
+    if not isinstance(labels, (list, tuple, set, frozenset)):
+        return ["UNCLASSIFIED_RESIDUAL"]
+    safe: set[str] = set()
+    invalid = False
+    for label in labels:
+        if isinstance(label, str) and label in SAFE_OUTBOUND_LEAK_TYPES:
+            safe.add(label)
+        else:
+            invalid = True
+    if invalid or not safe:
+        safe.add("UNCLASSIFIED_RESIDUAL")
+    return sorted(safe)
+
+
+def _safe_policy_categories(categories: set[str] | list[str] | tuple[str, ...]) -> list[str]:
+    return sorted(
+        {
+            category
+            for category in categories
+            if isinstance(category, str) and category in _POLICY_CATEGORIES
+        }
+    )
+
+
+class OutboundPolicyError(Exception):
+    """Value-free residual classification raised before outbound use."""
+
+    def __init__(
+        self,
+        leak_types: list[str] | set[str] | tuple[str, ...],
+        *,
+        policy_categories: set[str] | list[str] | tuple[str, ...],
+    ):
+        self.leak_types = normalize_outbound_leak_types(leak_types)
+        self.policy_categories = _safe_policy_categories(policy_categories)
+        self.category_count = len(self.policy_categories)
+        self.policy_category_count = self.category_count
+        super().__init__(f"outbound residual detected: {self.leak_types}")
 
 
 def pseudonym_ranges(text: str, pseudonyms: list[str]) -> list[tuple[int, int]]:
@@ -67,7 +166,7 @@ def _cue_leak_in_window(text: str, start: int, end: int, ranges: list[tuple[int,
 _ORPHAN_DIGITS_RE = re.compile(r"(?<!\d)(\d{6,})(?!\d)")
 
 
-def scan_residual_signals(text: str, vault: SessionVault) -> list[str]:
+def scan_residual_signals(text: str, guard_context: _GuardContext) -> list[str]:
     """A second opinion that does not consult the detectors again.
 
     `scan_outbound_leaks` runs the same `detect_fp`/`detect_tb` that produced
@@ -77,12 +176,11 @@ def scan_residual_signals(text: str, vault: SessionVault) -> list[str]:
     asks a structural question instead, "is there a long bare number here that
     nothing replaced?", and so can catch what the detectors are blind to.
 
-    Returns warning strings, never raises: an unlabelled long number is
-    sometimes an amount or a quantity, so this is a flag for a human rather
-    than grounds to halt.
+    The strings are structural findings, not caller-facing warnings. The
+    shared outbound policy turns any finding into a fail-closed decision.
     """
-    declared = [p for p in vault._reverse.keys() if p]
-    ranges = pseudonym_ranges(text, sorted(declared, key=len, reverse=True))
+    trusted = guard_context.trusted_pseudonyms()
+    ranges = pseudonym_ranges(text, sorted(trusted, key=len, reverse=True))
     signals: list[str] = []
     for m in _ORPHAN_DIGITS_RE.finditer(text):
         start, end = m.start(1), m.end(1)
@@ -92,7 +190,7 @@ def scan_residual_signals(text: str, vault: SessionVault) -> list[str]:
     return signals
 
 
-def scan_outbound_leaks(text: str, vault: SessionVault) -> list[Entity]:
+def scan_outbound_leaks(text: str, guard_context: _GuardContext) -> list[Entity]:
     """Return real leaks in pseudonymized text (empty list = safe to send)."""
     # PII leak check: fp + tb detectors on pseudonymized text
     # (tb catches name/address leaks that regex/checksum miss).
@@ -102,26 +200,17 @@ def scan_outbound_leaks(text: str, vault: SessionVault) -> list[Entity]:
     # re-detect a fragment inside one (the district part of a fake address).
     # Excuse a span only when pseudonym occurrences fully account for its
     # PII content; anything else still halts the send.
-    # Two populations, two levels of trust (see SessionVault.trusted_pseudonyms).
-    # `declared` includes pseudonyms a caller re-admitted through prior_mapping;
-    # on the platform path that caller is a stranger. A checksum-backed FP hit
-    # is provably real PII, so a mere declaration must not excuse it — only a
-    # pseudonym this process minted may. TB hits still use the full set: NER
-    # spans are fuzzy and a surrogate name legitimately carried over from a
-    # previous turn would otherwise be reported as a leak every time.
-    declared = set(vault._reverse.keys())
-    trusted = vault.trusted_pseudonyms()
-    ordered = sorted((p for p in declared if p), key=len, reverse=True)
-    ranges = pseudonym_ranges(text, ordered)
+    # Caller-seeded mappings are declarations, not proof. Only replacements
+    # minted or actually reused by this processing turn may excuse any FP or TB
+    # hit. That rule is shared with the detector-independent digit scan.
+    trusted = guard_context.trusted_pseudonyms()
     trusted_ranges = pseudonym_ranges(text, sorted(trusted, key=len, reverse=True))
     real_leaks = []
     for entity in detect_fp(text) + detect_tb(text):
-        excusable = trusted if entity.redact_type == "FP" else declared
-        if entity.original_text in excusable:
+        if entity.original_text in trusted:
             continue
         start, end = entity.span
-        usable = trusted_ranges if entity.redact_type == "FP" else ranges
-        overlapping = [(cs, ce) for cs, ce in usable if cs < end and ce > start]
+        overlapping = [(cs, ce) for cs, ce in trusted_ranges if cs < end and ce > start]
         if overlapping:
             if any(cs <= start and end <= ce for cs, ce in overlapping):
                 # Span sits entirely inside one pseudonym occurrence.
@@ -148,7 +237,49 @@ def scan_outbound_leaks(text: str, vault: SessionVault) -> list[Entity]:
                     not seg.strip() or (not detect_fp(seg) and not detect_tb(seg))
                     for seg in segments
                 )
-                if segments_clean and not _cue_leak_in_window(text, start, end, ranges):
+                if segments_clean and not _cue_leak_in_window(text, start, end, trusted_ranges):
                     continue
         real_leaks.append(entity)
     return real_leaks
+
+
+def enforce_outbound_policy(
+    text: str,
+    *,
+    guard_context: _GuardContext,
+    scan_leaks: Callable[[str, _GuardContext], list[Entity]] = scan_outbound_leaks,
+    scan_residual: Callable[[str, _GuardContext], list[str]] = scan_residual_signals,
+) -> None:
+    """Fail closed on structured, text, or detector-independent residuals.
+
+    The exception retains only bounded type labels and fixed policy categories.
+    It never retains Entity objects, scanner signals, or source text.
+    """
+    leak_types: set[str] = set()
+    categories: set[str] = set()
+    leaks = list(scan_leaks(text, guard_context))
+    for leak in leaks:
+        data_type = getattr(leak, "data_type", None)
+        if isinstance(data_type, str):
+            leak_types.add(data_type)
+        categories.add("structured" if getattr(leak, "redact_type", None) == "FP" else "text")
+
+    if list(scan_residual(text, guard_context)):
+        leak_types.add("ORPHAN_DIGITS")
+        categories.add("detector_independent")
+
+    if leak_types or categories:
+        safe_leak_types = normalize_outbound_leak_types(leak_types)
+        safe_categories = _safe_policy_categories(categories)
+        text = ""
+        guard_context = None
+        scan_leaks = None
+        scan_residual = None
+        leaks.clear()
+        leaks = []
+        leak = None
+        data_type = None
+        raise OutboundPolicyError(
+            safe_leak_types,
+            policy_categories=safe_categories,
+        )

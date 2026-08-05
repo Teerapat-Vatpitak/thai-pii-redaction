@@ -8,9 +8,10 @@ redaction toolkit. It has one product core and two delivery contexts:
    in backend memory on the user's device; and
 2. a hosted service shape where the platform receives the request, AI Guard
    avoids persistence and PII-bearing logs, and downstream provider calls
-   are intended to receive only verified masked text. Current HTTP/worker
-   roundtrips can proceed after residual warnings; closing that gap is part of
-   the active hardening campaign.
+   are intended to receive only verified masked text. Current source now
+   rejects structured, text-based, and detector-independent residuals before
+   HTTP/worker provider calls; packaged, live-provider, and official-platform
+   acceptance of that change remains open.
 
 This document answers one question: **what gets built next, in what order, and
 what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
@@ -38,6 +39,9 @@ release rules live in [docs/release-process.md](docs/release-process.md).
 - Dated feature acceptance exists for the exact extension, desktop, CLI, API,
   container, and demo candidates named in those records. It remains historical
   evidence for those artifacts, not acceptance of later hardening changes.
+  Those candidates predate the current outbound fail-closed policy, so their
+  packaged, storefront, and live-provider paths must be rerun before the new
+  source behavior is promoted.
   The Microsoft 365 add-in remains Acceptance pending: several host scenarios
   and the packaged unified-manifest activation run remain open (see below).
 - A detection benchmark exists: a seeded synthetic corpus plus a hand-authored
@@ -46,9 +50,10 @@ release rules live in [docs/release-process.md](docs/release-process.md).
   live in generated benchmark reports, not in this file.
 - The AI for Thai participant guide has arrived and fixes the deployment shape
   (HTTP/FastAPI behind a reverse proxy, Compose from GitLab `main`). The
-  deployment project and the exact public route/auth contract are still
-  pending; the queue worker is retained only as a local failure/retry
-  emulator, not the official delivery path.
+  local candidate exists in the separate port repository; its GitLab project
+  creation/push is owner-gated, while the exact public route/auth contract is
+  externally pending. The queue worker is retained only as a local
+  failure/retry emulator, not the official delivery path.
 
 The source tree keeps live product code, required synthetic/reproducibility
 inputs, and privacy-reviewed evidence. Local environments, runtime logs,
@@ -104,10 +109,22 @@ reviewed, independently revertible squashes in this order:
    necessarily handle submitted and returned text. The worker's internal
    envelope remains version 1. Runtime implementation remains open in item 5.
 5. **Fail closed on outbound residuals and cut over server plus first-party
-   clients atomically.** Health separates control-plane and data-plane
-   capability fields. Browser, Desktop, and Office enable operations only
-   after exact v2 health validation, then reject malformed, extra, missing, or
-   unsafe operation responses.
+   clients atomically — residual policy delivered in current source; v2
+   cutover still open.** The shared core blocks structured FP findings,
+   text-based TB findings, detector-independent contiguous runs of six or more
+   digits, and missing replacement records. Caller-seeded pseudonyms are reused
+   only when nonempty, original-free, absent from the current source text, and
+   free of independent FP/TB/digit residual signals; token reuse also requires
+   the product token shape for the detected data type.
+   The CLI rescans before each outer `provider.complete()` invocation. A
+   provider with `handles_retries=True` receives one outer validation before
+   its single invocation and may resend that same immutable masked text
+   internally. HTTP and worker roundtrip rescan immediately before their direct
+   calls. Runtime remains contract v1 and the worker envelope remains version
+   1. Health must still separate control-plane and data-plane capability
+   fields. Browser, Desktop, and Office must enable operations only after exact
+   v2 health validation, then reject malformed, extra, missing, or unsafe
+   operation responses.
 6. **Verify packaged-backend and Office development composition.** Automated
    sidecar plus HTTPS-proxy evidence must remain distinct from the eight open
    real-host/package checks; no certificate trust or sideload is implied.
@@ -119,15 +136,19 @@ reviewed, independently revertible squashes in this order:
    provider orchestration, and authoritative PDF source-to-box intervals in
    separately reviewable branches. The shared NER catch currently degrades all
    engines; the locked policy makes TNER fail closed while preserving
-   appropriate local/default resilience.
+   appropriate local/default resilience. Provider convergence must also replace
+   Tokenmind's current one-total-deadline and `Retry-After` behavior with the
+   locked three-attempt, 60-seconds-per-attempt, fixed 1/2-second policy.
 
-Contract-v2 client changes, broker enforcement, lifecycle changes, explicit
-TNER failure semantics, provider orchestration, and PDF offset changes each
+The outbound-policy source change and future contract-v2 client, broker,
+lifecycle, explicit-TNER, provider-orchestration, and PDF-offset changes each
 invalidate carry-forward evidence only for their affected paths. Fresh
 automated, packaged, real-host, live-provider, or official-platform evidence
-must match the strength of the changed path. `VERSION` remains `2.5.0` during
-development; a release containing the breaking HTTP contract is expected to be
-prepared as `3.0.0`, but release work requires separate authorization.
+must match the strength of the changed path. Shared provider orchestration is
+still open even though each current provider path now has an immediate
+pre-call rescan. `VERSION` remains `2.5.0` during development; a release
+containing the breaking HTTP contract is expected to be prepared as `3.0.0`,
+but release work requires separate authorization.
 
 The browser in-page flow cannot guarantee that provider page code did not
 observe raw text typed into its composer before Mask. This campaign can protect
@@ -137,9 +158,11 @@ earlier DOM boundary. Requiring extension-side-panel entry for all raw text
 would change product direction and requires a separate owner decision.
 
 The separately versioned sibling `aiguard-aift` v1 port is outside this
-campaign and must not be described as migrated. Official AI for Thai
-deployment, public routes/auth policy, and live platform evidence remain
-externally gated.
+campaign and must not be described as migrated. Its deployment shell passed
+historical local checks, but its vendored core predates F09; a separately
+authorized re-vendor plus privacy/soak rerun is required before its first
+push. Official AI for Thai deployment, public routes/auth policy, and live
+platform evidence remain externally gated.
 
 ## Outstanding feature acceptance — Microsoft 365 add-in
 
@@ -274,22 +297,26 @@ six-endpoint allowlist, key injection) + OCR-baked image, with a stateless
 roundtrip against thaillm-8b. It passed a full local Docker phase — the ก-ฌ
 checklist, fail-loud/503 failure modes, and a service-level soak — recorded in
 the [tokenmind detector + port ADR](docs/decisions/2026-07-28-tokenmind-detector-and-aift-port.md)
-and the port repo's `docs/evidence/`. Pushing to GitLab and the real platform
-run are owner-gated; the exact public operation/authentication contract plus
-LLM protocol and policy still need confirmation.
+and the port repo's `docs/evidence/`. That evidence predates F09 and is not
+fail-closed certification for the current core. Pushing to GitLab and the real
+platform run are owner-gated; the exact public operation/authentication
+contract plus LLM operational policy still need confirmation.
 
-- Capture the remaining official answers: project/template ownership, public
-  operations, caller authentication, payload/timeout/concurrency limits,
-  outbound network policy, LLM protocol/quota/logging policy, and acceptance
+- Capture the remaining official answers: exact repository/registry/template
+  rules, public operations, caller authentication, payload/timeout/concurrency
+  limits, outbound network policy, LLM quota/logging policy, and acceptance
   owner/evidence. Record unanswered fields as unknown; never convert
   assumptions into a contract.
-- Implement only the hosted adapter/configuration delta: stripped path prefix
-  and `root_path`, unprefixed health check, trusted-host policy, a deliberately
-  allowlisted/authenticated public surface, and platform Compose/CI/logging.
-  Keep detection, masking, vault, provider, and restoration logic unchanged.
-- Obtain or initialize the approved deployment project, push the exact
-  candidate through the supplied GitLab path, boot it, and verify Thai UTF-8,
-  secret injection, health, responses, and safe failures.
+- Verify the existing hosted adapter/configuration and adjust it only where
+  confirmed platform answers require. Its local shell already covers prefix
+  handling, health, host policy, an allowlisted/authenticated public surface,
+  and Compose/CI/logging.
+- In a separately authorized port change, re-vendor the current main core
+  through the pinned manifest without forking its detection, masking, vault,
+  provider, or restoration logic. Rerun privacy, Docker, and soak evidence.
+- Only after that sync is green, create/push the owner-gated GitLab project,
+  boot the exact candidate, and verify Thai UTF-8, secret injection, health,
+  responses, and safe failures.
 - Run malformed input, timeout, payload-limit, concurrent request, restart,
   and duplicate-side-effect cases. Test retry ownership only if the official
   HTTP contract defines retries.
@@ -300,10 +327,11 @@ Exit gate: the accepted HTTP service plus a repeatable soak with no crash,
 duplicate side effect, mapping export, credential exposure, or PII-bearing
 log.
 
-The remaining external blockers are the deployment project, confirmed support
-channel, and unanswered contract fields. They do not block Track A, Track C,
-documentation, adapter seam tests, the provisional worker emulator, or
-image/resource measurement. Dated commitments for this program live in the
+Creating and pushing the GitLab deployment project is owner-gated. The
+remaining external blockers are the confirmed support channel and unanswered
+contract/acceptance fields. They do not block Track A, Track C, documentation,
+adapter seam tests, the provisional worker emulator, or image/resource
+measurement. Dated commitments for this program live in the
 [2026-07-24 execution plan](docs/decisions/2026-07-24-post-v2.5-execution-plan.md),
 whose freeze rules apply to that program's release candidate, not to the
 repository as a whole.

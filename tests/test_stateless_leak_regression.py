@@ -20,9 +20,73 @@ import pytest
 
 from pii_redactor import stateless as stateless_module
 from pii_redactor.detectors.tb_detector import detect_tb
-from pii_redactor.leak_guard import scan_outbound_leaks
-from pii_redactor.session_vault import SessionVault
-from pii_redactor.stateless import StatelessLeakError, sanitize_stateless
+from pii_redactor.leak_guard import scan_outbound_leaks, scan_residual_signals
+from pii_redactor.session_vault import SessionVault, VaultTimeoutError
+from pii_redactor.stateless import (
+    StatelessLeakError,
+    StatelessProcessingError,
+    restore_stateless,
+    sanitize_into_vault,
+    sanitize_stateless,
+)
+
+SYNTHETIC_VAULT_ORIGINAL = "synthetic-vault-original@example.invalid"
+
+
+def _product_traceback_locals(error):
+    frames = []
+    traceback = error.__traceback__
+    while traceback is not None:
+        module = traceback.tb_frame.f_globals.get("__name__", "")
+        if module.startswith(("pii_redactor.", "app.")):
+            frames.append(dict(traceback.tb_frame.f_locals))
+        traceback = traceback.tb_next
+    return frames
+
+
+def _contains_identity(value, target, seen=None):
+    """Inspect only built-in containers; never call product object protocols."""
+    if value is target:
+        return True
+    if seen is None:
+        seen = set()
+    identity = id(value)
+    if identity in seen:
+        return False
+    seen.add(identity)
+    if isinstance(value, dict):
+        return any(
+            _contains_identity(item, target, seen) for pair in value.items() for item in pair
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_contains_identity(item, target, seen) for item in value)
+    return False
+
+
+def _assert_retained_error_is_safe(error, *, forbidden_text=(), forbidden_objects=()):
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    frames = _product_traceback_locals(error)
+    assert frames
+    rendered = repr(frames)
+    for value in forbidden_text:
+        assert value not in rendered
+        assert value not in repr(vars(error))
+    for target in forbidden_objects:
+        assert not any(_contains_identity(frame, target) for frame in frames)
+        assert not _contains_identity(vars(error), target)
+
+
+def _raise_sensitive_failure(text, prior_mapping, vault):
+    cause = ValueError(f"nested:{text}")
+    error = RuntimeError(f"boundary:{text}")
+    error.payload = {
+        "text": text,
+        "prior_mapping": prior_mapping,
+        "vault": vault,
+    }
+    raise error from cause
+
 
 # A plain Thai government letter. Nothing exotic -- this is the shape of the
 # documents a regulator or an agency clerk pastes in first.
@@ -94,15 +158,11 @@ def test_a_hospital_number_does_not_survive(sanitized):
 def test_residual_pii_is_never_reported_as_clean(sanitized):
     """The guard-level contract, independent of any one detector.
 
-    Detectors will always miss something; that is survivable. Reporting a
-    miss as clean is not, because the caller has no other signal -- an empty
-    `warnings` list is the platform's only "safe to send" indicator. So
-    whatever survives, the result must not claim to be clean.
+    A successful outbound sanitize result cannot contain a known residual.
+    Residuals are errors, not warning-only results that a caller can ignore.
     """
     residual = [value for value in IDENTIFYING if value in sanitized.sanitized_text]
-    assert not residual or sanitized.warnings, (
-        f"identifying data survived but the call reported no warnings: {residual}"
-    )
+    assert not residual
 
 
 def test_a_caller_supplied_pseudonym_cannot_silence_the_leak_guard():
@@ -151,7 +211,7 @@ def test_a_residual_name_blocks_the_send_instead_of_warning(monkeypatch):
     assert excinfo.value.leak_types, "the error must name what leaked, machine-readably"
 
 
-def test_an_orphan_digit_run_is_reported_even_though_no_detector_claims_it():
+def test_an_orphan_digit_run_blocks_even_when_no_detector_claims_it(monkeypatch):
     """The independent check: a second opinion that is not the first one again.
 
     `leak_guard` calls the same `detect_fp`/`detect_tb` that produced the
@@ -161,11 +221,239 @@ def test_an_orphan_digit_run_is_reported_even_though_no_detector_claims_it():
     the numeric detectors are cue-gated or floored at eight digits, so a
     six-or-seven-digit identifier with an unfamiliar label passes them all.
 
-    Reported, not blocked: unlabelled numbers are also amounts and quantities,
-    so this is a flag for a human, not a halt.
+    The outbound policy is fail closed. Inspection endpoints may still report
+    detector findings, but a sanitize result cannot carry this signal as a
+    warning that callers can ignore.
     """
-    out = sanitize_stateless("ผู้ป่วยหมายเลข 6801234 เข้ารับการรักษา", mode="token", salt="s")
-    if "6801234" in out.sanitized_text:
-        assert any("orphan_digits" in w for w in out.warnings), (
-            f"an unmasked 7-digit run went out unreported: {out.warnings}"
+    monkeypatch.setattr(
+        stateless_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+    )
+
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_stateless("ผู้ป่วยหมายเลข 6801234 เข้ารับการรักษา", mode="token", salt="s")
+
+    assert excinfo.value.leak_types == ["ORPHAN_DIGITS"]
+    assert "6801234" not in str(excinfo.value)
+
+
+def test_stateless_residual_error_graph_drops_input_and_prior_mapping(monkeypatch):
+    residual = "เอกสารหมายเลข 6801234"
+    monkeypatch.setattr(
+        stateless_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+    )
+
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_stateless(
+            residual,
+            mode="token",
+            salt="s",
+            prior_mapping={"[EMAIL_9]": SYNTHETIC_VAULT_ORIGINAL},
         )
+
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    assert residual not in repr(frame_locals)
+    assert SYNTHETIC_VAULT_ORIGINAL not in repr(frame_locals)
+
+
+def test_caller_seed_cannot_silence_detector_independent_digit_guard():
+    """A caller-declared numeric pseudonym is not trusted outbound material."""
+    vault = SessionVault()
+    vault.seed("6801234", "เจ้าของข้อมูลสังเคราะห์")
+
+    assert scan_residual_signals("เอกสารอ้างอิง 6801234", vault)
+
+
+def test_caller_seed_cannot_silence_text_residual_guard():
+    """A caller-declared realistic name is not proof that the output is safe."""
+    seeded_name = "นายสมชาย ใจดี"
+    vault = SessionVault()
+    vault.seed(seeded_name, "เจ้าของข้อมูลสังเคราะห์")
+
+    assert scan_outbound_leaks(f"ผู้ยื่นคำร้อง {seeded_name}", vault)
+
+
+def test_missing_replacement_record_blocks_instead_of_returning_empty_token(monkeypatch):
+    """A silent vault-write defect must not produce an incomplete projection."""
+    monkeypatch.setattr(SessionVault, "write", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_stateless("โทร 081-234-5678", mode="token", salt="s")
+
+    assert excinfo.value.leak_types == ["MISSING_REPLACEMENT_RECORD"]
+    assert excinfo.value.policy_categories == ["replacement_integrity"]
+    assert excinfo.value.category_count == 1
+    assert "081-234-5678" not in str(excinfo.value)
+
+
+def test_direct_sanitize_unexpected_error_graph_is_contained(monkeypatch):
+    raw_text = "privacy-boundary.person@example.com"
+    prior_mapping = {"[EMAIL_9]": SYNTHETIC_VAULT_ORIGINAL}
+    vault = SessionVault()
+
+    def fail_detection(_text):
+        _raise_sensitive_failure(raw_text, prior_mapping, vault)
+
+    monkeypatch.setattr(stateless_module, "detect_all", fail_detection)
+
+    with pytest.raises(StatelessProcessingError) as excinfo:
+        sanitize_into_vault(raw_text, vault, mode="token", salt="secret-salt")
+
+    assert excinfo.value.code == "stateless_sanitize_failed"
+    assert str(excinfo.value) == "stateless sanitize failed"
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, SYNTHETIC_VAULT_ORIGINAL, "secret-salt"),
+        forbidden_objects=(vault, prior_mapping),
+    )
+
+
+def test_direct_sanitize_preserves_safe_leak_metadata_without_the_inner_graph(
+    monkeypatch,
+):
+    raw_text = "privacy-boundary.person@example.com"
+    vault = SessionVault()
+
+    def fail_policy(*_args, **_kwargs):
+        error = stateless_module.OutboundPolicyError(
+            ["THAI_ID", "THAI_ID"],
+            policy_categories=["structured", "detector_independent"],
+        )
+        error.payload = raw_text
+        raise error from RuntimeError(raw_text)
+
+    monkeypatch.setattr(stateless_module, "enforce_outbound_policy", fail_policy)
+
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_into_vault(raw_text, vault, mode="token", salt="secret-salt")
+
+    assert excinfo.value.leak_types == ["THAI_ID"]
+    assert excinfo.value.policy_categories == ["detector_independent", "structured"]
+    assert excinfo.value.category_count == 2
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, "secret-salt"),
+        forbidden_objects=(vault,),
+    )
+
+
+def test_direct_sanitize_translates_timeout_to_a_fresh_fixed_error(monkeypatch):
+    raw_text = "privacy-boundary.person@example.com"
+    vault = SessionVault()
+
+    def fail_detection(_text):
+        raise VaultTimeoutError(raw_text) from RuntimeError(raw_text)
+
+    monkeypatch.setattr(stateless_module, "detect_all", fail_detection)
+
+    with pytest.raises(VaultTimeoutError) as excinfo:
+        sanitize_into_vault(raw_text, vault, mode="token", salt="secret-salt")
+
+    assert str(excinfo.value) == "Session vault idle timeout"
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, "secret-salt"),
+        forbidden_objects=(vault,),
+    )
+
+
+@pytest.mark.parametrize("boundary", ["seed", "export", "section26", "result"])
+def test_stateless_tail_failures_clear_vault_and_contain_error_graph(
+    monkeypatch,
+    boundary,
+):
+    raw_text = "privacy-boundary.person@example.com"
+    prior_mapping = {"[EMAIL_9]": SYNTHETIC_VAULT_ORIGINAL}
+    vault = SessionVault()
+    monkeypatch.setattr(stateless_module, "SessionVault", lambda: vault)
+
+    def fail(*_args, **_kwargs):
+        _raise_sensitive_failure(raw_text, prior_mapping, vault)
+
+    if boundary == "seed":
+        monkeypatch.setattr(vault, "seed", fail)
+    elif boundary == "export":
+        monkeypatch.setattr(vault, "export_mapping", fail)
+    elif boundary == "section26":
+        monkeypatch.setattr(stateless_module, "scan_section26", fail)
+    else:
+        monkeypatch.setattr(stateless_module, "StatelessSanitizeResult", fail)
+
+    with pytest.raises(StatelessProcessingError) as excinfo:
+        sanitize_stateless(
+            raw_text,
+            mode="token",
+            salt="secret-salt",
+            prior_mapping=prior_mapping,
+        )
+
+    assert excinfo.value.code == "stateless_sanitize_failed"
+    assert str(excinfo.value) == "stateless sanitize failed"
+    assert vault._table == {}
+    assert vault._reverse == {}
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, SYNTHETIC_VAULT_ORIGINAL, "secret-salt"),
+        forbidden_objects=(vault, prior_mapping),
+    )
+
+
+def test_natural_empty_restore_clears_vault_and_returns_a_safe_value_error(
+    monkeypatch,
+):
+    original = SYNTHETIC_VAULT_ORIGINAL
+    mapping = {"[EMAIL_1]": original}
+    vault = SessionVault()
+    monkeypatch.setattr(stateless_module, "SessionVault", lambda: vault)
+
+    with pytest.raises(ValueError) as excinfo:
+        restore_stateless("", mapping=mapping)
+
+    assert str(excinfo.value) == "restore text must not be empty"
+    assert vault._table == {}
+    assert vault._reverse == {}
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(original,),
+        forbidden_objects=(vault, mapping),
+    )
+
+
+@pytest.mark.parametrize("boundary", ["seed", "reverse", "result"])
+def test_restore_tail_failures_clear_vault_and_contain_error_graph(
+    monkeypatch,
+    boundary,
+):
+    raw_text = "คำตอบ [EMAIL_1]"
+    mapping = {"[EMAIL_1]": SYNTHETIC_VAULT_ORIGINAL}
+    vault = SessionVault()
+    monkeypatch.setattr(stateless_module, "SessionVault", lambda: vault)
+
+    def fail(*_args, **_kwargs):
+        _raise_sensitive_failure(raw_text, mapping, vault)
+
+    if boundary == "seed":
+        monkeypatch.setattr(vault, "seed", fail)
+    elif boundary == "reverse":
+        monkeypatch.setattr(stateless_module, "reverse_map", fail)
+    else:
+        monkeypatch.setattr(stateless_module, "StatelessRestoreResult", fail)
+
+    with pytest.raises(StatelessProcessingError) as excinfo:
+        restore_stateless(raw_text, mapping=mapping)
+
+    assert excinfo.value.code == "stateless_restore_failed"
+    assert str(excinfo.value) == "stateless restore failed"
+    assert vault._table == {}
+    assert vault._reverse == {}
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, SYNTHETIC_VAULT_ORIGINAL),
+        forbidden_objects=(vault, mapping),
+    )

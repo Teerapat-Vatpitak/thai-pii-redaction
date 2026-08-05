@@ -36,7 +36,7 @@ risk report.
 | Mask and restore | Token or surrogate anonymization with an in-memory mapping and outbound leak checks. |
 | PDF redaction | Paints PII at word bounding boxes and flattens the result so the original text layer is not recoverable. |
 | PDPA analysis | Reports direct PII, Section 26 signals, and re-identification risk without including raw values in the generated report. |
-| Protected AI roundtrip | Masks a prompt, calls a configured provider such as Pathumma, and restores the answer. Shared adapter guards/retries and response minimization are active hardening gates. |
+| Protected AI roundtrip | Masks a prompt, fail-closes on structured, text-based, or independent 6+ digit residuals, calls a configured provider such as Pathumma, and restores the answer. Shared retry orchestration, strict v2 clients, and response minimization remain hardening gates. |
 | Prompt-injection signals | Flags known Thai and English attacks with explicit rules plus bounded normalization/intent features. It warns; it is not a complete defense. |
 
 ## Two deployment contexts
@@ -46,8 +46,8 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local desktop, browser extension, and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. AI Guard-controlled provider calls target masked text. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. Current contract-v1 response, residual-warning, and localhost-identity gaps are tracked below. |
-| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. AI Guard does not persist the transient mapping. The intended protected Pathumma boundary is masked-only, but current HTTP/worker roundtrips can send sanitizer output after a residual warning; fail-closed recertification is open. |
+| Local desktop, browser extension, and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. Current backend source rejects outbound residuals before returning masked text or making an AI Guard-controlled provider call. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. Contract-v1 response, strict-client, package-acceptance, and localhost-identity gaps are tracked below. |
+| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. AI Guard does not persist the transient mapping. Current HTTP/worker source rejects sanitizer residuals and rescans immediately before a direct provider call, but live and official-platform recertification remain open. |
 
 The hosted statement is intentionally narrower than the local statement. AI
 Guard does not claim that raw PII stays on the user's device when the user calls
@@ -68,14 +68,26 @@ fresh non-authorizing operation UUIDs instead of live restoration session IDs,
 although the legacy field remains named `session_id` and file-mode logs have no
 timed retention policy.
 
+The same current source now rejects structured FP findings, text-based TB
+findings, detector-independent contiguous runs of six or more digits,
+anonymization failures, and missing replacement records. A caller-supplied
+pseudonym is reused only when it is nonempty, does not contain its original,
+and did not already occur in the current source text. The CLI rescans before
+each outer `provider.complete()` invocation; a provider that owns its retries
+receives one outer validation before resending the same immutable masked text.
+HTTP and worker roundtrip rescan immediately before their direct calls. The
+inspection endpoints `/api/detect`, `/api/analyze`, and `/api/guard` remain
+report/warn paths, not outbound-use blockers.
+
 Other gates remain open. Contract v1 can project direct or reconstructable
-mapping fields into first-party client response objects; local clients can
-write output after a text-based residual warning; and fixed-port clients do not
-authenticate the localhost process. Historical release/storefront evidence
-remains valid for the exact named artifacts, but the published 2.5.0 backend
-predates the transaction/audit hardening and those paths require recertification
-after the explicit-mapping-free DTO, fail-closed policy, and native-broker
-changes. Review current source output before submitting it to an external AI.
+mapping fields into first-party client response objects; browser, Desktop, and
+Office are not strict v2 clients; and fixed-port clients do not authenticate
+the localhost process. Historical release, storefront, packaged-runtime, and
+live-provider evidence remains valid for the exact named artifacts, but the
+published 2.5.0 backend predates the transaction/audit and outbound-policy
+changes. Those paths require fresh acceptance; source tests do not promote the
+new behavior into an accepted package or official hosted deployment. Review
+high-risk output before submitting it to an external AI.
 
 ## Storefronts
 
@@ -91,8 +103,11 @@ changes. Review current source output before submitting it to an external AI.
 - HTTP API: detection, sanitization, re-identification, analysis, reporting,
   guard, PDF, and demo endpoints.
 - Hosted HTTP adapter: the official AI for Thai guide selects FastAPI behind a
-  reverse proxy and Docker Compose; its narrow platform adapter is pending the
-  remaining route/auth answers.
+  reverse proxy and Docker Compose. A narrow adapter exists in the separate
+  local port repository, but its vendored core predates the current outbound
+  hardening and must be re-synced and retested before any push. Exact public
+  route/auth confirmation, the owner-gated GitLab push, and official platform
+  acceptance remain pending.
 - Provisional job worker: stateless operations retained as a local
   failure/retry emulator, not the official platform delivery path.
 - CLI: scripted sanitize/report workflows and an end-to-end demo pipeline.
@@ -238,10 +253,11 @@ before changing version-bearing files.
 docker compose up --build ai-guard
 ```
 
-The local Compose profile publishes only to `127.0.0.1:8000`. The official
-hosted profile still needs its stripped-prefix route adapter, fail-closed public
-surface/authentication, health check, secret mapping, limits, and bounded logs;
-do not treat the local Compose defaults as a production profile. See
+The main-repository Compose profile publishes only to `127.0.0.1:8000` and is
+not a production profile. The separate port repository already implements a
+local hosted candidate with prefix handling, health, key injection/allowlist,
+limits, and bounded logs. Exact public route/auth confirmation, the approved
+GitLab push, and official platform acceptance remain open. See
 [AI for Thai integration](docs/platform/ai-for-thai.md).
 
 Running directly from source: [docs/install-from-source.md](docs/install-from-source.md).
@@ -270,6 +286,16 @@ temporary exception, not completion of Track A. Accuracy numbers live in
 generated benchmark reports with corpus size and limitations — do not infer a
 public accuracy claim from prose.
 
+The outbound residual gate is green in current-source automated tests and a
+newly built packaged-sidecar health/synthetic-sanitize smoke. That smoke is not
+an installed Desktop or client-composition run; browser, Office, installed
+Desktop, storefront, and live-provider evidence predates this change and must
+be rerun. The sibling hosted port also carries a pre-F09 core and needs a
+separately authorized re-vendor plus privacy/soak rerun before its first push.
+HTTP runtime and first-party clients remain contract v1, the worker envelope
+remains version 1, and shared provider orchestration, broker/auth, lifecycle,
+real-host, and official-platform gates remain open.
+
 `blind-v1` is a closed historical evidence set, not an active blind evaluation:
 its six-reveal budget is exhausted. Do not tune against it or present its
 historical results as a new blind measurement. Any future blind evaluation must
@@ -278,9 +304,10 @@ use a newly frozen `blind-v2` dataset.
 Synthetic government-form privacy acceptance has passed for the committed
 probe inputs. That evidence does not cover physical scans, handwriting, or
 broader real-form annotation; those remain incomplete. Microsoft 365 host and
-packaged-manifest acceptance also remain open. Hosted AI-for-Thai deployment is
-externally blocked while the deployment project and exact public route/auth
-contract are confirmed.
+packaged-manifest acceptance also remain open. Creating and pushing the GitLab
+deployment project is an owner-gated outward action. Official AI-for-Thai
+deployment remains externally blocked on the public route/auth, support, and
+acceptance contract.
 
 - [Current feature status](docs/project-status.md)
 - [Roadmap](ROADMAP.md)

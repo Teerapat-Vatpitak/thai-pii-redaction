@@ -37,13 +37,17 @@ state which context it affects.
 - The canonical pseudonym-to-original mapping lives in process memory and is
   not intentionally persisted. Contract-v1 responses nevertheless send direct
   or reconstructable mapping fields to first-party clients over loopback;
-  contract v2 must remove those explicit DTO fields.
+  contract v2 must remove those explicit DTO fields. Contract v1 also projects
+  raw Section 26 matched text and prompt-guard excerpts/rationales; v2 reduces
+  them to category/severity/count-only metadata.
 - The extension may retain a security-sensitive opaque session ID, not a
   mapping collection, and necessarily handles input/output text transiently.
 - Default PII detection and pseudonym generation run locally. Explicit remote
-  TNER sends raw pre-mask chunks to AI for Thai. Local clients plus HTTP/worker
-  roundtrips can currently proceed after residual warnings; mandatory
-  fail-closed policy remains open.
+  TNER sends raw pre-mask chunks to AI for Thai. Current-source
+  outbound-capable local sanitization plus CLI, HTTP, and worker provider
+  boundaries fail closed on the shared residual policy. This is automated
+  source evidence; packaged, real-host, live-provider, and official hosted
+  acceptance remains open.
 - The control plane uses a boot token when the bundled desktop shell launches
   the sidecar. The contract-v1 local data plane is not authenticated.
 
@@ -62,8 +66,9 @@ container. The local claim "PII never leaves the device" does not apply.
 
 Hosted security relies on:
 
-- caller authentication configured by `AIGUARD_API_KEY` or the official
-  platform adapter;
+- an accepted hosted adapter authenticating every approved public operation.
+  Main-server `AIGUARD_API_KEY` currently gates only four legacy-v1 local POST
+  routes and does not by itself make the broader surface hosted-safe;
 - transient in-process mappings with no persistence and no explicit mapping DTO
   in normal hosted results. The internal worker-v1 result can still include a
   mapping after an exact opt-in and is not the official delivery contract;
@@ -72,17 +77,20 @@ Hosted security relies on:
   non-authorizing operation UUIDs rather than live restoration session IDs.
   The separately versioned sibling port, official log transport/retention, and
   platform-visible scan remain unverified;
-- separation between the AI Guard caller credential and Pathumma/TNER provider
-  credentials; and
-- an intended protected roundtrip that sends only verified masked text. Current
-  HTTP/worker paths can invoke the provider after residual warnings, so this is
-  not yet an accepted guarantee.
+- separation between the AI Guard caller credential and configured
+  downstream-provider credentials; and
+- an intended protected roundtrip that sends only verified masked text.
+  Current-source CLI, HTTP, and worker paths rescan and fail closed immediately
+  before provider calls, but the separately versioned sibling port, live
+  providers, and official hosted composition still need independent
+  verification before this becomes an accepted platform guarantee.
 
 Failures that expose request text/mappings in platform-visible logs or results,
-bypass hosted caller authentication, or send raw PII to Pathumma are in scope.
-Retention and access inside infrastructure operated by the hosting platform are
-also part of the platform trust model, but must be reported to the relevant
-platform owner when they are outside this repository's code.
+bypass hosted caller authentication, or send raw PII to a downstream provider
+are in scope. Retention and access inside infrastructure operated by the
+hosting platform are also part of the platform trust model, but must be
+reported to the relevant platform owner when they are outside this
+repository's code.
 
 ## Data and logging rules
 
@@ -95,7 +103,21 @@ platform owner when they are outside this repository's code.
   mode, fresh IDs create operation-specific files and no timed retention policy
   exists; configured stdout mode creates no file. Published 2.5.0 predates this
   source change; official-platform logging remains outside this evidence.
-- Public errors expose stable categories, not payloads or upstream bodies.
+- Current v1 public errors omit payloads, upstream bodies, and raw exception
+  messages. Some HTTP/PDF response paths and worker envelope/log paths still
+  expose reduced exception type names. Contract v2 replaces HTTP public details
+  with stable codes; worker envelope/log cleanup remains separate
+  provider-orchestration work. Request-validation errors are fixed and do not
+  echo rejected body/query values; an outer HTTP boundary also contains
+  pre-response-start JSON rendering failures. Current HTTP endpoint, direct
+  stateless/session transaction and restore, provider, PDF/OCR fallback, and
+  worker handler/runner regressions require caught ordinary exception objects to lose
+  traceback, cause, context, arguments, ordinary custom attributes, and common
+  built-in payload slots that could link back to request, vault, credential,
+  page-image, or response state. Ordinary `ExceptionGroup` members are scrubbed
+  recursively, but Python's read-only group message/member shell cannot be
+  overwritten safely; it is dropped without logging or export. Process signals,
+  whether raised directly or inside a `BaseExceptionGroup`, may propagate.
 - PDF temporary files are bounded and removed after processing.
 - Session/container restart may discard mappings by design; persistence added
   for convenience would be a security-significant architectural change.

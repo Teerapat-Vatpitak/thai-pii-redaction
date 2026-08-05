@@ -64,12 +64,16 @@ restrictions would otherwise block a content-script-initiated fetch to
 code path in the extension itself that reaches any domain besides these two.
 The current source extension trusts whichever process owns the fixed localhost
 port; CORS and host permissions do not authenticate that process. It can also
-write masked output after a text-based residual warning, so the current source
-candidate is not accepted as a fail-closed production package. Users should run
-only a backend they started and trust and review the result before submitting
-it. Packaged production operation is intended to move to a native broker,
-remove direct localhost host permissions, and block every residual signal;
-that migration is not yet accepted.
+receive mapping-bearing contract-v1 fields and is not a strict v2 client.
+Current backend source now rejects structured FP, text-based TB,
+detector-independent contiguous 6+ digit residuals, and missing replacement
+records instead of returning a warning-only masked result. Historical
+browser/store and published 2.5.0 evidence predates that change, so it does not
+establish an accepted production package. Users should run only a backend they
+started and trust and review high-risk output before submitting it. Packaged
+production operation is intended to move to a native broker and remove direct
+localhost host permissions; contract v2, broker work, and fresh package/browser
+acceptance remain open.
 
 ## `content_scripts` matches (6 AI chat providers)
 

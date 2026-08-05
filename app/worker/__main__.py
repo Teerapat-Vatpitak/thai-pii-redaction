@@ -1,10 +1,12 @@
-"""python -m app.worker — the platform deployment entrypoint.
+"""Run the internal v1 local failure/retry emulator.
 
-Config is 100% env vars so the container can be repointed without a rebuild:
+This is not the official AI for Thai delivery path; the current hosted
+integration uses HTTP/FastAPI and bypasses this queue envelope. Configuration
+is environment-only so local tests can repoint the emulator without a rebuild:
 AIGUARD_QUEUE_POLL_URL / AIGUARD_QUEUE_RESULT_URL (required),
 AIGUARD_QUEUE_IDLE_S (default 2.0), AIFORTHAI_API_KEY (auth, optional).
 SIGTERM/SIGINT set the stop event -> the loop finishes its current job and
-exits 0, which is what a container orchestrator expects.
+exits 0.
 """
 
 from __future__ import annotations

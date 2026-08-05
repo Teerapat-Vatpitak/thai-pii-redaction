@@ -1,10 +1,9 @@
-"""Transport seam — the worker's GUESSED half, deliberately swappable.
+"""Transport seam for the internal v1 local failure/retry emulator.
 
-The AI for Thai queue spec is unpublished (2026-07-21). HttpPollTransport is
-our best guess: poll an endpoint for a job, POST the result back, Apikey
-header like every other AI for Thai API. When the real spec arrives, write a
-new Transport implementation in THIS file and touch nothing else — runner
-and handler depend only on the two-method protocol below.
+`HttpPollTransport` can poll and submit against configured development
+endpoints. It is not an implementation or forecast of an official AI for Thai
+queue protocol; the current official integration boundary is HTTP/FastAPI and
+bypasses this envelope.
 
 InMemoryTransport exists for tests and local dry-runs.
 """
