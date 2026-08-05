@@ -59,16 +59,23 @@ draft before AI Guard acts. Use the extension side panel for raw entry and
 paste only the reviewed masked result when that stronger isolation boundary is
 required.
 
-Current source at `93a7108` is under an owner-approved hardening campaign.
-Contract v1 can project direct or reconstructable mapping fields into
-first-party client response objects; local clients can write output after a
-text-based residual warning; and fixed-port clients do not authenticate the
-localhost process. Session-bearing sanitize/reidentify audit filenames/entries
-also retain the live, security-sensitive session ID. Historical
-release/storefront evidence remains valid for the exact named artifacts, but
-those paths require recertification after the explicit-mapping-free DTO,
-fail-closed policy, safe audit correlation, and native-broker changes. Review
-current source output before submitting it to an external AI.
+Current source is under an owner-approved hardening campaign. Local sanitize
+now stages a detached session/vault graph through response rendering and a
+correlation-only `prepared` process-audit write before one publication. For
+non-expiry pre-publication failures, the published mapping, ordinals, and
+capacity/LRU state remain unchanged. Current API process-audit callers use
+fresh non-authorizing operation UUIDs instead of live restoration session IDs,
+although the legacy field remains named `session_id` and file-mode logs have no
+timed retention policy.
+
+Other gates remain open. Contract v1 can project direct or reconstructable
+mapping fields into first-party client response objects; local clients can
+write output after a text-based residual warning; and fixed-port clients do not
+authenticate the localhost process. Historical release/storefront evidence
+remains valid for the exact named artifacts, but the published 2.5.0 backend
+predates the transaction/audit hardening and those paths require recertification
+after the explicit-mapping-free DTO, fail-closed policy, and native-broker
+changes. Review current source output before submitting it to an external AI.
 
 ## Storefronts
 

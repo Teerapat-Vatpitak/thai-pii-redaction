@@ -27,9 +27,12 @@ that restores the legacy attach behavior with no identity check.
 
 An image-name check is not cryptographic server identity. Packaged operation is
 planned to move to an attested native broker with a random port and per-boot
-authority; current fixed-port operation requires recertification. Session-bearing
-audit filenames/entries also retain the live security-sensitive session ID
-until audit correlation is hardened.
+authority; current fixed-port operation requires recertification. Current
+source API process-audit callers use fresh non-authorizing operation UUIDs
+instead of live restoration session IDs, while retaining the legacy
+`session_id` field name. This has source-level automated evidence only: the
+published 2.5.0 Desktop backend predates it, and no package containing this
+change has been accepted.
 
 ## Develop
 

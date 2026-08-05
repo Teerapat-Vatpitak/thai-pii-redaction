@@ -63,9 +63,12 @@ external gates are documented in
 The canonical token-to-original mapping exists in the serving process, and
 restart destroys sessions; it is not deliberately persisted. Contract-v1
 sanitize/reidentify responses still project mapping-bearing fields to clients,
-and session-bearing audit filenames/entries persist the live session ID. These
-are open hardening gates, not authority to add sticky multi-instance production
-routing around the local adapter.
+but current-source API process-audit callers use fresh non-authorizing operation
+UUIDs instead of live restoration session IDs. The legacy audit field remains
+named `session_id`; local files have no timed retention policy. This source-level
+automated evidence is not packaged Desktop or official-platform acceptance.
+Response minimization remains an open hardening gate, not authority to add
+sticky multi-instance production routing around the local adapter.
 
 ## Browser extension
 

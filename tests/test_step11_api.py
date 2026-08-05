@@ -1,6 +1,6 @@
 """Tests for the FastAPI web server (Step 11: Web API).
 
-Covers the v2 token-mode contract:
+Covers the current HTTP v1 token-mode contract:
 - /api/sanitize  -> session_id, original_text, sanitized_text, entities[], section26
 - /api/reidentify -> restore tokens via stored session map
 - /api/analyze   -> full PDPA report (score, grade, reid, breakdown, recs)

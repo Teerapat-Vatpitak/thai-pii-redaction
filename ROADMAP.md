@@ -77,13 +77,18 @@ approved this bounded privacy/security/correctness campaign as an explicit
 exception; it does not mean Track A is complete. Work proceeds as small,
 reviewed, independently revertible squashes in this order:
 
-1. **Preserve the clean baseline and correct current truth.** Record the
-   `93a7108` gates without promoting historical evidence or changing runtime
-   behavior.
-2. **Make local sanitize transactional.** A failed request must publish no new
-   session, mapping, audit item, ordinal, timestamp, or eviction. Replace live
-   session IDs in process/security audit filenames and entries with
-   non-authorizing operation/log correlation IDs across every caller.
+1. **Preserve the clean baseline and correct current truth — delivered at
+   `304b071`.** Record the `93a7108` gates without promoting historical
+   evidence or changing runtime behavior.
+2. **Make local sanitize transactional — delivered in current source.** A
+   failed sanitize publishes no new session, mapping, session-vault audit
+   entry, ordinal, session timestamp, or eviction. One safe operation-ID-only
+   `prepared` or `blocked` process-attempt record may exist; it carries no live
+   session authority or mapping material. Known-session expiry is
+   request-driven lifecycle disposal outside rollback, and displaced-vault
+   cleanup after publication is best effort. Current production API
+   process-audit callers use fresh operation IDs; the legacy audit field remains
+   named `session_id`.
 3. **Harden vault seeding and audit.** Seed IDs become opaque, identical seeds
    are idempotent, conflicting originals fail safely, and `clear()` is described
    as dropping references rather than zeroizing immutable strings.
