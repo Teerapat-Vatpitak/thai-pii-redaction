@@ -89,9 +89,13 @@ reviewed, independently revertible squashes in this order:
    cleanup after publication is best effort. Current production API
    process-audit callers use fresh operation IDs; the legacy audit field remains
    named `session_id`.
-3. **Harden vault seeding and audit.** Seed IDs become opaque, identical seeds
-   are idempotent, conflicting originals fail safely, and `clear()` is described
-   as dropping references rather than zeroizing immutable strings.
+3. **Harden vault seeding and audit — delivered in current source.** New seeds
+   use opaque `seed:<uuid4>` IDs and one structural `seed` audit row. Replaying
+   an identical pair returns the existing immutable record without changing
+   lookup, audit, or access state; a conflicting original fails with a
+   constant value-free error. The safe `SEEDED` provenance marker remains
+   internal, and `clear()` drops vault-owned references rather than claiming to
+   zeroize immutable strings.
 4. **Decide HTTP contract v2 in an ADR.** The main API moves directly to strict,
    response DTOs with no explicit mapping fields unless a real external v1
    consumer is found. Clients still necessarily handle submitted and returned

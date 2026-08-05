@@ -118,14 +118,28 @@ residual-free.
 5. Run outbound leak checks before an optional AI provider call.
 6. Restore from the in-memory mapping when the selected lifecycle supports it.
 7. Validate restoration/output integrity and produce structural audit
-   metadata; the current internal seeded-ID exception is documented below.
+   metadata.
 8. Return text, a report, or a flattened redacted PDF.
 
-The vault audit is intended to contain only opaque identifiers and structural
-metadata. Before seed hardening, a seeded record derives its audit
-`entity_id` from the supplied pseudonym, so that audit is not mapping-free.
-`clear()` drops vault-owned references but cannot securely zeroize Python
-immutable strings.
+Product-owned vault audit rows contain opaque identifiers and structural
+metadata. When a caller-held stateless mapping is re-admitted, `seed()` checks
+the pseudonym directly under the vault lifecycle lock. A new pair receives an
+opaque `seed:<uuid4>` entity ID, keeps provenance in the safe `SEEDED`
+data-type sentinel, and adds one `seed` audit row. An identical pair returns
+the existing immutable record without changing lookup, audit, or access state.
+A conflicting original fails with a constant value-free error before mutation.
+Production `write()` callers supply detector-generated UUIDs; an arbitrary
+direct Python caller is not an adapter boundary and could still supply an
+unsafe entity ID. `clear()` drops vault-owned lookup references and may retain
+the safe product-owned structural audit rows; it cannot securely zeroize
+Python immutable strings.
+
+All public `SessionVault` reads, writes, exports, audit access, and lifecycle
+operations share one re-entrant lock. This makes a seed/write/clear transaction
+and its public observations linearizable. Some core pipeline functions read
+private vault indexes while already operating inside a caller-owned
+single-threaded or service-locked path; this is not a claim that arbitrary
+whole-pipeline concurrent use is safe.
 
 Current API process-audit call sites pass fresh operation UUIDs rather than
 live restoration session IDs. Successful sanitize writes a `prepared` record
