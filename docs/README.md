@@ -53,6 +53,7 @@ status page and does not silently override a newer current-state document.
 - [Decision record index](decisions/README.md)
 - [Code cleanup audit — 2026-07-31](research/code-cleanup-audit-2026-07-31.md)
 - [Audit v2 findings](decisions/2026-07-19-audit-v2-findings.md)
+- [HTTP contract v2 privacy boundary](decisions/2026-08-05-http-contract-v2.md)
 - [Platform contract ADR](decisions/2026-07-22-platform-integration-contract.md)
 - [Post-v2.5 AI for Thai execution plan](decisions/2026-07-24-post-v2.5-execution-plan.md)
 
