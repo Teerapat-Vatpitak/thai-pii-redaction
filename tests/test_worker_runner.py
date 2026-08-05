@@ -12,6 +12,24 @@ from app.worker.transport import HttpPollTransport, InMemoryTransport
 THAI_TEXT = "ผมชื่อ นายสมชาย ใจดี เลขบัตรประชาชน 1101700230708"
 
 
+def _error_retaining(value):
+    retained = value
+    try:
+        raise RuntimeError("synthetic worker failure")
+    except RuntimeError as error:
+        assert retained is value
+        return error
+
+
+def _traceback_holds(error, value):
+    current = error.__traceback__
+    while current is not None:
+        if any(candidate is value for candidate in current.tb_frame.f_locals.values()):
+            return True
+        current = current.tb_next
+    return False
+
+
 def test_inmemory_end_to_end():
     t = InMemoryTransport([{"job_id": "a", "operation": "detect", "payload": {"text": THAI_TEXT}}])
     processed = run(t, max_jobs=1)
@@ -30,6 +48,41 @@ def test_poison_job_does_not_kill_loop():
     processed = run(t, max_jobs=2)
     assert processed == 2
     assert [r["status"] for r in t.results] == ["error", "ok"]
+
+
+def test_residual_sanitize_submits_only_safe_error(monkeypatch):
+    import pii_redactor.stateless as stateless_module
+
+    residual = "เอกสารหมายเลข 6801234"
+    monkeypatch.setattr(
+        stateless_module,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+    )
+    transport = InMemoryTransport(
+        [
+            {
+                "job_id": "residual",
+                "operation": "sanitize",
+                "payload": {"text": residual, "include_mapping": True},
+            }
+        ]
+    )
+
+    assert run(transport, max_jobs=1) == 1
+    assert transport.results == [
+        {
+            "contract_version": 1,
+            "job_id": "residual",
+            "operation": "sanitize",
+            "status": "error",
+            "error": {
+                "type": "residual_pii",
+                "message": "outbound residual detected",
+            },
+        }
+    ]
+    assert residual not in str(transport.results)
 
 
 def test_stop_event_halts_promptly():
@@ -103,6 +156,24 @@ def test_poll_raising_does_not_kill_loop():
     assert run(t, max_jobs=1) == 0  # survived the raise, processed nothing
 
 
+def test_poll_failure_discards_retained_exception_graph():
+    payload = {"text": THAI_TEXT}
+    retained_error = _error_retaining(payload)
+    assert _traceback_holds(retained_error, payload)
+
+    class BoomTransport:
+        def poll(self):
+            raise retained_error
+
+        def submit(self, result):
+            raise AssertionError("submit must not run")
+
+    assert run(BoomTransport(), max_jobs=1) == 0
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+
+
 def test_crashing_custom_handler_submits_error_result():
     t = InMemoryTransport([{"job_id": "x", "operation": "detect", "payload": {"text": THAI_TEXT}}])
 
@@ -112,6 +183,22 @@ def test_crashing_custom_handler_submits_error_result():
     assert run(t, handler=bad_handler, max_jobs=1) == 1
     assert t.results[0]["status"] == "error"
     assert t.results[0]["error"]["type"] == "handler_crashed"
+
+
+def test_handler_failure_discards_retained_exception_graph():
+    job = {"job_id": "x", "operation": "detect", "payload": {"text": THAI_TEXT}}
+    retained_error = _error_retaining(job)
+    assert _traceback_holds(retained_error, job)
+    transport = InMemoryTransport([job])
+
+    def bad_handler(_job):
+        raise retained_error
+
+    assert run(transport, handler=bad_handler, max_jobs=1) == 1
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert transport.results[0]["error"]["type"] == "handler_crashed"
 
 
 def test_poll_non_200_logs_status_but_not_body(monkeypatch, caplog):
@@ -148,6 +235,31 @@ def test_submit_raising_does_not_kill_loop():
     )
     # both jobs processed despite every submit raising — the loop never dies
     assert run(t, max_jobs=2) == 2
+
+
+def test_submit_exception_group_discards_every_retained_graph():
+    restored_result = {"text": THAI_TEXT}
+    member = _error_retaining(restored_result)
+    retained_group = ExceptionGroup("synthetic group", [member])
+    assert _traceback_holds(member, restored_result)
+
+    class SubmitBoomTransport:
+        def __init__(self):
+            self._jobs = [{"job_id": "s1", "operation": "detect", "payload": {"text": THAI_TEXT}}]
+
+        def poll(self):
+            return self._jobs.pop(0) if self._jobs else None
+
+        def submit(self, _result):
+            raise retained_group
+
+    assert run(SubmitBoomTransport(), max_jobs=1) == 1
+    assert retained_group.__traceback__ is None
+    assert retained_group.__cause__ is None
+    assert retained_group.__context__ is None
+    assert member.__traceback__ is None
+    assert member.__cause__ is None
+    assert member.__context__ is None
 
 
 def test_duplicate_delivery_reuses_result_without_repeating_handler():

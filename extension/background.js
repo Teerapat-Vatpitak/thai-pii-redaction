@@ -2,9 +2,10 @@
 //
 // All backend calls happen here: the worker has cross-origin access to
 // localhost via host_permissions, so content scripts on chatgpt.com /
-// claude.ai do not hit page CORS restrictions. The token -> original vault
-// never reaches the extension; we only remember the session_id per tab so a
-// Restore can find the right session on the backend.
+// claude.ai do not hit page CORS restrictions. Contract v1 responses can carry
+// direct or reconstructable mapping material in extension memory, although the
+// extension deliberately persists only the session_id per tab. Contract v2
+// removes those mapping-bearing response fields.
 //
 // MV3 service workers are ephemeral -- Chrome evicts them after a short idle
 // period and in-memory variables are lost. The wait for an AI reply easily

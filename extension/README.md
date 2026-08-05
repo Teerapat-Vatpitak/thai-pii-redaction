@@ -8,13 +8,16 @@ Current source uses HTTP contract v1. Its responses can contain fields with, or
 allowing reconstruction of, token-to-original pairs in extension process
 memory even though the extension does not deliberately persist them. It also
 trusts whichever process owns the configured fixed localhost port; CORS does
-not authenticate that process. Text-based residual warnings also do not block
-every composer or Copy write. Contract v2 with no explicit mapping DTO,
-mandatory residual blocking, and the native broker are open hardening gates.
-Run the source extension only with a local backend you started and trust,
-review output before submitting it, and do not treat it as a fail-closed
-production package; historical browser acceptance does not cover those future
-changes.
+not authenticate that process. The current backend source now returns no
+masked result when it finds structured FP, text-based TB,
+detector-independent contiguous 6+ digit residuals, or a missing replacement
+record; the extension therefore has no warning-only residual result to write.
+That behavior has automated source evidence only. The published 2.5.0 backend
+and historical browser/store candidates predate it and must be rerun before a
+package is accepted. Contract v2 with no explicit mapping DTO, strict client
+validation, broker-backed identity/lifecycle, and fresh package acceptance
+remain open hardening gates. Run the source extension only with a local backend
+you started and trust, and review high-risk output before submitting it.
 
 The default detector is local. If the backend is explicitly configured with
 `AIGUARD_NER_ENGINE=tner`, it sends raw pre-mask chunks to AI for Thai. The
@@ -28,9 +31,11 @@ For stronger isolation, enter raw text in the side panel, review/copy the
 masked result, and paste only that result into the AI site.
 
 Works on **ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM / Z.ai**. Site
-DOM selectors live in `sites.js`; each site also has a generic fallback, so
-Mask keeps working even if a site tweaks its UI. On any other page the docked
-side panel (below) still masks/restores by paste.
+DOM selectors live in `sites.js`; each site also has a heuristic generic
+fallback. It may survive minor selector drift, but a changed site can make it
+select a different visible matching element, so current live-site acceptance
+is still required. On any other page the docked side panel (below) still
+masks/restores by paste.
 
 ## Prerequisites
 

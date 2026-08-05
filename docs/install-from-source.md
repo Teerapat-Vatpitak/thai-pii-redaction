@@ -33,11 +33,14 @@ Check it: open `http://localhost:8000/api/health` and you should see
 `http://localhost:8000/docs`.
 
 Current source uses HTTP contract v1. Its responses can carry direct or
-reconstructable mapping fields, residual warnings do not block every local or
-HTTP/worker provider path, and fixed-port clients do not authenticate the
-localhost process. The default detector is local; explicitly selecting
-`AIGUARD_NER_ENGINE=tner` sends raw pre-mask chunks to AI for Thai. See the
-[current status](project-status.md) before using this checkout.
+reconstructable mapping fields, and fixed-port clients do not authenticate the
+localhost process. Outbound-capable local sanitization plus CLI, HTTP, and
+worker provider boundaries now fail closed on the shared residual policy from
+source-level automated evidence; packaged, real-host, live-provider, and
+official hosted evidence remains open. The default detector is local;
+explicitly selecting `AIGUARD_NER_ENGINE=tner` sends raw pre-mask chunks to AI
+for Thai. See the [current status](project-status.md) before using this
+checkout.
 
 ## Local container adapter (not the official hosted contract)
 

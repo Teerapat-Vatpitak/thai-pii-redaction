@@ -1,8 +1,12 @@
-"""The platform contract: sanitize holds nothing between calls."""
+"""Stateless-core and transient-mapping contract tests."""
+
+from dataclasses import asdict
 
 import pytest
 
+from pii_redactor.scan_common import canonical_value
 from pii_redactor.stateless import (
+    StatelessLeakError,
     StatelessSanitizeResult,
     restore_stateless,
     sanitize_stateless,
@@ -138,6 +142,139 @@ def test_prior_mapping_reuses_the_surrogate_across_turns():
     assert [p for p, original in second.mapping.items() if original == name] == [surrogate]
 
 
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+def test_numeric_prior_mapping_is_regenerated_instead_of_promoted(mode):
+    """A caller-supplied residual-looking value cannot become trusted by reuse."""
+    prior = {"6801234": "12345678"}
+    out = sanitize_stateless(
+        "รหัสอ้างอิง 12345678",
+        mode=mode,
+        salt="s",
+        prior_mapping=prior,
+    )
+
+    assert "6801234" not in out.sanitized_text
+    assert "6801234" not in out.guard_context.trusted_pseudonyms()
+
+
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "1101700230708",
+        "081-234-5678",
+        "other.person@example.invalid",
+        "นายทดสอบ บุคคลตัวอย่าง",
+    ],
+)
+def test_cross_type_prior_mapping_cannot_promote_detected_pii(mode, candidate):
+    original = "test.user@example.com"
+    out = sanitize_stateless(
+        original,
+        mode=mode,
+        salt="s",
+        prior_mapping={candidate: original},
+    )
+
+    assert candidate not in out.sanitized_text
+    assert candidate not in out.guard_context.trusted_pseudonyms()
+
+
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+def test_reused_numeric_mapping_cannot_authorize_an_untouched_duplicate(mode):
+    """Trusting one replacement must not excuse the same digits elsewhere."""
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_stateless(
+            "รหัสอ้างอิง 12345678 และค่าที่เหลือ 6801234",
+            mode=mode,
+            salt="s",
+            prior_mapping={"6801234": "12345678"},
+        )
+
+    assert excinfo.value.leak_types == ["ORPHAN_DIGITS"]
+
+
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+@pytest.mark.parametrize(
+    "pseudonym",
+    [
+        "1101700230708",
+        "[MASK-1101700230708]",
+    ],
+)
+def test_prior_mapping_cannot_reuse_identity_or_embedded_original(mode, pseudonym):
+    """A caller mapping cannot turn the original into trusted output."""
+    original = "1101700230708"
+
+    out = sanitize_stateless(
+        original,
+        mode=mode,
+        salt="s",
+        prior_mapping={pseudonym: original},
+    )
+
+    assert original not in out.sanitized_text
+    assert all(entity["token"] for entity in out.entities)
+
+
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+@pytest.mark.parametrize(
+    ("data_type", "pseudonym", "original"),
+    [
+        ("THAI_ID", "1101700230708", "1-1017-00230-70-8"),
+        ("PHONE", "0812345678", "081-234-5678"),
+        ("EMAIL", "synthetic@example.com", "Synthetic@Example.com"),
+    ],
+)
+def test_prior_mapping_cannot_reuse_canonical_original_variant(
+    mode,
+    data_type,
+    pseudonym,
+    original,
+):
+    """Formatting and case changes do not make an original a pseudonym."""
+    out = sanitize_stateless(
+        original,
+        mode=mode,
+        salt="s",
+        prior_mapping={pseudonym: original},
+    )
+
+    canonical_original = canonical_value(data_type, original)
+    canonical_output = canonical_value(data_type, out.sanitized_text)
+    assert canonical_original not in canonical_output
+    assert all(entity["token"] for entity in out.entities)
+
+
+@pytest.mark.parametrize("mode", ["token", "surrogate"])
+def test_empty_seed_is_not_used_as_a_replacement(mode):
+    """An empty caller key cannot delete an entity into an unrestorable result."""
+    original = "1101700230708"
+
+    out = sanitize_stateless(
+        original,
+        mode=mode,
+        salt="s",
+        prior_mapping={"": original},
+    )
+
+    assert out.sanitized_text
+    assert original not in out.sanitized_text
+    assert all(entity["token"] for entity in out.entities)
+    restored = restore_stateless(out.sanitized_text, mapping=out.mapping)
+    assert restored.restored_text == original
+
+
+def test_provider_guard_context_is_internal_original_free_and_repr_hidden():
+    out = sanitize_stateless(TEXT, mode="token", salt="s")
+    context = out.guard_context
+
+    assert "guard_context" not in asdict(out)
+    assert set(context.trusted_pseudonyms()) == {entity["token"] for entity in out.entities}
+    assert all(token not in repr(context) for token in out.mapping)
+    assert all(original not in repr(context) for original in out.mapping.values())
+
+
 def test_a_prior_mapping_token_owned_by_someone_else_is_not_handed_out_again():
     """A replayed mapping must never make one token mean two different people.
 
@@ -159,12 +296,12 @@ def test_unknown_mode_is_rejected():
 
 
 def test_restore_closes_the_round_trip_without_server_state():
-    """The other half of the platform contract, and the half that was missing.
+    """The in-process/legacy worker-v1 primitive closes a stateless roundtrip.
 
-    The pitch is mask -> model -> restore. Shipping only the mask half means a
-    platform consumer cannot complete the loop, so the sanitize call is a
-    dead end for them. Restore takes the caller's own mapping, exactly like
-    sanitize hands it out, and holds nothing afterwards.
+    Hosted roundtrip consumes this transient mapping internally; the accepted
+    HTTP v2 wire does not export it. This direct helper accepts a caller-held
+    mapping for legacy compatibility and retains no process-global vault or
+    mapping afterwards.
     """
     out = sanitize_stateless(TEXT, mode="token", salt="s")
     assert out.sanitized_text != TEXT

@@ -1,8 +1,8 @@
 """Internal worker-envelope contract and privacy-safe validation.
 
-This is AI Guard's versioned seam, not the unpublished AI for Thai wire
-protocol. A future platform adapter translates the official envelope into this
-shape before the handler sees it.
+This is the local failure/retry emulator's versioned seam, not the AI for Thai
+wire protocol. The current official integration uses HTTP/FastAPI and bypasses
+this queue envelope.
 """
 
 from __future__ import annotations

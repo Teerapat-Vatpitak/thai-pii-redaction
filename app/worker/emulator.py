@@ -1,7 +1,8 @@
-"""Deterministic transport emulator for pre-platform acceptance.
+"""Deterministic transport emulator for local failure/retry checks.
 
 It models delivery and result-submission failures at AI Guard's transport seam.
-It does not claim to reproduce an unpublished AI for Thai queue protocol.
+It is not the official AI for Thai delivery path and does not reproduce a
+platform queue protocol.
 """
 
 from __future__ import annotations

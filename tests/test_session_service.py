@@ -10,7 +10,9 @@ from pii_redactor.models import Entity
 from pii_redactor.session_service import (
     ModeMismatchError,
     OutboundLeakError,
+    RestoreTransactionError,
     SanitizeOutcome,
+    SanitizeTransactionError,
     SessionExpiredError,
     SessionService,
 )
@@ -73,6 +75,17 @@ def _forced_fp_leak(_text, _vault):
             original_text="synthetic-checksum-value",
         )
     ]
+
+
+def _product_traceback_locals(error):
+    frames = []
+    traceback = error.__traceback__
+    while traceback is not None:
+        module = traceback.tb_frame.f_globals.get("__name__", "")
+        if module.startswith(("pii_redactor.", "app.")):
+            frames.append(dict(traceback.tb_frame.f_locals))
+        traceback = traceback.tb_next
+    return frames
 
 
 def test_create_session_defaults_to_token_mode():
@@ -345,6 +358,7 @@ def test_post_publish_cleanup_failure_does_not_report_a_failed_request(
         "detection",
         "anonymization",
         "residual_scan",
+        "independent_residual_scan",
         "wire_projection",
         "section26",
         "finalize",
@@ -369,6 +383,13 @@ def test_existing_session_failure_preserves_complete_state(monkeypatch, stage):
         monkeypatch.setattr(stateless_mod, "anonymize", fail_after_vault_writes)
     elif stage == "residual_scan":
         monkeypatch.setattr(svc_mod, "scan_outbound_leaks", _forced_stage_failure)
+    elif stage == "independent_residual_scan":
+        monkeypatch.setattr(
+            svc_mod,
+            "scan_residual_signals",
+            _forced_stage_failure,
+            raising=False,
+        )
     elif stage == "wire_projection":
         monkeypatch.setattr(SessionVault, "get_by_entity_id", _forced_stage_failure)
     elif stage == "section26":
@@ -376,7 +397,7 @@ def test_existing_session_failure_preserves_complete_state(monkeypatch, stage):
     else:
         finalize = _forced_stage_failure
 
-    with pytest.raises(RuntimeError, match="forced transaction stage failure"):
+    with pytest.raises(SanitizeTransactionError, match="sanitize transaction failed"):
         svc.sanitize_transaction(
             "อีเมล first@example.com",
             session_id=existing.session_id,
@@ -401,6 +422,7 @@ def test_published_session_entities_are_immutable():
         "detection",
         "anonymization",
         "residual_scan",
+        "independent_residual_scan",
         "wire_projection",
         "section26",
         "finalize",
@@ -422,6 +444,13 @@ def test_new_session_failure_never_publishes_provisional_state(monkeypatch, stag
         monkeypatch.setattr(stateless_mod, "anonymize", fail_after_vault_writes)
     elif stage == "residual_scan":
         monkeypatch.setattr(svc_mod, "scan_outbound_leaks", _forced_stage_failure)
+    elif stage == "independent_residual_scan":
+        monkeypatch.setattr(
+            svc_mod,
+            "scan_residual_signals",
+            _forced_stage_failure,
+            raising=False,
+        )
     elif stage == "wire_projection":
         monkeypatch.setattr(SessionVault, "get_by_entity_id", _forced_stage_failure)
     elif stage == "section26":
@@ -429,7 +458,7 @@ def test_new_session_failure_never_publishes_provisional_state(monkeypatch, stag
     else:
         finalize = _forced_stage_failure
 
-    with pytest.raises(RuntimeError, match="forced transaction stage failure"):
+    with pytest.raises(SanitizeTransactionError, match="sanitize transaction failed"):
         svc.sanitize_transaction(
             "อีเมล first@example.com",
             finalize=finalize,
@@ -460,6 +489,49 @@ def test_failed_sanitize_does_not_consume_the_next_token_ordinal(monkeypatch):
     assert email_token == "[อีเมล_1]"
 
 
+def test_residual_error_graph_drops_input_and_staged_service_state(monkeypatch):
+    svc, _ = _svc()
+    residual = "โทร 081-234-5678"
+    monkeypatch.setattr(svc_mod, "scan_outbound_leaks", _forced_fp_leak)
+
+    with pytest.raises(OutboundLeakError) as excinfo:
+        svc.sanitize(residual)
+
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    assert all(svc is not value for frame in frame_locals for value in frame.values())
+    assert residual not in repr(frame_locals)
+    assert svc.session_count == 0
+
+
+def test_retained_finalizer_exception_cannot_keep_transaction_graph():
+    svc, _ = _svc()
+    request_text = "อีเมล retained@example.invalid"
+    retained_error = RuntimeError("synthetic finalizer failure")
+
+    def fail_finalize(_outcome):
+        raise retained_error
+
+    with pytest.raises(SanitizeTransactionError) as excinfo:
+        svc.sanitize_transaction(
+            request_text,
+            finalize=fail_finalize,
+        )
+
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    assert all(svc is not value for frame in frame_locals for value in frame.values())
+    assert request_text not in repr(frame_locals)
+    assert svc.session_count == 0
+
+
 @pytest.mark.parametrize("boundary", ["section26", "finalizer"])
 def test_non_vault_timeout_name_collision_preserves_published_state(
     monkeypatch,
@@ -479,7 +551,7 @@ def test_non_vault_timeout_name_collision_preserves_published_state(
     else:
         finalize = fail_with_timeout
 
-    with pytest.raises(VaultTimeoutError, match=f"synthetic {boundary} failure"):
+    with pytest.raises(SanitizeTransactionError, match="sanitize transaction failed"):
         svc.sanitize_transaction(
             "อีเมล first@example.com",
             session_id=existing.session_id,
@@ -499,7 +571,7 @@ def test_detector_vault_timeout_name_collision_preserves_published_state(monkeyp
         raise VaultTimeoutError("synthetic detector failure")
 
     monkeypatch.setattr(stateless_mod, "detect_all", fail_detection)
-    with pytest.raises(VaultTimeoutError, match="synthetic detector failure"):
+    with pytest.raises(SanitizeTransactionError, match="sanitize transaction failed"):
         svc.sanitize(
             "อีเมล first@example.com",
             session_id=existing.session_id,
@@ -609,7 +681,7 @@ def test_drop_cannot_run_while_transaction_state_is_staged():
     assert svc.session_count == 0
 
 
-def test_sanitize_tb_leak_becomes_warning(monkeypatch):
+def test_sanitize_tb_leak_blocks_without_publishing_session(monkeypatch):
     import pii_redactor.session_service as svc_mod
 
     svc, _ = _svc()
@@ -629,9 +701,32 @@ def test_sanitize_tb_leak_becomes_warning(monkeypatch):
         ]
 
     monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fake_scan)
-    out = svc.sanitize("ข้อความ 081-234-5678")
-    assert out.warnings == ["possible_tb_leak:NAME"]
-    assert "สมชาย" not in " ".join(out.warnings)
+    with pytest.raises(OutboundLeakError) as excinfo:
+        svc.sanitize("ข้อความ 081-234-5678")
+
+    assert excinfo.value.leak_types == ["NAME"]
+    assert "สมชาย" not in str(excinfo.value)
+    assert svc.session_count == 0
+
+
+def test_detector_independent_residual_preserves_existing_session(monkeypatch):
+    svc, clock = _svc()
+    existing = svc.sanitize("โทร 081-234-5678")
+    before = _service_state(svc)
+    clock["t"] += 10
+    monkeypatch.setattr(
+        svc_mod,
+        "scan_residual_signals",
+        lambda _text, _vault: ["orphan_digits:7"],
+        raising=False,
+    )
+
+    with pytest.raises(OutboundLeakError) as excinfo:
+        svc.sanitize("เอกสารหมายเลข 6801234", session_id=existing.session_id)
+
+    assert excinfo.value.leak_types == ["ORPHAN_DIGITS"]
+    assert "6801234" not in str(excinfo.value)
+    assert _service_state(svc) == before
 
 
 from pii_redactor.session_service import RestoreOutcome
@@ -683,6 +778,25 @@ def test_restore_warns_on_ai_generated_pii():
     assert any(w.startswith("ai_generated_pii") for w in r.warnings)
 
 
+def test_restore_warning_discards_retained_validator_exception(monkeypatch):
+    from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
+
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    retained_error = OutputPIILeakError("synthetic validator failure")
+
+    def fail_validation(*_args, **_kwargs):
+        raise retained_error
+
+    monkeypatch.setattr(svc_mod, "validate_output", fail_validation)
+    restored = svc.restore(out.session_id, out.sanitized_text)
+
+    assert "ai_generated_pii" in restored.warnings
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+
+
 def test_restore_multi_turn_uses_accumulated_registry():
     svc, _ = _svc()
     o1 = svc.sanitize("เบอร์ 081-234-5678")
@@ -701,6 +815,100 @@ def test_restore_idle_vault_translates_to_session_expired():
     with pytest.raises(SessionExpiredError):
         svc.restore(out.session_id, out.sanitized_text)
     assert svc.session_count == 0  # dead session was dropped
+
+
+@pytest.mark.parametrize("entrypoint", ["restore", "_restore_locked"])
+def test_restore_error_graph_drops_reply_and_live_session_state(monkeypatch, entrypoint):
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    session = svc._sessions[out.session_id]
+    vault = session.vault
+    before = _service_state(svc)
+    reply = f"คำตอบ {out.sanitized_text}"
+    retained_error = RuntimeError("synthetic restore failure")
+
+    def fail_restore(response, _registry, active_vault):
+        hidden_reply = response.text
+        hidden_service = svc
+        hidden_session = session
+        hidden_vault = active_vault
+        assert hidden_reply and hidden_service and hidden_session and hidden_vault
+        raise retained_error
+
+    monkeypatch.setattr(svc_mod, "reverse_map", fail_restore)
+
+    with pytest.raises(RestoreTransactionError, match="^restore failed$") as excinfo:
+        if entrypoint == "restore":
+            svc.restore(out.session_id, reply)
+        else:
+            with svc._lock:
+                svc._restore_locked(out.session_id, reply)
+
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    sensitive_objects = (svc, session, vault)
+    assert all(
+        value is not sensitive
+        for frame in frame_locals
+        for value in frame.values()
+        for sensitive in sensitive_objects
+    )
+    assert reply not in repr(frame_locals)
+    assert _service_state(svc) == before
+
+
+@pytest.mark.parametrize("entrypoint", ["restore", "_restore_locked"])
+def test_restore_vault_timeout_translation_has_no_exception_context(monkeypatch, entrypoint):
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    session = svc._sessions[out.session_id]
+    vault = session.vault
+    reply = f"คำตอบ {out.sanitized_text}"
+    retained_timeout = VaultTimeoutError("synthetic vault timeout")
+
+    def fail_restore(response, _registry, active_vault):
+        hidden_reply = response.text
+        hidden_service = svc
+        hidden_session = session
+        hidden_vault = active_vault
+        assert hidden_reply and hidden_service and hidden_session and hidden_vault
+        raise retained_timeout
+
+    monkeypatch.setattr(svc_mod, "reverse_map", fail_restore)
+
+    with pytest.raises(
+        SessionExpiredError,
+        match="^Session not found or expired$",
+    ) as excinfo:
+        if entrypoint == "restore":
+            svc.restore(out.session_id, reply)
+        else:
+            with svc._lock:
+                svc._restore_locked(out.session_id, reply)
+
+    assert retained_timeout.__traceback__ is None
+    assert retained_timeout.__cause__ is None
+    assert retained_timeout.__context__ is None
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    sensitive_objects = (svc, session, vault)
+    assert all(
+        value is not sensitive
+        for frame in frame_locals
+        for value in frame.values()
+        for sensitive in sensitive_objects
+    )
+    assert reply not in repr(frame_locals)
+    assert svc.session_count == 0
+    assert vault._table == {}
+    assert vault._reverse == {}
 
 
 def test_sanitize_idle_vault_translates_to_session_expired():

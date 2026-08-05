@@ -1,10 +1,11 @@
 """Run loop: poll -> handle -> submit, forever or until told to stop.
 
-Logs carry a one-way job reference / operation / status / latency only — never
-the raw job_id or payload text (VAULT-4 applies to the worker too). A bounded
-in-memory result cache prevents a same-process redelivery from repeating a
-provider side effect after result submission fails. Cross-process retry/ack
-semantics remain unknown until the official platform specification arrives.
+Logs carry a one-way job reference, operation, status, latency, and on failure
+an exception class name—never the raw job ID, exception message, or payload
+text. The v1 class-name field remains open cleanup work. A bounded in-memory
+result cache prevents a same-process redelivery from repeating a provider side
+effect after result submission fails. This local emulator does not claim
+official delivery, retry, or acknowledgement semantics.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from app.worker.contract import (
 )
 from app.worker.handler import handle_job
 from app.worker.transport import Transport
+from pii_redactor.safe_errors import discard_exception_graph
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +106,11 @@ def run(
                 break
             try:
                 job = transport.poll()
-            except Exception as e:  # defense in depth — a transport bug must not kill the worker
-                logger.warning("poll raised %s", type(e).__name__)
+            except Exception as error:  # defense in depth — keep the worker alive
+                error_type = type(error).__name__
+                discard_exception_graph(error)
+                error = None
+                logger.warning("poll raised %s", error_type)
                 job = None
             if job is None:
                 if max_jobs is not None:
@@ -125,24 +130,31 @@ def run(
             elif cache_state == "miss":
                 try:
                     result = handler(job)
-                except Exception as e:  # substituted handler may break the promise
-                    logger.error("handler raised %s", type(e).__name__)
+                except Exception as error:  # substituted handler may break the promise
+                    error_type = type(error).__name__
+                    discard_exception_graph(error)
+                    error = None
+                    logger.error("handler raised %s", error_type)
                     result = {
                         "contract_version": CONTRACT_VERSION,
                         "job_id": cache_job_id,
                         "operation": safe_operation(job_dict.get("operation")),
                         "status": "error",
-                        "error": {"type": "handler_crashed", "message": type(e).__name__},
+                        "error": {"type": "handler_crashed", "message": error_type},
                     }
                 if cache_job_id and fingerprint:
                     cache.store(cache_job_id, fingerprint, result)
             try:
                 transport.submit(result)
-            except Exception as e:  # keep the loop alive
+            except Exception as error:  # keep the loop alive
+                error_type = type(error).__name__
+                job_ref = _job_ref(result.get("job_id"))
+                discard_exception_graph(error)
+                error = None
                 logger.error(
                     "submit failed job_ref=%s error=%s",
-                    _job_ref(result.get("job_id")),
-                    type(e).__name__,
+                    job_ref,
+                    error_type,
                 )
             processed += 1
             logger.info(

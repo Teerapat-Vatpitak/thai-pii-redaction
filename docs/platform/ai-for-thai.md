@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-08-05
+Updated: 2026-08-06
 
 ## Submitted service
 
@@ -90,23 +90,26 @@ This repo keeps its local-first role (extension, desktop, CLI, Office add-in);
 the port is a thin service shell around a vendored slice of the core:
 
 - a vendored `core/` slice — a per-file SHA-256 manifest pins the upstream
-  commit, which now includes the hosted-readiness knobs from PR #101 — plus an
-  OCR-baked image;
+  commit with the hosted-readiness knobs from PR #101 — plus an OCR-baked
+  image. That pinned core predates F09 and requires a separately authorized
+  re-vendor and privacy/soak rerun before any first push;
 - an nginx `api/` layer that re-adds the `/api` prefix the platform proxy
   strips, exposes only a six-endpoint exact-match allowlist, injects the service
   key, and logs without the query string; and
 - a five-scene product page and a stateless roundtrip (mask → thaillm-8b →
-  restore within one request; the current main-repository roundtrip consumes
-  its transient mapping internally and does not return it). The sibling port
-  remains a separately versioned v1 contract; its exact response projection
-  must be verified in that repository before official acceptance and must not
-  be described as migrated to this campaign's future v2.
+  restore within one request). The current sibling v1 roundtrip consumes its
+  literal transient mapping internally, but its returned token-bearing
+  `entities[]` uses original-space offsets and permits reconstruction against
+  caller-held source text. Hosted response minimization therefore remains open.
+  The sibling remains separately versioned; it must not be described as
+  migrated to this campaign's future v2.
 
-The port passed a full local Docker phase: the ก-ฌ checklist, fail-loud and 503
-failure modes, and a service-level soak (an 8-way 10-minute run with no 5xx, a
-429 under overload rather than a crash, PII-free logs, and restart recovery).
-Evidence lives in the port repo's `docs/evidence/`. Pushing to GitLab and the
-real platform run remain owner-gated. The
+The pre-F09 port passed a full local Docker phase: the ก-ฌ checklist, fail-loud
+and 503 failure modes, and a service-level soak (an 8-way 10-minute run with no
+5xx, a 429 under overload rather than a crash, PII-free logs, and restart
+recovery). This is exact historical evidence, not current fail-closed
+certification. Evidence lives in the port repo's `docs/evidence/`. Pushing to
+GitLab and the real platform run remain owner-gated. The
 [tokenmind detector + port ADR](../decisions/2026-07-28-tokenmind-detector-and-aift-port.md)
 records the decision and the thaillm-8b detector numbers.
 
@@ -141,8 +144,11 @@ intended hosted boundaries, with current hardening exceptions called out, are:
 
 - mappings remain transient and are not persisted;
 - normal hosted results must not export explicit mapping DTOs; current main
-  roundtrip consumes its mapping internally, while the sibling port's v1
-  projection requires separate verification;
+  and the sibling port's v1 roundtrip both consume the literal mapping
+  dictionary internally, but still return token-bearing entity projections
+  with original-space offsets that permit reconstruction against caller-held
+  source text. Response minimization, packaged acceptance, and
+  official-platform acceptance remain unverified;
 - application logs and public errors must not contain request text, raw PII, or
   bearer authority. Current-source shared-server API callers use fresh
   non-authorizing operation UUIDs rather than live restoration session IDs,
@@ -150,11 +156,15 @@ intended hosted boundaries, with current hardening exceptions called out, are:
   regressions cover that source path. The separately versioned sibling port and
   official platform log transport, retention, and visible scan remain
   unverified;
-- the protected roundtrip is intended to send only verified masked text to the
-  LLM. Current HTTP/worker code can invoke the provider after stateless
-  residual warnings, so masked-only/fail-closed recertification remains open.
-  The port uses thaillm-8b through the tokenmind gateway, the only provider its
-  hosted allowlist enables; and
+- the repository's current shared outbound policy fails closed for structured
+  FP findings, text-based TB findings, detector-independent contiguous runs of
+  six or more digits, and missing replacement records. CLI, HTTP, and worker
+  paths rescan immediately before their provider calls. This is source-level
+  automated evidence only: the separately versioned sibling still carries a
+  pre-F09 core, so it requires an authorized core sync and masked-only/
+  fail-closed recertification alongside packaged compositions, live providers,
+  and official hosted deployment. The port uses thaillm-8b through the
+  tokenmind gateway, the only provider its hosted allowlist enables; and
 - provider credentials and the AI Guard caller key are separate secrets.
 
 Do not use the local-product claim "PII never leaves the device" for this
@@ -162,19 +172,19 @@ deployment.
 
 ## Official HTTP adapter boundary
 
-The shared core does not need a platform fork. The current local FastAPI server,
-however, is not ready to be exposed by the documented reverse proxy without a
-small, explicit hosted adapter/configuration layer:
+The main FastAPI server remains local-first. The separate port repository
+already realizes a local hosted shell without forking the core, but its exact
+public contract and platform behavior remain unconfirmed:
 
-| Area | Official guide / current code | Required adapter delta |
+| Area | Local candidate implementation | Still unconfirmed or unaccepted |
 |---|---|---|
-| Route prefix | Public `/api/...` is stripped before the container; current routes are declared as `/api/*`. | Expose only the approved operations as unprefixed backend routes while preserving the local `/api/*` contract. |
-| FastAPI root | Generated platform URLs must understand the public prefix. | Set `root_path="/api"` only in the hosted configuration. |
-| Health | Platform expects backend `/health`; current health is `/api/health`. | Add the unprefixed hosted health route used by Compose/proxy checks. |
-| Host policy | Current trusted hosts are only `localhost` and `127.0.0.1`. | Add only the documented proxy host(s); do not broadly disable host validation. |
-| Public surface | The local server contains endpoints beyond the submitted hosted operations, and its declared API-key middleware does not cover every possible provider-backed route. | Confirm the official operation list and caller authentication, then fail closed with an explicit route allowlist and uniform protection. |
-| Frontend | Guide examples show frontend plus API; the submitted product is an API service. | Confirm that API-only deployment is accepted before adding any frontend service. |
-| Deployment | Local Compose is a developer profile. | Add platform-specific Compose/CI, loopback port mapping, health check, resource limits, masked-variable mapping, and bounded logs without weakening local defaults. |
+| Route prefix | Nginx re-adds the stripped `/api` prefix and exposes an exact six-route allowlist while main keeps `/api/*`. | Approved public operations and proxy behavior. |
+| FastAPI root | The port supplies hosted root-path/configuration rather than changing the local server default. | Generated URL behavior on platform infrastructure. |
+| Health | The port exposes unprefixed `/health` for Compose/proxy checks. | Probe interval, grace, restart, and termination policy. |
+| Host policy | PR #101 provides the env-gated host allowlist and the port config narrows the candidate. | Exact proxy Host header(s). |
+| Public surface | Nginx uses an exact allowlist and server-side key injection. | Official operation list and caller authentication/header rules. |
+| Frontend | The sibling includes a five-scene product page. | Whether that frontend is required and accepted. |
+| Deployment | The sibling includes platform-shaped Compose/CI, loopback publication, health, limits, masked variables, and bounded logs. | Exact repository/registry/template rules and official platform acceptance. |
 
 Do not change detection, masking, transient mapping, residual leak checks,
 provider calls, or restoration to satisfy this layer. Do not expose
@@ -184,17 +194,11 @@ and protects them.
 
 The remaining answers are narrow but security-sensitive: approved operations,
 caller-authentication/header rules, payload and timeout limits, proxy
-hostnames, frontend requirement, project/template ownership, and acceptance
-owner. Until those are confirmed, adapter code would encode guesses in a
-public boundary.
-
-Update (2026-07-28): this adapter is realized in the port repo's nginx layer —
-prefix re-add, exact six-endpoint allowlist, key injection, unprefixed
-`/health` — not by forking the main server. PR #101 added the env-gated pieces
-the server itself owns (host allowlist via `AIGUARD_ALLOWED_HOSTS`, provider
-allowlist via `AIGUARD_PROVIDERS`, audit-to-stdout, and public-input caps),
-while the main server keeps its local `/api/*` contract unchanged. The open
-contract questions above still gate the real platform run.
+hostnames, frontend requirement, exact repository/registry/template-file
+rules, and acceptance owner. Until those are confirmed, changing the adapter
+would encode guesses in a public boundary. Before any first push, the candidate
+also needs its pinned core re-vendored from current main and the privacy,
+Docker, and soak evidence rerun; do not patch a divergent core in the sibling.
 
 ## Provisional worker emulator evidence
 
@@ -212,11 +216,13 @@ worker-visible logs and public error results with a synthetic honeytoken. See
 the [dated acceptance record](../acceptance/2026-07-24-worker-emulator-run.md).
 
 This is readiness evidence, not platform evidence. The result cache is
-process-local and intentionally contains no durable mapping or payload. It can
-avoid repeating a provider call after a failed submit followed by redelivery
-in the same process. It cannot prove exactly-once behavior after a process or
-container crash. That requires the official acknowledgement semantics and, if
-necessary, a platform-supported idempotency store.
+process-local and never persisted, but it transiently holds the complete
+worker result until eviction or clear; an opt-in version-1 sanitize result can
+therefore include its internal mapping. The cache can avoid repeating a
+provider call after a failed submit followed by redelivery in the same
+process. It cannot prove exactly-once behavior after a process or container
+crash. That requires the official acknowledgement semantics and, if necessary,
+a platform-supported idempotency store.
 
 ## Remaining specification checklist
 
@@ -225,14 +231,14 @@ the design to the old queue assumption.
 
 | Area | Known | Still required |
 |---|---|---|
-| Access | Login and group membership work. | Who creates the project/template, repository URL, and official support/escalation channel. |
+| Access | Login and group membership work; participants create the project in the team subgroup. | Exact repository URL/rules, mandatory template files, and official support/escalation channel. |
 | Delivery | HTTP/FastAPI through the platform reverse proxy; Compose deploys from GitLab `main`. | Whether an API-only service is accepted and which files/template are mandatory. |
 | Routing | Public `/api` is stripped; backend health is `/health`; FastAPI docs use `root_path="/api"`. | Exact proxy Host header, approved public operations, and caller-authentication model/header. |
 | Registry | GitLab is the delivery control plane. | Image registry/repository rule, architecture, tag/digest rule, and whether CI builds or pulls. |
 | Limits | CPU-only, declared service limits, bounded logs, 20-minute CI jobs, and team CI concurrency of three. | Request/result bytes, API concurrency, request/overall timeout, and exact acceptance thresholds. |
 | Networking | Host ports bind to loopback; TLS and public routing are platform-owned. | Outbound DNS/TLS/allowlist policy for the issued LLM endpoint, Pathumma, and TNER. |
 | Secrets | Masked CI variables feed the runtime environment; provider access was issued privately. | Required variable names, caller/provider separation, rotation, and whether file-mounted secrets are allowed. |
-| LLM | Endpoint, model identifier, and secret have been issued. | Protocol/compatibility, auth placement, timeout, quota, acceptable use, logging, and live acceptance fixture. |
+| LLM | Endpoint, model identifier, and secret have been issued; the current port uses the OpenAI-compatible protocol and private server-side authentication, and a developer-machine live run reached the service. | Timeout ownership, quota, acceptable use, logging, and a platform-originated live acceptance fixture. |
 | Logs | Bounded container rotation and platform log viewing are required. | Retention, audience/access, stdout/stderr fields, and platform-side redaction/incident procedure. |
 | Health | Backend `/health` plus container health checks are required. | Interval, startup grace, restart policy, and termination grace. |
 | Acceptance | Synthetic data and PII-free evidence remain mandatory. | Required operations, fixtures, soak/SLA, evidence format, approving owner, and sign-off path. |
@@ -241,11 +247,15 @@ the design to the old queue assumption.
 
 1. Build the exact commit and identify the image by immutable digest.
 2. Boot with no runtime model download and pass the platform health check.
-3. Complete a synthetic Thai detect request and validate UTF-8 spans.
-4. Complete sanitize and analyze requests; confirm no mapping unless explicitly
-   required by an approved contract.
-5. Complete a protected Pathumma roundtrip if outbound access and credentials
-   are approved.
+3. Exercise every approved public operation with synthetic Thai input and
+   validate UTF-8 spans and strict response projections. The current local port
+   candidate has a six-route allowlist that includes roundtrip and
+   analyze-report and deliberately excludes sanitize and reidentify; this is a
+   candidate, not the official operation contract.
+4. Confirm that no approved response exports a mapping.
+5. Complete a protected roundtrip through the configured downstream provider
+   if outbound access and credentials are approved. The current local port uses
+   Tokenmind; that does not establish final platform approval.
 6. Inject malformed, timeout, provider-failure, and oversized requests.
 7. Restart during work and verify safe recovery. Test duplicate/retry behavior
    only when the official HTTP contract defines it.

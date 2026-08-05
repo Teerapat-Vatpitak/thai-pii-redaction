@@ -10,6 +10,7 @@ from pii_redactor.ingest.file_detector import (
     validate_encoding,
 )
 from pii_redactor.models import WordBbox
+from pii_redactor.safe_errors import discard_exception_graph
 
 
 def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], dict]:
@@ -93,8 +94,9 @@ def _extract_pdf_text(path: Path) -> tuple[str, list[WordBbox]]:
             return full_text, word_bboxes
 
         # pdfplumber returned empty — fall through to pypdfium2
-    except Exception:
-        pass  # fall through to pypdfium2
+    except Exception as exc:
+        discard_exception_graph(exc)
+        # Fall through to pypdfium2.
 
     return _extract_pdf_pypdfium2(path)
 

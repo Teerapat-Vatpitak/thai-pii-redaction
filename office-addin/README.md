@@ -11,6 +11,10 @@ Add-in
 transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting.
 HTTP contract v2, packaged-backend composition และการแยก health capability ระหว่าง
 control token กับ data-plane API key ยังเป็น hardening gate ที่ไม่ผ่าน acceptance
+Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6
+หลักที่ detector ไม่พบ และ missing replacement record แล้ว แต่หลักฐาน Office
+real-host เดิมเกิดก่อนการเปลี่ยนนี้และต้องทดสอบซ้ำ รายการ real-host/package ที่เปิด
+อยู่ทั้งแปดยังไม่เปลี่ยน
 
 การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
 host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
@@ -53,10 +57,12 @@ Excel และ PowerPoint ต้องผ่าน host-functional และ un
   ตีความเป็น data-plane credential requirement ทำให้ packaged backend ที่ปลอดภัย
   สามารถถูกปฏิเสธได้ v2 ต้องแยก `control_token_required` กับ
   `api_key_required`; automated composition และ real-host acceptance ยังไม่ผ่าน
-- warning ของ text-based residual ใน v1 ยังไม่ปิด Apply/Copy/Insert ทุกกรณี
-  และ backend provider call อาจเกิดก่อน Office แสดง warning จึงต้องตรวจผลและ
-  ห้ามถือ source candidate ปัจจุบันเป็น fail-closed production package จนกว่า
-  mandatory residual gate และ client safety checks จะผ่าน
+- backend source ปัจจุบันไม่คืน masked result เมื่อพบ structured FP,
+  text-based TB, เลขติดกันตั้งแต่ 6 หลักจาก detector-independent scan หรือ
+  missing replacement record และ HTTP roundtrip สแกนซ้ำทันทีก่อนเรียก provider
+  โดยตรง จึงไม่มี residual warning-only result ให้ Apply/Copy/Insert แต่ Office
+  ยังใช้ contract v1 และไม่ใช่ strict v2 client หลักฐาน automated composition,
+  real-host และ package ของการเปลี่ยนนี้ยังไม่ผ่าน
 - detector ปกติอยู่ในเครื่อง แต่ถ้า backend เลือก
   `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน จะส่ง raw pre-mask chunk ไป AI for Thai
 - ปิด backend หรือ task pane แล้ว session อาจหายและ Restore ไม่ได้ ระบบต้องแจ้ง

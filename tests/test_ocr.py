@@ -10,6 +10,8 @@ functions against synthetic images.
 """
 
 import builtins
+import gc
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -459,6 +461,52 @@ def test_ocr_page_retries_once_on_a_bare_engine_runtime_error(monkeypatch):
     assert result.attempts == 2
     assert [word.text for word in result.words] == ["ทดสอบ"]
     assert result.warnings == ["page 1: OCR attempt 1 raised RuntimeError; retried once"]
+
+
+def test_ocr_retry_discards_retained_exception_and_image_graph(monkeypatch):
+    retained_error = RuntimeError("synthetic OCR engine failure")
+    retained: dict[str, weakref.ReferenceType] = {}
+    calls = 0
+
+    class Payload:
+        pass
+
+    def render(_page, _dpi):
+        rendered = Payload()
+        retained["rendered"] = weakref.ref(rendered)
+        return rendered
+
+    def preprocess(rendered, *, level=0):
+        assert level == 0
+        processed = Payload()
+        processed.source = rendered
+        retained["processed"] = weakref.ref(processed)
+        return processed
+
+    def run_once(image, page_num, _dpi):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise retained_error
+        return [WordBbox(text="abc", page=page_num, x=0, y=0, width=1, height=1)], 0.95
+
+    monkeypatch.setattr(ocr_processor, "_render_page_to_array", render)
+    monkeypatch.setattr(ocr_processor, "preprocess_image", preprocess)
+    monkeypatch.setattr(ocr_processor, "_run_ocr_once", run_once)
+
+    page = Payload()
+    retained["page"] = weakref.ref(page)
+    result = ocr_processor.ocr_page(page=page, page_num=1, max_retries=1)
+    page = None
+    gc.collect()
+
+    assert result.text == "abc"
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert retained["page"]() is None
+    assert retained["rendered"]() is None
+    assert retained["processed"]() is None
 
 
 def test_ocr_page_second_engine_failure_propagates_unchanged(monkeypatch):

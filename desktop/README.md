@@ -14,8 +14,11 @@ directly call a remote provider. The sidecar can call configured providers, and
 explicit `AIGUARD_NER_ENGINE=tner` sends raw pre-mask chunks to AI for Thai.
 The canonical token-to-original vault stays in backend memory, but contract-v1
 response objects carry direct or reconstructable mapping fields into the UI,
-and residual warnings do not block every clipboard/provider path. Contract v2
-and mandatory outbound blocking are open hardening gates.
+and the UI is not a strict contract-v2 client. Current backend source rejects
+structured FP, text-based TB, detector-independent contiguous 6+ digit
+residuals, and missing replacement records instead of returning a warning-only
+masked result. This is automated source evidence, not packaged Desktop
+acceptance; contract v2 and strict client validation remain open.
 
 If something already owns port 8000 at startup, the shell checks the owning
 process's image name: its own orphaned `aiguard` backend (from a crashed shell)
@@ -31,8 +34,8 @@ authority; current fixed-port operation requires recertification. Current
 source API process-audit callers use fresh non-authorizing operation UUIDs
 instead of live restoration session IDs, while retaining the legacy
 `session_id` field name. This has source-level automated evidence only: the
-published 2.5.0 Desktop backend predates it, and no package containing this
-change has been accepted.
+published 2.5.0 Desktop backend predates both the correlation and outbound
+policy changes, and no package containing either change has been accepted.
 
 ## Develop
 

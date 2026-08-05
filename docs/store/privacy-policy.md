@@ -1,6 +1,6 @@
 # AI Guard — นโยบายความเป็นส่วนตัว / Privacy Policy
 
-_อัปเดตล่าสุด / Last updated: 2026-08-05_
+_อัปเดตล่าสุด / Last updated: 2026-08-06_
 
 ลิงก์ถาวรของหน้านี้ (สำหรับกรอกในฟอร์ม Chrome Web Store):
 `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md`
@@ -17,7 +17,7 @@ _อัปเดตล่าสุด / Last updated: 2026-08-05_
 
 Extension เรียก backend บนเครื่องของคุณโดยตรงเท่านั้น (`http://localhost:8000` หรือ `http://127.0.0.1:8000`) ซึ่งไม่ใช่เซิร์ฟเวอร์ของผู้พัฒนา extension ตัว extension ไม่มี host permission หรือโค้ดที่เรียกปลายทางอื่น แต่ backend จะเรียก AI for Thai หากผู้ใช้ตั้งค่า `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน Source build ปัจจุบันยังไม่ยืนยันตัวตนของ process ที่ครอบครอง port 8000 ดังนั้นควรใช้กับ backend ที่คุณเปิดและเชื่อถือเท่านั้น ระบบ native broker สำหรับ packaged build ยังเป็น hardening gate ที่เปิดอยู่
 
-เมื่อคุณกดปุ่ม "Mask PII" (บนแถบลอยในหน้าเว็บแชท AI หรือใน side panel) extension จะอ่านข้อความจากช่องพิมพ์ (หรือข้อความที่คุณเลือก/คำตอบล่าสุดของ AI เมื่อกด "Restore PII") แล้วส่งข้อความนั้นไปยัง backend ผ่าน loopback เพื่อตรวจจับและปกปิด PII ก่อนส่งต่อให้ AI ภายนอก Source build v1 ปัจจุบันยังเขียนผลกลับได้เมื่อพบ text-based residual warning จึงยังไม่ใช่ fail-closed production package ผู้ใช้ต้องตรวจผลก่อนกดส่ง
+เมื่อคุณกดปุ่ม "Mask PII" (บนแถบลอยในหน้าเว็บแชท AI หรือใน side panel) extension จะอ่านข้อความจากช่องพิมพ์ (หรือข้อความที่คุณเลือก/คำตอบล่าสุดของ AI เมื่อกด "Restore PII") แล้วส่งข้อความนั้นไปยัง backend ผ่าน loopback เพื่อตรวจจับและปกปิด PII ก่อนส่งต่อให้ AI ภายนอก Backend source ปัจจุบันไม่คืนผลที่ปกปิดเมื่อพบ structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักจาก detector-independent scan หรือ missing replacement record แต่หลักฐาน browser/store และ backend ที่เผยแพร่ใน Desktop 2.5.0 เกิดก่อนการเปลี่ยนนี้และต้องทดสอบซ้ำ จึงยังห้ามถือว่าเป็น production store package ที่ผ่าน acceptance แล้ว
 
 เมื่อใช้ปุ่ม Mask ในหน้าเว็บ ข้อความดิบถูกพิมพ์ลงใน DOM ที่ควบคุมโดยเว็บ AI ก่อน extension ทำงาน โค้ดของเว็บอาจเห็นหรือส่ง draft นั้นได้ก่อนถูกแทนที่ Contract v2 และ native broker แก้ขอบเขตนี้ไม่ได้ หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ AI
 
@@ -35,7 +35,7 @@ extension ไม่จงใจเก็บข้อความที่คุ�
 
 ### Audit log ของ backend
 
-Backend v1 เขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping source ปัจจุบันใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend ที่เผยแพร่ใน Desktop 2.5.0 ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และยังไม่มี package ที่รวม correlation change ปัจจุบันผ่าน acceptance
+Backend v1 เขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping source ปัจจุบันใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend ที่เผยแพร่ใน Desktop 2.5.0 ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และยังเกิดก่อน outbound-policy change ปัจจุบัน ยังไม่มี package ที่รวมการเปลี่ยนทั้งสองส่วนผ่าน acceptance
 
 ### สิทธิ์ (permissions) ที่ขอ และเหตุผล
 
@@ -68,7 +68,7 @@ The AI Guard extension and backend use a local detector by default. They do not 
 
 This extension directly talks only to a backend running on your own machine (`http://localhost:8000` or `http://127.0.0.1:8000`), not a server operated by the extension's developer. The extension has no host permissions or code that reach another endpoint. The backend is local by default but calls AI for Thai if the user explicitly configures `AIGUARD_NER_ENGINE=tner`. The current source build does not authenticate which process owns port 8000, so use it only with a backend you started and trust. A native broker for packaged operation is an open hardening gate.
 
-When you click "Mask PII" (on the floating bar shown on supported AI chat sites, or in the side panel), the extension reads the likely composer element (or your selection / a likely reply element for Restore) and sends that text to the backend over loopback so it can detect and mask PII before you send it to an external AI. The current v1 source build can write output after a text-based residual warning, so it is not yet an accepted fail-closed production package. Review the result before submitting it.
+When you click "Mask PII" (on the floating bar shown on supported AI chat sites, or in the side panel), the extension reads the likely composer element (or your selection / a likely reply element for Restore) and sends that text to the backend over loopback so it can detect and mask PII before you send it to an external AI. Current backend source returns no masked result when it finds structured FP, text-based TB, detector-independent contiguous 6+ digit residuals, or a missing replacement record. The published Desktop 2.5.0 backend and historical browser/store evidence predate this change and must be rerun, so no production store package containing this behavior has been accepted.
 
 For in-page Mask, raw text is already typed into the AI site's provider-controlled DOM before the extension acts. Site code can observe or transmit that draft before replacement; contract v2 and a native broker cannot remove this earlier boundary. For stronger isolation, enter raw text in the side panel and paste only the reviewed masked result into the AI site.
 
@@ -96,8 +96,8 @@ field. In file mode, each operation creates an operation-specific file and
 those files have no timed automatic deletion; configured stdout mode creates no
 file. The backend published with Desktop 2.5.0 still uses the live session ID
 for sanitize/reidentify audit events; its roundtrip event used a fixed
-non-session label. No package containing the current correlation change has
-been accepted.
+non-session label and predates the current outbound-policy change. No package
+containing either current change has been accepted.
 
 ### Permissions requested, and why
 

@@ -1,10 +1,18 @@
 """Tests for Step 1 ingest: file_detector and text_extractor."""
 
+import gc
+import sys
+import weakref
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from pii_redactor.ingest.file_detector import detect_source_type, validate_encoding
+from pii_redactor.ingest.file_detector import (
+    detect_source_type,
+    page_needs_ocr,
+    validate_encoding,
+)
 from pii_redactor.ingest.text_extractor import extract
 from pii_redactor.models import WordBbox
 
@@ -33,6 +41,33 @@ def test_validate_encoding_utf8():
 def test_validate_encoding_invalid_raises():
     with pytest.raises(ValueError):
         validate_encoding(b"\xff\xfe\xfa")  # invalid in all Thai encodings
+
+
+def test_page_ocr_fallback_discards_retained_exception_graph():
+    retained_error = RuntimeError("synthetic object-enumeration failure")
+    retained: dict[str, weakref.ReferenceType] = {}
+
+    class Payload:
+        pass
+
+    class Page:
+        def get_objects(self):
+            payload = Payload()
+            retained["payload"] = weakref.ref(payload)
+            raise retained_error
+
+    page = Page()
+    retained["page"] = weakref.ref(page)
+
+    assert page_needs_ocr(page) is True
+    page = None
+    gc.collect()
+
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert retained["page"]() is None
+    assert retained["payload"]() is None
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +140,54 @@ def test_extract_pdf_text_returns_bboxes(tmp_path):
     text, bboxes, meta = extract(str(pdf_path), "pdf_text")
     # At least some word bboxes should be returned
     assert isinstance(bboxes, list)
+
+
+def test_pdf_text_fallback_discards_retained_exception_graph(tmp_path, monkeypatch):
+    from pii_redactor.ingest import text_extractor
+
+    retained_error = RuntimeError("synthetic word-extraction failure")
+    retained: dict[str, weakref.ReferenceType] = {}
+
+    class ExtractedText(str):
+        pass
+
+    class Page:
+        page_number = 1
+
+        def extract_text(self):
+            text = ExtractedText("synthetic extracted page text")
+            retained["text"] = weakref.ref(text)
+            return text
+
+        def extract_words(self):
+            raise retained_error
+
+    class Pdf:
+        def __enter__(self):
+            page = Page()
+            retained["page"] = weakref.ref(page)
+            self.pages = [page]
+            return self
+
+        def __exit__(self, _error_type, _error, _traceback):
+            self.pages.clear()
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=lambda _path: Pdf()))
+    monkeypatch.setattr(
+        text_extractor,
+        "_extract_pdf_pypdfium2",
+        lambda _path: ("synthetic fallback text", []),
+    )
+
+    result = text_extractor._extract_pdf_text(tmp_path / "synthetic.pdf")
+    gc.collect()
+
+    assert result == ("synthetic fallback text", [])
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert retained["page"]() is None
+    assert retained["text"]() is None
 
 
 def test_detect_pdf_hybrid(tmp_path):

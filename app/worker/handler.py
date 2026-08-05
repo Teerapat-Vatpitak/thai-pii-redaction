@@ -1,9 +1,7 @@
-"""Job handler — the platform queue worker's declared contract.
+"""Job handler for the internal v1 local failure/retry emulator.
 
-PLATFORM JOB SCHEMA (contract v1, 2026-07-22): this wire schema is ours rather
-than a guess at a platform-owned contract. If an external queue uses a
-different envelope, adapt that boundary in the transport/schema adapter; the
-operations and privacy rules below remain the product contract.
+This schema is ours and is not the official AI for Thai delivery contract.
+The current hosted path uses HTTP/FastAPI and bypasses this queue envelope.
 
     job    = {"contract_version": 1, "job_id": str,
               "operation": <op>, "payload": {...}}
@@ -17,8 +15,9 @@ operations and privacy rules below remain the product contract.
 Missing ``contract_version`` is accepted as v1 for compatibility with the
 original provisional fixtures. New adapters and fixtures must send it.
 
-Error messages NEVER echo payload text — a queue result may be logged by the
-platform, and payload text is PII by assumption (VAULT-4 applies here too).
+Declared errors are fixed and value-free. The generic v1 poison barrier still
+exports an exception class name pending provider-orchestration cleanup; it does
+not copy the exception message or payload text.
 """
 
 from __future__ import annotations
@@ -26,11 +25,23 @@ from __future__ import annotations
 import uuid
 
 from app.worker.contract import CONTRACT_VERSION, EnvelopeError, validate_envelope
-from pii_redactor.ai_client import DEFAULT_SYSTEM_PROMPT, get_provider_factories
+from pii_redactor.ai_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    ProviderCallError,
+    complete_provider_call,
+    get_provider_factories,
+)
 from pii_redactor.detectors.aggregate import detect_all
 from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
+from pii_redactor.leak_guard import (
+    OutboundPolicyError,
+    enforce_outbound_policy,
+    scan_outbound_leaks,
+    scan_residual_signals,
+)
 from pii_redactor.report import analyze_text
+from pii_redactor.safe_errors import discard_exception_graph
 from pii_redactor.stateless import (
     StatelessLeakError,
     restore_stateless,
@@ -64,7 +75,17 @@ def _require_mode(payload: dict) -> str:
 def _op_sanitize(payload: dict) -> dict:
     text = _require_text(payload)
     mode = _require_mode(payload)
-    out = sanitize_stateless(clean(text).text, mode=mode, salt=uuid.uuid4().hex)
+    residual_failure = False
+    try:
+        out = sanitize_stateless(clean(text).text, mode=mode, salt=uuid.uuid4().hex)
+    except (OutboundPolicyError, StatelessLeakError) as error:
+        discard_exception_graph(error)
+        residual_failure = True
+    if residual_failure:
+        payload = None
+        text = ""
+        out = None
+        raise _SafeJobError("residual_pii", "outbound residual detected")
     result = {
         "sanitized_text": out.sanitized_text,
         "entities": out.entities,
@@ -94,30 +115,89 @@ def _op_roundtrip(payload: dict) -> dict:
     factory = _PROVIDER_FACTORIES.get(provider_name)
     if factory is None:
         raise _SafeJobError("invalid_provider", "unsupported provider")
+    provider_failure = None
     try:
         provider = factory()
-    except ValueError as e:
-        # Provider constructors use ValueError for missing credentials. Do not
-        # expose their message: queue error results may be retained in logs.
-        raise _SafeJobError("provider_unavailable", "provider unavailable") from e
+    except ValueError as error:
+        discard_exception_graph(error)
+        provider_failure = ("provider_unavailable", "provider unavailable")
+    except Exception as error:
+        discard_exception_graph(error)
+        provider_failure = ("provider_failed", "AI provider call failed")
+    if provider_failure is not None:
+        payload = None
+        text = ""
+        provider_name = ""
+        factory = None
+        provider = None
+        raise _SafeJobError(*provider_failure)
 
-    masked = sanitize_stateless(clean(text).text, mode=mode, salt=uuid.uuid4().hex)
+    residual_failure = False
     try:
-        ai_text = provider.complete(DEFAULT_SYSTEM_PROMPT, masked.sanitized_text)
-        if not isinstance(ai_text, str):
-            raise TypeError("provider response is not text")
-    except Exception as e:
-        # Provider response bodies and exception messages are not safe for a
-        # platform result. Preserve only a stable, non-sensitive category.
-        raise _SafeJobError("provider_failed", "AI provider call failed") from e
+        masked = sanitize_stateless(clean(text).text, mode=mode, salt=uuid.uuid4().hex)
+    except (OutboundPolicyError, StatelessLeakError) as error:
+        discard_exception_graph(error)
+        residual_failure = True
+    if not residual_failure:
+        try:
+            enforce_outbound_policy(
+                masked.sanitized_text,
+                guard_context=masked.guard_context,
+                scan_leaks=scan_outbound_leaks,
+                scan_residual=scan_residual_signals,
+            )
+        except OutboundPolicyError as error:
+            discard_exception_graph(error)
+            residual_failure = True
+    if residual_failure:
+        payload = None
+        text = ""
+        provider_name = ""
+        factory = None
+        provider = None
+        masked = None
+        error = None
+        raise _SafeJobError("residual_pii", "outbound residual detected")
 
+    provider_failed = False
+    try:
+        ai_text = complete_provider_call(
+            provider,
+            DEFAULT_SYSTEM_PROMPT,
+            masked.sanitized_text,
+        )
+    except ProviderCallError as error:
+        discard_exception_graph(error)
+        provider_failed = True
+    if provider_failed:
+        payload = None
+        text = ""
+        provider_name = ""
+        factory = None
+        provider = None
+        masked = None
+        ai_text = ""
+        raise _SafeJobError("provider_failed", "AI provider call failed")
+
+    restore_failed = False
     try:
         restored = restore_stateless(ai_text, mapping=masked.mapping)
-    except Exception as e:
+    except Exception as error:
+        discard_exception_graph(error)
+        restore_failed = True
+    if restore_failed:
         # Restoration defects get their own category; the outer poison barrier
         # collapsing them into job_failed hides exactly the failures the
         # roundtrip exists to prevent.
-        raise _SafeJobError("restore_failed", "restore failed") from e
+        payload = None
+        text = ""
+        provider_name = ""
+        factory = None
+        provider = None
+        masked = None
+        ai_text = ""
+        restored = None
+        raise _SafeJobError("restore_failed", "restore failed")
     return {
         "sanitized_text": masked.sanitized_text,
         "ai_response_masked": ai_text,
@@ -131,10 +211,16 @@ def _op_roundtrip(payload: dict) -> dict:
 
 
 def _op_restore(payload: dict) -> dict:
+    restore_failed = False
     try:
         out = restore_stateless(payload["text"], mapping=payload["mapping"])
-    except Exception as e:
-        raise _SafeJobError("restore_failed", "restore failed") from e
+    except Exception as error:
+        discard_exception_graph(error)
+        restore_failed = True
+    if restore_failed:
+        payload = None
+        out = None
+        raise _SafeJobError("restore_failed", "restore failed")
     return {
         "restored_text": out.restored_text,
         "replaced_count": out.replaced_count,
@@ -180,21 +266,23 @@ _OPERATIONS = {
 
 
 def _envelope_error_result(error: EnvelopeError) -> dict:
-    return {
+    result = {
         "contract_version": CONTRACT_VERSION,
         "job_id": error.job_id,
         "operation": error.operation,
         "status": "error",
         "error": {"type": error.error_type, "message": error.safe_message},
     }
+    discard_exception_graph(error)
+    return result
 
 
 def handle_job(job: object) -> dict:
     """Run one job. Never raises (except process-signal exceptions like KeyboardInterrupt) — a poison job must not kill the worker."""
     try:
         envelope = validate_envelope(job)
-    except EnvelopeError as e:
-        return _envelope_error_result(e)
+    except EnvelopeError as error:
+        return _envelope_error_result(error)
 
     operation = envelope.operation
     base = {
@@ -212,21 +300,30 @@ def handle_job(job: object) -> dict:
         }
     try:
         return {**base, "status": "ok", "result": op(envelope.payload)}
-    except _SafeJobError as e:
+    except _SafeJobError as error:
+        error_type = error.error_type
+        safe_message = error.safe_message
+        discard_exception_graph(error)
         return {
             **base,
             "status": "error",
-            "error": {"type": e.error_type, "message": e.safe_message},
+            "error": {"type": error_type, "message": safe_message},
         }
-    except StatelessLeakError as e:
+    except (OutboundPolicyError, StatelessLeakError) as error:
+        discard_exception_graph(error)
         return {
             **base,
             "status": "error",
-            "error": {"type": "pii_leak_risk", "message": ",".join(e.leak_types)},
+            "error": {
+                "type": "residual_pii",
+                "message": "outbound residual detected",
+            },
         }
-    except Exception as e:  # poison-job barrier, type name only
+    except Exception as error:  # poison-job barrier, type name only
+        error_type = type(error).__name__
+        discard_exception_graph(error)
         return {
             **base,
             "status": "error",
-            "error": {"type": "job_failed", "message": type(e).__name__},
+            "error": {"type": "job_failed", "message": error_type},
         }

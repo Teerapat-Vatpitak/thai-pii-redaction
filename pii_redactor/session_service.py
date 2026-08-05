@@ -20,12 +20,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TypeVar
 
-from pii_redactor.leak_guard import scan_outbound_leaks
+from pii_redactor.leak_guard import (
+    OutboundPolicyError,
+    scan_outbound_leaks,
+    scan_residual_signals,
+)
 from pii_redactor.models import AIResponse, Entity, EntityRegistry
 from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
 from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
 from pii_redactor.reverse_mapper import reverse_map
+from pii_redactor.safe_errors import discard_exception_graph
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
 from pii_redactor.stateless import StatelessLeakError, sanitize_into_vault
 
@@ -41,6 +46,14 @@ class ModeMismatchError(Exception):
     """Requested mode conflicts with the session's locked mode."""
 
 
+class SanitizeTransactionError(RuntimeError):
+    """A sanitize stage failed without exposing its exception object graph."""
+
+
+class RestoreTransactionError(RuntimeError):
+    """A restore stage failed without exposing its exception object graph."""
+
+
 # Flags with these prefixes are informational only on the inbound (restore)
 # direction — the client already gets the same signal via replaced_count/
 # leftover_tokens, and both flags are noisy on a normal chat reply:
@@ -54,9 +67,21 @@ _NOISY_PREFIXES = ("incomplete_reverse:", "possible_truncation:")
 class OutboundLeakError(Exception):
     """Anonymization could not guarantee a leak-free output. NO PII in message."""
 
-    def __init__(self, leak_types: list[str]):
-        self.leak_types = leak_types
-        super().__init__(f"outbound leak risk: {leak_types}")
+    def __init__(
+        self,
+        leak_types: list[str],
+        *,
+        policy_categories: list[str] | set[str] | tuple[str, ...] = (),
+    ):
+        normalized = OutboundPolicyError(
+            leak_types,
+            policy_categories=policy_categories,
+        )
+        self.leak_types = normalized.leak_types
+        self.policy_categories = normalized.policy_categories
+        self.category_count = normalized.category_count
+        self.policy_category_count = self.category_count
+        super().__init__(f"outbound residual risk: {self.leak_types}")
 
 
 @dataclass
@@ -181,14 +206,94 @@ class SessionService:
         mode: str | None = None,
         session_id: str | None = None,
     ) -> SanitizeOutcome:
-        return self.sanitize_transaction(
-            text,
-            mode=mode,
-            session_id=session_id,
-            finalize=_identity_finalize,
-        )
+        failure_kind = None
+        failure = None
+        try:
+            return self.sanitize_transaction(
+                text,
+                mode=mode,
+                session_id=session_id,
+                finalize=_identity_finalize,
+            )
+        except OutboundLeakError as error:
+            failure_kind = "residual"
+            failure = (list(error.leak_types), list(error.policy_categories))
+            discard_exception_graph(error)
+        except SessionExpiredError as error:
+            failure_kind = "expired"
+            discard_exception_graph(error)
+        except ModeMismatchError as error:
+            failure_kind = "mode"
+            discard_exception_graph(error)
+        except SanitizeTransactionError as error:
+            failure_kind = "failed"
+            discard_exception_graph(error)
+        self = None
+        text = ""
+        mode = None
+        session_id = None
+        if failure_kind == "residual":
+            safe_leak_types, safe_categories = failure
+            raise OutboundLeakError(
+                safe_leak_types,
+                policy_categories=safe_categories,
+            )
+        if failure_kind == "expired":
+            raise SessionExpiredError("Session not found or expired")
+        if failure_kind == "mode":
+            raise ModeMismatchError("session mode mismatch")
+        raise SanitizeTransactionError("sanitize transaction failed")
 
     def sanitize_transaction(
+        self,
+        text: str,
+        *,
+        mode: str | None = None,
+        session_id: str | None = None,
+        finalize: Callable[[SanitizeOutcome], _ResultT],
+    ) -> _ResultT:
+        """Run a sanitize turn while containing every failed stage."""
+        failure_kind = None
+        failure = None
+        try:
+            return self._sanitize_transaction_impl(
+                text,
+                mode=mode,
+                session_id=session_id,
+                finalize=finalize,
+            )
+        except OutboundLeakError as error:
+            failure_kind = "residual"
+            failure = (list(error.leak_types), list(error.policy_categories))
+            discard_exception_graph(error)
+        except SessionExpiredError as error:
+            failure_kind = "expired"
+            discard_exception_graph(error)
+        except ModeMismatchError as error:
+            failure_kind = "mode"
+            discard_exception_graph(error)
+        except Exception as error:
+            failure_kind = "failed"
+            discard_exception_graph(error)
+
+        self = None
+        text = ""
+        mode = None
+        session_id = None
+        finalize = None
+        if failure_kind == "residual":
+            safe_leak_types, safe_categories = failure
+            raise OutboundLeakError(
+                safe_leak_types,
+                policy_categories=safe_categories,
+            )
+        if failure_kind == "expired":
+            raise SessionExpiredError("Session not found or expired")
+        if failure_kind == "mode":
+            raise ModeMismatchError("session mode mismatch")
+        raise SanitizeTransactionError("sanitize transaction failed")
+
+    def _sanitize_transaction_impl(
         self,
         text: str,
         *,
@@ -207,6 +312,11 @@ class SessionService:
         """
         with self._lock:
             sid, staged, is_new = self._stage_sanitize_locked(session_id, mode)
+            residual_failure = None
+            core = None
+            outcome = None
+            prepared = None
+            discarded = None
             try:
                 try:
                     # Same body the platform's stateless entry point runs; the
@@ -218,9 +328,14 @@ class SessionService:
                         mode=staged.mode,
                         salt=staged.salt,
                         scan_leaks=scan_outbound_leaks,
+                        scan_residual=scan_residual_signals,
                     )
-                except StatelessLeakError as e:
-                    raise OutboundLeakError(e.leak_types) from e
+                except StatelessLeakError as error:
+                    residual_failure = (
+                        list(error.leak_types),
+                        list(error.policy_categories),
+                    )
+                    discard_exception_graph(error)
                 except VaultTimeoutError:
                     # Confirm provenance before treating this exception name as
                     # lifecycle expiry. An injected detector/finalizer can
@@ -231,21 +346,42 @@ class SessionService:
                         self.drop(sid)
                     raise SessionExpiredError("Session not found or expired") from None
 
-                staged.entities.extend(core.detected)
-                outcome = SanitizeOutcome(
-                    session_id=sid,
-                    original_text=text,
-                    sanitized_text=core.sanitized_text,
-                    entities=core.entities,
-                    entity_type_counts=core.entity_type_counts,
-                    section26=scan_section26(text),
-                    warnings=core.warnings,
-                )
-                prepared = finalize(outcome)
-                discarded = self._publish_sanitize_locked(sid, staged, is_new=is_new)
+                if residual_failure is None:
+                    assert core is not None
+                    staged.entities.extend(core.detected)
+                    outcome = SanitizeOutcome(
+                        session_id=sid,
+                        original_text=text,
+                        sanitized_text=core.sanitized_text,
+                        entities=core.entities,
+                        entity_type_counts=core.entity_type_counts,
+                        section26=scan_section26(text),
+                        warnings=core.warnings,
+                    )
+                    prepared = finalize(outcome)
+                    discarded = self._publish_sanitize_locked(sid, staged, is_new=is_new)
             except Exception:
                 self._discard_detached(staged)
                 raise
+
+            if residual_failure is not None:
+                self._discard_detached(staged)
+                safe_leak_types, safe_categories = residual_failure
+                self = None
+                text = ""
+                mode = None
+                session_id = None
+                finalize = None
+                sid = ""
+                staged = None
+                core = None
+                outcome = None
+                prepared = None
+                discarded = None
+                raise OutboundLeakError(
+                    safe_leak_types,
+                    policy_categories=safe_categories,
+                )
 
             if discarded is not None:
                 self._discard_detached(discarded)
@@ -316,16 +452,60 @@ class SessionService:
         """Release detached or displaced vault data without changing outcomes."""
         try:
             session.vault.clear()
-        except Exception:
+        except Exception as error:
+            discard_exception_graph(error)
             # The service reference is already absent (or was never published).
             # Do not turn a completed commit into a caller-visible failure.
             _LOG.error("Session vault cleanup did not complete")
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
-        with self._lock:
-            return self._restore_locked(session_id, text)
+        failure_kind = None
+        try:
+            with self._lock:
+                return self._restore_locked(session_id, text)
+        except SessionExpiredError as error:
+            failure_kind = "expired"
+            discard_exception_graph(error)
+        except Exception as error:
+            failure_kind = "failed"
+            discard_exception_graph(error)
+
+        self = None
+        session_id = ""
+        text = ""
+        if failure_kind == "expired":
+            raise SessionExpiredError("Session not found or expired")
+        raise RestoreTransactionError("restore failed")
 
     def _restore_locked(self, session_id: str, text: str) -> RestoreOutcome:
+        failure_kind = None
+        try:
+            return self._restore_locked_impl(session_id, text)
+        except VaultTimeoutError as error:
+            failure_kind = "vault_expired"
+            discard_exception_graph(error)
+        except SessionExpiredError as error:
+            failure_kind = "expired"
+            discard_exception_graph(error)
+        except Exception as error:
+            failure_kind = "failed"
+            discard_exception_graph(error)
+
+        if failure_kind == "vault_expired":
+            try:
+                self.drop(session_id)
+            except Exception as error:
+                failure_kind = "failed"
+                discard_exception_graph(error)
+
+        self = None
+        session_id = ""
+        text = ""
+        if failure_kind in {"vault_expired", "expired"}:
+            raise SessionExpiredError("Session not found or expired")
+        raise RestoreTransactionError("restore failed")
+
+    def _restore_locked_impl(self, session_id: str, text: str) -> RestoreOutcome:
         sid, session = self._get_or_create_locked(session_id, None)
         if not text or not text.strip():
             return RestoreOutcome(
@@ -335,42 +515,39 @@ class SessionService:
                 leftover_tokens=[],
                 warnings=[],
             )
+        registry = EntityRegistry(
+            entities=session.entities,
+            fp_count=sum(1 for e in session.entities if e.redact_type == "FP"),
+            tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
+        )
+        response = AIResponse(text=text, request_id=sid, latency=0.0)
+        reverse_result = reverse_map(response, registry, session.vault)
+
+        warnings = [f for f in reverse_result.flags if not f.startswith(_NOISY_PREFIXES)]
         try:
-            registry = EntityRegistry(
-                entities=session.entities,
-                fp_count=sum(1 for e in session.entities if e.redact_type == "FP"),
-                tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
+            validation = validate_output(reverse_result, registry, session.vault)
+            warnings.extend(
+                f
+                for f in validation.flags
+                if f not in warnings and not f.startswith(_NOISY_PREFIXES)
             )
-            response = AIResponse(text=text, request_id=sid, latency=0.0)
-            reverse_result = reverse_map(response, registry, session.vault)
+        except OutputPIILeakError as error:
+            discard_exception_graph(error)
+            # inbound direction: the AI fabricated PII-looking data — warn only
+            warnings.append("ai_generated_pii")
 
-            warnings = [f for f in reverse_result.flags if not f.startswith(_NOISY_PREFIXES)]
-            try:
-                validation = validate_output(reverse_result, registry, session.vault)
-                warnings.extend(
-                    f
-                    for f in validation.flags
-                    if f not in warnings and not f.startswith(_NOISY_PREFIXES)
-                )
-            except OutputPIILeakError:
-                # inbound direction: the AI fabricated PII-looking data — warn only
-                warnings.append("ai_generated_pii")
+        replaced_pseudonyms = reverse_result.audit_summary.get("replaced_pseudonyms", [])
+        replaced = []
+        for pseudonym in replaced_pseudonyms:
+            record = session.vault.get_by_pseudonym(pseudonym)
+            if record is not None:
+                replaced.append({"token": pseudonym, "original": record.original})
 
-            replaced_pseudonyms = reverse_result.audit_summary.get("replaced_pseudonyms", [])
-            replaced = []
-            for pseudonym in replaced_pseudonyms:
-                record = session.vault.get_by_pseudonym(pseudonym)
-                if record is not None:
-                    replaced.append({"token": pseudonym, "original": record.original})
-
-            leftover = [p for p in session.vault._reverse if p in reverse_result.text]
-            return RestoreOutcome(
-                restored_text=reverse_result.text,
-                replaced=replaced,
-                replaced_count=len(replaced),
-                leftover_tokens=leftover,
-                warnings=warnings,
-            )
-        except VaultTimeoutError:
-            self.drop(sid)
-            raise SessionExpiredError("Session not found or expired") from None
+        leftover = [p for p in session.vault._reverse if p in reverse_result.text]
+        return RestoreOutcome(
+            restored_text=reverse_result.text,
+            replaced=replaced,
+            replaced_count=len(replaced),
+            leftover_tokens=leftover,
+            warnings=warnings,
+        )
