@@ -110,24 +110,32 @@ a `SessionService` session in the current architecture. Browser, Office, and
 extension disposal remains unimplemented because those clients cannot receive
 the control credential; the native broker is Phase 8.
 
-Phase 7 merge status: **corrected; independent re-review pending**. The first
-independent merge review rejected original commit `f968833` with six confirmed
-blockers: failed restore renewed retention, managed service/vault TTL decisions
-could conflict, noncanonical base64url bypassed replay identity, authorization
-could expire while waiting for the lifecycle lock, the disposal URL exposed
-session authority through real Uvicorn/Desktop logs, and current-state
-documentation incorrectly described behavior and approval. The corrective
-commit `b9c0b745f07059850592977c904f22098c1e41b7` keeps `f968833`
-intact and addresses all six with deterministic local regressions. Its branch
-CI [passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
-The post-CI review then found that an ordinary eager-callback clock failure
-could leave the service open without a timer and that these current-state
-documents still claimed the push/CI had not occurred. The follow-up commit
-`6cd109d11478a05e711064d227a8241ecb38ea39` closes both findings,
+Phase 7 integration status: **merged; main CI green; Phase 8 deferred**. The
+first independent merge review rejected original commit `f968833` with six
+confirmed blockers: failed restore renewed retention, managed service/vault TTL
+decisions could conflict, noncanonical base64url bypassed replay identity,
+authorization could expire while waiting for the lifecycle lock, the disposal
+URL exposed session authority through real Uvicorn/Desktop logs, and
+current-state documentation incorrectly described behavior and approval.
+Corrective commit `b9c0b745f07059850592977c904f22098c1e41b7` keeps
+`f968833` intact and addresses all six with deterministic local regressions;
+its branch CI
+[passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
+The post-CI review then found an eager-callback fail-closed gap and stale status
+text. Follow-up `6cd109d11478a05e711064d227a8241ecb38ea39` closes both,
 and its branch CI
 [passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31092753172).
-It is not an independent merge approval; a fresh separate-context review
-remains required.
+Documentation evidence commit `2e1474810ea7b8fd729413ac1d2cc2fd713d2abf`
+then passed the final branch CI
+[11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31093131935).
+The two read-only reviewers, neither of whom edited code, inspected that exact
+head in separate lifecycle/concurrency and authentication/secrecy passes and
+reported no blocker. Main integrated the complete branch through
+history-preserving merge `eb0c45c043883ec93ab56849d300d500e8061bf4`.
+Post-merge
+[CI passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31094033944)
+and
+[cross-platform smoke passed 2/2](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31094033956).
 
 Corrective local checkpoint: the focused lifecycle/core/authentication/API set
 passed 312; the hosted/API/shutdown/cleanup matrix passed 526; the full Python
@@ -145,11 +153,11 @@ sanitize explanation still applies, machine variability is recorded rather
 than suppressed, and the baseline remains unchanged. Two
 read-only corrective reviewers found a scheduler-prerequisite fail-closed gap
 and a Uvicorn record-shape drift gap; both were corrected with deterministic
-regressions, and their final focused checks found no remaining blocker. This is
-not independent merge approval. The first corrective branch CI is green, but
-the post-CI findings required follow-up `6cd109d1`. Its 11/11 branch run is now
-green; another fresh independent merge re-review remains required before
-integration.
+regressions. The post-CI review additionally found the eager-callback failure
+path fixed in `6cd109d1`. Their final exact-head review found no remaining
+blocker, and the branch and post-merge workflows above are green. This closes
+Phase 7 source integration only; it does not close any installed, real-host,
+live-provider, official-platform, or Phase 8 trust-boundary gate.
 
 These changes do not close the remaining baseline gaps. The fixed localhost
 data plane does not authenticate the process that owns the port; explicit TNER

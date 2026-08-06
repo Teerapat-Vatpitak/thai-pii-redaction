@@ -8,15 +8,21 @@
   directly on top of `f968833`
 - Review-follow-up commit: `6cd109d11478a05e711064d227a8241ecb38ea39`,
   directly on top of `b9c0b745`
+- Documentation/CI evidence commit:
+  `2e1474810ea7b8fd729413ac1d2cc2fd713d2abf`, directly on top of
+  `6cd109d1`
+- Integration merge: `eb0c45c043883ec93ab56849d300d500e8061bf4`
 - Product version: `2.5.0` (unchanged)
-- Status: **corrected; independent re-review pending**
+- Status: **merged; main CI green; Phase 8 deferred**
 
 This is current-source automated corrective evidence for Phase 7 / F-06. The
 first independent merge review rejected `f968833` with six confirmed blockers;
 this record covers their fixes, backend session lifetime, internal
-authenticated disposal, log secrecy, deterministic cleanup, and races. It is
-not independent merge approval or packaged/installed, browser, Office-host,
-live-provider, deployment, release, or official-platform evidence.
+authenticated disposal, log secrecy, deterministic cleanup, and races. The
+final read-only security re-review found no blocker, and the history-preserving
+main integration and post-merge workflows are recorded below. This is not
+packaged/installed, browser, Office-host, live-provider, deployment, release, or
+official-platform evidence.
 
 All runtime checks used synthetic values. This record contains no request text,
 entity value, mapping, credential, provider body, restored answer, or
@@ -98,7 +104,11 @@ session disposal.
 | Corrective branch CI | PASS — `b9c0b745`, run `31090571421`, 11/11 jobs |
 | Post-CI independent merge re-review | BLOCKED on `b9c0b745` — callback fail-closed and stale-status findings corrected here |
 | Follow-up branch CI | PASS — `6cd109d1`, run `31092753172`, 11/11 jobs |
-| Final independent merge re-review | PENDING — do not treat Phase 7 as merge-approved |
+| Final branch CI | PASS — `2e147481`, run `31093131935`, 11/11 jobs |
+| Final read-only security re-review | PASS — lifecycle/concurrency and authentication/secrecy reviewers found no blocker on `2e147481` |
+| Main integration | PASS — history-preserving merge `eb0c45c` |
+| Post-merge CI | PASS — run `31094033944`, 11/11 jobs |
+| Post-merge cross-platform smoke | PASS — run `31094033956`, 2/2 jobs |
 
 The warning is the existing Starlette/httpx TestClient deprecation warning.
 The five skips are optional OpenCV OCR cases because `cv2` is not installed.
@@ -106,7 +116,13 @@ Corrective commit `b9c0b745` passed all 11 jobs in
 [run 31090571421](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
 Review-follow-up `6cd109d1` passed all 11 jobs in
 [run 31092753172](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31092753172).
-Its final independent re-review remains pending.
+Final branch head `2e147481` passed all 11 jobs in
+[run 31093131935](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31093131935).
+The two read-only reviewers found no blocker on that exact head. Main integrated
+it through `eb0c45c`; post-merge
+[CI passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31094033944)
+and
+[cross-platform smoke passed 2/2](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31094033956).
 
 The principal commands were:
 
@@ -171,7 +187,7 @@ confirmed blockers:
    output boundary while retaining safe operational logs.
 6. Current-state documents claimed raw-token disposal, lazy hosted expiry, and
    merge-review PASS. They now describe the corrected behavior and carry
-   **corrected; independent re-review pending**.
+   the exact branch-review, integration, and post-merge CI evidence.
 
 The two corrective read-only reviewers then found two gaps in the initial
 correction. Deadline/clock calculation was outside part of the scheduler's
@@ -195,9 +211,11 @@ mapping with the service still open and no eager timer. It also found the
 pre-push/CI status text had become stale. The follow-up validates callback time,
 routes every ordinary callback failure through the same close/invalidate/clear
 path, preserves process-signal propagation, and adds deterministic exception,
-`NaN`, and infinity regressions. This record now carries the exact first CI
-evidence. Follow-up `6cd109d1` also passed branch CI 11/11; another fresh
-independent merge re-review remains pending.
+`NaN`, and infinity regressions. Follow-up `6cd109d1` passed branch CI 11/11,
+and final branch head `2e147481` also passed 11/11. The final exact-head
+read-only re-review found no blocker. History-preserving merge `eb0c45c`
+integrated the branch into main, whose full CI and cross-platform smoke
+workflows passed 11/11 and 2/2 respectively.
 
 ## Evidence boundaries and deferrals
 
@@ -216,6 +234,8 @@ Phase 8 still owns:
 All eight Office real-host/package gates remain pending. No Office application
 was opened, no add-in was sideloaded, no certificate or machine trust was
 changed, and no live provider or real credential was used. Phase 8 remains
-deferred. At this evidence checkpoint both corrective branch runs are green,
-but no merge, release, deployment, package publication, or pull request has
-been performed.
+deferred. At this evidence checkpoint all three recorded branch runs, the final
+read-only re-review, the main integration, and both post-merge workflows are
+green. No release, deployment, package publication, pull request, Office
+operation, certificate change, live-provider call, or real credential was
+used.

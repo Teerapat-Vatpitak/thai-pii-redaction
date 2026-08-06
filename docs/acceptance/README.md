@@ -78,12 +78,15 @@ HTTP v2 response minimization and strict first-party client schemas; matching
 packaged/installed, real-host, live-provider, authenticated local-process,
 broker-backed client lifecycle, and official-platform evidence remains open.
 
-The F-06 record now has status **corrected; independent re-review pending**.
-The first merge review rejected `f968833` with six lifecycle, authorization,
+The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
+first merge review rejected `f968833` with six lifecycle, authorization,
 logging, and documentation blockers. Corrective local regressions cover
 post-success-only restore refresh, sole managed TTL authority, canonical replay
 identity, in-lock expiry validation, real-Uvicorn route redaction, and
-session-isolated cleanup. This is not merge approval and does not provide a
+session-isolated cleanup. Final branch head `2e147481` passed 11/11 jobs, two
+read-only reviewers found no blocker on that exact head, and main integrated it
+through history-preserving merge `eb0c45c`. Post-merge CI passed 11/11 and
+cross-platform smoke passed 2/2. This source integration does not provide a
 native broker, browser/Office/extension disposal, authenticated localhost
 process identity, packaged/installed evidence, or any real-host Office
 acceptance.
