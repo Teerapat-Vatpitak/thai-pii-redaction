@@ -39,7 +39,8 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
       - Raises OCRUnavailableError if the OCR dependencies (requirements-ocr.txt)
         aren't installed.
       - Returns (full_text, word_bboxes, meta) where meta carries
-        ocr_confidence / human_review / pages_ocred / pages_text_layer / warnings.
+        ocr_confidence / human_review / human_review_pages / pages_ocred /
+        pages_text_layer / warnings.
     """
     path = Path(path)
 
@@ -273,6 +274,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
     warnings: list[str] = []
     confidences: list[float] = []
     ocr_observations: list[str] = []
+    human_review_pages: list[int] = []
     human_review_any = False
 
     try:
@@ -298,6 +300,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
                     )
                 needs_ocr = False
                 human_review_any = True
+                human_review_pages.append(page_num)
                 warnings.append(
                     f"page {page_num}: an image on this page was not read because OCR is "
                     "not installed; only its text layer was extracted"
@@ -322,6 +325,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
                 word_bboxes.extend(result.words)
                 if result.human_review:
                     human_review_any = True
+                    human_review_pages.append(page_num)
                     warnings.append(
                         f"page {page_num}: low OCR confidence after {result.attempts} attempt(s)"
                     )
@@ -340,6 +344,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
     meta = {
         "ocr_confidence": (sum(confidences) / len(confidences)) if confidences else None,
         "human_review": human_review_any,
+        "human_review_pages": human_review_pages,
         "pages_ocred": pages_ocred,
         "pages_text_layer": pages_text_layer,
         "ocr_text_ranges": ocr_text_ranges,

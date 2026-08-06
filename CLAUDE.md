@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI Guard — open-source (Apache-2.0) Thai PII detection, anonymization, and redaction toolkit. Originally built as a PSU Future Tech Challenge 2026 entry; now maintained as a standalone open-source project. Two modes:
 
-- **True redaction**: permanently black-box PII at bbox level in PDF
+- **PDF redaction**: paint selected word boxes and flatten the result; exact
+  entity-to-box association is a separate open correctness boundary
 - **AI Guard**: pseudonymize PII with tokens before sending to external AI, re-identify locally from vault after response
 
 ### What this file is, and what it is not
@@ -135,22 +136,24 @@ One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared
 The browser extension, desktop shell, and Office add-in use the local
 **FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
 that app. The CLI and provisional worker call shared `pii_redactor/` services
-through their own adapters rather than going through FastAPI. The official AI
-for Thai guide selects a separate hosted HTTP/FastAPI adapter behind its
-reverse proxy. A local candidate exists in the separately versioned sibling
-port, but its vendored core predates F09 and needs a separately authorized
-re-sync and rerun before any push; exact official route/auth and acceptance
-remain pending. The extension is the product's front door; the normal local
+through their own adapters rather than going through FastAPI. Main now also
+contains `app.hosted`, a strict-v2 generic hosted candidate with required
+API-key/provider configuration and a fixed seven-route allowlist. It is not the
+confirmed official route/lifecycle contract. The separately versioned sibling
+port remains v1 and out of scope; its vendored core predates F09 and needs
+separate authorization before any re-sync or push. Exact official route/auth
+and acceptance remain pending. The extension is the product's front door; the normal local
 backend is API-only (no web frontend) and runs on localhost. `/` redirects to
 `/docs` (Swagger). The
 extension's service worker calls the backend; CORS allows only extension/Tauri
 origins (strict allowlist, see above). The canonical token → original map lives
 in the backend's in-memory `SessionService` sessions
 (`pii_redactor/session_service.py`, one `SessionVault` per session). The
-intended client boundary is `session_id` only, but current HTTP contract v1
-projects direct or reconstructable mapping fields into browser, Desktop, and
-Office response objects. Contract v2 must remove those fields; current clients
-must not be described as unable to receive them.
+current client boundary is `session_id` only: HTTP v2 projects no explicit
+mapping DTO or original/token pairs, and browser, Desktop, and Office construct
+fresh strict DTOs before using a result. Clients still necessarily hold their
+submitted and returned text transiently; response minimization is not a claim
+that caller-owned text cannot be compared.
 
 ### Pipeline (Step 1-8)
 
@@ -221,17 +224,33 @@ For fixed generator inputs, the result is deterministic. `SessionService` keeps
 one random salt for a session, so the same original remains consistent within
 that vault. `run_pipeline()` generates a fresh salt when none is supplied, and
 independent sessions/runs therefore are not guaranteed to produce the same
-surrogate. The stateless API is reproducible only when the caller supplies the
-same salt (or passes a prior mapping). Restoration uses the vault/mapping and
-does not require cross-run identical surrogates.
+surrogate. Stateless surrogate output is reproducible when the caller supplies
+the same salt. Stateless token calls deliberately receive a fresh random
+generation namespace and fresh nonces for newly minted tokens; a caller that
+needs token continuity must pass its prior mapping. Restoration uses the
+vault/mapping and does not require cross-run identical pseudonyms.
+
+Token mode emits
+`[<localized-label>_<25-letter-generation-tag>_<20-letter-token-nonce>_<ordinal>]`.
+The `a`-through-`f` tag encodes 64 random bits and belongs to one vault
+lifecycle. Each newly minted token adds about 94 bits of unpredictable
+`a`-through-`z` nonce; the complete token is reused for the same original.
+Neither component is a credential or `session_id`. Detached transaction clones
+and snapshot/restore preserve the tag and complete records, then `clear()`
+invalidates them. Exercised lifecycle regressions keep stale and guessed tokens
+foreign. The 64-bit tag plus approximately 94-bit nonce makes accidental
+identity reuse and same-session future-token preplay computationally
+impractical; the separation is probabilistic, not impossible.
 
 Replace real data using character spans from the entity registry (tail-first so earlier offsets stay valid) → consistency check (same entity everywhere) → post-replace scan with `detect_fp` (verify no real structured PII remains; halt + alert if found). Before a masked result can leave the sanitization boundary, `leak_guard.enforce_outbound_policy` also checks structured FP and text-based TB findings plus detector-independent contiguous runs of six or more digits. Every detected entity must resolve to a replacement record; an absent record blocks rather than returning an incomplete entity projection.
 
-Output: **Pseudonymized Document** + session mapping table (for re-identification) → Step 4 (send to AI)
+Output: **Pseudonymized Document** + backend-owned session mapping table. Only
+the masked document crosses the provider boundary; the mapping remains for
+Step 6 re-identification.
 
 **Step 4 - Session mapping table** (`pii_redactor/session_vault.py`, `SessionVault`)
 
-In-memory only (never persisted), keyed by `entity_id`, with a reverse index keyed by pseudonym for Step 6. `write()` rejects a different entity ID claiming an already-owned pseudonym with another original, but same-ID replacement remains possible. `seed()` re-admits caller-held stateless mappings under the lifecycle lock: a new pair gets opaque `seed:<uuid4>` identity, safe `SEEDED` provenance, and one structural `seed` audit row; exact replay returns the same immutable record without changing lookup/audit/access state; a conflicting original raises the constant value-free `seed pseudonym collision` error before mutation. Idle timeout (default 1800s) raises `VaultTimeoutError` when a known vault is accessed; there is no wall-clock sweeper. `snapshot()`/`restore()` support rollback around a failed AI call, while a clear-generation check prevents a stale snapshot from reviving explicitly cleared mappings. `clear()` drops vault-owned references but may retain safe structural audit rows; it cannot securely zeroize Python immutable strings.
+In-memory only (never persisted), keyed by `entity_id`, with a reverse index keyed by pseudonym for Step 6. `write()` rejects a different entity ID claiming an already-owned pseudonym with another original, but same-ID replacement remains possible. `seed()` re-admits caller-held stateless mappings under the lifecycle lock: a new pair gets opaque `seed:<uuid4>` identity, safe `SEEDED` provenance, and one structural `seed` audit row; exact replay returns the same immutable record without changing lookup/audit/access state; a conflicting original raises the constant value-free `seed pseudonym collision` error before mutation. A token-shaped seed is scanned for FP/TB/digit residuals before its shape can be admitted. One valid namespaced prior-mapping chain supplies the namespace for newly minted stateless tokens; legacy `[<label>_<ordinal>]` tokens are readable only at this explicit boundary and are never minted. Idle timeout (default 1800s) raises `VaultTimeoutError` when a known vault is accessed; there is no wall-clock sweeper. `snapshot()`/`restore()` support rollback around a failed AI call, while a clear-generation check prevents a stale snapshot from reviving explicitly cleared mappings. `clear()` drops vault-owned table/reverse/token-namespace references but may retain safe structural audit rows; it cannot securely zeroize Python immutable strings.
 
 **Step 5 - Send to AI** (`pii_redactor/ai_client.py`, `send_to_ai`)
 
@@ -239,7 +258,7 @@ In-memory only (never persisted), keyed by `entity_id`, with a reverse index key
 
 **Step 6 - Reverse mapping** (`pii_redactor/reverse_mapper.py`, `reverse_map`)
 
-Restores originals into the AI's response using the vault's pseudonym→original reverse index via **positional replacement**: every pseudonym occurrence is located on the ORIGINAL (untouched) text (claimed longest-first, ranges never overlap — same rule as `leak_guard`), then spliced in a single tail-first pass. A progressive `str.replace` would re-scan the growing text and corrupt an already-restored original that happens to contain a pseudonym-looking substring; longest-first alone does not prevent that. Post-reverse validation flags pseudonym residue and incomplete replacement without halting; completeness compares `replaced_count` against the vault's **distinct expected pseudonyms** (an entity named N times = N registry entries but ONE pseudonym, so counting raw entities would flag every perfect restore). Both surface in `ReverseResult.audit_summary`. A foreign-token detector also runs here, surfacing `foreign_tokens:N` in the audit summary (alert-only, token mode only) when the AI's reply contains token-shaped strings that were never in this session's vault.
+Restores originals into the AI's response using the vault's pseudonym→original reverse index via **positional replacement**: every pseudonym occurrence is located on the ORIGINAL (untouched) text (claimed longest-first, ranges never overlap — same rule as `leak_guard`), then reconstructed left-to-right while recording the exact restored-output ranges. A progressive `str.replace` would re-scan the growing text and corrupt an already-restored original that happens to contain a pseudonym-looking substring; longest-first alone does not prevent that. Post-reverse validation flags pseudonym residue and incomplete replacement without halting; completeness compares `replaced_count` against the vault's **distinct expected pseudonyms** (an entity named N times = N registry entries but ONE pseudonym, so counting raw entities would flag every perfect restore). Audit metadata keeps counts, never the replaced or residual pseudonym values. A foreign-token detector also runs here, surfacing `foreign_tokens:N` in the audit summary when the AI's reply contains product-token strings that were never in this session's vault. Exact current-format tokens remain foreign in every mode so a stale value cannot fail open through a surrogate replacement session; legacy or translated bracket shapes are checked only in token mode. Unknown values remain unchanged, and v2 projects only the count-only `foreign_replacement` warning.
 
 **Step 7 - Output validation** (`pii_redactor/output_validator.py` + `pii_redactor/audit.py`)
 
@@ -255,23 +274,25 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 
 | Module | Purpose |
 |---|---|
+| `app/http_v2.py` | Strict v2 response/error DTOs and extra-field rejection for main HTTP adapters |
+| `app/hosted.py` | Generic strict-v2 hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not official deployment evidence |
 | `pii_redactor/pipeline.py` | CLI pipeline orchestrator (`run_pipeline`); calls `send_to_ai` |
 | `pii_redactor/detectors/` | FP (regex/checksum), TB (thainer CRF NER), FN scanner |
 | `pii_redactor/anonymizer/` | Package: `anonymizer.py` (vault replace), `fp_generator.py` + `tb_generator.py` (valid-format / Thai fake values) |
 | `pii_redactor/redactor.py` | Flattened PDF redaction via bbox black boxes (wired through `/api/redact-pdf`); current entity-to-box association is a substring heuristic, not exact source-span alignment |
 | `pii_redactor/reid_risk.py` | Quasi-identifier re-identification risk score (Sweeney model), 0-100 + grade |
 | `pii_redactor/report.py` | PDPA risk report; `scan_section26` keyword flags (not auto-redacted) |
-| `pii_redactor/receipt.py` | PDPA มาตรา 39 processing receipt — one slip per run (not a cumulative RoPA; the vault is in-memory and the hosted path stateless, so a register would mean retaining what the product promises not to). `build_receipt()` records source sha256 + a digest over the detection result + counts/types + version/engine/PyThaiNLP version; `verify_receipt()` re-runs the same input through the shared `process_for_receipt()` and compares **every factual field**, not just the two digests — both sides build them from one `_claims()` helper, so a field added later is verified by construction (the first cut compared digests only, and a receipt edited to claim zero entities verified clean). Authenticity comes from recomputation rather than a signature (no key to keep). The digest excludes `entity_id` (fresh UUID4 per run) and `score` (a detector's internal float). Nothing derived from the document is a value — but `--purpose`/`--controller` are operator free text drawn verbatim onto the PDF, and no document may claim otherwise. Wired through `ai_guard.py receipt issue|verify`; deliberately no API endpoint in v1 |
+| `pii_redactor/receipt.py` | PDPA มาตรา 39 processing receipt — one slip per run (not a cumulative RoPA; the vault is in-memory and the hosted roundtrip mapping is request-transient, so a register would mean retaining what those paths promise not to). `build_receipt()` records source sha256 + a digest over the detection result + counts/types + version/engine/PyThaiNLP version; `verify_receipt()` re-runs the same input through the shared `process_for_receipt()` and compares **every factual field**, not just the two digests — both sides build them from one `_claims()` helper, so a field added later is verified by construction (the first cut compared digests only, and a receipt edited to claim zero entities verified clean). Authenticity comes from recomputation rather than a signature (no key to keep). The digest excludes `entity_id` (fresh UUID4 per run) and `score` (a detector's internal float). Nothing derived from the document is a value — but `--purpose`/`--controller` are operator free text drawn verbatim onto the PDF, and no document may claim otherwise. Wired through `ai_guard.py receipt issue|verify`; deliberately no HTTP endpoint by design |
 | `pii_redactor/receipt_pdf.py` | The receipt rendered as a Thai PDF slip (reportlab + `thai_pdf_text.draw_text`), including the command that verifies it. PII-free by the same structural argument as `report_pdf.py` — a receipt dict has no values in it to begin with; shares that module's `_TYPE_LABELS` so both documents name a data type the same way |
-| `pii_redactor/breach.py` | PDPA มาตรา 37(4) breach-assessment aggregation across a set of leaked/affected files (`assess_breach(paths, *, recursive=False)`) — not a legal conclusion, states what was found and how the estimate was derived, never that notification is required. Reuses the same `extract`/`clean`/`detect_all`/`scan_section26`/`assess_reid_risk` every other storefront calls; nothing re-implemented. A file that fails anywhere in that chain becomes a `FailedFile` row (basename + exception class, with every spelling of the input path scrubbed from the message so a directory name never leaks) and the assessment continues; `NoFilesAssessedError` only when nothing could be assessed. A directory scan also reports every file it chose not to look at (`files.skipped`: count + basenames, for anything outside `*.txt`/`*.pdf`) rather than dropping it silently, and `files.total` counts everything the scan found, not just what survived that filter. Affected-subject estimate: `subjects_min` is the largest distinct-value count among the strong identifier types — `THAI_ID` (the code's real `Entity.data_type` label; the original design note said "NATIONAL_ID"), `PASSPORT`, `PHONE`, `EMAIL` — each canonicalized before counting (digits-only id, a `+66` mobile or landline form folded to its domestic digits so the same number typed two ways collapses to one value); `subjects_max` is their sum, on the stated-not-hidden assumption that no subject spans two identifier types. When no strong identifier is found at all, `subjects.no_strong_identifiers` is `true` and the CLI/PDF headline renders as inconclusive rather than a literal "0-0 คน", which would otherwise read as "nobody affected" instead of "no strong identifier found". `NAME` is tracked and reported but excluded from both bounds as a weak identifier (spelling/OCR variants inflate it). `to_json_dict()` is the one JSON-shape builder the CLI and `breach_pdf.py` both consume, so the two artifacts cannot drift; every field is a count, a type/category name, a basename, or a version string — no value, excerpt, or hash of a value (a hash of a 13-digit id is brute-forceable, so it counts as a value here too). Wired through `ai_guard.py breach assess`, which also deletes an already-written `--pdf` if the following `-o` JSON write fails, so a hard-failure run never leaves a complete artifact behind unmentioned; deliberately no API endpoint in v1 |
+| `pii_redactor/breach.py` | PDPA มาตรา 37(4) breach-assessment aggregation across a set of leaked/affected files (`assess_breach(paths, *, recursive=False)`) — not a legal conclusion, states what was found and how the estimate was derived, never that notification is required. Reuses the same `extract`/`clean`/`detect_all`/`scan_section26`/`assess_reid_risk` every other storefront calls; nothing re-implemented. A file that fails anywhere in that chain becomes a `FailedFile` row (basename + exception class, with every spelling of the input path scrubbed from the message so a directory name never leaks) and the assessment continues; `NoFilesAssessedError` only when nothing could be assessed. A directory scan also reports every file it chose not to look at (`files.skipped`: count + basenames, for anything outside `*.txt`/`*.pdf`) rather than dropping it silently, and `files.total` counts everything the scan found, not just what survived that filter. Affected-subject estimate: `subjects_min` is the largest distinct-value count among the strong identifier types — `THAI_ID` (the code's real `Entity.data_type` label; the original design note said "NATIONAL_ID"), `PASSPORT`, `PHONE`, `EMAIL` — each canonicalized before counting (digits-only id, a `+66` mobile or landline form folded to its domestic digits so the same number typed two ways collapses to one value); `subjects_max` is their sum, on the stated-not-hidden assumption that no subject spans two identifier types. When no strong identifier is found at all, `subjects.no_strong_identifiers` is `true` and the CLI/PDF headline renders as inconclusive rather than a literal "0-0 คน", which would otherwise read as "nobody affected" instead of "no strong identifier found". `NAME` is tracked and reported but excluded from both bounds as a weak identifier (spelling/OCR variants inflate it). `to_json_dict()` is the one JSON-shape builder the CLI and `breach_pdf.py` both consume, so the two artifacts cannot drift; every field is a count, a type/category name, a basename, or a version string — no value, excerpt, or hash of a value (a hash of a 13-digit id is brute-forceable, so it counts as a value here too). Wired through `ai_guard.py breach assess`, which also deletes an already-written `--pdf` if the following `-o` JSON write fails, so a hard-failure run never leaves a complete artifact behind unmentioned; deliberately no HTTP endpoint by design |
 | `pii_redactor/breach_pdf.py` | The breach assessment rendered as a Thai PDF slip, same whitelist-renderer idiom as `report_pdf.py`/`receipt_pdf.py` (shares `_TYPE_LABELS`) — only counts, type/category labels, grades, version strings, failed-file basenames + short reasons, and skipped-file basenames ever reach the canvas. The subject-estimate method statement and the NAME weak-identifier note are drawn verbatim from the dict rather than retyped, so the JSON and the PDF cannot describe the estimate two different ways. Unlike `receipt_pdf.render_receipt` (which returns bytes), `render_breach_pdf(assessment_dict, output_path)` writes the file itself, matching what the CLI calls before it writes the JSON |
-| `pii_redactor/dsar.py` | PDPA มาตรา 30 data-subject access request helper — LOCATES which of a set of files mention a subject, never reproduces content (`locate_subject(paths, subject_file, *, recursive=False) -> DsarResult`). `subject_file` is one identifier per line, classified by shape (13 digits → `THAI_ID`, `[A-Z]{2}\d{7}` → `PASSPORT`, contains `@` → `EMAIL`, digit/`+66` phone shape → `PHONE`, else the `NAME` catch-all); identifiers are never accepted inline on the CLI, so no value can enter shell history. Shares `pii_redactor/scan_common.py`'s `discover_files`/`short_reason`/`canonical_value` with `breach.py` — extracted out of `breach.py` into this new module for `dsar.py` to reuse. Matching is value-based only: a detected entity's raw text is canonicalized under each SUBJECT identifier's own type rules and compared for exact equality, so the detector's own label for that entity is never consulted — a phone number the detector happens to label `BANK_ACCOUNT` in one document (bank/phone nearest-cue-wins), or a name it labels `ORGANIZATION` in another, still matches, because the label is the detector's contextual guess, not a property of the value. One deliberate exception guards precision: PHONE's international-to-domestic fold (`+66` → `0`) only applies when the entity's raw text still carries an explicit `+66` marker, so a bare digit run that merely starts with `66` (e.g. an unrelated bank account) is never folded into a false phone match — a re-review caught this as a real false positive in F1's first cut. No fuzzy matching: an OCR misread of a scanned identifier will not match even where a human reader would recognize it as the same value (a known Track A limitation, stated in the artifact rather than papered over). A matched file's row carries `third_party_possible`, set (warn-only, heuristic — it also fires on the subject's own data under a type they didn't list, and on the detector's own false positives) whenever the file's overall PII inventory holds a type or a count beyond what matched the subject's own identifiers, and `weak_only`, true when the ONLY matched identifier type is NAME — a weak identifier by the same reasoning `breach.py` already applies to its own `subjects_min`/`subjects_max`, so a NAME-only match is flagged for human confirmation rather than presented the same as a checksum-backed match. Unmatched files are counted in the aggregate but never listed as rows — a DSAR artifact should not inventory documents out of scope for the request. `to_json_dict()` is the one builder the CLI and `dsar_pdf.py` both draw from; no field is ever a subject or document value, or a hash of one — only identifier TYPE occurrence counts, basenames, type/grade names, flags, and the five fixed method/limitation/third-party/name-weak-match/scope statements. Wired through `ai_guard.py dsar locate`; deliberately no API endpoint in v1 |
+| `pii_redactor/dsar.py` | PDPA มาตรา 30 data-subject access request helper — LOCATES which of a set of files mention a subject, never reproduces content (`locate_subject(paths, subject_file, *, recursive=False) -> DsarResult`). `subject_file` is one identifier per line, classified by shape (13 digits → `THAI_ID`, `[A-Z]{2}\d{7}` → `PASSPORT`, contains `@` → `EMAIL`, digit/`+66` phone shape → `PHONE`, else the `NAME` catch-all); identifiers are never accepted inline on the CLI, so no value can enter shell history. Shares `pii_redactor/scan_common.py`'s `discover_files`/`short_reason`/`canonical_value` with `breach.py` — extracted out of `breach.py` into this new module for `dsar.py` to reuse. Matching is value-based only: a detected entity's raw text is canonicalized under each SUBJECT identifier's own type rules and compared for exact equality, so the detector's own label for that entity is never consulted — a phone number the detector happens to label `BANK_ACCOUNT` in one document (bank/phone nearest-cue-wins), or a name it labels `ORGANIZATION` in another, still matches, because the label is the detector's contextual guess, not a property of the value. One deliberate exception guards precision: PHONE's international-to-domestic fold (`+66` → `0`) only applies when the entity's raw text still carries an explicit `+66` marker, so a bare digit run that merely starts with `66` (e.g. an unrelated bank account) is never folded into a false phone match — a re-review caught this as a real false positive in F1's first cut. No fuzzy matching: an OCR misread of a scanned identifier will not match even where a human reader would recognize it as the same value (a known Track A limitation, stated in the artifact rather than papered over). A matched file's row carries `third_party_possible`, set (warn-only, heuristic — it also fires on the subject's own data under a type they didn't list, and on the detector's own false positives) whenever the file's overall PII inventory holds a type or a count beyond what matched the subject's own identifiers, and `weak_only`, true when the ONLY matched identifier type is NAME — a weak identifier by the same reasoning `breach.py` already applies to its own `subjects_min`/`subjects_max`, so a NAME-only match is flagged for human confirmation rather than presented the same as a checksum-backed match. Unmatched files are counted in the aggregate but never listed as rows — a DSAR artifact should not inventory documents out of scope for the request. `to_json_dict()` is the one builder the CLI and `dsar_pdf.py` both draw from; no field is ever a subject or document value, or a hash of one — only identifier TYPE occurrence counts, basenames, type/grade names, flags, and the five fixed method/limitation/third-party/name-weak-match/scope statements. Wired through `ai_guard.py dsar locate`; deliberately no HTTP endpoint by design |
 | `pii_redactor/dsar_pdf.py` | The DSAR locate result rendered as a Thai PDF slip, same whitelist-renderer idiom as `breach_pdf.py`/`receipt_pdf.py` (shares `_TYPE_LABELS`) — only identifier TYPE names/counts, file aggregate counts, each matched file's basename/source type/matched-identifier-type occurrence counts/full PII type inventory/risk grade/`human_review`/`third_party_possible`/`weak_only`, failed/skipped basenames, and the fixed method statements (drawn verbatim from the dict, never retyped) ever reach the canvas. `render_dsar_pdf(result_dict, output_path)` writes the file itself, same idiom as `render_breach_pdf` — not `receipt_pdf.render_receipt`'s bytes-returning one — matching what the CLI calls before it writes the JSON |
 | `pii_redactor/sensitive_detector.py` | Optional MiniLM semantic Section-26 detector (non-generative); no-op without `requirements-ml.txt` |
-| `pii_redactor/session_vault.py` | Step 4: in-memory `SessionVault` (pseudonym↔original), idle timeout, detached transaction clone, and clear-generation-protected snapshot/restore rollback |
-| `pii_redactor/stateless.py` | One-call sanitize/restore core for HTTP/worker adapters: throwaway vault, transient internal mapping, shared fail-closed policy, and fixed value-free direct-core failure translation |
+| `pii_redactor/session_vault.py` | Step 4: in-memory `SessionVault` (pseudonym↔original), random token-generation namespace, idle timeout, detached transaction clone, and clear-generation-protected snapshot/restore rollback |
+| `pii_redactor/stateless.py` | One-call sanitize/restore core for HTTP/worker adapters: throwaway vault, transient internal mapping, explicit prior-mapping token-namespace continuity, shared fail-closed policy, and fixed value-free direct-core failure translation |
 | `pii_redactor/ai_client.py` | Step 5: AI providers (Fake/Ollama/Claude/Pathumma/Tokenmind + `PROVIDER_FACTORIES` registry) + shared outbound policy before each outer provider invocation + retry/rollback |
-| `pii_redactor/reverse_mapper.py` | Step 6: restores originals into the AI response — positional splice on the untouched text (longest-first claiming, non-overlapping); also runs a foreign-token detector (`foreign_tokens:N`, alert-only, token mode only) |
+| `pii_redactor/reverse_mapper.py` | Step 6: restores originals into the AI response — positional reconstruction on the untouched text (longest-first claiming, non-overlapping), records inserted ranges, and runs a count-only foreign-token detector; exact current tokens remain foreign in every mode while broad legacy shapes stay token-mode gated |
 | `pii_redactor/output_validator.py` | Step 7: 3-layer post-reverse validation (PII leak / completeness / integrity) |
 | `pii_redactor/audit.py` | Step 7: disk/stdout JSONL process/security logs (step/counts/flags/latency; no PII); current API callers pass operation UUIDs into the legacy `session_id` field — distinct from `SessionVault`'s own internal `{entity_id, action, timestamp}` log |
 | `pii_redactor/exporter.py` | Step 8: writes final `.txt`/`.pdf_text` output |
@@ -280,28 +301,86 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/session_service.py` | Single brain behind the web API: session lifecycle + sanitize/restore over core components; `sanitize_transaction()` stages a detached graph through endpoint finalization and publishes it with one session-dictionary assignment; unexpected sanitize/restore failures translate only after sensitive frames are cleared |
 | `pii_redactor/leak_guard.py` | Shared fail-closed outbound policy: FP/TB rescans, a detector-independent contiguous 6+ digit signal, trusted-current-replacement rules, and bounded value-free failure labels |
 | `pii_redactor/safe_errors.py` | Clears completed traceback frames/chaining plus ordinary mutable exception payloads before a boundary translates or swallows a failure; nested group members are scrubbed recursively, while the read-only `BaseExceptionGroup` shell is preserved and dropped to avoid Python 3.13 `repr()` corruption; built-in attribute access resists hostile overrides |
+| `scripts/http_v2_client.py` | Strict contract-v2 smoke client used by container and packaged-runtime checks |
 | `pii_redactor/guard/injection.py` | ชั้นสัญญาณเตือน prompt injection แบบ dependency-light (explicit rules + bounded normalization/intent classifier แยกจาก PII detection และ leak_guard); `scan_injection` → `GuardFinding[]`; 5 bypass เดิมเป็น passing regression พร้อม negative controls |
 | `training/` | Fine-tuning lane (Track A #5): `lexicons.json` (gold-disjoint fabricated pools), `generate_data.py` (synthetic BIO data + ThaiNER rehearsal + hard negatives), `train.py` (HF Trainer). Weights live OUTSIDE the repo; the opt-in engine `AIGUARD_NER_ENGINE=finetuned` loads them via `AIGUARD_FINETUNED_MODEL_DIR` through `detectors/finetuned_engine.py` (char-offset adapter) with a model-as-verifier policy for the extended name-cue passes (strong cues stay unconditional). Needs `requirements-train.txt` on top of `requirements-ml.txt`. |
 
 
 Roadmap (not implemented): Presidio bridge.
 
-### Web API Endpoints (`app/server.py`, current contract v1)
+### Web API Endpoints (`app/server.py`, current HTTP contract v2)
 
-- `GET /api/health` → `{status, version, contract_version: 1, capabilities: {token_required}}`; `token_required` describes the control-plane boot token, but Office currently interprets it as a data-plane API-key requirement. Contract v2 will split those capabilities.
-- `POST /api/sanitize {text, mode, session_id}` → `{session_id, original_text, sanitized_text, entities[], entity_type_counts, section26[], warnings[]}`. `mode="token"` (default) → `[ชื่อ_1]`; `mode="surrogate"` → realistic valid-format fake data (reads naturally to the AI). `session_id` is optional — pass an existing one to reuse it for multi-turn token consistency (mode must match the session's locked mode). An unknown `mode` string returns HTTP 400 (no silent fallback). Stores the pseudonym → original map in `pii_redactor/session_service.py`'s in-memory `SessionService`, keyed by `session_id`. Any outbound-policy or missing-replacement failure returns HTTP 422 with bounded `detail.error="residual_pii"` metadata and publishes no staged session state.
-- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced[], replaced_count, leftover_tokens, warnings[]}` — restores pseudonyms from the stored session map (mode-agnostic). Current `replaced[]` contains explicit token/original pairs; contract v2 must remove it and return count-only restoration metadata.
-- `POST /api/analyze {text}` → full PDPA report `{overall_score, overall_grade, risk_label, direct_pii_count, fp_count, tb_count, section26[], reid, breakdown[], recommendations[]}`. `section26[]` merges keyword hits with optional MiniLM semantic hits (`source:"semantic"`). `breakdown[]` is keyed by (`data_type`, `redact_type`), so one data type can occupy two rows when both a checksum-backed and an NER hit exist for it — the counts stay honest instead of the whole type inheriting whichever `redact_type` was seen first. This is an inspection/report endpoint; findings do not invoke the outbound-use block.
-- `POST /api/redact-pdf` (multipart `pdf_file`) → `{filename, source_type, ocr_confidence, human_review, ocr_warnings, entity_count, fields[], section26[], redacted_pdf_b64, before_png_b64, after_png_b64}`. Detects on length-preserving cleaned extracted text and draws black boxes via `pii_redactor/redactor.py`, then returns the redacted PDF + page previews. Geometry remains in the source coordinate space, but entity-to-box ownership is the global original-text-fragment heuristic described above, not exact source-offset alignment. Routes both text-layer and scanned/hybrid PDFs via `detect_source_type()`; returns HTTP 503 only when a raster page has no text layer to fall back on and `requirements-ocr.txt` isn't installed — a page whose image sits beside a readable text layer is served from that layer with `human_review` set and the skip named in `ocr_warnings`. Uploads are read in 64 KB chunks against a 50 MB cap (`_MAX_PDF_BYTES`) — HTTP 413 once exceeded, before the body is fully buffered.
-- `POST /api/detect {text}` → `{entities[], entity_type_counts}` — detection เพียว ไม่มี session/vault ใช้ `clean_length_preserving` เพื่อให้ span ตรงกับข้อความที่ผู้เรียกส่งมา (มีไว้ให้ demo playground ยิงถี่ตอนพิมพ์) เป็น inspection endpoint จึงรายงาน finding โดยไม่ใช้ outbound-use block
-- `POST /api/roundtrip {text, mode, provider}` → `{sanitized_text, ai_response_masked, restored_text, entities[], entity_type_counts, provider_used, warnings[]}` — mask → LLM → restore จบในคำขอเดียวบนเส้นทาง stateless (mapping ไม่ถูกเก็บฝั่งเซิร์ฟเวอร์) provider: `fake` (identity, default) / `pathumma` (ต้องมี `AIFORTHAI_API_KEY`; endpoint รับ form data เท่านั้น — พิสูจน์จริง 21 ก.ค. 2569) / `tokenmind` (LiteLLM gateway ของงาน AIFT ต้องมี `TOKENMIND_BASE_URL` ลงท้าย `/v1` + `TOKENMIND_API_KEY`) / `ollama` / `claude`; ไม่รู้จัก = 400, credential ขาด = 503, LLM ล้ม = 502, residual = 422 พร้อม `detail.error="residual_pii"` แบบไม่ใส่ค่า PII ผู้ให้บริการทั้งหมดมาจาก registry เดียวที่ `pii_redactor/ai_client.py` `PROVIDER_FACTORIES` และ adapter สแกนซ้ำทันทีก่อน `provider.complete()`
-- `POST /api/analyze-report {text}` → `{report_pdf_b64, overall_score, overall_grade}` — รายงาน PDPA ฉบับ PDF ภาษาไทย (reportlab + Sarabun) ประกอบข้อมูลผ่าน `_analyze_text` ตัวเดียวกับ `/api/analyze` เพื่อไม่ให้สอง endpoint drift; renderer (`pii_redactor/report_pdf.py`) วาดเฉพาะ field ที่ whitelist (คะแนน/เกรด/จำนวน/ชื่อชนิด/ชื่อหมวด) — ไม่มี raw text, entity value หรือ keyword excerpt ในเอกสาร มีเทส end-to-end pin ไว้
-- `POST /api/guard {text}` → `{guard[], flagged}` — ตรวจ prompt injection ภาษาไทย/อังกฤษแบบ dependency-light (`pii_redactor/guard/injection.py`): explicit rules ร่วมกับ bounded normalization/intent classifier จับ 5 กลุ่ม (instruction_override / role_hijack / exfiltration / hidden_chars / suspicious_payload) **แจ้งเตือน ไม่บล็อก** และไม่อ้างว่ากันได้หมด เป็น inspection endpoint แยกจาก outbound PII policy; `/api/sanitize` และ `/api/roundtrip` เพิ่มคีย์ `guard[]` แบบ additive (สแกนข้อความดิบก่อน clean เพราะ hidden char คือสัญญาณ)
-- `GET /demo` → หน้า playground สามช่อง (`demo/playground.html`) เฉพาะเมื่อ `AIGUARD_DEMO=1` เท่านั้น ค่า default 404 — backend ยังเป็น API-only สำหรับผู้ใช้ปกติ
+`GET /api/health` is open contract discovery and returns
+`{status, version, contract_version: 2, capabilities:
+{control_token_required, api_key_required}}`. Every other `/api/*` operation
+requires `X-AIGuard-Contract-Version: 2`, and every actual API success/error
+returns the same assertion header. Request models and nested response DTOs
+reject extra fields.
 
-Both the web API and the CLI use the same core components, but their complete provider orchestration is not yet unified. `pii_redactor/session_service.py` (`SessionService`) wraps `detect_all` → `anonymize(mode=token|surrogate)` → the shared fail-closed outbound policy for `/api/sanitize`, and `reverse_map` → `validate_output` (warnings only, inbound) for `/api/reidentify`. Sessions: cap 200 with LRU eviction by `last_access`, idle TTL 1800s checked on access, and vault-owned references dropped on drop/evict; every public `SessionService` entry point serializes on one `RLock`. `/api/sanitize` accepts optional `session_id` for multi-turn consistency. `sanitize_transaction()` clones the complete session/vault state into detached containers, holds the coarse lock through core work and endpoint finalization, and publishes through one session-dictionary assignment. Pre-publication failures, including all residual and missing-replacement failures, preserve the published graph and LRU/capacity state; genuine expiry disposal remains request-driven and outside rollback, while cleanup of replaced state is post-publication and best effort. At contract v1, all outbound residual classes return HTTP 422 instead of a warning-only result. Request-model failures return one fixed 422 without rejected values, otherwise-unhandled downstream HTTP exceptions that reach the endpoint decorator become a fixed 500, and an outer middleware contains pre-response-start JSON rendering failures. HTTP/worker direct-provider adapters also repeat the scan immediately before their call, but they do not yet share the CLI retry/rollback path. Runtime and first-party clients remain v1; strict v2 health/response handling is open.
+- `POST /api/sanitize {text, mode?, session_id?}` → `{session_id,
+  sanitized_text, detected_entity_count, replacement_count,
+  entity_type_counts, highlights[], section26_categories, guard_findings[],
+  warnings[], safety}`. Highlights use half-open Unicode code-point offsets into
+  `sanitized_text` and never carry a token field. Token mode emits
+  `[<label>_<generation-tag>_<token-nonce>_<ordinal>]`; surrogate mode emits realistic
+  format-valid fake data. A residual or missing replacement returns the stable
+  `residual_pii` 422 envelope and publishes no staged state.
+- `POST /api/reidentify {session_id, text}` → `{restored_text, replaced_count,
+  leftover_count, warnings[]}`. There is no replaced pair/list or leftover
+  token string. `generated_pii` or `foreign_replacement` is count-only and
+  blocks first-party writeback.
+- `POST /api/detect {text}` → `{detected_entity_count, entity_type_counts,
+  highlights[]}`. It uses `clean_length_preserving`; highlights refer to the
+  caller's source text and this inspection path does not invoke the outbound
+  block.
+- `POST /api/analyze {text}` → the strict aggregate PDPA DTO with scores,
+  counts, `section26_categories`, `reidentification`, `breakdown[]`, and
+  structured allowlisted `recommendations[]`; no source value or match text.
+- `POST /api/guard {text}` → `{flagged, guard_findings[]}` with category and
+  severity only. Prompt-injection remains warn/report, not automatic blocking.
+- `POST /api/roundtrip {text, mode, provider}` → minimized masked/restored
+  text, counts/types, selected provider, safe Section 26/guard/warning
+  metadata, `safety`, and count-only `restoration`. The throwaway mapping is
+  consumed inside one request. The adapter rescans immediately before its
+  direct provider call and never falls back to another provider.
+- `POST /api/analyze-report {text}` → `{report_pdf_b64, overall_score,
+  overall_grade}`. It shares `_analyze_text` and the whitelist-only PDF
+  renderer.
+- `POST /api/redact-pdf` → source/OCR review metadata, count/type projections,
+  `redacted_pdf_b64`, and only the after-redaction PNG preview. It does not
+  return filename or an unredacted preview. Geometry remains source-space, but
+  entity-to-box ownership is still heuristic rather than exact source-offset
+  alignment. The 50 MB streaming cap and optional-OCR fallback remain.
+- `GET /api/audit-log`, `DELETE /api/session/{id}`, and `POST /api/shutdown`
+  are local-only introspection/control routes. `app/hosted.py` removes them,
+  document routes, developer metadata, and the demo. Its fixed allowlist is
+  health, detect, analyze, guard, sanitize, reidentify, and roundtrip.
+- `GET /demo` serves `demo/playground.html` only when `AIGUARD_DEMO=1`.
 
-Control-plane boot token: the `AIGUARD_TOKEN` env var (generated by `launcher.py` when unset; the Tauri shell generates one and passes it to the sidecar it spawns — never logged) gates `POST /api/shutdown` and `DELETE /api/session/{id}` via the `X-AIGuard-Token` header (`secrets.compare_digest`). Unset token = legacy behavior byte-for-byte (`X-AIGuard-Local` for shutdown, open delete-session), so a from-source backend + extension keeps working. This boot token does not gate the data plane. The optional, separate `AIGUARD_API_KEY` middleware gates only the four legacy-v1 `sanitize`/`reidentify`/`analyze`/`guard` POST routes; it does not authenticate the broader API surface or make the main server a hosted-safe adapter. A packaged browser/Office data-plane channel remains open until the native broker work.
+All error responses use the exact stable-code/count/category/retryability/status
+envelope from the
+[v2 decision](docs/decisions/2026-08-05-http-contract-v2.md). They never include
+request values, originals, replacements, mappings, provider bodies, guard or
+Section 26 excerpts, credentials, session authority, or exception messages.
+
+Both the web API and CLI use the same core components, but complete provider
+orchestration is not yet unified. `SessionService` owns stateful
+sanitize/restore: cap 200, LRU by `last_access`, idle TTL 1800 seconds checked
+on known-session access, and one coarse `RLock`. `sanitize_transaction()` holds
+that lock while it clones the complete session/vault state, runs core and
+endpoint finalization, and publishes through one dictionary assignment.
+Pre-publication failure preserves the published graph and LRU/capacity state;
+expiry disposal is outside rollback and displaced-vault cleanup after
+publication is best effort. HTTP/worker direct-provider adapters repeat the
+outbound scan immediately before their call but do not yet share CLI
+retry/rollback orchestration.
+
+`AIGUARD_TOKEN` is control-plane authority for shutdown/session disposal and is
+never given to browser or Office JavaScript. The optional, separate
+`AIGUARD_API_KEY` gates v2 data-plane, document, and introspection routes;
+health remains open. This caller authentication does not prove which process
+owns fixed localhost port 8000, so packaged browser/Office/Desktop identity
+still requires the native broker.
 
 ## Versioning
 
@@ -389,8 +468,8 @@ green" is not a statement about OCR.
 ## Design Invariants
 
 - **Recall > Precision**: prefer false positives over missed PII
-- **Intended local mapping boundary**: the canonical pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path), and first-party clients should keep only `session_id`. Contract v1 violates the projection half of this invariant by returning direct or reconstructable mapping fields; contract v2 is the repair gate.
-- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. The CLI repeats the scan before each outer provider invocation; self-retrying providers receive one outer validation before resending the same immutable masked text. HTTP and worker repeat it immediately before their direct provider call. Complete provider orchestration, strict contract-v2 clients, packaged/live acceptance, and the native broker remain open.
+- **Intended local mapping boundary**: the canonical pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path), and first-party clients keep only `session_id`. The published 2.5.0/v1 artifact violated the projection half by returning direct or reconstructable mapping fields; current unreleased source implements strict v2 projections and clients, while matching packaged/real-host acceptance remains open.
+- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. The CLI repeats the scan before each outer provider invocation; self-retrying providers receive one outer validation before resending the same immutable masked text. HTTP and worker repeat it immediately before their direct provider call. Complete provider orchestration, packaged/live acceptance, and the native broker remain open.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
 - **NER span filter**: reject any entity span < 2 characters before it reaches redaction.

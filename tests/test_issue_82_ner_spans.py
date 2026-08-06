@@ -20,6 +20,7 @@ from pii_redactor.ingest.text_cleaner import clean
 from pii_redactor.session_service import SessionService
 
 FIXTURE = Path(__file__).resolve().parents[1] / "examples" / "prompts" / "02_medical_consult.txt"
+V2_HEADERS = {"X-AIGuard-Contract-Version": "2"}
 
 
 def _fixture_text_and_name() -> tuple[str, str]:
@@ -67,13 +68,17 @@ def test_issue_82_fixture_round_trips_through_api_and_session(monkeypatch):
 
     text, expected_name = _fixture_text_and_name()
     expected_clean = clean(text).text
-    expected_start = expected_clean.index(expected_name)
+    expected_start = text.index(expected_name)
     expected_end = expected_start + len(expected_name)
-    client = TestClient(server.app, base_url="http://localhost")
+    client = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers=V2_HEADERS,
+    )
 
     detected = client.post("/api/detect", json={"text": text})
     assert detected.status_code == 200
-    detected_entities = detected.json()["entities"]
+    detected_entities = detected.json()["highlights"]
     assert {
         (entity["start"], entity["end"], entity["data_type"]) for entity in detected_entities
     } >= {(expected_start, expected_end, "NAME")}
@@ -87,9 +92,13 @@ def test_issue_82_fixture_round_trips_through_api_and_session(monkeypatch):
     sanitized = client.post("/api/sanitize", json={"text": text, "mode": "token"})
     assert sanitized.status_code == 200
     body = sanitized.json()
-    assert {
-        (entity["start"], entity["end"], entity["data_type"]) for entity in body["entities"]
-    } >= {(expected_start, expected_end, "NAME")}
+    assert body["entity_type_counts"]["NAME"] >= 1
+    assert body["replacement_count"] == len(body["highlights"])
+    assert any(
+        entity["data_type"] == "NAME"
+        and body["sanitized_text"][entity["start"] : entity["end"]].startswith("[")
+        for entity in body["highlights"]
+    )
     assert expected_name not in body["sanitized_text"]
 
     try:
@@ -99,8 +108,9 @@ def test_issue_82_fixture_round_trips_through_api_and_session(monkeypatch):
         )
         assert restored.status_code == 200
         restore_body = restored.json()
-        assert restore_body["restored_text"] == expected_clean
-        assert restore_body["leftover_tokens"] == []
+        assert restore_body["restored_text"] == text
+        assert restore_body["leftover_count"] == 0
+        assert restore_body["warnings"] == []
     finally:
         server.SERVICE.drop(body["session_id"])
 

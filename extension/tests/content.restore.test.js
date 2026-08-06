@@ -18,7 +18,8 @@ function makeSite() {
     name: "fake",
     composer: () => textarea,
     assistantMessages: () => [reply],
-    readComposer: (el) => (el.value || "").trim(),
+    readComposer: (el) => el.value || "",
+    sameComposerText: (_el, actual, expected) => actual === expected,
     writeComposer: (el, text) => {
       el.value = text;
       return true;
@@ -30,16 +31,33 @@ function makeChrome(dataOverrides = {}) {
   return {
     runtime: {
       getURL: (p) => "chrome-extension://aiguard/" + p,
-      sendMessage: (msg, cb) =>
+      sendMessage: (msg, cb) => {
+        if (msg.type === "health") {
+          cb({
+            ok: true,
+            data: {
+              status: "ok",
+              version: "2.5.0",
+              contract_version: 2,
+              capabilities: {
+                control_token_required: true,
+                api_key_required: false,
+              },
+            },
+          });
+          return;
+        }
         cb({
           ok: true,
           data: {
             restored_text: `ติดต่อ ${SECRET_NAME} ที่ ${SECRET_PHONE}`,
             replaced_count: 2,
-            leftover_tokens: [],
+            leftover_count: 0,
+            warnings: [],
             ...dataOverrides,
           },
-        }),
+        });
+      },
     },
   };
 }
@@ -68,7 +86,9 @@ async function loadAndRestore(dataOverrides = {}) {
   window.AIGUARD_SITES = site;
   captureAttachShadow();
   vi.resetModules();
+  await import("../contract-v2.js");
   await import("../content.js");
+  await Promise.resolve();
   // bar order: logo, Mask PII, Restore PII — Restore is the second button
   document.querySelectorAll("button.aiguard-btn")[1].click();
   await new Promise((r) => setTimeout(r, 0));
@@ -78,6 +98,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   delete global.chrome;
   delete window.AIGUARD_SITES;
+  delete global.AIGUARD_CONTRACT_V2;
 });
 
 describe("restore overlay isolation (EXT-4)", () => {
@@ -107,16 +128,18 @@ describe("restore overlay isolation (EXT-4)", () => {
   });
 });
 
-describe("foreign token warning surfaces in the status line", () => {
-  it("appends the count from foreign_tokens warnings", async () => {
-    await loadAndRestore({ warnings: ["foreign_tokens:2"] });
+describe("unsafe restoration blocking", () => {
+  it("does not render warning-bearing restored text", async () => {
+    await loadAndRestore({ warnings: [{ code: "foreign_replacement", count: 2 }] });
     const shadowText = capturedShadows.map((s) => s.textContent).join(" ");
-    expect(shadowText).toContain("โทเคนแปลกปลอม 2");
+    expect(shadowText).not.toContain(SECRET_PHONE);
+    expect(document.querySelector(".aiguard-overlay-host")).toBeNull();
+    expect(document.querySelector(".aiguard-status").className).toContain("aiguard-err");
   });
 
-  it("stays silent without the warning", async () => {
-    await loadAndRestore();
-    const shadowText = capturedShadows.map((s) => s.textContent).join(" ");
-    expect(shadowText).not.toContain("โทเคนแปลกปลอม");
+  it("does not render incomplete restored text", async () => {
+    await loadAndRestore({ leftover_count: 1 });
+    expect(document.querySelector(".aiguard-overlay-host")).toBeNull();
+    expect(document.documentElement.textContent).not.toContain(SECRET_PHONE);
   });
 });

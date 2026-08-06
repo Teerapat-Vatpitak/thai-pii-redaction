@@ -99,19 +99,23 @@ def client():
 
     from app.server import app
 
-    return TestClient(app, base_url="http://localhost")
+    return TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 class TestDetect:
-    def test_detect_returns_entities_with_aligned_spans(self, client):
+    def test_detect_returns_highlights_with_aligned_spans(self, client):
         resp = client.post("/api/detect", json={"text": THAI_TEXT})
         assert resp.status_code == 200
         body = resp.json()
-        assert body["entities"], "expected at least one entity"
-        for ent in body["entities"]:
+        assert body["highlights"], "expected at least one entity"
+        for ent in body["highlights"]:
             assert set(ent) == {"start", "end", "data_type", "redact_type"}
             assert 0 <= ent["start"] < ent["end"] <= len(THAI_TEXT)
-        types = {e["data_type"] for e in body["entities"]}
+        types = {e["data_type"] for e in body["highlights"]}
         assert "THAI_ID" in types
         assert body["entity_type_counts"]["THAI_ID"] >= 1
 
@@ -120,7 +124,7 @@ class TestDetect:
         text = "โทร ๐๘๑-๒๓๔-๕๖๗๘ ครับ"
         resp = client.post("/api/detect", json={"text": text})
         assert resp.status_code == 200
-        for ent in resp.json()["entities"]:
+        for ent in resp.json()["highlights"]:
             assert ent["end"] <= len(text)
 
     def test_detect_empty_text_400(self, client):
@@ -147,20 +151,28 @@ class TestRoundtrip:
         assert "1101700230708" not in body["sanitized_text"]
         assert "1101700230708" not in body["ai_response_masked"]
         assert "สมชาย" in body["restored_text"]
-        assert body["entities"], "expected entities"
+        assert body["detected_entity_count"] > 0
+        assert body["safety"] == {"status": "pass", "residual_count": 0}
+        assert body["restoration"]["status"] == "complete"
 
-    def test_roundtrip_default_provider_is_fake(self, client):
+    def test_roundtrip_requires_explicit_mode_and_provider(self, client):
         resp = client.post("/api/roundtrip", json={"text": THAI_TEXT})
-        assert resp.status_code == 200
-        assert resp.json()["provider_used"] == "fake"
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "request_schema_invalid"
 
     def test_roundtrip_unknown_provider_400(self, client):
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "gpt9"})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "gpt9"},
+        )
         assert resp.status_code == 400
 
     def test_roundtrip_pathumma_without_key_503(self, client, monkeypatch):
         monkeypatch.delenv("AIFORTHAI_API_KEY", raising=False)
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "pathumma"})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "pathumma"},
+        )
         assert resp.status_code == 503
 
     def test_roundtrip_provider_constructor_exception_graph_is_safe(self, monkeypatch):
@@ -190,13 +202,14 @@ class TestRoundtrip:
             server.roundtrip(
                 server.RoundtripRequest(
                     text=THAI_TEXT,
+                    mode="token",
                     provider="credential-constructor-boom",
                 )
             )
 
         nodes, graph_text = _exception_graph(excinfo.value)
         assert excinfo.value.status_code == 503
-        assert excinfo.value.detail == "AI provider unavailable"
+        assert excinfo.value.detail == "provider_configuration"
         assert excinfo.value.__cause__ is None
         assert excinfo.value.__context__ is None
         assert not any(isinstance(node, CredentialBearingConstructorError) for node in nodes)
@@ -211,17 +224,29 @@ class TestRoundtrip:
         assert retained_error.__context__ is None
 
     def test_roundtrip_empty_text_400(self, client):
-        assert client.post("/api/roundtrip", json={"text": ""}).status_code == 400
+        assert (
+            client.post(
+                "/api/roundtrip",
+                json={"text": "", "mode": "token", "provider": "fake"},
+            ).status_code
+            == 400
+        )
 
     def test_roundtrip_no_mapping_left_serverside(self, client):
         import app.server as server
 
         before = len(server.SERVICE._sessions)
-        client.post("/api/roundtrip", json={"text": THAI_TEXT})
+        client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "fake"},
+        )
         assert len(server.SERVICE._sessions) == before
 
     def test_roundtrip_invalid_mode_400(self, client):
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "mode": "redact"})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "redact", "provider": "fake"},
+        )
         assert resp.status_code == 400
 
     def test_roundtrip_provider_failure_502(self, client, monkeypatch):
@@ -235,14 +260,206 @@ class TestRoundtrip:
                 raise KeyError("content")
 
         monkeypatch.setitem(server._PROVIDER_FACTORIES, "boom", BoomProvider)
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "boom"})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "boom"},
+        )
         assert resp.status_code == 502
-        assert "KeyError" in resp.json()["detail"]
+        assert resp.json()["error"]["code"] == "provider_response_invalid"
+
+    @pytest.mark.parametrize("failure_kind", ["timeout", "network", 429, 500])
+    def test_roundtrip_retries_only_transient_provider_failures(
+        self,
+        client,
+        monkeypatch,
+        failure_kind,
+    ):
+        import app.server as server
+        import pii_redactor.ai_client as client_module
+
+        calls = []
+        backoffs = []
+
+        class TransientProvider:
+            def complete(self, system, user, *, timeout=30.0):
+                calls.append((system, user, timeout))
+                if len(calls) < 3:
+                    request = httpx.Request("POST", "https://provider.invalid/complete")
+                    if failure_kind == "timeout":
+                        raise httpx.ReadTimeout("synthetic timeout", request=request)
+                    if failure_kind == "network":
+                        raise httpx.ConnectError("synthetic network failure", request=request)
+                    response = httpx.Response(failure_kind, request=request)
+                    raise httpx.HTTPStatusError(
+                        "synthetic upstream status",
+                        request=request,
+                        response=response,
+                    )
+                return user
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            f"transient-{failure_kind}",
+            TransientProvider,
+        )
+        monkeypatch.setattr(client_module, "_sleep", backoffs.append)
+
+        response = client.post(
+            "/api/roundtrip",
+            json={
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": f"transient-{failure_kind}",
+            },
+        )
+
+        assert response.status_code == 200
+        assert len(calls) == 3
+        assert backoffs == [1, 2]
+        assert {call[2] for call in calls} == {60.0}
+        assert all("1101700230708" not in call[1] for call in calls)
+        assert all(call[1] != THAI_TEXT for call in calls)
+        assert len({call[1] for call in calls}) == 1
+
+    @pytest.mark.parametrize("status_code", [400, 408])
+    def test_roundtrip_does_not_retry_other_provider_4xx(
+        self,
+        client,
+        monkeypatch,
+        status_code,
+    ):
+        import app.server as server
+        import pii_redactor.ai_client as client_module
+
+        calls = []
+        backoffs = []
+
+        class RejectedProvider:
+            def complete(self, _system, _user, *, timeout=30.0):
+                calls.append(timeout)
+                request = httpx.Request("POST", "https://provider.invalid/complete")
+                response = httpx.Response(status_code, request=request)
+                raise httpx.HTTPStatusError(
+                    "synthetic upstream status",
+                    request=request,
+                    response=response,
+                )
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            f"rejected-{status_code}",
+            RejectedProvider,
+        )
+        monkeypatch.setattr(client_module, "_sleep", backoffs.append)
+
+        response = client.post(
+            "/api/roundtrip",
+            json={
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": f"rejected-{status_code}",
+            },
+        )
+
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "provider_rejected"
+        assert calls == [60.0]
+        assert backoffs == []
+
+    def test_roundtrip_does_not_stack_outer_retries(self, client, monkeypatch):
+        import app.server as server
+        import pii_redactor.ai_client as client_module
+
+        calls = []
+        backoffs = []
+
+        class SelfRetryingProvider:
+            handles_retries = True
+
+            def complete(self, _system, _user, *, timeout=30.0):
+                calls.append(timeout)
+                request = httpx.Request("POST", "https://provider.invalid/complete")
+                raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            "self-retrying",
+            SelfRetryingProvider,
+        )
+        monkeypatch.setattr(client_module, "_sleep", backoffs.append)
+
+        response = client.post(
+            "/api/roundtrip",
+            json={
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "self-retrying",
+            },
+        )
+
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "provider_unavailable"
+        assert calls == [60.0]
+        assert backoffs == []
+
+    def test_roundtrip_rechecks_outbound_policy_before_each_retry(
+        self,
+        client,
+        monkeypatch,
+    ):
+        import app.server as server
+        import pii_redactor.ai_client as client_module
+        from pii_redactor.leak_guard import OutboundPolicyError
+
+        provider_calls = []
+        validation_calls = []
+
+        class RetryProvider:
+            def complete(self, _system, _user, *, timeout=30.0):
+                provider_calls.append(timeout)
+                request = httpx.Request("POST", "https://provider.invalid/complete")
+                response = httpx.Response(500, request=request)
+                raise httpx.HTTPStatusError(
+                    "synthetic upstream status",
+                    request=request,
+                    response=response,
+                )
+
+        def changing_policy(*_args, **_kwargs):
+            validation_calls.append(len(validation_calls) + 1)
+            if len(validation_calls) == 2:
+                raise OutboundPolicyError(
+                    ["THAI_ID"],
+                    policy_categories=["structured"],
+                )
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            "retry-policy-change",
+            RetryProvider,
+        )
+        monkeypatch.setattr(server, "enforce_outbound_policy", changing_policy)
+        monkeypatch.setattr(client_module, "_sleep", lambda _seconds: None)
+
+        response = client.post(
+            "/api/roundtrip",
+            json={
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "retry-policy-change",
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "residual_pii"
+        assert validation_calls == [1, 2]
+        assert provider_calls == [60.0]
 
     def test_roundtrip_discards_retained_provider_call_error(self, monkeypatch):
         from fastapi import HTTPException
 
         import app.server as server
+        import pii_redactor.ai_client as client_module
         from pii_redactor.ai_client import ProviderCallError
 
         retained_error = ProviderCallError(
@@ -253,12 +470,21 @@ class TestRoundtrip:
         def fail_provider(*_args, **_kwargs):
             raise retained_error
 
-        monkeypatch.setattr(server, "complete_provider_call", fail_provider)
+        class SelfRetryingProvider:
+            handles_retries = True
+
+        monkeypatch.setattr(client_module, "complete_provider_call", fail_provider)
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            "retained-error",
+            SelfRetryingProvider,
+        )
         with pytest.raises(HTTPException) as excinfo:
             server.roundtrip(
                 server.RoundtripRequest(
                     text="เอกสารสังเคราะห์ทั่วไป",
-                    provider="fake",
+                    mode="token",
+                    provider="retained-error",
                 )
             )
 
@@ -282,20 +508,17 @@ class TestRoundtrip:
         monkeypatch.setitem(server._PROVIDER_FACTORIES, "surrogate-render", SurrogateProvider)
         response = client.post(
             "/api/roundtrip",
-            json={"text": "เอกสารสังเคราะห์ทั่วไป", "provider": "surrogate-render"},
+            json={
+                "text": "เอกสารสังเคราะห์ทั่วไป",
+                "mode": "token",
+                "provider": "surrogate-render",
+            },
         )
 
-        assert response.status_code == 500
-        assert response.json() == {"detail": "Internal processing failed"}
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "provider_response_invalid"
         assert private_marker not in response.text
-        assert len(captured) == 1
-        retained_error = captured[0]
-        assert retained_error.__traceback__ is None
-        assert retained_error.__cause__ is None
-        assert retained_error.__context__ is None
-        assert retained_error.object == ""
-        assert retained_error.args == ()
-        assert private_marker not in repr(retained_error)
+        assert captured == []
 
     @pytest.mark.parametrize("generic_failure", [False, True])
     def test_roundtrip_provider_failure_exception_graph_is_safe(
@@ -347,6 +570,7 @@ class TestRoundtrip:
             server.roundtrip(
                 server.RoundtripRequest(
                     text=THAI_TEXT,
+                    mode="token",
                     provider="credential-boom",
                 )
             )
@@ -404,6 +628,7 @@ class TestRoundtrip:
             server.roundtrip(
                 server.RoundtripRequest(
                     text=THAI_TEXT,
+                    mode="token",
                     provider="residual-graph",
                 )
             )
@@ -471,13 +696,14 @@ class TestRoundtrip:
             server.roundtrip(
                 server.RoundtripRequest(
                     text=THAI_TEXT,
+                    mode="token",
                     provider="restore-graph",
                 )
             )
 
         nodes, graph_text = _exception_graph(excinfo.value)
         assert excinfo.value.status_code == 500
-        assert excinfo.value.detail == "restore failed (CredentialBearingRestoreError)"
+        assert excinfo.value.detail == "restore_failed"
         assert excinfo.value.__cause__ is None
         assert excinfo.value.__context__ is None
         assert not any(isinstance(node, CredentialBearingRestoreError) for node in nodes)
@@ -512,7 +738,7 @@ class TestRoundtrip:
         assert resp.status_code == 200
         body = resp.json()
         assert body["restored_text"] == SICK_LEAVE_TEXT
-        assert "possible_tb_leak:NAME" not in body["warnings"]
+        assert body["warnings"] == []
 
     def test_roundtrip_leak_blocked_422(self, client, monkeypatch):
         import app.server as server
@@ -522,11 +748,12 @@ class TestRoundtrip:
             raise StatelessLeakError(["THAI_ID"])
 
         monkeypatch.setattr(server, "sanitize_stateless", boom_sanitize)
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "fake"},
+        )
         assert resp.status_code == 422
-        body = resp.json()["detail"]
-        assert body["error"] == "residual_pii"
-        assert body["types"] == ["THAI_ID"]
+        assert resp.json()["error"]["code"] == "residual_pii"
         assert "สมชาย" not in resp.text
 
     def test_roundtrip_orphan_digits_block_before_provider(self, client, monkeypatch):
@@ -557,7 +784,7 @@ class TestRoundtrip:
         )
 
         assert resp.status_code == 422
-        assert resp.json()["detail"]["types"] == ["ORPHAN_DIGITS"]
+        assert resp.json()["error"]["code"] == "residual_pii"
         assert calls == []
         assert "6801234" not in resp.text
 
@@ -598,11 +825,15 @@ class TestRoundtrip:
 
         response = client.post(
             "/api/roundtrip",
-            json={"text": "ข้อความทดสอบ", "provider": "rescan-spy"},
+            json={
+                "text": "ข้อความทดสอบ",
+                "mode": "token",
+                "provider": "rescan-spy",
+            },
         )
 
         assert response.status_code == 422
-        assert response.json()["detail"]["error"] == "residual_pii"
+        assert response.json()["error"]["code"] == "residual_pii"
         assert calls == []
         assert residual not in response.text
 
@@ -660,7 +891,7 @@ def test_roundtrip_tail_failure_drops_retained_sensitive_graph(monkeypatch, stag
     if stage == "guard_scan":
         monkeypatch.setattr(server, "scan_injection", fail_stage)
     elif stage == "guard_projection":
-        monkeypatch.setattr(server, "to_wire", fail_stage)
+        monkeypatch.setattr(server, "_guard_findings", fail_stage)
     else:
         monkeypatch.setattr(server, "write_process_log", fail_stage)
 
@@ -668,12 +899,13 @@ def test_roundtrip_tail_failure_drops_retained_sensitive_graph(monkeypatch, stag
         server.roundtrip(
             server.RoundtripRequest(
                 text=THAI_TEXT,
+                mode="token",
                 provider="tail-failure",
             )
         )
 
     assert excinfo.value.status_code == 500
-    assert excinfo.value.detail == "Internal processing failed"
+    assert excinfo.value.detail == "internal_error"
     assert retained_error.__traceback__ is None
     assert retained_error.__cause__ is None
     assert retained_error.__context__ is None
@@ -685,7 +917,7 @@ def test_roundtrip_tail_failure_drops_retained_sensitive_graph(monkeypatch, stag
     assert "1101700230708" not in repr(frame_locals)
 
 
-def test_reidentify_render_failure_is_fixed_and_scrubs_restored_text(client, monkeypatch):
+def test_reidentify_encoding_failure_is_fixed_and_scrubs_restored_text(client, monkeypatch):
     import json
 
     import app.server as server
@@ -710,16 +942,9 @@ def test_reidentify_render_failure_is_fixed_and_scrubs_restored_text(client, mon
     )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "Internal processing failed"}
+    assert response.json()["error"]["code"] == "restore_failed"
     assert private_marker not in response.text
-    assert len(captured) == 1
-    retained_error = captured[0]
-    assert retained_error.__traceback__ is None
-    assert retained_error.__cause__ is None
-    assert retained_error.__context__ is None
-    assert retained_error.object == ""
-    assert retained_error.args == ()
-    assert private_marker not in repr(retained_error)
+    assert captured == []
 
 
 class TestDemoGate:
@@ -736,15 +961,16 @@ class TestDemoGate:
         assert "ข้อมูลจริงไม่เคยออกจากเครื่องฝั่งผู้ใช้" not in resp.text
         assert "ข้อมูลจริงไม่ถูกส่งต่อไปยังโมเดลปลายทาง" not in resp.text
         assert "ก่อนเรียกโมเดล demo จะบล็อก residual PII" in resp.text
-        assert "คำเตือนจากคำตอบหลังเรียกโมเดล" in resp.text
+        assert "ผลลัพธ์ไม่ถูกนำไปแสดงหรือใช้งาน" in resp.text
 
-    def test_roundtrip_failure_clears_the_pending_restore_state(self, client, monkeypatch):
+    def test_roundtrip_failure_uses_safe_local_copy(self, client, monkeypatch):
         monkeypatch.setenv("AIGUARD_DEMO", "1")
 
         resp = client.get("/demo")
 
         assert resp.status_code == 200
-        assert resp.text.count("ยังไม่มีคำตอบให้กู้คืน") >= 2
+        assert "ส่งไม่สำเร็จ ผลลัพธ์ไม่ถูกนำไปแสดงหรือใช้งาน" in resp.text
+        assert "body.detail" not in resp.text
 
 
 class TestAnalyzeReport:
@@ -787,14 +1013,14 @@ class TestGuardEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["flagged"] is True
-        cats = {g["category"] for g in body["guard"]}
+        cats = {g["category"] for g in body["guard_findings"]}
         assert "instruction_override" in cats
 
     def test_guard_clean_text_not_flagged(self, client):
         resp = client.post("/api/guard", json={"text": "ช่วยสรุปเอกสารนี้ให้หน่อยครับ"})
         assert resp.status_code == 200
         assert resp.json()["flagged"] is False
-        assert resp.json()["guard"] == []
+        assert resp.json()["guard_findings"] == []
 
     def test_guard_empty_text_400(self, client):
         assert client.post("/api/guard", json={"text": " "}).status_code == 400
@@ -802,10 +1028,13 @@ class TestGuardEndpoint:
     def test_sanitize_carries_guard_key(self, client):
         resp = client.post("/api/sanitize", json={"text": THAI_TEXT, "mode": "token"})
         assert resp.status_code == 200
-        assert "guard" in resp.json()
-        assert isinstance(resp.json()["guard"], list)
+        assert "guard_findings" in resp.json()
+        assert isinstance(resp.json()["guard_findings"], list)
 
     def test_roundtrip_carries_guard_key(self, client):
-        resp = client.post("/api/roundtrip", json={"text": THAI_TEXT, "provider": "fake"})
+        resp = client.post(
+            "/api/roundtrip",
+            json={"text": THAI_TEXT, "mode": "token", "provider": "fake"},
+        )
         assert resp.status_code == 200
-        assert "guard" in resp.json()
+        assert "guard_findings" in resp.json()

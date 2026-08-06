@@ -13,7 +13,7 @@ export function renderSettings(root) {
       <div class="card" id="s-mode-token" data-mode="token"${cardStyle(mode === "token")}>
         <div class="row" style="margin: 0 0 var(--s2)">
           <span style="font-size:14px;font-weight:500">Token</span>
-          <span class="chip chip--token">[ชื่อ_1]</span>
+          <span class="chip chip--token">[ชื่อ_…_1]</span>
         </div>
         <p class="muted">เห็นชัดว่าปกปิดแล้ว เหมาะกับงานที่ต้องตรวจสอบย้อนหลัง</p>
       </div>

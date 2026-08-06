@@ -12,11 +12,12 @@ sends raw pre-mask chunks from that backend to AI for Thai.
 The current source candidate is not accepted as a fail-closed production store
 package. Its backend source now rejects structured FP, text-based TB,
 detector-independent contiguous 6+ digit residuals, and missing replacement
-records, but contract v1 still exposes mapping-bearing response fields and
-direct fixed-port localhost operation does not authenticate server identity.
-The published 2.5.0 backend and historical store/browser evidence predate the
-new outbound policy. Contract v2, the native broker, and fresh package/browser
-acceptance must land before this copy is used for a new package.
+records. Strict HTTP v2 removes mapping-bearing fields and first-party clients
+reject malformed, unknown, or unsafe responses. Direct fixed-port localhost
+operation still does not authenticate server identity. The published 2.5.0/v1
+backend and historical store/browser evidence predate all of these source
+changes. The native broker and fresh package/browser acceptance must land
+before this copy is used for a new package.
 
 In-page Mask acts only after raw text has been entered into the AI site's
 provider-controlled DOM, whose code can observe or transmit the draft. For the
@@ -45,7 +46,7 @@ AI Guard — ปกปิดข้อมูลส่วนบุคคลก่�
 
 AI Guard เป็น extension ที่ช่วยตรวจและปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทยก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงในเครื่อง Detector ปกติทำงานใน backend บนเครื่อง; หากผู้ใช้เลือก remote TNER อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai
 
-Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว แต่ source build v1 ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ response ยังมี field ที่เกี่ยวกับ mapping และ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port หลักฐาน store/browser และ backend ที่เผยแพร่ใน Desktop 2.5.0 เกิดก่อน outbound policy ใหม่นี้ ระบบ contract v2, native broker และการทดสอบ package/browser ใหม่ยังเป็น gate ที่เปิดอยู่
+Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว พร้อมใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง field ที่เกี่ยวกับ mapping และ client ปิดกั้น response ที่ malformed, unknown หรือ unsafe แต่ source นี้ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port หลักฐาน store/browser และ backend 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อน source change เหล่านี้ ระบบ native broker และการทดสอบ package/browser ใหม่ยังเป็น gate ที่เปิดอยู่
 
 การกด Mask ในหน้าเว็บเริ่มหลังจากข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว โค้ดเว็บอาจเห็นหรือส่ง draft ก่อน extension แทนที่ หากต้องการขอบเขตที่เข้มกว่า ต้องพิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ
 
@@ -58,8 +59,8 @@ Backend source ปัจจุบันปิดกั้น structured FP, text
 จุดเด่นด้านความเป็นส่วนตัว:
 - detector ปกติ, masking, restoration และ canonical vault อยู่ใน backend บนเครื่อง; remote TNER เป็นตัวเลือกที่ส่ง raw chunk ไป AI for Thai
 - ไม่มี analytics หรือ tracking
-- canonical mapping อยู่ในหน่วยความจำและไม่จงใจเขียนลงดิสก์; contract v1 ยังส่ง mapping-bearing field เข้า memory ของ extension และต้องถูกตัดออกใน v2
-- รองรับ 2 โหมด: token (เช่น `[ชื่อ_1]`) หรือ surrogate (ข้อมูลปลอมที่สมจริง อ่านลื่นไหลสำหรับ AI)
+- canonical mapping อยู่ในหน่วยความจำและไม่จงใจเขียนลงดิสก์; source HTTP v2 ไม่ส่ง explicit mapping DTO แต่ package 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อนการแก้นี้
+- รองรับ 2 โหมด: token (เช่น `[ชื่อ_<generation-tag>_<token-nonce>_1]`) หรือ surrogate (ข้อมูลปลอมที่สมจริง อ่านลื่นไหลสำหรับ AI)
 
 AI Guard เป็นโปรเจกต์ open source ภายใต้สัญญาอนุญาต Apache-2.0 ตรวจสอบซอร์สโค้ดทั้งหมดได้ที่ GitHub
 
@@ -86,14 +87,14 @@ the reply for you. The default detector runs in the local backend. If the user
 explicitly selects remote TNER, the backend sends raw pre-mask chunks to AI for
 Thai.
 
-The current v1 source build is not yet an accepted fail-closed production
-package. Current backend source rejects structured FP, text-based TB,
-detector-independent contiguous 6+ digit residuals, and missing replacement
-records. Responses still carry mapping-bearing fields, however, and fixed-port
-clients do not authenticate the localhost process. The published 2.5.0 backend
-and historical store/browser evidence predate the new outbound policy.
-Contract v2, the native broker, and fresh package/browser acceptance remain
-open.
+The current source build is not yet an accepted fail-closed production package.
+It rejects structured FP, text-based TB, detector-independent contiguous 6+
+digit residuals, and missing replacement records. Strict HTTP v2 removes
+mapping-bearing fields, and first-party clients reject malformed, unknown, or
+unsafe responses. Fixed-port clients still do not authenticate the localhost
+process. The published 2.5.0/v1 backend and historical store/browser evidence
+predate these source changes. The native broker and fresh package/browser
+acceptance remain open.
 
 In-page Mask acts after raw text is already in the AI site's
 provider-controlled DOM, whose code can observe or transmit the draft. For the
@@ -115,10 +116,10 @@ Privacy highlights:
   for Thai.
 - No analytics or tracking.
 - The canonical real-data ↔ placeholder mapping lives in memory and is not
-  deliberately written to disk. Contract v1 still places mapping-bearing
-  fields in extension memory; contract v2 must remove those DTO fields.
-- Two modes: token (e.g. `[Name_1]`) or surrogate (realistic fake data that
-  reads naturally to the AI).
+  deliberately written to disk. Current source v2 sends no explicit mapping
+  DTO; the published 2.5.0/v1 artifact predates that repair.
+- Two modes: token (e.g. `[Name_<generation-tag>_<token-nonce>_1]`) or
+  surrogate (realistic fake data that reads naturally to the AI).
 
 AI Guard is an open-source project under the Apache-2.0 license. The full
 source code is available on GitHub.

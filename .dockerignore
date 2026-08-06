@@ -32,6 +32,9 @@ office-addin
 .superpowers
 docs
 scripts
+!scripts/
+scripts/*
+!scripts/http_v2_client.py
 tests
 benchmark
 examples

@@ -16,10 +16,17 @@ function maliciousReport() {
   return {
     overall_score: 42.0,
     overall_grade: "C",
-    risk_label: "ปานกลาง",
+    risk_label: "Medium Risk",
     direct_pii_count: XSS,
-    reid: { score: 10.0, grade: "B", high_risk_combo: false },
-    section26: [],
+    fp_count: 0,
+    tb_count: 0,
+    reidentification: {
+      score: 10.0,
+      grade: "B",
+      quasi_identifier_categories: [],
+      high_risk_combination: false,
+    },
+    section26_categories: [],
     breakdown: [{ data_type: "PHONE", redact_type: "FP", count: XSS }],
     recommendations: [],
   };

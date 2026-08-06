@@ -7,11 +7,13 @@ redaction toolkit. It has one product core and two delivery contexts:
    Microsoft 365 add-in — where the canonical PII mapping is intended to remain
    in backend memory on the user's device; and
 2. a hosted service shape where the platform receives the request, AI Guard
-   avoids persistence and PII-bearing logs, and downstream provider calls
-   are intended to receive only verified masked text. Current source now
-   rejects structured, text-based, and detector-independent residuals before
-   HTTP/worker provider calls; packaged, live-provider, and official-platform
-   acceptance of that change remains open.
+   targets no deliberate mapping/raw-PII persistence or PII-bearing logs, and
+   downstream provider calls are intended to receive only verified masked
+   text. The current generic hosted candidate is mixed-state, and its audit
+   transport and retention are not accepted. Current source rejects structured,
+   text-based, and detector-independent residuals before HTTP/worker provider
+   calls; packaged, live-provider, and official-platform acceptance of that
+   change remains open.
 
 This document answers one question: **what gets built next, in what order, and
 what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
@@ -50,9 +52,11 @@ release rules live in [docs/release-process.md](docs/release-process.md).
   live in generated benchmark reports, not in this file.
 - The AI for Thai participant guide has arrived and fixes the deployment shape
   (HTTP/FastAPI behind a reverse proxy, Compose from GitLab `main`). The
-  local candidate exists in the separate port repository; its GitLab project
-  creation/push is owner-gated, while the exact public route/auth contract is
-  externally pending. The queue worker is retained only as a local
+  main repository now has a generic strict-v2 `app.hosted` candidate, while the
+  separately versioned sibling remains a distinct v1 port with historical local
+  evidence. Neither route set is the confirmed official contract. Deployment
+  vehicle selection and any GitLab project creation/push are owner-gated. The
+  queue worker is retained only as a local
   failure/retry emulator, not the official delivery path.
 
 The source tree keeps live product code, required synthetic/reproducibility
@@ -91,7 +95,7 @@ reviewed, independently revertible squashes in this order:
    `prepared` or `blocked` process-attempt record may exist; it carries no live
    session authority or mapping material. Known-session expiry is
    request-driven lifecycle disposal outside rollback, and displaced-vault
-   cleanup after publication is best effort. Current production API
+   cleanup after publication is best effort. Current main-API source
    process-audit callers use fresh operation IDs; the legacy audit field remains
    named `session_id`.
 3. **Harden vault seeding and audit — delivered in current source.** New seeds
@@ -107,30 +111,46 @@ reviewed, independently revertible squashes in this order:
    the repository/deployment inventory found no evidenced external v1
    consumer, while unknown consumers remain possible. Clients still
    necessarily handle submitted and returned text. The worker's internal
-   envelope remains version 1. Runtime implementation remains open in item 5.
+   envelope remains version 1. Runtime implementation is recorded in item 5.
 5. **Fail closed on outbound residuals and cut over server plus first-party
-   clients atomically — residual policy delivered in current source; v2
-   cutover still open.** The shared core blocks structured FP findings,
+   clients atomically — delivered in current source; fresh package/host
+   acceptance remains open.** The shared core blocks structured FP findings,
    text-based TB findings, detector-independent contiguous runs of six or more
    digits, and missing replacement records. Caller-seeded pseudonyms are reused
    only when nonempty, original-free, absent from the current source text, and
    free of independent FP/TB/digit residual signals; token reuse also requires
    the product token shape for the detected data type.
+   Token mode now combines a non-secret random vault-generation tag with an
+   unpredictable nonce for each newly minted token. Regressions keep stale and
+   guessed tokens foreign in the exercised drop, restart, expiry, eviction, and
+   same-session preplay cases. The random 64-bit tag plus approximately 94-bit
+   nonce makes accidental identity reuse and future-token preplay
+   computationally impractical; this is probabilistic separation, not
+   impossibility. Unknown token text remains unchanged and becomes a count-only
+   unsafe warning. The accepted
+   [identity decision](docs/decisions/2026-08-06-session-namespaced-token-identity.md)
+   adds no wire field or credential. It is implemented in current source; the
+   exact-candidate sanitize performance gate is red, its measured security
+   trade was owner-accepted on 2026-08-06, and package/real-host acceptance
+   remains pending.
    The CLI rescans before each outer `provider.complete()` invocation. A
    provider with `handles_retries=True` receives one outer validation before
    its single invocation and may resend that same immutable masked text
    internally. HTTP and worker roundtrip rescan immediately before their direct
-   calls. Runtime remains contract v1 and the worker envelope remains version
-   1. Health must still separate control-plane and data-plane capability
-   fields. Browser, Desktop, and Office must enable operations only after exact
-   v2 health validation, then reject malformed, extra, missing, or unsafe
-   operation responses.
+   calls. Runtime and first-party clients now use strict HTTP v2 with exact
+   response projection, sanitized-space highlights, safe errors, and separate
+   control/data-plane health capabilities. The worker envelope remains version
+   1. The source gates do not establish packaged Desktop, real-browser,
+   HTTPS-proxy/Office-host, or live-provider acceptance.
 6. **Verify packaged-backend and Office development composition.** Automated
    sidecar plus HTTPS-proxy evidence must remain distinct from the eight open
    real-host/package checks; no certificate trust or sideload is implied.
-7. **Make request-driven lifecycle behavior eager and preserve Desktop
-   continuity.** Sweep on normal service activity, reuse Desktop sessions, and
-   avoid any unauthenticated disposal endpoint.
+7. **Make request-driven lifecycle behavior eager and finish authenticated
+   disposal.** Current Desktop web and hotkey paths reuse their prior session
+   and retry once without it only for exact expiry or mode-mismatch errors.
+   A general request-start expiry sweep and broker-authenticated extension,
+   Office, and Desktop disposal remain open; no unauthenticated disposal
+   endpoint is added.
 8. **Converge longer-term choke points.** Specify and implement the native
    localhost broker, fail-closed explicit TNER behavior, shared protected
    provider orchestration, and authoritative PDF source-to-box intervals in
@@ -140,8 +160,8 @@ reviewed, independently revertible squashes in this order:
    Tokenmind's current one-total-deadline and `Retry-After` behavior with the
    locked three-attempt, 60-seconds-per-attempt, fixed 1/2-second policy.
 
-The outbound-policy source change and future contract-v2 client, broker,
-lifecycle, explicit-TNER, provider-orchestration, and PDF-offset changes each
+The outbound-policy, HTTP-v2 client, and token-identity source changes plus the
+future broker, lifecycle, explicit-TNER, provider-orchestration, and PDF-offset changes each
 invalidate carry-forward evidence only for their affected paths. Fresh
 automated, packaged, real-host, live-provider, or official-platform evidence
 must match the strength of the changed path. Shared provider orchestration is
@@ -247,12 +267,13 @@ Ordered so that evaluation integrity comes before tuning:
    privacy gate was red at the
    [2026-07-31 dated run](docs/acceptance/2026-07-31-government-form-synthetic-run.md)
    and passed green 9/9 on the 2026-08-01 branch rerun, detailed next.
-   A current-tree WSL rerun on 2026-08-04 completed 9/9 with zero gate failures
+   A WSL rerun at exact commit `ded67d3` on 2026-08-04 completed 9/9 with zero gate failures
    (45/45 removed, zero exposed or unmeasurable, residual OCR measured 9/9,
    and decoy controls clean). The runner conservatively labeled its summary
    `functional_pass_repository_dirty` during the WSL run; immediately after,
-   both Windows and WSL Git status were clean at the same commit. This closes
-   the current-tree functional evidence gap, but not the runtime limitation:
+   both Windows and WSL Git status were clean at that commit. This is
+   historical exact-candidate evidence; the current HTTP-v2/PDF composition has
+   not rerun it. It closed that candidate's functional evidence gap, but not the runtime limitation:
    the WSL run took about 34 minutes and peaked near 8 GiB RSS, the Windows
    run still has a 30-minute timeout, and an earlier Windows access violation
    remains recorded in the phase-2 addendum.
@@ -291,8 +312,8 @@ unprefixed `/health`, masked CI variables, bounded log rotation, and CPU-only
 resource limits. GitLab group access (Maintainer) and separate LLM service
 credentials have arrived.
 
-The deployment is built as a **separate port repo** (`aiguard-aift`), keeping
-this repo local-first: a vendored core slice + nginx adapter (prefix re-add,
+Historical deployment preparation uses a **separate port repo**
+(`aiguard-aift`), keeping this repo local-first: a vendored core slice + nginx adapter (prefix re-add,
 six-endpoint allowlist, key injection) + OCR-baked image, with a stateless
 roundtrip against thaillm-8b. It passed a full local Docker phase — the ก-ฌ
 checklist, fail-loud/503 failure modes, and a service-level soak — recorded in
@@ -302,15 +323,23 @@ fail-closed certification for the current core. Pushing to GitLab and the real
 platform run are owner-gated; the exact public operation/authentication
 contract plus LLM operational policy still need confirmation.
 
+Current main also includes `app.hosted`, a generic strict-v2 candidate with
+required API-key/provider configuration and a fixed seven-route allowlist. It
+does not implement or prove the platform prefix/health shape, it includes
+stateful sanitize/reidentify, and it does not migrate or replace the sibling.
+The owner must approve the deployment vehicle after the official public route
+and lifecycle answers are known.
+
 - Capture the remaining official answers: exact repository/registry/template
   rules, public operations, caller authentication, payload/timeout/concurrency
   limits, outbound network policy, LLM quota/logging policy, and acceptance
   owner/evidence. Record unanswered fields as unknown; never convert
   assumptions into a contract.
-- Verify the existing hosted adapter/configuration and adjust it only where
-  confirmed platform answers require. Its local shell already covers prefix
-  handling, health, host policy, an allowlisted/authenticated public surface,
-  and Compose/CI/logging.
+- Compare the main v2 candidate and sibling v1 shell against the confirmed
+  contract, then adjust only the owner-selected vehicle. The sibling already
+  covers prefix handling and platform-shaped Compose/CI/logging; main provides
+  the current strict-v2 response boundary. Neither combination is accepted
+  until exercised on the official platform.
 - In a separately authorized port change, re-vendor the current main core
   through the pinned manifest without forking its detection, masking, vault,
   provider, or restoration logic. Rerun privacy, Docker, and soak evidence.
@@ -385,13 +414,13 @@ document.
    ([record](docs/decisions/2026-07-29-processing-receipt.md)): a per-run slip
    rather than a cumulative register, verified by rerunning the input and
    comparing digests rather than by a signature. Core plus a CLI that both
-   issues and verifies, plus a Thai PDF. No API endpoint in v1.
+   issues and verifies, plus a Thai PDF. No HTTP endpoint by design.
 2. **Breach assessment mode.** Delivered 2026-08-01
    ([record](docs/decisions/2026-08-01-breach-assessment.md)): scan a set of
    leaked documents and summarize type, count and affected-subject estimates,
    so a controller can draft the 72-hour PDPC notification from evidence
-   rather than memory. Core plus a CLI verb, plus a Thai PDF. No API endpoint
-   in v1.
+   rather than memory. Core plus a CLI verb, plus a Thai PDF. No HTTP endpoint
+   by design.
 3. **DSAR helper.** Delivered 2026-08-01
    ([record](docs/decisions/2026-08-01-dsar-helper.md)): locate which of a set
    of documents the controller already holds mention a data subject, so the
@@ -399,7 +428,7 @@ document.
    themselves rather than searching by hand. The retention question that
    blocked this item was answered by the owner — in-memory for the run only,
    nothing beyond the requested artifacts written to disk. Core plus a CLI
-   verb, plus a Thai PDF. No API endpoint in v1.
+   verb, plus a Thai PDF. No HTTP endpoint by design.
 4. **Standards mapping.** Delivered 2026-08-01
    ([docs/standards-mapping.md](docs/standards-mapping.md)): a correspondence
    document, not a conformance claim. Grounded in the sources actually

@@ -67,6 +67,17 @@ class PseudonymizedDocument:
     text: str  # text with real PII replaced by pseudonyms
     entity_registry: EntityRegistry  # original registry (spans still reference original text)
     session_id: str  # links to the SessionVault
+    replacement_highlights: tuple[ReplacementHighlight, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReplacementHighlight:
+    """One authoritative replacement interval in sanitized text."""
+
+    start: int
+    end: int
+    data_type: str
+    redact_type: str
 
 
 @dataclass(frozen=True)
@@ -96,6 +107,7 @@ class ReverseResult:
     """Output of Step 6 (Reverse Mapping). Real data restored."""
 
     text: str  # response with real data restored
+    restored_ranges: tuple[tuple[int, int], ...] = ()
     flags: list[str] = field(
         default_factory=list
     )  # warnings: "pseudonym_residue", "incomplete_reverse", etc.

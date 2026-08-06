@@ -12,7 +12,7 @@ import pytest
 from pii_redactor.reverse_mapper import count_foreign_tokens
 from pii_redactor.stateless import restore_stateless
 
-_BRACKET_TOKEN = re.compile(r"\[[^\[\]\r\n]{1,64}\]")
+_BRACKET_TOKEN = re.compile(r"\[[^\[\]\r\n]{1,128}\]")
 
 SENT = ["[ชื่อ_1]", "[โทรศัพท์_1]"]
 
@@ -23,6 +23,15 @@ class TestCountForeignTokens:
 
     def test_sent_tokens_are_not_foreign(self):
         assert count_foreign_tokens("ติดต่อ [ชื่อ_1] ที่ [โทรศัพท์_1]", SENT) == 0
+
+    def test_namespaced_token_from_another_session_is_foreign(self):
+        sent = [f"[ชื่อ_{'a' * 25}_{'n' * 20}_1]"]
+        stale = f"[ชื่อ_{'f' * 25}_{'s' * 20}_1]"
+        assert count_foreign_tokens(stale, sent, mode="token") == 1
+
+    def test_namespaced_token_is_foreign_even_in_surrogate_mode(self):
+        stale = f"[ชื่อ_{'f' * 25}_{'s' * 20}_1]"
+        assert count_foreign_tokens(stale, ["สมหญิง ดีมาก"], mode="surrogate") == 1
 
     def test_occurrences_counted_not_distinct(self):
         assert count_foreign_tokens("[Name_1] และ [Name_1] กับ [Email_2]", SENT) == 3
@@ -48,8 +57,14 @@ class TestCountForeignTokens:
     def test_non_candidates_do_not_flag(self, text):
         assert count_foreign_tokens(text, SENT) == 0
 
-    def test_inactive_when_mapping_empty(self):
+    def test_untyped_empty_mapping_keeps_legacy_inference(self):
         assert count_foreign_tokens("[Name_1]", []) == 0
+
+    def test_token_mode_is_active_when_mapping_empty(self):
+        assert count_foreign_tokens("[Name_1]", [], mode="token") == 1
+
+    def test_surrogate_mode_is_inactive_when_mapping_empty(self):
+        assert count_foreign_tokens("[Name_1]", [], mode="surrogate") == 0
 
     def test_inactive_when_no_sent_pseudonym_is_bracket_shaped(self):
         # surrogate mode: pseudonyms are bare fake values -> detector off
@@ -93,7 +108,11 @@ class TestSessionReidentifyForeignTokens:
 
         from app.server import app
 
-        return TestClient(app, base_url="http://localhost")
+        return TestClient(
+            app,
+            base_url="http://localhost",
+            headers={"X-AIGuard-Contract-Version": "2"},
+        )
 
     def test_foreign_token_warning_survives_session_reidentify(self, client):
         sanitize_resp = client.post(
@@ -117,5 +136,91 @@ class TestSessionReidentifyForeignTokens:
         reidentify_out = reidentify_resp.json()
 
         warnings = reidentify_out["warnings"]
-        assert sum(1 for w in warnings if re.fullmatch(r"foreign_tokens:1", w)) == 1
+        assert warnings == [{"code": "foreign_replacement", "count": 1}]
         assert real_token not in reidentify_out["restored_text"]
+
+
+class TestEmptyMappingRoundtrip:
+    class _ForeignTokenProvider:
+        def complete(self, _system, _user, *, timeout=30.0):
+            return "[x_1]"
+
+    class _ForeignNameProvider:
+        def complete(self, _system, _user, *, timeout=30.0):
+            return "[Name_1]"
+
+    @pytest.mark.parametrize(
+        ("mode", "status", "warnings"),
+        [
+            ("token", "unsafe", [{"code": "foreign_replacement", "count": 1}]),
+            ("surrogate", "complete", []),
+        ],
+    )
+    def test_explicit_mode_controls_foreign_token_scan(
+        self,
+        monkeypatch,
+        mode,
+        status,
+        warnings,
+    ):
+        pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+
+        from app import server
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            "fake",
+            self._ForeignTokenProvider,
+        )
+        client = TestClient(
+            server.app,
+            base_url="http://localhost",
+            headers={"X-AIGuard-Contract-Version": "2"},
+        )
+
+        response = client.post(
+            "/api/roundtrip",
+            json={"text": "hello", "mode": mode, "provider": "fake"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["detected_entity_count"] == 0
+        assert body["restored_text"] == "[x_1]"
+        assert body["warnings"] == warnings
+        assert body["restoration"] == {
+            "status": status,
+            "replaced_count": 0,
+            "leftover_count": 0,
+        }
+
+    def test_empty_token_roundtrip_foreign_name_is_unsafe(self, monkeypatch):
+        pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+
+        from app import server
+
+        monkeypatch.setitem(
+            server._PROVIDER_FACTORIES,
+            "fake",
+            self._ForeignNameProvider,
+        )
+        client = TestClient(
+            server.app,
+            base_url="http://localhost",
+            headers={"X-AIGuard-Contract-Version": "2"},
+        )
+
+        response = client.post(
+            "/api/roundtrip",
+            json={"text": "hello", "mode": "token", "provider": "fake"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["restoration"]["status"] == "unsafe"
+        assert body["warnings"] == [
+            {"code": "generated_pii", "count": 1},
+            {"code": "foreign_replacement", "count": 1},
+        ]

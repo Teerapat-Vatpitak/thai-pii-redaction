@@ -26,20 +26,24 @@ TOKEN = "boot-token-under-test-0123456789abcdef"
 
 
 def _client():
-    return TestClient(server.app, base_url="http://localhost")
+    return TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 # ── /api/health capability discovery ───────────────────────────────────
 def test_health_reports_token_not_required_when_unset(monkeypatch):
     monkeypatch.setattr(server, "_BOOT_TOKEN", None)
     body = _client().get("/api/health").json()
-    assert body["capabilities"]["token_required"] is False
+    assert body["capabilities"]["control_token_required"] is False
 
 
 def test_health_reports_token_required_when_set(monkeypatch):
     monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
     body = _client().get("/api/health").json()
-    assert body["capabilities"]["token_required"] is True
+    assert body["capabilities"]["control_token_required"] is True
 
 
 # ── shutdown: token SET ─────────────────────────────────────────────────
@@ -81,13 +85,13 @@ def test_shutdown_local_header_alone_rejected_when_token_set(monkeypatch):
 
 
 # ── shutdown: token UNSET (grace path) ──────────────────────────────────
-def test_shutdown_grace_path_requires_local_header(monkeypatch):
+def test_shutdown_grace_path_open_without_control_token(monkeypatch):
     monkeypatch.setattr(server, "_BOOT_TOKEN", None)
     called = {}
     monkeypatch.setattr(server, "_schedule_exit", lambda: called.setdefault("hit", True))
     resp = _client().post("/api/shutdown")
-    assert resp.status_code == 403
-    assert "hit" not in called
+    assert resp.status_code == 200
+    assert called.get("hit") is True
 
 
 def test_shutdown_grace_path_allowed_with_local_header(monkeypatch):

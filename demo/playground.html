@@ -188,7 +188,7 @@
 <div class="controls">
   <label>รูปแบบการปกปิด
     <select id="mode">
-      <option value="token">โทเคน เช่น [ชื่อ_1]</option>
+      <option value="token">โทเคนแยกชุด เช่น [ชื่อ_…_1]</option>
       <option value="surrogate">ข้อมูลสมมุติ (อ่านเป็นธรรมชาติ)</option>
     </select>
   </label>
@@ -201,8 +201,8 @@
       <option value="claude">Claude</option>
     </select>
   </label>
-  <button id="send" class="primary">ลองปกปิดแล้วส่งเข้า AI</button>
-  <button id="reportBtn">ออกรายงาน PDPA (PDF)</button>
+  <button id="send" class="primary" disabled>ลองปกปิดแล้วส่งเข้า AI</button>
+  <button id="reportBtn" disabled>ออกรายงาน PDPA (PDF)</button>
 </div>
 
 <div class="panes">
@@ -230,13 +230,10 @@
 
 <div id="tab-pdf" class="tabpage">
   <input type="file" id="pdfFile" accept="application/pdf" hidden>
-  <button id="pdfPick" class="primary">เลือกไฟล์ PDF</button>
+  <button id="pdfPick" class="primary" disabled>เลือกไฟล์ PDF</button>
   <span id="pdfStatus" class="pdfmeta"></span>
   <div id="cmpWrap" hidden>
-    <img id="imgBefore" alt="ก่อนทาดำ">
     <img id="imgAfter" alt="หลังทาดำ">
-    <div id="cmpBar"></div>
-    <input id="cmpSlider" type="range" min="0" max="100" value="50">
   </div>
   <div class="pdfmeta" id="pdfInfo"></div>
   <button id="pdfDownload" hidden>ดาวน์โหลด PDF ที่ทาดำแล้ว</button>
@@ -270,6 +267,438 @@ const THAI_LABELS = {
 const colorFor = t => COLORS[t] || OTHER_COLOR;
 const labelFor = t => THAI_LABELS[t] || t;
 const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const V2_HEADER = "X-AIGuard-Contract-Version";
+const V2_VALUE = "2";
+const SECTION26 = new Set([
+  "RACE_ETHNICITY", "POLITICAL_OPINION", "RELIGION", "HEALTH",
+  "SEXUAL_BEHAVIOR", "CRIMINAL_RECORD", "DISABILITY", "LABOR_UNION",
+]);
+const GUARD_CATEGORIES = new Set([
+  "instruction_override", "role_hijack", "exfiltration", "hidden_chars",
+  "suspicious_payload",
+]);
+const GUARD_SEVERITIES = new Set(["low", "medium", "high"]);
+const RESTORE_WARNINGS = new Set(["generated_pii", "foreign_replacement"]);
+const PDF_WARNINGS = new Set(["ocr_low_confidence", "human_review_required"]);
+const COUNTED_ERROR_CODES = new Set([
+  "request_schema_invalid", "residual_pii", "ner_incomplete", "ner_unavailable",
+]);
+const REDACT_TYPES = new Set(["FP", "TB"]);
+const GRADES = new Set(["A", "B", "C", "D", "F"]);
+const ERROR_SPECS = new Map([
+  ["contract_version_required", [426, "contract", false]],
+  ["invalid_request", [400, "request", false]],
+  ["request_schema_invalid", [422, "request", false]],
+  ["authentication_required", [401, "authentication", false]],
+  ["control_forbidden", [403, "authentication", false]],
+  ["route_not_found", [404, "request", false]],
+  ["session_unavailable", [404, "session", false]],
+  ["method_not_allowed", [405, "request", false]],
+  ["rate_limited", [429, "service", true]],
+  ["payload_too_large", [413, "request", false]],
+  ["residual_pii", [422, "privacy", false]],
+  ["document_invalid", [422, "document", false]],
+  ["provider_unavailable", [502, "upstream", true]],
+  ["provider_rejected", [502, "upstream", false]],
+  ["provider_response_invalid", [502, "upstream", false]],
+  ["ner_incomplete", [502, "upstream", false]],
+  ["provider_configuration", [503, "configuration", false]],
+  ["dependency_unavailable", [503, "dependency", false]],
+  ["ocr_unavailable", [503, "dependency", false]],
+  ["service_unavailable", [503, "service", true]],
+  ["restore_failed", [500, "internal", false]],
+  ["internal_error", [500, "internal", false]],
+]);
+let contractReady = false;
+
+function invalid(label) {
+  throw new Error("invalid " + label + " response");
+}
+function object(value, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) invalid(label);
+  return value;
+}
+function exact(value, keys, label) {
+  const source = object(value, label);
+  const actual = Object.keys(source).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, i) => key !== expected[i])) {
+    invalid(label);
+  }
+  return source;
+}
+function textValue(value, label, nonempty = false) {
+  if (typeof value !== "string" || (nonempty && !value)) invalid(label);
+  return value;
+}
+function integer(value, label, positive = false) {
+  if (!Number.isInteger(value) || value < (positive ? 1 : 0)) invalid(label);
+  return value;
+}
+function enumValue(value, allowed, label) {
+  if (!allowed.has(value)) invalid(label);
+  return value;
+}
+function finite(value, min, max, label) {
+  if (!Number.isFinite(value) || value < min || value > max) invalid(label);
+  return value;
+}
+function uniqueEnums(value, allowed, label) {
+  if (!Array.isArray(value)) invalid(label);
+  const canonical = [...allowed];
+  let previousIndex = -1;
+  return value.map(item => {
+    const projected = enumValue(item, allowed, label);
+    const index = canonical.indexOf(projected);
+    if (index <= previousIndex) invalid(label);
+    previousIndex = index;
+    return projected;
+  });
+}
+function counts(value, label) {
+  const source = object(value, label);
+  const projected = {};
+  for (const [key, count] of Object.entries(source)) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(key)) invalid(label);
+    projected[key] = integer(count, label, true);
+  }
+  return projected;
+}
+function dataType(value, label) {
+  const projected = textValue(value, label, true);
+  if (!/^[A-Z][A-Z0-9_]*$/.test(projected)) invalid(label);
+  return projected;
+}
+function sumCounts(value) {
+  return Object.values(value).reduce((sum, count) => sum + count, 0);
+}
+function warnings(value, allowed, label) {
+  if (!Array.isArray(value)) invalid(label);
+  const seen = new Set();
+  const projected = value.map(warning => {
+    const item = exact(warning, ["code", "count"], label);
+    const code = enumValue(item.code, allowed, label);
+    if (seen.has(code)) invalid(label);
+    seen.add(code);
+    return {code, count: integer(item.count, label, true)};
+  });
+  const expected = [...allowed].filter(code => seen.has(code));
+  if (projected.some((warning, index) => warning.code !== expected[index])) {
+    invalid(label);
+  }
+  return projected;
+}
+function guardFindings(value, label) {
+  if (!Array.isArray(value)) invalid(label);
+  const seen = new Set();
+  return value.map(finding => {
+    const item = exact(finding, ["category", "severity"], label);
+    const projected = {
+      category: enumValue(item.category, GUARD_CATEGORIES, label),
+      severity: enumValue(item.severity, GUARD_SEVERITIES, label),
+    };
+    const key = projected.category + ":" + projected.severity;
+    if (seen.has(key)) invalid(label);
+    seen.add(key);
+    return projected;
+  });
+}
+function highlights(value, sourceText, label) {
+  if (!Array.isArray(value)) invalid(label);
+  const length = Array.from(sourceText).length;
+  let previousEnd = 0;
+  return value.map(row => {
+    const item = exact(row, ["start", "end", "data_type", "redact_type"], label);
+    const start = integer(item.start, label);
+    const end = integer(item.end, label);
+    if (start >= end || start < previousEnd || end > length) invalid(label);
+    previousEnd = end;
+    return {
+      start,
+      end,
+      data_type: dataType(item.data_type, label),
+      redact_type: enumValue(item.redact_type, REDACT_TYPES, label),
+    };
+  });
+}
+function validateHealth(value) {
+  const item = exact(value, ["status", "version", "contract_version", "capabilities"], "health");
+  const capabilities = exact(
+    item.capabilities,
+    ["control_token_required", "api_key_required"],
+    "health"
+  );
+  if (
+    item.status !== "ok" ||
+    item.contract_version !== 2 ||
+    typeof capabilities.control_token_required !== "boolean" ||
+    typeof capabilities.api_key_required !== "boolean"
+  ) invalid("health");
+  return {
+    status: "ok",
+    version: textValue(item.version, "health", true),
+    contract_version: 2,
+    capabilities: {
+      control_token_required: capabilities.control_token_required,
+      api_key_required: capabilities.api_key_required,
+    },
+  };
+}
+function validateDetect(value, sourceText) {
+  const item = exact(
+    value,
+    ["detected_entity_count", "entity_type_counts", "highlights"],
+    "detect"
+  );
+  const entityCounts = counts(item.entity_type_counts, "detect");
+  const detected = integer(item.detected_entity_count, "detect");
+  const projectedHighlights = highlights(item.highlights, sourceText, "detect");
+  if (sumCounts(entityCounts) !== detected || projectedHighlights.length !== detected) {
+    invalid("detect");
+  }
+  return {
+    detected_entity_count: detected,
+    entity_type_counts: entityCounts,
+    highlights: projectedHighlights,
+  };
+}
+function validateGuard(value) {
+  const item = exact(value, ["flagged", "guard_findings"], "guard");
+  const findings = guardFindings(item.guard_findings, "guard");
+  if (typeof item.flagged !== "boolean" || item.flagged !== (findings.length > 0)) {
+    invalid("guard");
+  }
+  return {flagged: item.flagged, guard_findings: findings};
+}
+function validateRoundtrip(value, requestedProvider) {
+  const item = exact(
+    value,
+    [
+      "sanitized_text", "ai_response_masked", "restored_text",
+      "detected_entity_count", "entity_type_counts", "provider_used",
+      "section26_categories", "guard_findings", "warnings", "safety",
+      "restoration",
+    ],
+    "roundtrip"
+  );
+  const entityCounts = counts(item.entity_type_counts, "roundtrip");
+  const detected = integer(item.detected_entity_count, "roundtrip");
+  if (sumCounts(entityCounts) !== detected || item.provider_used !== requestedProvider) {
+    invalid("roundtrip");
+  }
+  const safety = exact(item.safety, ["status", "residual_count"], "roundtrip");
+  if (safety.status !== "pass" || safety.residual_count !== 0) invalid("roundtrip");
+  const projectedWarnings = warnings(item.warnings, RESTORE_WARNINGS, "roundtrip");
+  const restoration = exact(
+    item.restoration,
+    ["status", "replaced_count", "leftover_count"],
+    "roundtrip"
+  );
+  if (!new Set(["complete", "incomplete", "unsafe"]).has(restoration.status)) {
+    invalid("roundtrip");
+  }
+  const leftoverCount = integer(restoration.leftover_count, "roundtrip");
+  const warningPresent = projectedWarnings.length > 0;
+  if (
+    (restoration.status === "complete" && (leftoverCount !== 0 || warningPresent)) ||
+    (restoration.status === "incomplete" && (leftoverCount === 0 || warningPresent)) ||
+    (restoration.status === "unsafe" && !warningPresent)
+  ) invalid("roundtrip");
+  return {
+    sanitized_text: textValue(item.sanitized_text, "roundtrip"),
+    ai_response_masked: textValue(item.ai_response_masked, "roundtrip"),
+    restored_text: textValue(item.restored_text, "roundtrip"),
+    detected_entity_count: detected,
+    entity_type_counts: entityCounts,
+    provider_used: item.provider_used,
+    section26_categories: uniqueEnums(item.section26_categories, SECTION26, "roundtrip"),
+    guard_findings: guardFindings(item.guard_findings, "roundtrip"),
+    warnings: projectedWarnings,
+    safety: {status: "pass", residual_count: 0},
+    restoration: {
+      status: restoration.status,
+      replaced_count: integer(restoration.replaced_count, "roundtrip"),
+      leftover_count: leftoverCount,
+    },
+  };
+}
+function validateReport(value) {
+  const item = exact(value, ["report_pdf_b64", "overall_score", "overall_grade"], "report");
+  return {
+    report_pdf_b64: textValue(item.report_pdf_b64, "report", true),
+    overall_score: finite(item.overall_score, 0, 100, "report"),
+    overall_grade: enumValue(item.overall_grade, GRADES, "report"),
+  };
+}
+function validatePdf(value) {
+  const item = exact(
+    value,
+    [
+      "source_type", "ocr_confidence", "human_review", "warnings",
+      "detected_entity_count", "entity_type_counts", "fields",
+      "section26_categories", "redacted_pdf_b64", "after_png_b64",
+    ],
+    "redact-pdf"
+  );
+  const entityCounts = counts(item.entity_type_counts, "redact-pdf");
+  const detected = integer(item.detected_entity_count, "redact-pdf");
+  if (sumCounts(entityCounts) !== detected || !Array.isArray(item.fields)) {
+    invalid("redact-pdf");
+  }
+  const projectedFields = item.fields.map(field => {
+    const row = exact(field, ["data_type", "redact_type"], "redact-pdf");
+    return {
+      data_type: dataType(row.data_type, "redact-pdf"),
+      redact_type: enumValue(row.redact_type, REDACT_TYPES, "redact-pdf"),
+    };
+  });
+  const fieldKeys = projectedFields.map(
+    field => field.data_type + "\u0000" + field.redact_type
+  );
+  if (new Set(fieldKeys).size !== fieldKeys.length) invalid("redact-pdf");
+  if (!new Set(["pdf_text", "pdf_hybrid"]).has(item.source_type)) invalid("redact-pdf");
+  if (typeof item.human_review !== "boolean") invalid("redact-pdf");
+  return {
+    source_type: item.source_type,
+    ocr_confidence: item.ocr_confidence === null
+      ? null : finite(item.ocr_confidence, 0, 1, "redact-pdf"),
+    human_review: item.human_review,
+    warnings: warnings(item.warnings, PDF_WARNINGS, "redact-pdf"),
+    detected_entity_count: detected,
+    entity_type_counts: entityCounts,
+    fields: projectedFields,
+    section26_categories: uniqueEnums(
+      item.section26_categories,
+      SECTION26,
+      "redact-pdf"
+    ),
+    redacted_pdf_b64: textValue(item.redacted_pdf_b64, "redact-pdf", true),
+    after_png_b64: textValue(item.after_png_b64, "redact-pdf", true),
+  };
+}
+function validateError(value, status) {
+  const outer = exact(value, ["error"], "error");
+  const item = exact(
+    outer.error,
+    ["code", "category", "count", "retryable", "status"],
+    "error"
+  );
+  let spec = ERROR_SPECS.get(item.code);
+  if (item.code === "ner_unavailable") {
+    const valid =
+      ((item.category === "configuration" || item.category === "dependency") &&
+        item.retryable === false) ||
+      ((item.category === "network" || item.category === "upstream") &&
+        item.retryable === true);
+    if (!valid || item.status !== 503) invalid("error");
+    spec = [503, item.category, item.retryable];
+  }
+  if (
+    !spec ||
+    item.status !== status ||
+    item.status !== spec[0] ||
+    item.category !== spec[1] ||
+    item.retryable !== spec[2]
+  ) invalid("error");
+  const count = integer(item.count, "error");
+  if (!COUNTED_ERROR_CODES.has(item.code) && count !== 0) invalid("error");
+  return {
+    error: {
+      code: item.code,
+      category: item.category,
+      count,
+      retryable: item.retryable,
+      status: item.status,
+    },
+  };
+}
+function hasV2Header(response) {
+  return response && response.headers &&
+    typeof response.headers.get === "function" &&
+    response.headers.get(V2_HEADER) === V2_VALUE;
+}
+function setContractReady(ready) {
+  contractReady = Boolean(ready);
+  document.getElementById("send").disabled = !contractReady;
+  document.getElementById("reportBtn").disabled = !contractReady;
+  document.getElementById("pdfPick").disabled = !contractReady;
+}
+async function parseResponse(response, validator) {
+  if (!hasV2Header(response)) {
+    setContractReady(false);
+    invalid("contract");
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    setContractReady(false);
+    invalid("JSON");
+  }
+  if (!response.ok) {
+    setContractReady(false);
+    const error = validateError(body, response.status);
+    throw new Error(error.error.code);
+  }
+  try {
+    return validator(body);
+  } catch {
+    setContractReady(false);
+    invalid("operation");
+  }
+}
+async function requireFreshHealth() {
+  setContractReady(false);
+  let response;
+  try {
+    response = await fetch("/api/health", {cache: "no-store"});
+  } catch {
+    setContractReady(false);
+    throw new Error("backend_unavailable");
+  }
+  const health = await parseResponse(response, validateHealth);
+  if (health.capabilities.api_key_required) {
+    setContractReady(false);
+    throw new Error("authentication_required");
+  }
+  setContractReady(true);
+  return health;
+}
+async function requestV2(path, options, validator) {
+  await requireFreshHealth();
+  const headers = {
+    ...(options.headers || {}),
+    [V2_HEADER]: V2_VALUE,
+  };
+  let response;
+  try {
+    response = await fetch(path, {...options, headers});
+  } catch {
+    setContractReady(false);
+    throw new Error("backend_unavailable");
+  }
+  return parseResponse(response, validator);
+}
+async function checkHealth() {
+  try {
+    await requireFreshHealth();
+    meta.textContent = "พร้อมใช้งาน HTTP v2";
+  } catch {
+    setContractReady(false);
+    meta.textContent = "backend HTTP v2 ยังไม่พร้อมใช้งาน";
+  }
+}
+function codePointRangeToUtf16(text, start, end) {
+  const points = Array.from(text);
+  if (
+    !Number.isInteger(start) || !Number.isInteger(end) ||
+    start < 0 || end < start || end > points.length
+  ) throw new Error("invalid code-point range");
+  return [
+    points.slice(0, start).join("").length,
+    points.slice(0, end).join("").length,
+  ];
+}
 
 const editor = document.getElementById("editor");
 const highlight = document.getElementById("highlight");
@@ -277,20 +706,16 @@ const meta = document.getElementById("meta");
 let debounceTimer = null;
 
 function renderHighlight(text, entities) {
-  // วาดจากท้ายมาหน้าเพื่อไม่ให้ offset ขยับ (ตรรกะเดียวกับ tail-first splice ฝั่ง server)
-  const sorted = [...entities].sort((a, b) => b.start - a.start);
-  let html = esc(text);
-  // ทำงานบนข้อความดิบก่อนแล้วค่อย escape เป็นชิ้น เพื่อให้ index ตรง
   const parts = [];
-  let cursor = text.length;
-  for (const e of sorted) {
-    if (e.end > cursor) continue; // กัน span ซ้อน (server dedupe แล้ว แต่กันไว้)
-    parts.unshift({text: text.slice(e.end, cursor)});
-    parts.unshift({text: text.slice(e.start, e.end), type: e.data_type});
-    cursor = e.start;
+  let cursor = 0;
+  for (const entity of entities) {
+    const [start, end] = codePointRangeToUtf16(text, entity.start, entity.end);
+    parts.push({text: text.slice(cursor, start)});
+    parts.push({text: text.slice(start, end), type: entity.data_type});
+    cursor = end;
   }
-  parts.unshift({text: text.slice(0, cursor)});
-  html = parts.map(p => p.type
+  parts.push({text: text.slice(cursor)});
+  const html = parts.map(p => p.type
     ? `<mark style="background:${colorFor(p.type).bg};color:${colorFor(p.type).on}" title="${esc(labelFor(p.type))}">${esc(p.text)}</mark>`
     : esc(p.text)).join("");
   highlight.innerHTML = html + "\n"; // กัน scroll ท้ายเพี้ยนตอนบรรทัดสุดท้ายว่าง
@@ -306,29 +731,27 @@ function renderLegend(counts) {
 async function detectNow() {
   const text = editor.value;
   if (!text.trim()) { highlight.textContent = ""; renderLegend({}); meta.textContent = ""; return; }
+  if (!contractReady) return;
   try {
-    const r = await fetch("/api/detect", {
+    const body = await requestV2("/api/detect", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({text}),
-    });
-    if (!r.ok) return;
-    const body = await r.json();
-    renderHighlight(text, body.entities);
+    }, value => validateDetect(value, text));
+    renderHighlight(text, body.highlights);
     renderLegend(body.entity_type_counts);
-    meta.textContent = `พบข้อมูลส่วนบุคคล ${body.entities.length} รายการ`;
+    meta.textContent = `พบข้อมูลส่วนบุคคล ${body.detected_entity_count} รายการ`;
     try {
-      const gr = await fetch("/api/guard", {
+      const guard = await requestV2("/api/guard", {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({text}),
-      });
-      if (gr.ok) {
-        const gb = await gr.json();
-        const bar = document.getElementById("guardBar");
-        bar.innerHTML = gb.flagged
-          ? '<span class="guard-ok">ตรวจ prompt injection (rules + intent):</span> '
-            + gb.guard.map(g => `<span class="guard-chip" title="${esc(g.rationale)}">${esc(g.category)}</span>`).join("")
-          : '<span class="guard-ok">ตรวจ prompt injection (rules + intent): ไม่พบสัญญาณ</span>';
-      }
+      }, validateGuard);
+      const bar = document.getElementById("guardBar");
+      bar.innerHTML = guard.flagged
+        ? '<span class="guard-ok">ตรวจ prompt injection (rules + intent):</span> '
+          + guard.guard_findings.map(g =>
+            `<span class="guard-chip">${esc(g.category)} (${esc(g.severity)})</span>`
+          ).join("")
+        : '<span class="guard-ok">ตรวจ prompt injection (rules + intent): ไม่พบสัญญาณ</span>';
     } catch { /* เครือข่ายล้ม ปล่อย */ }
   } catch { /* เครือข่ายล้ม — ปล่อยรอบถัดไป */ }
 }
@@ -350,6 +773,7 @@ document.querySelectorAll(".samples button").forEach(btn => {
 });
 
 document.getElementById("send").addEventListener("click", async () => {
+  if (!contractReady) return;
   const text = editor.value;
   if (!text.trim()) return;
   const btn = document.getElementById("send");
@@ -357,38 +781,35 @@ document.getElementById("send").addEventListener("click", async () => {
   const restored = document.getElementById("restored");
   const tag = document.getElementById("providerTag");
   btn.disabled = true;
-  tag.hidden = true;
-  tag.textContent = "";
-  masked.textContent = "กำลังปกปิด...";
-  restored.textContent = "กำลังรอคำตอบ...";
+  meta.textContent = "กำลังปกปิดและเรียกผู้ให้บริการ...";
+  const provider = document.getElementById("provider").value;
   try {
-    const r = await fetch("/api/roundtrip", {
+    const body = await requestV2("/api/roundtrip", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         text,
         mode: document.getElementById("mode").value,
-        provider: document.getElementById("provider").value,
+        provider,
       }),
-    });
-    const body = await r.json();
-    if (!r.ok) {
-      const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-      masked.innerHTML = `<span class="warn">ส่งไม่สำเร็จ (${r.status}) ${esc(detail)}</span>`;
-      restored.innerHTML = '<span class="warn">ยังไม่มีคำตอบให้กู้คืน</span>';
-      return;
+    }, value => validateRoundtrip(value, provider));
+    if (
+      body.safety.status !== "pass" ||
+      body.safety.residual_count !== 0 ||
+      body.restoration.status !== "complete"
+    ) {
+      throw new Error("unsafe_or_incomplete");
     }
     masked.textContent = body.sanitized_text;
     restored.textContent = body.restored_text;
     tag.textContent = body.provider_used;
     tag.hidden = false;
-    meta.innerHTML = body.warnings.length
-      ? `<span class="warn">คำเตือนจากคำตอบหลังเรียกโมเดล ${esc(body.warnings.join(" | "))}</span>`
-      : `ประมวลผล ${body.entities.length} รายการ ไม่พบคำเตือนจากตัวตรวจปัจจุบัน`;
-  } catch (err) {
-    masked.innerHTML = `<span class="warn">เชื่อมต่อ backend ไม่ได้ ${esc(String(err))}</span>`;
-    restored.innerHTML = '<span class="warn">ยังไม่มีคำตอบให้กู้คืน</span>';
+    meta.textContent =
+      `ประมวลผล ${body.detected_entity_count} รายการ ` +
+      "และผ่านการตรวจความปลอดภัย";
+  } catch {
+    meta.textContent = "ส่งไม่สำเร็จ ผลลัพธ์ไม่ถูกนำไปแสดงหรือใช้งาน";
   } finally {
-    btn.disabled = false;
+    btn.disabled = !contractReady;
   }
 });
 
@@ -407,39 +828,34 @@ let redactedName = "redacted.pdf";
 document.getElementById("pdfPick").addEventListener("click", () => pdfFile.click());
 pdfFile.addEventListener("change", async () => {
   const f = pdfFile.files[0];
-  if (!f) return;
+  if (!f || !contractReady) return;
   const status = document.getElementById("pdfStatus");
   status.textContent = "กำลังประมวลผล...";
+  redactedB64 = null;
+  document.getElementById("pdfDownload").hidden = true;
+  document.getElementById("cmpWrap").hidden = true;
   const fd = new FormData();
   fd.append("pdf_file", f);
   try {
-    const r = await fetch("/api/redact-pdf", {method: "POST", body: fd});
-    const body = await r.json();
-    if (!r.ok) {
-      const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-      status.textContent = `ไม่สำเร็จ (${r.status}) ${detail}`;
-      return;
-    }
-    document.getElementById("imgBefore").src = "data:image/png;base64," + body.before_png_b64;
+    const body = await requestV2(
+      "/api/redact-pdf",
+      {method: "POST", body: fd},
+      validatePdf
+    );
     document.getElementById("imgAfter").src = "data:image/png;base64," + body.after_png_b64;
     document.getElementById("cmpWrap").hidden = false;
     redactedB64 = body.redacted_pdf_b64;
-    redactedName = "redacted_" + (body.filename || "document.pdf");
-    const s26 = body.section26.length
-      ? " ธงมาตรา 26: " + body.section26.map(s => s.category).join(", ")
+    redactedName = "redacted_" + f.name;
+    const s26 = body.section26_categories.length
+      ? " ธงมาตรา 26: " + body.section26_categories.join(", ")
       : "";
     document.getElementById("pdfInfo").textContent =
-      `ปกปิด ${body.entity_count} รายการ (แสดงหน้าแรกเป็นภาพเปรียบเทียบ ลากเส้นเพื่อดูก่อน/หลัง)` + s26;
+      `ปกปิด ${body.detected_entity_count} รายการ (แสดงภาพหลังปกปิด)` + s26;
     document.getElementById("pdfDownload").hidden = false;
     status.textContent = "";
-  } catch (err) {
-    status.textContent = "เชื่อมต่อ backend ไม่ได้ " + String(err);
+  } catch {
+    status.textContent = "ปกปิด PDF ไม่สำเร็จ";
   }
-});
-document.getElementById("cmpSlider").addEventListener("input", e => {
-  const v = e.target.value;
-  document.getElementById("imgAfter").style.clipPath = `inset(0 0 0 ${v}%)`;
-  document.getElementById("cmpBar").style.left = v + "%";
 });
 function downloadB64(b64, name, mime) {
   const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
@@ -456,28 +872,26 @@ document.getElementById("pdfDownload").addEventListener("click", () => {
 
 // ── รายงาน PDPA ──
 document.getElementById("reportBtn").addEventListener("click", async () => {
+  if (!contractReady) return;
   const text = editor.value;
   if (!text.trim()) return;
   const btn = document.getElementById("reportBtn");
   btn.disabled = true;
   try {
-    const r = await fetch("/api/analyze-report", {
+    const body = await requestV2("/api/analyze-report", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({text}),
-    });
-    const body = await r.json();
-    if (!r.ok) {
-      meta.textContent = "ออกรายงานไม่สำเร็จ (" + r.status + ")";
-      return;
-    }
+    }, validateReport);
     downloadB64(body.report_pdf_b64, "pdpa_report.pdf", "application/pdf");
     meta.textContent = `ออกรายงานแล้ว คะแนนรวม ${body.overall_score} เกรด ${body.overall_grade}`;
-  } catch (err) {
-    meta.textContent = "เชื่อมต่อ backend ไม่ได้ " + String(err);
+  } catch {
+    meta.textContent = "ออกรายงานไม่สำเร็จ";
   } finally {
-    btn.disabled = false;
+    btn.disabled = !contractReady;
   }
 });
+setContractReady(false);
+checkHealth();
 </script>
 </body>
 </html>

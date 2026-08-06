@@ -1,8 +1,6 @@
-# The image NECTEC hosts. Until now this was the one build input that sat
-# outside the verifiable-build system entirely: Python 3.11 while every other
-# environment is 3.13, and a loose `requirements.txt` install while CI and the
-# release build use the hash-pinned lockfile. It had also never been built or
-# booted in CI, so nothing proved it worked at all.
+# Generic hosted-candidate image. Local and CI evidence does not imply an
+# official AI for Thai deployment or approved public route contract. The image
+# uses the same pinned Python dependency tier as the repository checks.
 #
 # Multi-platform OCI index for the official Python 3.13.14 slim-trixie image,
 # resolved from Docker Hub on 2026-07-22. Pinning the index (rather than one
@@ -48,4 +46,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.hosted:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -7,15 +7,16 @@ import { renderRedact } from "../src/screen-redact.js";
 
 function response(fields) {
   return {
-    filename: "sample.pdf",
     source_type: "pdf_text",
     ocr_confidence: null,
     human_review: false,
-    entity_count: 2,
+    warnings: [],
+    detected_entity_count: 2,
+    entity_type_counts: { PHONE: 1, NAME: 1 },
     fields,
+    section26_categories: [],
     redacted_pdf_b64: "JVBERg==",
-    before_png_b64: "",
-    after_png_b64: "",
+    after_png_b64: "cG5n",
   };
 }
 
@@ -52,7 +53,7 @@ describe("desktop PDF redaction result", () => {
     ]);
 
     const labels = [...root.querySelectorAll("#r-fields .chip")].map((node) => node.textContent);
-    expect(labels).toEqual(["PHONE", "NAME"]);
+    expect(labels).toEqual(["PHONE (FP)", "NAME (TB)"]);
     expect(root.querySelector("#r-fields img")).toBeNull();
     expect(root.querySelector("#r-fields").textContent).not.toContain("081-234-5678");
     expect(root.querySelector("#r-fields").textContent).not.toContain("นายทดสอบ ใจดี");

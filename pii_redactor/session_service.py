@@ -11,6 +11,7 @@ Python immutable strings cannot be guaranteed to be zeroized.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import threading
@@ -25,7 +26,12 @@ from pii_redactor.leak_guard import (
     scan_outbound_leaks,
     scan_residual_signals,
 )
-from pii_redactor.models import AIResponse, Entity, EntityRegistry
+from pii_redactor.models import (
+    AIResponse,
+    Entity,
+    EntityRegistry,
+    ReplacementHighlight,
+)
 from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
 from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
@@ -36,6 +42,7 @@ from pii_redactor.stateless import StatelessLeakError, sanitize_into_vault
 
 _LOG = logging.getLogger(__name__)
 _ResultT = TypeVar("_ResultT")
+_TRUSTED_SANITIZED_DIGEST_LIMIT = 8
 
 
 class SessionExpiredError(Exception):
@@ -93,6 +100,7 @@ class SanitizeOutcome:
     entity_type_counts: dict[str, int]
     section26: list[dict]
     warnings: list[str]
+    replacement_highlights: tuple[ReplacementHighlight, ...] = ()
 
 
 def _identity_finalize(outcome: SanitizeOutcome) -> SanitizeOutcome:
@@ -102,10 +110,11 @@ def _identity_finalize(outcome: SanitizeOutcome) -> SanitizeOutcome:
 @dataclass
 class RestoreOutcome:
     restored_text: str
-    replaced: list[dict]  # {"token": pseudonym, "original": original} — v2 shape
     replaced_count: int
     leftover_tokens: list[str]
     warnings: list[str]
+    generated_pii_count: int = 0
+    foreign_replacement_count: int = 0
 
 
 @dataclass
@@ -116,6 +125,11 @@ class _Session:
     created: float
     last_access: float
     entities: list[Entity] = field(default_factory=list)
+    trusted_sanitized_digests: tuple[bytes, ...] = ()
+
+
+def _sanitized_digest(text: str) -> bytes:
+    return hashlib.sha256(text.encode("utf-8")).digest()
 
 
 class SessionService:
@@ -250,6 +264,7 @@ class SessionService:
         *,
         mode: str | None = None,
         session_id: str | None = None,
+        detection_text: str | None = None,
         finalize: Callable[[SanitizeOutcome], _ResultT],
     ) -> _ResultT:
         """Run a sanitize turn while containing every failed stage."""
@@ -260,6 +275,7 @@ class SessionService:
                 text,
                 mode=mode,
                 session_id=session_id,
+                detection_text=detection_text,
                 finalize=finalize,
             )
         except OutboundLeakError as error:
@@ -278,6 +294,7 @@ class SessionService:
 
         self = None
         text = ""
+        detection_text = None
         mode = None
         session_id = None
         finalize = None
@@ -299,6 +316,7 @@ class SessionService:
         *,
         mode: str | None = None,
         session_id: str | None = None,
+        detection_text: str | None = None,
         finalize: Callable[[SanitizeOutcome], _ResultT],
     ) -> _ResultT:
         """Prepare, finalize, then atomically publish one sanitize turn.
@@ -327,6 +345,7 @@ class SessionService:
                         staged.vault,
                         mode=staged.mode,
                         salt=staged.salt,
+                        detection_text=detection_text,
                         scan_leaks=scan_outbound_leaks,
                         scan_residual=scan_residual_signals,
                     )
@@ -357,8 +376,16 @@ class SessionService:
                         entity_type_counts=core.entity_type_counts,
                         section26=scan_section26(text),
                         warnings=core.warnings,
+                        replacement_highlights=core.replacement_highlights,
                     )
                     prepared = finalize(outcome)
+                    digest = _sanitized_digest(core.sanitized_text)
+                    prior_digests = tuple(
+                        item for item in staged.trusted_sanitized_digests if item != digest
+                    )
+                    staged.trusted_sanitized_digests = (prior_digests + (digest,))[
+                        -_TRUSTED_SANITIZED_DIGEST_LIMIT:
+                    ]
                     discarded = self._publish_sanitize_locked(sid, staged, is_new=is_new)
             except Exception:
                 self._discard_detached(staged)
@@ -369,6 +396,7 @@ class SessionService:
                 safe_leak_types, safe_categories = residual_failure
                 self = None
                 text = ""
+                detection_text = None
                 mode = None
                 session_id = None
                 finalize = None
@@ -411,6 +439,7 @@ class SessionService:
                 # Entity is immutable, so a detached list can safely share
                 # prior records and append only this turn's detections.
                 entities=list(published.entities),
+                trusted_sanitized_digests=published.trusted_sanitized_digests,
             )
             return session_id, staged, False
 
@@ -510,7 +539,6 @@ class SessionService:
         if not text or not text.strip():
             return RestoreOutcome(
                 restored_text=text,
-                replaced=[],
                 replaced_count=0,
                 leftover_tokens=[],
                 warnings=[],
@@ -521,33 +549,40 @@ class SessionService:
             tb_count=sum(1 for e in session.entities if e.redact_type == "TB"),
         )
         response = AIResponse(text=text, request_id=sid, latency=0.0)
-        reverse_result = reverse_map(response, registry, session.vault)
+        trusted_sanitized_input = _sanitized_digest(text) in session.trusted_sanitized_digests
+        reverse_result = reverse_map(
+            response,
+            registry,
+            session.vault,
+            mode=session.mode,
+        )
 
         warnings = [f for f in reverse_result.flags if not f.startswith(_NOISY_PREFIXES)]
-        try:
-            validation = validate_output(reverse_result, registry, session.vault)
-            warnings.extend(
-                f
-                for f in validation.flags
-                if f not in warnings and not f.startswith(_NOISY_PREFIXES)
-            )
-        except OutputPIILeakError as error:
-            discard_exception_graph(error)
-            # inbound direction: the AI fabricated PII-looking data — warn only
-            warnings.append("ai_generated_pii")
+        generated_pii_count = 0
+        if not trusted_sanitized_input:
+            try:
+                validation = validate_output(reverse_result, registry, session.vault)
+                warnings.extend(
+                    f
+                    for f in validation.flags
+                    if f not in warnings and not f.startswith(_NOISY_PREFIXES)
+                )
+            except OutputPIILeakError as error:
+                generated_pii_count = error.count
+                discard_exception_graph(error)
+                # inbound direction: the AI fabricated PII-looking data — warn only
+                warnings.append("ai_generated_pii")
 
-        replaced_pseudonyms = reverse_result.audit_summary.get("replaced_pseudonyms", [])
-        replaced = []
-        for pseudonym in replaced_pseudonyms:
-            record = session.vault.get_by_pseudonym(pseudonym)
-            if record is not None:
-                replaced.append({"token": pseudonym, "original": record.original})
+        replaced_count = int(reverse_result.audit_summary.get("replaced_count", 0))
 
         leftover = [p for p in session.vault._reverse if p in reverse_result.text]
         return RestoreOutcome(
             restored_text=reverse_result.text,
-            replaced=replaced,
-            replaced_count=len(replaced),
+            replaced_count=replaced_count,
             leftover_tokens=leftover,
             warnings=warnings,
+            generated_pii_count=generated_pii_count,
+            foreign_replacement_count=int(
+                reverse_result.audit_summary.get("foreign_token_count", 0)
+            ),
         )

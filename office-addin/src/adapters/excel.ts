@@ -128,8 +128,10 @@ export class ExcelHostAdapter implements HostAdapter, MaskPreviewProvider, Resto
   ): Promise<ExcelReplacement> {
     if (!snapshot.excel) throw new UserVisibleError("ไม่พบข้อมูลช่วงเซลล์");
     const values = snapshot.excel.values.map((row) => [...row]);
+    const previewValues = snapshot.excel.values.map((row) => row.map(() => ""));
     const changedCells: Array<{ row: number; column: number }> = [];
     const skipped: string[] = [];
+    let copySafe = true;
 
     for (let row = 0; row < values.length; row += 1) {
       const sourceRow = snapshot.excel.values[row] ?? [];
@@ -137,19 +139,33 @@ export class ExcelHostAdapter implements HostAdapter, MaskPreviewProvider, Resto
         const value = sourceRow[column];
         if (isFormula(snapshot.excel.formulas[row]?.[column])) {
           skipped.push(`${snapshot.excel.address} r${row + 1}c${column + 1}: formula`);
+          previewValues[row]![column] = "[ข้ามสูตร]";
+          copySafe = false;
           continue;
         }
         if (typeof value !== "string" || !isWritableTextCell(snapshot.excel, row, column)) {
           skipped.push(`${snapshot.excel.address} r${row + 1}c${column + 1}: number/date/blank`);
+          if (typeof value !== "string" || value.trim().length > 0) {
+            previewValues[row]![column] = "[ข้ามข้อมูลที่ไม่ใช่ข้อความ]";
+            copySafe = false;
+          }
           continue;
         }
         const transformed = await transform(value);
         if (typeof transformed !== "string") throw new UserVisibleError("ผลลัพธ์รายเซลล์ต้องเป็นข้อความ");
         values[row]![column] = transformed;
+        previewValues[row]![column] = transformed;
         if (transformed !== value) changedCells.push({ row, column });
       }
     }
-    return { kind: "excel-cells", values, changedCells, skipped };
+    return {
+      kind: "excel-cells",
+      values,
+      changedCells,
+      skipped,
+      previewText: previewValues.map((row) => row.join("\t")).join("\n"),
+      copySafe,
+    };
   }
 
   async applyReplacement(expected: SelectionSnapshot, replacement: ReplacementPayload): Promise<void> {

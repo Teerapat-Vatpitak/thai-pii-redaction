@@ -96,16 +96,24 @@ def test_docker_smoke_covers_authenticated_declared_contract():
         assert path in docker_job
     assert "AIGUARD_API_KEY=" in docker_job
     assert "X-AIGuard-Key" in docker_job
+    assert "CONTRACT_HEADER: CONTRACT_VERSION" in docker_job
+    assert "validate_health" in docker_job
+    assert "validate_sanitize" in docker_job
+    assert "validate_reidentify" in docker_job
+    assert "validate_analyze" in docker_job
+    assert "validate_guard" in docker_job
     assert "out['session_id']" in docker_job
 
 
 def test_compose_keeps_api_key_optional_for_local_and_worker_modes():
-    """Hosted docs require the key, but Compose also serves local/worker use.
+    """The adapter enforces values at boot; interpolation must not block worker.
 
     A required-variable interpolation on the HTTP service is evaluated even
     for ``--profile worker`` and would prevent that independent deployment
-    mode from starting. CI's hosted smoke supplies the key explicitly.
+    mode from starting. CI's hosted smoke supplies both values explicitly.
     """
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "AIGUARD_API_KEY: ${AIGUARD_API_KEY:-}" in compose
+    assert "AIGUARD_PROVIDERS: ${AIGUARD_PROVIDERS:-}" in compose
     assert "AIGUARD_API_KEY:?" not in compose
+    assert "AIGUARD_PROVIDERS:?" not in compose

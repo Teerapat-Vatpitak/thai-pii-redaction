@@ -33,12 +33,17 @@ def test_no_original_pii_survives_in_the_output():
     assert "วิทยา" not in out.sanitized_text
 
 
-def test_repeated_calls_with_the_same_input_are_reproducible():
-    """Two calls with the same salt must not need shared state to agree."""
+def test_repeated_token_calls_use_distinct_generation_namespaces(monkeypatch):
+    """Independent token calls must not mint the same token identity."""
+    import pii_redactor.session_vault as vault_mod
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
     a = sanitize_stateless(TEXT, mode="token", salt="s")
     b = sanitize_stateless(TEXT, mode="token", salt="s")
-    assert a.sanitized_text == b.sanitized_text
-    assert a.mapping == b.mapping
+    assert a.sanitized_text != b.sanitized_text
+    assert set(a.mapping.values()) == set(b.mapping.values())
+    assert set(a.mapping).isdisjoint(b.mapping)
 
 
 def test_a_call_leaves_no_trace_for_the_next_call():
@@ -55,7 +60,8 @@ def test_a_call_leaves_no_trace_for_the_next_call():
 
     second = sanitize_stateless("ผมชื่อ นายสมชาย ใจเย็น", mode="token", salt="s")
 
-    assert second.mapping == {"[ชื่อ_1]": "นายสมชาย ใจเย็น"}
+    assert list(second.mapping.values()) == ["นายสมชาย ใจเย็น"]
+    assert next(iter(second.mapping)).endswith("_1]")
     assert not set(first.mapping.values()) & set(second.mapping.values())
 
 
@@ -99,6 +105,248 @@ def test_prior_mapping_reuses_the_token_rather_than_minting_a_second_one():
     )
     assert token in second.sanitized_text
     assert [p for p, original in second.mapping.items() if original == name] == [token]
+
+
+def test_prior_mapping_keeps_one_namespace_for_new_tokens(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import token_namespace_from_candidate
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    first = sanitize_stateless("โทร 081-234-5678", mode="token", salt="s")
+    first_token = next(iter(first.mapping))
+    assert token_namespace_from_candidate(first_token) == "a" * 25
+
+    second = sanitize_stateless(
+        "โทร 081-234-5678 อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping=first.mapping,
+    )
+
+    assert first_token in second.mapping
+    assert {token_namespace_from_candidate(pseudonym) for pseudonym in second.mapping} == {"a" * 25}
+
+
+def test_prior_mapping_keeps_namespace_when_next_turn_contains_only_new_pii(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import token_namespace_from_candidate
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    first = sanitize_stateless("โทร 081-234-5678", mode="token", salt="s")
+
+    second = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping=first.mapping,
+    )
+
+    assert {token_namespace_from_candidate(pseudonym) for pseudonym in second.mapping} == {"a" * 25}
+
+
+def test_prior_mapping_continues_same_type_ordinal_for_new_value():
+    first = sanitize_stateless("อีเมล a@b.co", mode="token", salt="s")
+
+    second = sanitize_stateless(
+        "อีเมล c@d.co",
+        mode="token",
+        salt="s",
+        prior_mapping=first.mapping,
+    )
+
+    new_token = next(
+        pseudonym for pseudonym, original in second.mapping.items() if original == "c@d.co"
+    )
+    assert new_token.endswith("_2]")
+
+
+def test_ambiguous_prior_namespaces_do_not_select_either_chain(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import (
+        generate_token,
+        token_namespace_from_candidate,
+    )
+
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: "a" * 25)
+    prior_mapping = {
+        generate_token("PHONE", 1, namespace="e" * 25, nonce="n" * 20): "081-234-5678",
+        generate_token("EMAIL", 1, namespace="f" * 25, nonce="m" * 20): "a@b.co",
+    }
+
+    result = sanitize_stateless(
+        "อีเมล c@d.co",
+        mode="token",
+        salt="s",
+        prior_mapping=prior_mapping,
+    )
+
+    new_token = next(
+        pseudonym for pseudonym, original in result.mapping.items() if original == "c@d.co"
+    )
+    assert token_namespace_from_candidate(new_token) == "a" * 25
+    assert new_token.endswith("_2]")
+
+
+def test_prior_mapping_reuses_valid_namespaced_token(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    first = sanitize_stateless("อีเมล a@b.co", mode="token", salt="s")
+    first_token = next(iter(first.mapping))
+
+    second = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping=first.mapping,
+    )
+
+    assert list(second.mapping) == [first_token]
+    assert first_token in second.sanitized_text
+
+
+def test_caller_token_shape_cannot_launder_residual_pii():
+    malicious_token = "[อีเมล_1101700230708abc_1]"
+
+    result = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping={malicious_token: "a@b.co"},
+    )
+
+    assert malicious_token not in result.sanitized_text
+    assert "a@b.co" not in result.sanitized_text
+    replacement = next(
+        pseudonym
+        for pseudonym, original in result.mapping.items()
+        if original == "a@b.co" and pseudonym != malicious_token
+    )
+    assert replacement in result.sanitized_text
+
+
+@pytest.mark.parametrize(
+    "malicious_token",
+    [
+        f"[อีเมล_extra_{'f' * 25}_{'n' * 20}_1]",
+        f"[อีเมล_[extra]_{'f' * 25}_{'n' * 20}_1]",
+        f"[อีเมล\n_{'f' * 25}_{'n' * 20}_1]",
+    ],
+)
+def test_malformed_token_seed_is_not_reused_or_allowed_to_select_namespace(
+    monkeypatch,
+    malicious_token,
+):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import token_namespace_from_candidate
+
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: "a" * 25)
+
+    result = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping={malicious_token: "a@b.co"},
+    )
+
+    replacement = next(
+        pseudonym
+        for pseudonym, original in result.mapping.items()
+        if original == "a@b.co" and pseudonym != malicious_token
+    )
+    assert malicious_token not in result.sanitized_text
+    assert replacement in result.sanitized_text
+    assert token_namespace_from_candidate(replacement) == "a" * 25
+
+
+def test_residual_bearing_token_seed_cannot_select_namespace(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import token_namespace_from_candidate
+
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: "a" * 25)
+    malicious_token = f"[อีเมล_{'f' * 25}_{'n' * 20}_1101700207031]"
+
+    result = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping={malicious_token: "a@b.co"},
+    )
+
+    replacement = next(
+        pseudonym
+        for pseudonym, original in result.mapping.items()
+        if original == "a@b.co" and pseudonym != malicious_token
+    )
+    assert malicious_token not in result.sanitized_text
+    assert token_namespace_from_candidate(replacement) == "a" * 25
+
+
+def test_wrong_label_token_seed_cannot_select_namespace(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import (
+        generate_token,
+        token_namespace_from_candidate,
+    )
+
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: "a" * 25)
+    wrong_label = generate_token(
+        "PHONE",
+        1,
+        namespace="f" * 25,
+        nonce="n" * 20,
+    )
+
+    result = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping={wrong_label: "a@b.co"},
+    )
+
+    replacement = next(
+        pseudonym
+        for pseudonym, original in result.mapping.items()
+        if original == "a@b.co" and pseudonym != wrong_label
+    )
+    assert wrong_label not in result.sanitized_text
+    assert token_namespace_from_candidate(replacement) == "a" * 25
+
+
+def test_valid_same_type_seed_is_reused_after_wrong_label_seed_for_same_original():
+    from pii_redactor.anonymizer.token_generator import generate_token
+
+    wrong_label = generate_token(
+        "PHONE",
+        1,
+        namespace="f" * 25,
+        nonce="n" * 20,
+    )
+    valid = generate_token(
+        "EMAIL",
+        1,
+        namespace="a" * 25,
+        nonce="m" * 20,
+    )
+
+    result = sanitize_stateless(
+        "อีเมล a@b.co",
+        mode="token",
+        salt="s",
+        prior_mapping={
+            wrong_label: "a@b.co",
+            valid: "a@b.co",
+        },
+    )
+
+    assert valid in result.sanitized_text
+    assert wrong_label not in result.sanitized_text
+    assert [
+        pseudonym for pseudonym, original in result.mapping.items() if original == "a@b.co"
+    ] == [wrong_label, valid]
 
 
 def test_prior_mapping_reuses_the_surrogate_across_turns():
@@ -311,6 +559,20 @@ def test_restore_closes_the_round_trip_without_server_state():
     assert back.restored_text == TEXT
     assert back.replaced_count == len(out.mapping)
     assert not back.leftover_pseudonyms
+
+
+def test_restore_flags_a_duplicate_of_a_known_original_outside_restored_span():
+    original = "081-234-5678"
+    out = sanitize_stateless(f"เบอร์ {original}", mode="token", salt="s")
+
+    back = restore_stateless(
+        f"{out.sanitized_text} สำรอง {original}",
+        mapping=out.mapping,
+        mode="token",
+    )
+
+    assert back.restored_text.count(original) == 2
+    assert back.generated_pii_count >= 1
 
 
 def test_restore_reports_pseudonyms_it_could_not_account_for():

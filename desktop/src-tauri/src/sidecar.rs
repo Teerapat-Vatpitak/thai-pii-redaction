@@ -16,10 +16,7 @@ mod tests {
 
     #[test]
     fn taskkill_args_builds_tree_force_kill() {
-        assert_eq!(
-            taskkill_args(1234),
-            vec!["/PID", "1234", "/T", "/F"]
-        );
+        assert_eq!(taskkill_args(1234), vec!["/PID", "1234", "/T", "/F"]);
     }
 }
 
@@ -35,8 +32,7 @@ pub struct SidecarState {
     pub child: Mutex<Option<CommandChild>>,
     pub pid: Mutex<Option<u32>>,
     /// Boot token generated for the sidecar we spawned, if any. `None` when we
-    /// attached to a backend already listening (dev mode / no token), so
-    /// `kill()` falls back to the legacy `X-AIGuard-Local` header only.
+    /// attached to a backend already listening in development mode.
     pub token: Mutex<Option<String>>,
 }
 
@@ -125,7 +121,9 @@ fn port_owner_image(port: u16) -> (Option<u32>, Option<String>) {
     let netstat = std::process::Command::new("netstat")
         .args(["-ano", "-p", "tcp"])
         .output();
-    let Ok(out) = netstat else { return (None, None) };
+    let Ok(out) = netstat else {
+        return (None, None);
+    };
     let pid = port_owner_pid_from_netstat(&String::from_utf8_lossy(&out.stdout), port);
     let Some(pid) = pid else { return (None, None) };
     let tasklist = std::process::Command::new("tasklist")
@@ -268,13 +266,13 @@ fn force_kill_tree(pid: u32) {
 
 /// The raw HTTP request kill() writes to ask the backend to exit. Kept as a
 /// pure function so tests can pin the exact bytes (header order matters to
-/// nobody, but presence does: X-AIGuard-Local always, X-AIGuard-Token only
-/// when we spawned the sidecar ourselves).
+/// nobody, but presence does: the v2 assertion is always present and the
+/// control token is present only when we spawned the sidecar ourselves).
 fn shutdown_request(token: Option<&str>) -> String {
-    // Keep X-AIGuard-Local for backward compat with a backend that predates
-    // the token (grace path); add X-AIGuard-Token when we have one.
-    let mut req =
-        String::from("POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nX-AIGuard-Local: 1\r\n");
+    let mut req = String::from(
+        "POST /api/shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\n\
+X-AIGuard-Contract-Version: 2\r\n",
+    );
     if let Some(tok) = token {
         req.push_str("X-AIGuard-Token: ");
         req.push_str(tok);
@@ -303,8 +301,8 @@ fn send_shutdown(addr: std::net::SocketAddr, token: Option<&str>) {
 pub(crate) fn kill_with(state: &SidecarState, addr: std::net::SocketAddr) {
     // Snapshot the token (a uuid v4 hex string — safe to place verbatim in a
     // header) so the shutdown request can authenticate when the backend
-    // enforces the boot token. `None` (attached to a pre-existing backend) ->
-    // legacy header only.
+    // enforces the boot token. A development backend without a configured
+    // token still receives the required v2 contract assertion.
     let token = state.token.lock().unwrap().clone();
     send_shutdown(addr, token.as_deref());
     // Take the values out of their mutexes into locals first: this drops each
@@ -371,7 +369,10 @@ mod port_owner_tests {
             image_name_from_tasklist_csv(csv),
             Some("aiguard.exe".to_string())
         );
-        assert_eq!(image_name_from_tasklist_csv("INFO: No tasks are running.\r\n"), None);
+        assert_eq!(
+            image_name_from_tasklist_csv("INFO: No tasks are running.\r\n"),
+            None
+        );
         assert_eq!(image_name_from_tasklist_csv(""), None);
     }
 
@@ -413,7 +414,10 @@ aiguard  4321 teera    3u  IPv4 0x1234      0t0    TCP 127.0.0.1:8000 (LISTEN)\n
             attach_decision(Some("python.exe"), false),
             AttachDecision::RefuseUntrusted
         );
-        assert_eq!(attach_decision(None, false), AttachDecision::RefuseUntrusted);
+        assert_eq!(
+            attach_decision(None, false),
+            AttachDecision::RefuseUntrusted
+        );
     }
 }
 
@@ -422,18 +426,20 @@ mod shutdown_request_tests {
     use super::*;
 
     #[test]
-    fn request_without_token_has_legacy_header_only() {
+    fn request_without_token_has_v2_assertion_only() {
         let req = shutdown_request(None);
         assert!(req.starts_with("POST /api/shutdown HTTP/1.1\r\n"));
-        assert!(req.contains("X-AIGuard-Local: 1\r\n"));
+        assert!(req.contains("X-AIGuard-Contract-Version: 2\r\n"));
+        assert!(!req.contains("X-AIGuard-Local"));
         assert!(!req.contains("X-AIGuard-Token"));
         assert!(req.ends_with("Content-Length: 0\r\nConnection: close\r\n\r\n"));
     }
 
     #[test]
-    fn request_with_token_carries_both_headers() {
+    fn request_with_token_carries_contract_and_control_headers() {
         let req = shutdown_request(Some("cafe1234"));
-        assert!(req.contains("X-AIGuard-Local: 1\r\n"));
+        assert!(req.contains("X-AIGuard-Contract-Version: 2\r\n"));
+        assert!(!req.contains("X-AIGuard-Local"));
         assert!(req.contains("X-AIGuard-Token: cafe1234\r\n"));
     }
 
@@ -462,7 +468,8 @@ mod shutdown_request_tests {
             .expect("mock backend never received the shutdown request");
         assert!(received.contains("POST /api/shutdown"));
         assert!(received.contains("X-AIGuard-Token: tok123"));
-        assert!(received.contains("X-AIGuard-Local: 1"));
+        assert!(received.contains("X-AIGuard-Contract-Version: 2"));
+        assert!(!received.contains("X-AIGuard-Local"));
     }
 }
 

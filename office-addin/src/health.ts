@@ -6,10 +6,7 @@ export interface BackendAvailability {
 }
 
 export function evaluateBackendHealth(health: HealthResponse): BackendAvailability {
-  if (health.status !== "ok") {
-    return { ready: false, message: "AI Guard ตอบกลับว่าไม่พร้อมใช้งาน" };
-  }
-  if (health.capabilities?.token_required === true) {
+  if (health.capabilities.api_key_required) {
     return {
       ready: false,
       message: "Backend นี้ต้องใช้ API key แต่ Office Add-in ไม่อ่านหรือเก็บ credential กรุณาเปิด AI Guard แบบ local",

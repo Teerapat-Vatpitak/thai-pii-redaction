@@ -35,6 +35,18 @@ import pdfplumber
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from scripts.http_v2_client import (  # noqa: E402
+    CONTRACT_HEADER,
+    CONTRACT_VERSION,
+    require_contract_header,
+    validate_analyze_report,
+    validate_error,
+    validate_guard,
+    validate_health,
+    validate_redact_pdf,
+    validate_roundtrip,
+)
+
 SYNTHETIC_TEXT = "ผมชื่อ นายสมชาย ใจดี โทร 081-234-5678"
 SYNTHETIC_NAME = "นายสมชาย ใจดี"
 SYNTHETIC_PHONE = "081-234-5678"
@@ -83,22 +95,39 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _request_json(client, method: str, path: str, **kwargs) -> tuple[int, dict]:
+    headers = dict(kwargs.pop("headers", {}) or {})
+    protected_names = {CONTRACT_HEADER.lower(), "x-aiguard-key"}
+    for name in list(headers):
+        if name.lower() in protected_names:
+            del headers[name]
+    if path != "/api/health":
+        headers[CONTRACT_HEADER] = CONTRACT_VERSION
+        if os.environ.get("AIGUARD_API_KEY"):
+            headers["X-AIGuard-Key"] = os.environ["AIGUARD_API_KEY"]
+    if headers:
+        kwargs["headers"] = headers
     response = client.request(method, path, **kwargs)
+    require_contract_header(response.headers)
     try:
         body = response.json()
     except Exception as exc:
         raise AssertionError("response was not JSON") from exc
     _require(isinstance(body, dict), "response body must be an object")
+    if response.status_code >= 400:
+        body = validate_error(body, response_status=response.status_code)
     return response.status_code, body
 
 
 def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
     def health() -> dict[str, object]:
         status, body = _request_json(client, "GET", "/api/health")
-        _require(status == 200 and body.get("status") == "ok", "health failed")
+        body = validate_health(body)
+        _require(status == 200, "health failed")
+        if body["capabilities"]["api_key_required"] and not os.environ.get("AIGUARD_API_KEY"):
+            raise BlockedError("health requires an unavailable API key")
         return {
-            "version": str(body.get("version", "")),
-            "contract_version": body.get("contract_version"),
+            "version": body["version"],
+            "contract_version": body["contract_version"],
         }
 
     def playground() -> dict[str, object]:
@@ -119,17 +148,18 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             json={"text": SYNTHETIC_TEXT, "mode": "token", "provider": "fake"},
         )
         _require(status == 200, "fake roundtrip failed")
-        sanitized = str(body.get("sanitized_text", ""))
-        outbound = str(body.get("ai_response_masked", ""))
+        body = validate_roundtrip(body, requested_provider="fake")
+        sanitized = body["sanitized_text"]
+        outbound = body["ai_response_masked"]
         _require(SYNTHETIC_NAME not in sanitized, "name remained in sanitized text")
         _require(SYNTHETIC_PHONE not in sanitized, "phone remained in sanitized text")
         _require(SYNTHETIC_NAME not in outbound, "name reached fake provider")
         _require(SYNTHETIC_PHONE not in outbound, "phone reached fake provider")
-        _require(body.get("restored_text") == SYNTHETIC_TEXT, "restore was not exact")
+        _require(body["restored_text"] == SYNTHETIC_TEXT, "restore was not exact")
         return {
-            "entity_count": len(body.get("entities", [])),
-            "entity_types": sorted(body.get("entity_type_counts", {})),
-            "warning_count": len(body.get("warnings", [])),
+            "entity_count": body["detected_entity_count"],
+            "entity_types": sorted(body["entity_type_counts"]),
+            "warning_count": len(body["warnings"]),
         }
 
     def guard_warning() -> dict[str, object]:
@@ -140,7 +170,8 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             json={"text": INJECTION_FIXTURE},
         )
         _require(guard_status == 200, "guard request failed")
-        _require(guard_body.get("flagged") is True, "known injection fixture was not flagged")
+        guard_body = validate_guard(guard_body)
+        _require(guard_body["flagged"] is True, "known injection fixture was not flagged")
         roundtrip_status, roundtrip_body = _request_json(
             client,
             "POST",
@@ -148,17 +179,15 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             json={"text": INJECTION_FIXTURE, "mode": "token", "provider": "fake"},
         )
         _require(roundtrip_status == 200, "guard warning blocked protected roundtrip")
+        roundtrip_body = validate_roundtrip(
+            roundtrip_body,
+            requested_provider="fake",
+        )
         _require(
-            roundtrip_body.get("restored_text") == INJECTION_FIXTURE,
+            roundtrip_body["restored_text"] == INJECTION_FIXTURE,
             "guarded roundtrip did not restore exactly",
         )
-        categories = sorted(
-            {
-                str(finding.get("category", ""))
-                for finding in roundtrip_body.get("guard", [])
-                if isinstance(finding, dict)
-            }
-        )
+        categories = sorted({finding["category"] for finding in roundtrip_body["guard_findings"]})
         _require("instruction_override" in categories, "override category is missing")
         _require("exfiltration" in categories, "exfiltration category is missing")
         return {
@@ -174,10 +203,11 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             json={"text": SYNTHETIC_TEXT},
         )
         _require(status == 200, "report failed")
-        report_bytes = base64.b64decode(body.get("report_pdf_b64", ""), validate=True)
+        body = validate_analyze_report(body)
+        report_bytes = base64.b64decode(body["report_pdf_b64"], validate=True)
         _require(report_bytes.startswith(b"%PDF"), "report is not a PDF")
         return {
-            "grade": str(body.get("overall_grade", "")),
+            "grade": body["overall_grade"],
             "pdf_sha256_12": hashlib.sha256(report_bytes).hexdigest()[:12],
         }
 
@@ -191,20 +221,17 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             files={"pdf_file": (source.name, source.read_bytes(), "application/pdf")},
         )
         _require(status == 200, "PDF redaction failed")
-        redacted = base64.b64decode(body.get("redacted_pdf_b64", ""), validate=True)
-        before = base64.b64decode(body.get("before_png_b64", ""), validate=True)
-        after = base64.b64decode(body.get("after_png_b64", ""), validate=True)
+        body = validate_redact_pdf(body)
+        redacted = base64.b64decode(body["redacted_pdf_b64"], validate=True)
+        after = base64.b64decode(body["after_png_b64"], validate=True)
         _require(redacted.startswith(b"%PDF"), "redacted output is not a PDF")
-        _require(
-            before.startswith(b"\x89PNG") and after.startswith(b"\x89PNG"),
-            "preview failed",
-        )
+        _require(after.startswith(b"\x89PNG"), "preview failed")
         with pdfplumber.open(io.BytesIO(redacted)) as document:
             extracted = "".join(page.extract_text() or "" for page in document.pages)
         _require(not extracted.strip(), "redacted PDF retained a text layer")
         return {
-            "entity_count": int(body.get("entity_count", 0)),
-            "source_type": str(body.get("source_type", "")),
+            "entity_count": body["detected_entity_count"],
+            "source_type": body["source_type"],
             "redacted_sha256_12": hashlib.sha256(redacted).hexdigest()[:12],
         }
 
@@ -215,17 +242,34 @@ def core_checks(client, root: Path = ROOT) -> list[CheckResult]:
             "/api/redact-pdf",
             files={"pdf_file": ("note.txt", b"synthetic fixture", "text/plain")},
         )
-        _require(status == 400, "non-PDF upload was not rejected")
+        _require(status == 422, "non-PDF upload was not rejected")
         return {"http_status": status}
 
+    health_result = _checked("api.health", health)
+    dependent_checks = [
+        ("playground.enabled", playground),
+        ("roundtrip.fake", fake_roundtrip),
+        ("guard.warn_only", guard_warning),
+        ("report.pdf", report),
+        ("redaction.pdf", redact_pdf),
+        ("redaction.reject_non_pdf", reject_non_pdf),
+    ]
+    if health_result.status != "pass":
+        return [
+            health_result,
+            *[
+                CheckResult(
+                    check_id=check_id,
+                    status="blocked",
+                    elapsed_ms=0,
+                    details={"reason": "health prerequisite failed"},
+                )
+                for check_id, _check in dependent_checks
+            ],
+        ]
     return [
-        _checked("api.health", health),
-        _checked("playground.enabled", playground),
-        _checked("roundtrip.fake", fake_roundtrip),
-        _checked("guard.warn_only", guard_warning),
-        _checked("report.pdf", report),
-        _checked("redaction.pdf", redact_pdf),
-        _checked("redaction.reject_non_pdf", reject_non_pdf),
+        health_result,
+        *[_checked(check_id, check) for check_id, check in dependent_checks],
     ]
 
 
@@ -258,9 +302,10 @@ def pathumma_checks(client) -> list[CheckResult]:
             json={"text": SYNTHETIC_TEXT, "mode": "token", "provider": "pathumma"},
         )
         _require(status == 200, "Pathumma roundtrip failed")
-        sanitized = str(body.get("sanitized_text", ""))
-        outbound_response = str(body.get("ai_response_masked", ""))
-        restored = str(body.get("restored_text", ""))
+        body = validate_roundtrip(body, requested_provider="pathumma")
+        sanitized = body["sanitized_text"]
+        outbound_response = body["ai_response_masked"]
+        restored = body["restored_text"]
         for raw in (SYNTHETIC_NAME, SYNTHETIC_PHONE):
             _require(raw not in sanitized, "raw PII remained before provider call")
             _require(raw not in outbound_response, "raw PII appeared in provider response")
@@ -271,10 +316,10 @@ def pathumma_checks(client) -> list[CheckResult]:
             "a returned pseudonym was not restored",
         )
         return {
-            "provider": str(body.get("provider_used", "")),
-            "entity_count": len(body.get("entities", [])),
+            "provider": body["provider_used"],
+            "entity_count": body["detected_entity_count"],
             "returned_token_count": len(returned_tokens),
-            "warning_count": len(body.get("warnings", [])),
+            "warning_count": len(body["warnings"]),
         }
 
     return [
@@ -313,9 +358,10 @@ def tokenmind_checks(client) -> list[CheckResult]:
             json={"text": SYNTHETIC_TEXT, "mode": "token", "provider": "tokenmind"},
         )
         _require(status == 200, "Tokenmind roundtrip failed")
-        sanitized = str(body.get("sanitized_text", ""))
-        outbound_response = str(body.get("ai_response_masked", ""))
-        restored = str(body.get("restored_text", ""))
+        body = validate_roundtrip(body, requested_provider="tokenmind")
+        sanitized = body["sanitized_text"]
+        outbound_response = body["ai_response_masked"]
+        restored = body["restored_text"]
         for raw in (SYNTHETIC_NAME, SYNTHETIC_PHONE):
             _require(raw not in sanitized, "raw PII remained before provider call")
             _require(raw not in outbound_response, "raw PII appeared in provider response")
@@ -325,15 +371,17 @@ def tokenmind_checks(client) -> list[CheckResult]:
             not any(token in restored for token in returned_tokens),
             "a returned pseudonym was not restored",
         )
-        foreign_warnings = [
-            w for w in body.get("warnings", []) if str(w).startswith("foreign_tokens:")
-        ]
+        foreign_warning_count = sum(
+            warning["count"]
+            for warning in body["warnings"]
+            if warning["code"] == "foreign_replacement"
+        )
         return {
-            "provider": str(body.get("provider_used", "")),
-            "entity_count": len(body.get("entities", [])),
+            "provider": body["provider_used"],
+            "entity_count": body["detected_entity_count"],
             "returned_token_count": len(returned_tokens),
-            "warning_count": len(body.get("warnings", [])),
-            "foreign_token_warnings": foreign_warnings,
+            "warning_count": len(body["warnings"]),
+            "foreign_replacement_count": foreign_warning_count,
         }
 
     return [
@@ -460,15 +508,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    headers = {}
-    if os.environ.get("AIGUARD_API_KEY"):
-        # Must match app/server.py's gate header exactly; the previous
-        # (wrong) header name made every gated check 401 against a keyed
-        # deployment.
-        headers["X-AIGuard-Key"] = os.environ["AIGUARD_API_KEY"]
     with httpx.Client(
         base_url=args.base_url.rstrip("/"),
-        headers=headers,
         timeout=args.timeout,
     ) as client:
         results = core_checks(client)

@@ -68,4 +68,23 @@ describe("cross-fixture safety", () => {
     expect(sites.perplexity.writeComposer(composer, "ข้อความ [ชื่อ_1]")).toBe(true);
     expect(sites.perplexity.readComposer(composer)).toBe("ข้อความ [ชื่อ_1]");
   });
+  test("plain composers preserve whitespace and require exact readback", () => {
+    load("perplexity");
+    const composer = document.createElement("textarea");
+    composer.value = "  A\r\nB\u200b  ";
+    expect(sites.helpers.readComposer(composer)).toBe("  A\nB\u200b  ");
+    expect(
+      sites.helpers.sameComposerText(composer, "A [ชื่อ_1] B", "A  [ชื่อ_1]\nB")
+    ).toBe(false);
+  });
+  test("rich composers normalize only line-ending representation", () => {
+    load("chatgpt");
+    const composer = sites.chatgpt.composer();
+    expect(
+      sites.helpers.sameComposerText(composer, "A\r\n[ชื่อ_1]", "A\n[ชื่อ_1]")
+    ).toBe(true);
+    expect(
+      sites.helpers.sameComposerText(composer, "A [ชื่อ_1]", "A  [ชื่อ_1]")
+    ).toBe(false);
+  });
 });

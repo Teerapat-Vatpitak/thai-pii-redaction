@@ -19,25 +19,23 @@ reference:
 
 - The user's last-chosen mask mode (`token` or `surrogate`), in
   `chrome.storage.local`, so the in-page bar and the side panel agree on the
-  same choice across page loads (`extension/background.js:101`,
-  `extension/sidepanel.js:47,51`).
+  same choice across page loads (`extension/background.js`,
+  `extension/sidepanel.js`).
 - A per-tab `session_id` in `chrome.storage.session`, so a "Restore PII"
   click can look up the right backend session even after the MV3 service
   worker has been evicted and restarted by Chrome. `chrome.storage.session`
   is cleared automatically when the browser closes and is never written to
-  disk (`extension/background.js:11-14,37,47`). The `session_id` is not the
+  disk (`extension/background.js`). The `session_id` is not the
   mapping, but it must be protected as session authority. The canonical
   PII↔placeholder vault
-  remains in backend memory and is not deliberately persisted. Current HTTP
-  contract v1 can return fields containing or permitting reconstruction of
-  mapping pairs in extension process memory, although the extension does not
-  deliberately persist them. Removing those fields is a contract-v2
-  hardening gate.
+  remains in backend memory and is not deliberately persisted. Current source
+  uses strict HTTP v2 and returns no explicit mapping DTO; the published
+  2.5.0/v1 artifact predates that repair.
 
 ## `clipboardWrite`
 
 Used only for the "Copy" button in the side panel, which copies the masked
-text to the user's clipboard after they click "Mask" (`extension/sidepanel.js:138-143`,
+text to the user's clipboard after they click "Mask" (`extension/sidepanel.js`,
 `navigator.clipboard.writeText`). The extension never reads the clipboard
 and requests no `clipboardRead` permission.
 
@@ -45,7 +43,7 @@ and requests no `clipboardRead` permission.
 
 Used to open AI Guard's docked side-panel workspace (paste text to mask,
 paste an AI reply to restore) via `chrome.sidePanel`
-(`extension/background.js:22-27`, `extension/manifest.json` `side_panel`
+(`extension/background.js`, `extension/manifest.json` `side_panel`
 key). This is the extension's primary manual-entry UI, alongside the
 in-page floating bar.
 
@@ -58,22 +56,22 @@ the backend sends raw pre-mask chunks to AI for Thai. These two host
 permissions are what let
 the extension's background service worker call that local backend across
 origins from pages like `chatgpt.com` or `claude.ai`
-(`extension/background.js:16,56-86`) — Chrome's default cross-origin
+(`extension/background.js`) — Chrome's default cross-origin
 restrictions would otherwise block a content-script-initiated fetch to
 `localhost` from those sites. No other hosts are ever contacted; there is no
 code path in the extension itself that reaches any domain besides these two.
 The current source extension trusts whichever process owns the fixed localhost
-port; CORS and host permissions do not authenticate that process. It can also
-receive mapping-bearing contract-v1 fields and is not a strict v2 client.
-Current backend source now rejects structured FP, text-based TB,
+port; CORS and host permissions do not authenticate that process. It is a
+strict v2 client and rejects mapping-bearing, unknown, malformed, or unsafe
+responses before composer/copy writes. Current backend source also rejects structured FP, text-based TB,
 detector-independent contiguous 6+ digit residuals, and missing replacement
 records instead of returning a warning-only masked result. Historical
 browser/store and published 2.5.0 evidence predates that change, so it does not
 establish an accepted production package. Users should run only a backend they
 started and trust and review high-risk output before submitting it. Packaged
 production operation is intended to move to a native broker and remove direct
-localhost host permissions; contract v2, broker work, and fresh package/browser
-acceptance remain open.
+localhost host permissions; broker work and fresh package/browser acceptance
+remain open.
 
 ## `content_scripts` matches (6 AI chat providers)
 

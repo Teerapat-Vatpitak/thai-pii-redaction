@@ -50,6 +50,8 @@ def test_reverse_map_basic():
     assert isinstance(result, ReverseResult)
     assert "real@example.com" in result.text
     assert "fake@test.com" not in result.text
+    start = result.text.index("real@example.com")
+    assert result.restored_ranges == ((start, start + len("real@example.com")),)
 
 
 def test_reverse_map_surrogate_not_spliced_into_longer_number():
@@ -61,6 +63,8 @@ def test_reverse_map_surrogate_not_spliced_into_longer_number():
     result = reverse_map(ai_response, registry, vault)
     assert "0899999999" not in result.text
     assert "08123456789012" in result.text
+    assert result.flags == ["pseudonym_residue:1"]
+    assert "08123456" not in repr((result.flags, result.audit_summary))
 
 
 def test_reverse_map_surrogate_not_spliced_into_thai_word():
@@ -121,6 +125,7 @@ def test_reverse_map_returns_reverse_result():
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
     result = reverse_map(ai_response, registry, vault)
     assert hasattr(result, "text")
+    assert hasattr(result, "restored_ranges")
     assert hasattr(result, "flags")
     assert hasattr(result, "audit_summary")
     assert isinstance(result.flags, list)
@@ -251,8 +256,8 @@ def test_reverse_map_longest_first():
     assert "alice" not in result.text
 
 
-def test_audit_summary_lists_replaced_pseudonyms():
-    """Additive key used by SessionService to build the v2 replaced[] pairs."""
+def test_audit_summary_keeps_only_replacement_count():
+    """Audit metadata must not retain the pseudonym value."""
     import time as _t
     import uuid as _u
 
@@ -274,7 +279,9 @@ def test_audit_summary_lists_replaced_pseudonyms():
     )
     resp = AIResponse(text="ส่งไปที่ [อีเมล_1]", request_id="r", latency=0.0)
     result = reverse_map(resp, EntityRegistry(entities=[], fp_count=0, tb_count=0), vault)
-    assert result.audit_summary["replaced_pseudonyms"] == ["[อีเมล_1]"]
+    assert result.audit_summary["replaced_count"] == 1
+    assert "replaced_pseudonyms" not in result.audit_summary
+    assert "[อีเมล_1]" not in repr(result.audit_summary)
 
 
 def test_reverse_map_pseudonym_substring_of_original():

@@ -1,4 +1,4 @@
-"""Legacy current-main HTTP v1 contract checks, not hosted acceptance."""
+"""Main HTTP v2 privacy and authentication contract checks."""
 
 import logging
 
@@ -18,10 +18,23 @@ pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 API_KEY = "platform-key-under-test-0123456789abcdef"
 PRIVATE_TEXT = "ข้อมูลลับ 0812345678"
 VALIDATION_PRIVATE_MARKER = "ข้อมูลสังเคราะห์-Ω-private-marker"
+AUTH_ERROR = {
+    "error": {
+        "code": "authentication_required",
+        "category": "authentication",
+        "count": 0,
+        "retryable": False,
+        "status": 401,
+    }
+}
 
 
 def _client():
-    return TestClient(server.app, base_url="http://localhost")
+    return TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 @pytest.fixture
@@ -37,12 +50,16 @@ def test_health_contract_shape_and_version(open_client):
 
     assert response.status_code == 200
     body = response.json()
-    assert {"status", "version", "contract_version", "capabilities"} <= body.keys()
-    assert body["status"] == "ok"
-    assert isinstance(body["version"], str)
-    assert body["contract_version"] == 1
-    assert isinstance(body["contract_version"], int)
-    assert isinstance(body["capabilities"], dict)
+    assert set(body) == {"status", "version", "contract_version", "capabilities"}
+    assert body == {
+        "status": "ok",
+        "version": server.__version__,
+        "contract_version": 2,
+        "capabilities": {
+            "control_token_required": False,
+            "api_key_required": False,
+        },
+    }
 
 
 def test_health_stays_open_when_api_key_is_configured(monkeypatch):
@@ -51,34 +68,37 @@ def test_health_stays_open_when_api_key_is_configured(monkeypatch):
     response = _client().get("/api/health")
 
     assert response.status_code == 200
-    assert response.json()["contract_version"] == 1
+    assert response.json()["contract_version"] == 2
+    assert response.json()["capabilities"]["api_key_required"] is True
 
 
-def test_sanitize_v1_omits_literal_mapping_key_but_is_mapping_bearing(open_client):
+def test_sanitize_v2_is_exact_and_mapping_free(open_client):
     response = open_client.post("/api/sanitize", json={"text": "โทร 0812345678"})
 
     assert response.status_code == 200
     body = response.json()
-    assert {
+    assert set(body) == {
         "session_id",
-        "original_text",
         "sanitized_text",
-        "entities",
+        "detected_entity_count",
+        "replacement_count",
         "entity_type_counts",
-        "section26",
+        "highlights",
+        "section26_categories",
+        "guard_findings",
         "warnings",
-        "guard",
-    } <= body.keys()
+        "safety",
+    }
     assert isinstance(body["session_id"], str)
     assert isinstance(body["sanitized_text"], str)
-    assert isinstance(body["entities"], list)
+    assert isinstance(body["highlights"], list)
     assert isinstance(body["entity_type_counts"], dict)
-    assert "mapping" not in body
-    assert body["original_text"] == "โทร 0812345678"
-    assert any("token" in entity for entity in body["entities"])
+    assert body["safety"] == {"status": "pass", "residual_count": 0}
+    assert {"mapping", "original_text", "entities"}.isdisjoint(body)
+    assert all("token" not in item and "original" not in item for item in body["highlights"])
 
 
-def test_reidentify_v1_exports_mapping_bearing_replacement_records(open_client):
+def test_reidentify_v2_is_count_only(open_client):
     sanitized = open_client.post("/api/sanitize", json={"text": "โทร 0812345678"}).json()
     response = open_client.post(
         "/api/reidentify",
@@ -90,18 +110,16 @@ def test_reidentify_v1_exports_mapping_bearing_replacement_records(open_client):
 
     assert response.status_code == 200
     body = response.json()
-    assert {
+    assert set(body) == {
         "restored_text",
-        "replaced",
         "replaced_count",
-        "leftover_tokens",
+        "leftover_count",
         "warnings",
-    } <= body.keys()
+    }
     assert isinstance(body["restored_text"], str)
-    assert isinstance(body["replaced"], list)
     assert isinstance(body["replaced_count"], int)
-    assert isinstance(body["leftover_tokens"], list)
-    assert "mapping" not in body
+    assert isinstance(body["leftover_count"], int)
+    assert {"mapping", "replaced", "leftover_tokens"}.isdisjoint(body)
 
 
 def test_analyze_contract_shape_has_no_mapping(open_client):
@@ -109,19 +127,19 @@ def test_analyze_contract_shape_has_no_mapping(open_client):
 
     assert response.status_code == 200
     body = response.json()
-    assert {
+    assert set(body) == {
         "overall_score",
         "overall_grade",
         "risk_label",
         "direct_pii_count",
         "fp_count",
         "tb_count",
-        "section26",
-        "reid",
+        "section26_categories",
+        "reidentification",
         "breakdown",
         "recommendations",
-    } <= body.keys()
-    assert isinstance(body["reid"], dict)
+    }
+    assert isinstance(body["reidentification"], dict)
     assert isinstance(body["breakdown"], list)
     assert isinstance(body["recommendations"], list)
     assert "mapping" not in body
@@ -132,8 +150,8 @@ def test_guard_contract_shape_has_no_mapping(open_client):
 
     assert response.status_code == 200
     body = response.json()
-    assert {"guard", "flagged"} <= body.keys()
-    assert isinstance(body["guard"], list)
+    assert set(body) == {"guard_findings", "flagged"}
+    assert isinstance(body["guard_findings"], list)
     assert isinstance(body["flagged"], bool)
     assert "mapping" not in body
 
@@ -158,7 +176,7 @@ def test_configured_api_key_rejects_missing_or_wrong_header_without_leaks(
         response = _client().post(path, json=payload, headers=headers)
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid or missing API key"}
+    assert response.json() == AUTH_ERROR
     assert PRIVATE_TEXT not in response.text
     assert PRIVATE_TEXT not in caplog.text
     assert API_KEY not in response.text
@@ -175,7 +193,7 @@ def test_api_key_rejection_happens_before_request_body_parsing(monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid or missing API key"}
+    assert response.json() == AUTH_ERROR
     assert PRIVATE_TEXT not in response.text
 
 
@@ -188,7 +206,7 @@ def test_api_key_rejection_precedes_private_shape_validation(monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid or missing API key"}
+    assert response.json() == AUTH_ERROR
     assert VALIDATION_PRIVATE_MARKER not in response.text
 
 
@@ -214,7 +232,7 @@ def test_request_model_validation_never_echoes_rejected_input(open_client, path,
     response = open_client.post(path, json=payload)
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "Invalid request"}
+    assert response.json()["error"]["code"] == "request_schema_invalid"
     assert VALIDATION_PRIVATE_MARKER not in response.text
     assert "input" not in response.text
 
@@ -226,7 +244,7 @@ def test_query_validation_never_echoes_rejected_input(open_client):
     )
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "Invalid request"}
+    assert response.json()["error"]["code"] == "request_schema_invalid"
     assert VALIDATION_PRIVATE_MARKER not in response.text
     assert "input" not in response.text
 
@@ -238,7 +256,7 @@ def test_missing_field_validation_never_echoes_the_surrounding_body(open_client)
     )
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "Invalid request"}
+    assert response.json()["error"]["code"] == "request_schema_invalid"
     assert VALIDATION_PRIVATE_MARKER not in response.text
     assert "input" not in response.text
 

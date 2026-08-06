@@ -1,10 +1,4 @@
-"""Tests for the FastAPI web server (Step 11: Web API).
-
-Covers the current HTTP v1 token-mode contract:
-- /api/sanitize  -> session_id, original_text, sanitized_text, entities[], section26
-- /api/reidentify -> restore tokens via stored session map
-- /api/analyze   -> full PDPA report (score, grade, reid, breakdown, recs)
-"""
+"""Tests for the FastAPI web server and strict HTTP v2 projections."""
 
 import json
 import uuid
@@ -34,7 +28,11 @@ def client():
 
     from app.server import app
 
-    return TestClient(app, base_url="http://localhost")
+    return TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 def _service_state(service):
@@ -59,6 +57,7 @@ def _service_state(service):
                     "last_access": session.vault._last_access,
                     "idle_timeout_s": session.vault._idle_timeout_s,
                     "session_id": session.vault.session_id,
+                    "token_namespace": session.vault._token_namespace,
                     "clear_epoch": session.vault._clear_epoch,
                     "audit_entries": [entry._asdict() for entry in session.vault._audit_entries],
                 },
@@ -106,13 +105,14 @@ def test_health_version(client):
     assert resp.json()["version"] == expected
 
 
-def test_sanitize_returns_session_and_entities(client):
+def test_sanitize_returns_session_and_highlights(client):
     resp = client.post("/api/sanitize", json={"text": "โทร 081-234-5678 นะ"})
     assert resp.status_code == 200
     data = resp.json()
     assert "session_id" in data
     assert "sanitized_text" in data
-    assert isinstance(data["entities"], list)
+    assert isinstance(data["highlights"], list)
+    assert data["replacement_count"] == len(data["highlights"])
     assert isinstance(data["entity_type_counts"], dict)
 
 
@@ -125,15 +125,14 @@ def test_sanitize_with_email_is_tokenized(client):
     resp = client.post("/api/sanitize", json={"text": "Contact me at user@example.com"})
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data["entities"]) >= 1
+    assert data["detected_entity_count"] >= 1
     assert "user@example.com" not in data["sanitized_text"]
 
 
 def test_sanitize_section26_flagged(client):
     resp = client.post("/api/sanitize", json={"text": "ผู้ป่วยนับถือศาสนาพุทธ มีโรคประจำตัว"})
     assert resp.status_code == 200
-    cats = {s["category"] for s in resp.json()["section26"]}
-    assert "RELIGION" in cats
+    assert "RELIGION" in resp.json()["section26_categories"]
 
 
 def test_reidentify_round_trip(client):
@@ -150,7 +149,7 @@ def test_reidentify_round_trip(client):
     data = r.json()
     assert "081-234-5678" in data["restored_text"]
     assert data["replaced_count"] >= 1
-    assert data["leftover_tokens"] == []
+    assert data["leftover_count"] == 0
 
 
 def test_reidentify_unknown_session(client):
@@ -169,8 +168,8 @@ def test_analyze_returns_report_shape(client):
         "direct_pii_count",
         "fp_count",
         "tb_count",
-        "section26",
-        "reid",
+        "section26_categories",
+        "reidentification",
         "breakdown",
         "recommendations",
     ):
@@ -195,8 +194,13 @@ def test_analyze_breakdown_is_list(client):
 def test_analyze_reid_shape(client):
     resp = client.post("/api/analyze", json={"text": "นายสมชาย อายุ 32 ปี แขวงคลองเตย"})
     assert resp.status_code == 200
-    reid = resp.json()["reid"]
-    for key in ("score", "grade", "qi_found", "high_risk_combo"):
+    reid = resp.json()["reidentification"]
+    for key in (
+        "score",
+        "grade",
+        "quasi_identifier_categories",
+        "high_risk_combination",
+    ):
         assert key in reid
 
 
@@ -218,7 +222,7 @@ def test_sanitize_surrogate_mode_round_trip(client):
     text = "ผมชื่อสมชาย ใจดี โทร 081-234-5678 อีเมล somchai@example.com"
     s = client.post("/api/sanitize", json={"text": text, "mode": "surrogate"}).json()
     san = s["sanitized_text"]
-    assert len(s["entities"]) >= 2
+    assert s["detected_entity_count"] >= 2
     assert san != text
     # original PII must be gone from the surrogate text
     assert "081-234-5678" not in san
@@ -227,7 +231,7 @@ def test_sanitize_surrogate_mode_round_trip(client):
     r = client.post("/api/reidentify", json={"session_id": s["session_id"], "text": san}).json()
     assert "081-234-5678" in r["restored_text"]
     assert "somchai@example.com" in r["restored_text"]
-    assert r["leftover_tokens"] == []
+    assert r["leftover_count"] == 0
 
 
 def test_sanitize_token_mode_unchanged(client):
@@ -249,7 +253,11 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    client = TestClient(server.app, base_url="http://localhost")
+    client = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
     resp = client.post("/api/shutdown", headers={"X-AIGuard-Local": "1"})
 
     assert resp.status_code == 200
@@ -294,7 +302,7 @@ def test_sanitize_api_stage_failure_preserves_complete_session_state(
     if stage == "guard_scan":
         monkeypatch.setattr(server, "scan_injection", fail_stage)
     elif stage == "guard_projection":
-        monkeypatch.setattr(server, "to_wire", fail_stage)
+        monkeypatch.setattr(server, "_guard_findings", fail_stage)
     elif stage == "audit_path":
         monkeypatch.setattr(server, "_get_audit_log_dir", fail_stage)
     elif stage == "audit_write":
@@ -315,7 +323,7 @@ def test_sanitize_api_stage_failure_preserves_complete_session_state(
         server.sanitize(request)
 
     assert excinfo.value.status_code == 500
-    assert excinfo.value.detail == "Internal processing failed"
+    assert excinfo.value.detail == "internal_error"
     assert retained_error.__traceback__ is None
     assert retained_error.__cause__ is None
     assert retained_error.__context__ is None
@@ -349,7 +357,7 @@ def test_blocked_sanitize_audit_failure_drops_retained_exception(monkeypatch):
         server.sanitize(server.SanitizeRequest(text="โทร 081-234-5678"))
 
     assert excinfo.value.status_code == 500
-    assert excinfo.value.detail == "Internal processing failed"
+    assert excinfo.value.detail == "internal_error"
     assert retained_error.__traceback__ is None
     assert retained_error.__cause__ is None
     assert retained_error.__context__ is None
@@ -397,7 +405,7 @@ def test_untrusted_downstream_http_exception_becomes_fixed_500(monkeypatch, host
 
     assert excinfo.value is not retained_error
     assert excinfo.value.status_code == 500
-    assert excinfo.value.detail == "Internal processing failed"
+    assert excinfo.value.detail == "internal_error"
     assert private_marker not in str(excinfo.value)
     assert retained_error.__traceback__ is None
     assert retained_error.__cause__ is None
@@ -425,7 +433,11 @@ def test_sanitize_audit_uses_operation_id_without_mapping_material(
     else:
         monkeypatch.delenv("AIGUARD_AUDIT_STDOUT", raising=False)
 
-    response = TestClient(server.app, base_url="http://localhost").post(
+    response = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    ).post(
         "/api/sanitize",
         json={"text": "โทร 081-234-5678", "mode": "token"},
     )
@@ -451,11 +463,7 @@ def test_sanitize_audit_uses_operation_id_without_mapping_material(
     assert record["session_id"] != body["session_id"]
     assert record["validation_result"] == "prepared"
     assert str(uuid.UUID(record["session_id"])) == record["session_id"]
-    forbidden = [
-        "081-234-5678",
-        body["session_id"],
-        *(entity["token"] for entity in body["entities"]),
-    ]
+    forbidden = ["081-234-5678", body["session_id"]]
     assert all(value not in audit_text for value in forbidden)
 
 
@@ -487,13 +495,17 @@ def test_blocked_sanitize_audit_is_safe_and_non_authorizing(tmp_path, monkeypatc
         ],
     )
 
-    response = TestClient(server.app, base_url="http://localhost").post(
+    response = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    ).post(
         "/api/sanitize",
         json={"text": "โทร 081-234-5678", "mode": "token"},
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["error"] == "residual_pii"
+    assert response.json()["error"]["code"] == "residual_pii"
     assert service.session_count == 0
     paths = list(tmp_path.glob("audit_*_process.jsonl"))
     assert len(paths) == 1
@@ -528,13 +540,23 @@ def test_detector_independent_sanitize_block_is_safe_and_transactional(
         raising=False,
     )
 
-    response = TestClient(server.app, base_url="http://localhost").post(
+    response = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    ).post(
         "/api/sanitize",
         json={"text": "เอกสารหมายเลข 6801234", "mode": "token"},
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["types"] == ["ORPHAN_DIGITS"]
+    assert response.json()["error"] == {
+        "code": "residual_pii",
+        "category": "privacy",
+        "count": 1,
+        "retryable": False,
+        "status": 422,
+    }
     assert "6801234" not in response.text
     assert service.session_count == 0
     paths = list(tmp_path.glob("audit_*_process.jsonl"))
@@ -559,7 +581,11 @@ def test_sanitize_writes_one_audit_record(tmp_path, monkeypatch):
 
     from fastapi.testclient import TestClient
 
-    client = TestClient(server.app, base_url="http://localhost")
+    client = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
     resp = client.post(
         "/api/sanitize", json={"text": "ผมชื่อสมชาย ใจดี เบอร์ 0812345678", "mode": "token"}
     )
@@ -581,7 +607,11 @@ def test_audit_log_endpoint_returns_safe_records(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
     from fastapi.testclient import TestClient
 
-    client = TestClient(server.app, base_url="http://localhost")
+    client = TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
     client.post("/api/sanitize", json={"text": "ผมชื่อสมชาย เบอร์ 0812345678", "mode": "token"})
 
     resp = client.get("/api/audit-log?limit=10&offset=0")

@@ -10,8 +10,11 @@
 (function () {
   const SITE = window.AIGUARD_SITES;
   if (!SITE) return;
+  const CONTRACT = globalThis.AIGUARD_CONTRACT_V2;
+  if (!CONTRACT) return;
 
   const PREFIX = "aiguard-";
+  let backendReady = false;
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -51,6 +54,8 @@
   // classes become "aiguard-btn aiguard-ghost" to match content.css .aiguard-btn.aiguard-ghost
   // (also keeps it prefixed so a host page's bare .ghost rule can't touch it).
   const restoreBtn = el("button", "btn aiguard-ghost", "Restore PII");
+  maskBtn.disabled = true;
+  restoreBtn.disabled = true;
   const status = el("span", "status", "");
   bar.appendChild(logo);
   bar.appendChild(maskBtn);
@@ -61,6 +66,29 @@
   function setStatus(text, kind) {
     status.textContent = text || "";
     status.className = PREFIX + "status" + (kind ? " " + PREFIX + kind : "");
+  }
+
+  function setBackendReady(ready) {
+    backendReady = Boolean(ready);
+    maskBtn.disabled = !backendReady;
+    restoreBtn.disabled = !backendReady;
+    document.querySelectorAll("." + PREFIX + "msg-btn").forEach((button) => {
+      button.disabled = !backendReady;
+    });
+  }
+
+  async function checkHealth() {
+    const response = await send({ type: "health" });
+    const ready =
+      response &&
+      response.ok &&
+      response.data &&
+      response.data.status === "ok" &&
+      response.data.contract_version === 2 &&
+      response.data.capabilities &&
+      response.data.capabilities.api_key_required === false;
+    setBackendReady(ready);
+    if (!ready) setStatus("backend ยังไม่พร้อมใช้งาน", "err");
   }
 
   // ---- overlay for restored text / prominent warnings --------------------
@@ -205,13 +233,6 @@
     );
   }
 
-  // Whitespace-insensitive comparison: contenteditable editors re-render text
-  // through their own document model (innerText adds/collapses newlines), so
-  // an exact string match would fail on a perfectly good write.
-  function sameText(a, b) {
-    return (a || "").replace(/\s+/g, " ").trim() === (b || "").replace(/\s+/g, " ").trim();
-  }
-
   async function waitForComposerText(expected) {
     // Controlled editors can commit a valid native edit on their next update
     // cycle. Re-read the current composer for a short, bounded window; never
@@ -220,7 +241,7 @@
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const check = SITE.composer();
       const now = check ? SITE.readComposer(check) : "";
-      if (sameText(now, expected)) return true;
+      if (check && SITE.sameComposerText(check, now, expected)) return true;
       if (attempt < 7) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
@@ -229,22 +250,43 @@
   }
 
   async function doMask() {
+    if (!backendReady) {
+      setStatus("backend ยังไม่พร้อมใช้งาน", "err");
+      return;
+    }
     const composer = SITE.composer();
     if (!composer) {
       setStatus("ไม่พบช่องพิมพ์", "err");
       return;
     }
     const text = SITE.readComposer(composer);
-    if (!text) {
+    if (!text || !text.trim()) {
       setStatus("พิมพ์ข้อความก่อน", "err");
       return;
     }
     setStatus("กำลังปกปิด...");
     maskBtn.disabled = true;
     const resp = await send({ type: "sanitize", text });
-    maskBtn.disabled = false;
+    maskBtn.disabled = !backendReady;
     if (!resp || !resp.ok) {
+      if (
+        resp &&
+        (resp.error === "contract-invalid" || resp.error === "backend-unavailable")
+      ) {
+        setBackendReady(false);
+      }
       maskFailed(backendError(resp));
+      return;
+    }
+    if (
+      !resp.data ||
+      typeof resp.data.sanitized_text !== "string" ||
+      resp.data.sanitized_text.length === 0 ||
+      !resp.data.safety ||
+      resp.data.safety.status !== "pass" ||
+      resp.data.safety.residual_count !== 0
+    ) {
+      maskFailed("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย");
       return;
     }
     SITE.writeComposer(composer, resp.data.sanitized_text);
@@ -255,12 +297,15 @@
       maskFailed("เขียนข้อความที่ปกปิดแล้วลงช่องพิมพ์ไม่สำเร็จ");
       return;
     }
-    const n = (resp.data.entities || []).length;
-    setStatus("ปกปิด " + n + " รายการ", "ok");
+    setStatus("ปกปิด " + resp.data.replacement_count + " รายการ", "ok");
   }
 
   // ---- Restore ----------------------------------------------------------
   async function restoreText(text, sourceLabel) {
+    if (!backendReady) {
+      setStatus("backend ยังไม่พร้อมใช้งาน", "err");
+      return;
+    }
     if (!text || !text.trim()) {
       setStatus("ไม่มีข้อความให้คืนค่า", "err");
       return;
@@ -272,17 +317,23 @@
       return;
     }
     const d = resp.data;
-    const leftover = (d.leftover_tokens || []).length;
-    const foreign = (d.warnings || []).reduce((n, w) => {
-      const m = /^foreign_tokens:(\d+)$/.exec(w);
-      return m ? n + Number(m[1]) : n;
-    }, 0);
-    const meta =
-      "คืนค่า " + d.replaced_count + " รายการ" +
-      (leftover ? " เหลือ " + leftover + " รายการ" : "") +
-      (foreign ? " โทเคนแปลกปลอม " + foreign + " จุด" : "");
+    if (!CONTRACT.restorationIsComplete(d)) {
+      const warningCount = d.warnings.reduce(
+        (sum, warning) => sum + warning.count,
+        0
+      );
+      setStatus(
+        "คืนค่าไม่ครบ เหลือ " +
+          d.leftover_count +
+          " รายการ" +
+          (warningCount ? " และมีคำเตือน " + warningCount + " รายการ" : ""),
+        "err"
+      );
+      return;
+    }
+    const meta = "คืนค่า " + d.replaced_count + " รายการ";
     showOverlay("คืนค่าแล้ว (" + sourceLabel + ")", d.restored_text, meta);
-    setStatus(foreign ? "คืนค่าแล้ว มีโทเคนแปลกปลอม" : "คืนค่าแล้ว", foreign ? "err" : "ok");
+    setStatus("คืนค่าแล้ว", "ok");
   }
 
   // Read an assistant message's text, minus the Restore button we injected
@@ -323,6 +374,7 @@
     for (const m of msgs) {
       if (m.querySelector(":scope > ." + PREFIX + "msg-btn")) continue;
       const b = el("button", "msg-btn", "คืนค่า");
+      b.disabled = !backendReady;
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         restoreText(messageText(m), "คำตอบ");
@@ -334,4 +386,5 @@
   const obs = new MutationObserver(() => decorate());
   obs.observe(document.documentElement, { childList: true, subtree: true });
   decorate();
+  checkHealth();
 })();

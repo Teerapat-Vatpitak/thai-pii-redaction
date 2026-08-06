@@ -279,6 +279,26 @@ def test_caller_seed_cannot_silence_text_residual_guard():
     assert scan_outbound_leaks(f"ผู้ยื่นคำร้อง {seeded_name}", vault)
 
 
+def test_reused_seed_cannot_hide_adjacent_text_residual():
+    location = "กรุงเทพมหานคร"
+    seeded_name = "สมชาย ใจดี"
+    source = location + seeded_name
+    detection_text = " " * len(location) + seeded_name
+
+    with pytest.raises(StatelessLeakError) as excinfo:
+        sanitize_stateless(
+            source,
+            mode="surrogate",
+            salt="s",
+            prior_mapping={"safe-alias": seeded_name},
+            detection_text=detection_text,
+        )
+
+    assert excinfo.value.leak_types == ["LOCATION"]
+    assert location not in str(excinfo.value)
+    assert seeded_name not in str(excinfo.value)
+
+
 def test_missing_replacement_record_blocks_instead_of_returning_empty_token(monkeypatch):
     """A silent vault-write defect must not produce an incomplete projection."""
     monkeypatch.setattr(SessionVault, "write", lambda *_args, **_kwargs: None)

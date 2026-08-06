@@ -30,7 +30,9 @@ from pii_redactor.leak_guard import (
     scan_outbound_leaks,
     scan_residual_signals,
 )
-from pii_redactor.models import AIResponse, Entity, EntityRegistry
+from pii_redactor.models import AIResponse, Entity, EntityRegistry, ReplacementHighlight
+from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
+from pii_redactor.output_validator import validate_output
 from pii_redactor.report import scan_section26
 from pii_redactor.reverse_mapper import reverse_map
 from pii_redactor.safe_errors import discard_exception_graph
@@ -55,6 +57,8 @@ class StatelessRestoreResult:
     replaced_count: int
     leftover_pseudonyms: list[str]
     warnings: list[str]
+    generated_pii_count: int = 0
+    foreign_replacement_count: int = 0
 
 
 @dataclass
@@ -65,6 +69,7 @@ class StatelessSanitizeResult:
     entity_type_counts: dict[str, int]
     section26: list[dict]
     warnings: list[str]
+    replacement_highlights: tuple[ReplacementHighlight, ...] = ()
 
     @property
     def guard_context(self) -> OutboundGuardContext:
@@ -89,6 +94,7 @@ class SanitizeCore:
     entities: list[dict]  # the wire shape (start/end/data_type/redact_type/token)
     entity_type_counts: dict[str, int]
     warnings: list[str]
+    replacement_highlights: tuple[ReplacementHighlight, ...] = ()
 
 
 class StatelessLeakError(Exception):
@@ -134,6 +140,7 @@ def sanitize_into_vault(
     *,
     mode: str,
     salt: str,
+    detection_text: str | None = None,
     scan_leaks: Callable[[str, SessionVault], list[Entity]] = scan_outbound_leaks,
     scan_residual: Callable[[str, SessionVault], list[str]] = scan_residual_signals,
 ) -> SanitizeCore:
@@ -146,6 +153,7 @@ def sanitize_into_vault(
             vault,
             mode=mode,
             salt=salt,
+            detection_text=detection_text,
             scan_leaks=scan_leaks,
             scan_residual=scan_residual,
         )
@@ -164,6 +172,7 @@ def sanitize_into_vault(
         discard_exception_graph(error)
 
     text = ""
+    detection_text = None
     vault = None
     mode = ""
     salt = ""
@@ -186,6 +195,7 @@ def _sanitize_into_vault_impl(
     *,
     mode: str,
     salt: str,
+    detection_text: str | None = None,
     scan_leaks: Callable[[str, SessionVault], list[Entity]] = scan_outbound_leaks,
     scan_residual: Callable[[str, SessionVault], list[str]] = scan_residual_signals,
 ) -> SanitizeCore:
@@ -204,7 +214,20 @@ def _sanitize_into_vault_impl(
             any outbound residual survived. The text is never returned.
         VaultTimeoutError: propagated untouched from the supplied vault.
     """
-    detected = detect_all(text)
+    scan_text = text if detection_text is None else detection_text
+    if len(scan_text) != len(text):
+        raise ValueError("detection text length mismatch")
+    detected = [
+        Entity(
+            entity_id=entity.entity_id,
+            redact_type=entity.redact_type,
+            data_type=entity.data_type,
+            span=entity.span,
+            score=entity.score,
+            original_text=text[entity.span[0] : entity.span[1]],
+        )
+        for entity in detect_all(scan_text)
+    ]
     registry = EntityRegistry(
         entities=detected,
         fp_count=sum(1 for e in detected if e.redact_type == "FP"),
@@ -300,6 +323,7 @@ def _sanitize_into_vault_impl(
         entities=out_entities,
         entity_type_counts=type_counts,
         warnings=[],
+        replacement_highlights=pseudo.replacement_highlights,
     )
 
 
@@ -313,12 +337,17 @@ def _clear_throwaway_vault(vault: SessionVault) -> bool:
     return True
 
 
-def restore_stateless(text: str, *, mapping: dict[str, str]) -> StatelessRestoreResult:
+def restore_stateless(
+    text: str,
+    *,
+    mapping: dict[str, str],
+    mode: str | None = None,
+) -> StatelessRestoreResult:
     """Restore from a caller mapping without retaining sensitive failures."""
     failure_kind = None
     validation_kind = None
     try:
-        return _restore_stateless_impl(text, mapping=mapping)
+        return _restore_stateless_impl(text, mapping=mapping, mode=mode)
     except _RestoreValidationError as error:
         validation_kind = error.kind
         failure_kind = "validation"
@@ -332,6 +361,7 @@ def restore_stateless(text: str, *, mapping: dict[str, str]) -> StatelessRestore
 
     text = ""
     mapping = None
+    mode = None
     if failure_kind == "validation":
         if validation_kind == "empty_text":
             raise ValueError(_EMPTY_RESTORE_MESSAGE)
@@ -345,9 +375,12 @@ def _restore_stateless_impl(
     text: str,
     *,
     mapping: dict[str, str],
+    mode: str | None,
 ) -> StatelessRestoreResult:
     """Restore through a throwaway vault and clear it before any return."""
     if not isinstance(mapping, dict):
+        raise _RestoreValidationError("mapping")
+    if mode not in {None, "token", "surrogate"}:
         raise _RestoreValidationError("mapping")
 
     vault = SessionVault()
@@ -371,9 +404,20 @@ def _restore_stateless_impl(
             AIResponse(text=text, request_id=str(uuid.uuid4()), latency=0.0),
             EntityRegistry(entities=[], fp_count=0, tb_count=0),
             vault,
+            mode=mode,
         )
         restored = result.text
         flags = list(result.flags)
+        generated_pii_count = 0
+        try:
+            validate_output(
+                result,
+                EntityRegistry(entities=[], fp_count=0, tb_count=0),
+                vault,
+            )
+        except OutputPIILeakError as error:
+            generated_pii_count = error.count
+            discard_exception_graph(error)
 
         # Counted here rather than taken from the audit summary: the caller's
         # question is how much of its mapping was applied, not how many vault
@@ -392,6 +436,8 @@ def _restore_stateless_impl(
             replaced_count=replaced,
             leftover_pseudonyms=leftover,
             warnings=flags,
+            generated_pii_count=generated_pii_count,
+            foreign_replacement_count=int(result.audit_summary.get("foreign_token_count", 0)),
         )
     finally:
         cleanup_ok = _clear_throwaway_vault(vault)
@@ -407,6 +453,7 @@ def _restore_stateless_impl(
         present = []
         leftover = []
         unused = []
+        generated_pii_count = 0
         pseudonym = None
         original = None
         raise StatelessProcessingError(_RESTORE_FAILURE_CODE)
@@ -420,6 +467,7 @@ def sanitize_stateless(
     mode: str,
     salt: str,
     prior_mapping: dict[str, str] | None = None,
+    detection_text: str | None = None,
 ) -> StatelessSanitizeResult:
     """Mask PII without retaining a throwaway-vault failure graph."""
     failure_kind = None
@@ -433,6 +481,7 @@ def sanitize_stateless(
                 mode=mode,
                 salt=salt,
                 prior_mapping=prior_mapping,
+                detection_text=detection_text,
             )
         except StatelessLeakError as error:
             failure_kind = "residual"
@@ -449,6 +498,7 @@ def sanitize_stateless(
             discard_exception_graph(error)
 
     text = ""
+    detection_text = None
     mode = ""
     salt = ""
     prior_mapping = None
@@ -471,6 +521,7 @@ def _sanitize_stateless_impl(
     mode: str,
     salt: str,
     prior_mapping: dict[str, str] | None,
+    detection_text: str | None,
 ) -> StatelessSanitizeResult:
     """Build the complete result before clearing the function-local vault."""
     vault = SessionVault()
@@ -488,6 +539,7 @@ def _sanitize_stateless_impl(
             vault,
             mode=mode,
             salt=salt,
+            detection_text=detection_text,
             scan_leaks=scan_outbound_leaks,
             scan_residual=scan_residual_signals,
         )
@@ -500,6 +552,7 @@ def _sanitize_stateless_impl(
             entity_type_counts=core.entity_type_counts,
             section26=scan_section26(text),
             warnings=core.warnings,
+            replacement_highlights=core.replacement_highlights,
         )
         object.__setattr__(output, "_guard_context", guard_context)
     finally:

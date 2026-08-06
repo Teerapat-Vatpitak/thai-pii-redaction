@@ -1,5 +1,6 @@
 import importlib.util
 import socket
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -35,3 +36,66 @@ def test_main_refuses_on_win32(monkeypatch):
     monkeypatch.setattr(smoke.sys, "platform", "win32")
     with pytest.raises(SystemExit):
         smoke.main()
+
+
+def _headers(*values: str) -> Message:
+    headers = Message()
+    for value in values:
+        headers.add_header("X-AIGuard-Contract-Version", value)
+    return headers
+
+
+def _health() -> dict:
+    return {
+        "status": "ok",
+        "version": "2.5.0",
+        "contract_version": 2,
+        "capabilities": {
+            "control_token_required": True,
+            "api_key_required": False,
+        },
+    }
+
+
+def _sanitize() -> dict:
+    return {
+        "session_id": "synthetic-session",
+        "sanitized_text": "[PHONE_1]",
+        "detected_entity_count": 1,
+        "replacement_count": 1,
+        "entity_type_counts": {"PHONE": 1},
+        "highlights": [
+            {
+                "start": 0,
+                "end": 9,
+                "data_type": "PHONE",
+                "redact_type": "FP",
+            }
+        ],
+        "section26_categories": [],
+        "guard_findings": [],
+        "warnings": [],
+        "safety": {"status": "pass", "residual_count": 0},
+    }
+
+
+def test_health_smoke_requires_exact_v2_header_and_body():
+    assert smoke._valid_health_response(200, _headers("2"), _health()) is True
+    assert smoke._valid_health_response(200, _headers(), _health()) is False
+    assert smoke._valid_health_response(200, _headers("2", "2"), _health()) is False
+
+    extra = _health()
+    extra["token_required"] = False
+    assert smoke._valid_health_response(200, _headers("2"), extra) is False
+
+
+def test_sanitize_smoke_requires_exact_safe_minimized_dto():
+    assert smoke._valid_sanitize_response(200, _headers("2"), _sanitize()) is True
+
+    extra = _sanitize()
+    extra["original_text"] = "blocked"
+    assert smoke._valid_sanitize_response(200, _headers("2"), extra) is False
+
+    unsafe = _sanitize()
+    unsafe["safety"] = {"status": "pass", "residual_count": 1}
+    assert smoke._valid_sanitize_response(200, _headers("2"), unsafe) is False

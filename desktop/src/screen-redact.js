@@ -1,31 +1,6 @@
 import { redactPdf } from "./api.js";
 import { screenHeader, escapeHtml } from "./ui.js";
 
-// Only display the detector's declared type.  The response objects may also
-// grow fields that contain source values, spans, or other sensitive metadata;
-// those must never be copied into the desktop DOM.
-const DISPLAYABLE_FIELD_TYPES = new Set([
-  "ADDRESS",
-  "BANK_ACCOUNT",
-  "CREDIT_CARD",
-  "DATE",
-  "DATE_OF_BIRTH",
-  "EMAIL",
-  "IBAN",
-  "ID_NUMBER",
-  "LOCATION",
-  "MEDICAL_ID",
-  "NAME",
-  "ORGANIZATION",
-  "PASSPORT",
-  "PHONE",
-  "POSTAL_CODE",
-  "STUDENT_ID",
-  "SURNAME",
-  "THAI_ID",
-  "VEHICLE_PLATE",
-]);
-
 function renderFieldChips(container, fields) {
   container.replaceChildren();
   if (!Array.isArray(fields)) return;
@@ -34,13 +9,21 @@ function renderFieldChips(container, fields) {
   for (const field of fields) {
     if (!field || typeof field !== "object" || Array.isArray(field)) continue;
     const dataType = field.data_type;
-    if (typeof dataType !== "string" || !DISPLAYABLE_FIELD_TYPES.has(dataType)) continue;
-    if (seen.has(dataType)) continue;
-    seen.add(dataType);
+    const redactType = field.redact_type;
+    if (
+      typeof dataType !== "string" ||
+      !/^[A-Z][A-Z0-9_]*$/.test(dataType) ||
+      (redactType !== "FP" && redactType !== "TB")
+    ) {
+      continue;
+    }
+    const key = `${dataType}:${redactType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
 
     const chip = document.createElement("span");
     chip.className = "chip chip--redact";
-    chip.textContent = dataType;
+    chip.textContent = `${dataType} (${redactType})`;
     container.appendChild(chip);
   }
 }
@@ -72,10 +55,6 @@ export function renderRedact(root) {
     <div class="card hidden" id="r-out">
       <div class="previews">
         <div class="preview">
-          <div class="preview__label before"><span class="tick"></span>ก่อน</div>
-          <img id="r-before" alt="before" />
-        </div>
-        <div class="preview">
           <div class="preview__label after"><span class="tick"></span>หลัง</div>
           <img id="r-after" alt="after" />
         </div>
@@ -106,12 +85,11 @@ export function renderRedact(root) {
     try {
       const res = await redactPdf(file);
       redactedB64 = res.redacted_pdf_b64;
-      outName = "redacted-" + (res.filename || file.name);
+      outName = "redacted-" + file.name;
       $("#r-source-type").textContent = res.source_type;
-      $("#r-entity-count").textContent = res.entity_count;
+      $("#r-entity-count").textContent = res.detected_entity_count;
       $("#r-ocr-confidence").textContent =
         res.ocr_confidence != null ? res.ocr_confidence : "-";
-      $("#r-before").src = "data:image/png;base64," + res.before_png_b64;
       $("#r-after").src = "data:image/png;base64," + res.after_png_b64;
       renderFieldChips($("#r-fields"), res.fields);
       $("#r-human-review").classList.toggle("hidden", !res.human_review);

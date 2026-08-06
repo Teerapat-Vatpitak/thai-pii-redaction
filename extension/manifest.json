@@ -52,6 +52,7 @@
         "https://*.bigmodel.cn/*"
       ],
       "js": [
+        "contract-v2.js",
         "sites.js",
         "content.js"
       ],

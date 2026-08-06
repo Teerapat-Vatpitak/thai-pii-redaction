@@ -464,14 +464,72 @@ def test_anonymize_fn_scanner_entities_get_realistic_fake_values():
 def test_generate_token_known_type():
     from pii_redactor.anonymizer.token_generator import generate_token
 
-    assert generate_token("NAME", 1) == "[ชื่อ_1]"
-    assert generate_token("PHONE", 3) == "[โทรศัพท์_3]"
+    namespace = "a" * 25
+    nonce = "n" * 20
+    assert generate_token("NAME", 1, namespace=namespace, nonce=nonce) == (
+        f"[ชื่อ_{namespace}_{nonce}_1]"
+    )
+    assert generate_token("PHONE", 3, namespace=namespace, nonce=nonce) == (
+        f"[โทรศัพท์_{namespace}_{nonce}_3]"
+    )
 
 
 def test_generate_token_unknown_type_falls_back_to_type_name():
     from pii_redactor.anonymizer.token_generator import generate_token
 
-    assert generate_token("MYSTERY", 2) == "[MYSTERY_2]"
+    namespace = "a" * 25
+    nonce = "n" * 20
+    assert generate_token("MYSTERY", 2, namespace=namespace, nonce=nonce) == (
+        f"[MYSTERY_{namespace}_{nonce}_2]"
+    )
+
+
+@pytest.mark.parametrize(
+    ("namespace", "nonce", "ordinal"),
+    [
+        ("too-short", "n" * 20, 1),
+        ("a" * 24 + "g", "n" * 20, 1),
+        ("A" * 25, "n" * 20, 1),
+        ("a" * 25, "too-short", 1),
+        ("a" * 25, "n" * 19 + "0", 1),
+        ("a" * 25, "n" * 20, 0),
+        ("a" * 25, "n" * 20, -1),
+    ],
+)
+def test_generate_token_rejects_non_product_identity(namespace, nonce, ordinal):
+    from pii_redactor.anonymizer.token_generator import generate_token
+
+    with pytest.raises(ValueError, match="invalid token"):
+        generate_token("NAME", ordinal, namespace=namespace, nonce=nonce)
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        f"[อีเมล_extra_{'a' * 25}_{'n' * 20}_1]",
+        f"[อีเมล_[extra]_{'a' * 25}_{'n' * 20}_1]",
+        f"[อีเมล\n_{'a' * 25}_{'n' * 20}_1]",
+        f"[อีเมล_{'a' * 25}_1]",
+        f"[ชื่อ_{'a' * 25}_{'n' * 20}_1]",
+    ],
+)
+def test_token_shape_requires_exact_label_namespace_nonce_and_ordinal(candidate):
+    from pii_redactor.anonymizer.token_generator import is_token_for_data_type
+
+    assert not is_token_for_data_type(candidate, "EMAIL")
+
+
+def test_legacy_token_shape_is_readable_only_when_explicitly_allowed():
+    from pii_redactor.anonymizer.token_generator import (
+        is_token_for_data_type,
+        token_ordinal_from_candidate,
+    )
+
+    assert not is_token_for_data_type("[อีเมล_1]", "EMAIL")
+    assert is_token_for_data_type("[อีเมล_1]", "EMAIL", allow_legacy=True)
+    oversized = f"[อีเมล_{'9' * 5000}]"
+    assert not is_token_for_data_type(oversized, "EMAIL", allow_legacy=True)
+    assert token_ordinal_from_candidate(oversized, "EMAIL", allow_legacy=True) is None
 
 
 def test_token_label_map_matches_v2_contract():
@@ -502,7 +560,7 @@ def test_anonymize_token_mode_brackets_and_counters():
     registry = EntityRegistry(entities=[e1, e2, e3], fp_count=3, tb_count=0)
     vault = SessionVault()
     result = anonymize(text, registry, vault, salt=SALT, mode="token")
-    assert "[อีเมล_1]" in result.text and "[อีเมล_2]" in result.text
+    namespace = vault.token_namespace
     assert "a@b.co" not in result.text and "c@d.co" not in result.text
     # same original -> same token
     p1 = vault.get_by_entity_id(e1.entity_id).pseudonym
@@ -510,6 +568,9 @@ def test_anonymize_token_mode_brackets_and_counters():
     assert p1 == p3
     # distinct originals -> distinct ordinals
     p2 = vault.get_by_entity_id(e2.entity_id).pseudonym
+    assert p1.startswith(f"[อีเมล_{namespace}_") and p1.endswith("_1]")
+    assert p2.startswith(f"[อีเมล_{namespace}_") and p2.endswith("_2]")
+    assert p1 in result.text and p2 in result.text
     assert p2 != p1
 
 
@@ -526,7 +587,10 @@ def test_anonymize_token_mode_ordinal_continues_across_calls():
     r2 = anonymize(
         t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
     )
-    assert "[อีเมล_2]" in r2.text
+    token = vault.get_by_entity_id(e2.entity_id).pseudonym
+    assert token.startswith(f"[อีเมล_{vault.token_namespace}_")
+    assert token.endswith("_2]")
+    assert token in r2.text
 
 
 def test_anonymize_token_mode_same_original_across_calls_reuses_token():
@@ -541,7 +605,56 @@ def test_anonymize_token_mode_same_original_across_calls_reuses_token():
     r2 = anonymize(
         t2, EntityRegistry(entities=[e2], fp_count=1, tb_count=0), vault, salt=SALT, mode="token"
     )
-    assert "[อีเมล_1]" in r1.text and "[อีเมล_1]" in r2.text
+    token = vault.get_by_entity_id(e1.entity_id).pseudonym
+    assert token.endswith("_1]")
+    assert token in r1.text and token in r2.text
+
+
+def test_token_mode_same_ordinal_is_namespaced_per_vault(monkeypatch):
+    import pii_redactor.anonymizer.anonymizer as anonymizer_mod
+    import pii_redactor.session_vault as vault_mod
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    monkeypatch.setattr(anonymizer_mod, "new_token_nonce", lambda: "n" * 20)
+    first_vault = SessionVault()
+    second_vault = SessionVault()
+    text = "email a@b.co"
+    entity = _make_entity("EMAIL", text, 6, 12)
+    registry = EntityRegistry(entities=[entity], fp_count=1, tb_count=0)
+
+    first = anonymize(text, registry, first_vault, salt=SALT, mode="token")
+    second = anonymize(text, registry, second_vault, salt=SALT, mode="token")
+
+    assert first.text == f"email [อีเมล_{'a' * 25}_{'n' * 20}_1]"
+    assert second.text == f"email [อีเมล_{'f' * 25}_{'n' * 20}_1]"
+    assert first.text != second.text
+
+
+def test_token_mode_retries_when_nonce_identity_already_occurs_in_source(monkeypatch):
+    import pii_redactor.anonymizer.anonymizer as anonymizer_mod
+    from pii_redactor.anonymizer.token_generator import generate_token
+
+    namespace = "a" * 25
+    nonces = iter(("n" * 20, "m" * 20))
+    monkeypatch.setattr(anonymizer_mod, "new_token_nonce", lambda: next(nonces))
+    collision = generate_token("EMAIL", 1, namespace=namespace, nonce="n" * 20)
+    text = f"email a@b.co keep {collision}"
+    entity = _make_entity("EMAIL", text, 6, 12)
+    vault = SessionVault(token_namespace=namespace)
+
+    result = anonymize(
+        text,
+        EntityRegistry(entities=[entity], fp_count=1, tb_count=0),
+        vault,
+        salt=SALT,
+        mode="token",
+    )
+
+    minted = vault.get_by_entity_id(entity.entity_id).pseudonym
+    assert minted == generate_token("EMAIL", 1, namespace=namespace, nonce="m" * 20)
+    assert minted in result.text
+    assert collision in result.text
 
 
 def test_anonymize_default_mode_is_surrogate():

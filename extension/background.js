@@ -2,20 +2,26 @@
 //
 // All backend calls happen here: the worker has cross-origin access to
 // localhost via host_permissions, so content scripts on chatgpt.com /
-// claude.ai do not hit page CORS restrictions. Contract v1 responses can carry
-// direct or reconstructable mapping material in extension memory, although the
-// extension deliberately persists only the session_id per tab. Contract v2
-// removes those mapping-bearing response fields.
+// claude.ai do not hit page CORS restrictions. This worker is the HTTP v2
+// projection boundary: content scripts receive only fresh, validated DTOs.
 //
 // MV3 service workers are ephemeral -- Chrome evicts them after a short idle
 // period and in-memory variables are lost. The wait for an AI reply easily
-// outlasts the worker, so the per-tab session_id is kept in
+// outlasts the worker, so the per-tab session_id and its site origin are kept in
 // chrome.storage.session (survives worker restarts, never written to disk,
 // cleared when the browser closes -- consistent with the vault invariant),
 // with an in-memory write-through cache for the fast path.
 
+if (!globalThis.AIGUARD_CONTRACT_V2 && typeof importScripts === "function") {
+  importScripts("contract-v2.js");
+}
+const CONTRACT = globalThis.AIGUARD_CONTRACT_V2;
+if (!CONTRACT) throw new Error("HTTP v2 contract helpers are unavailable");
+
 const BACKENDS = ["http://localhost:8000", "http://127.0.0.1:8000"];
-const sessionCache = {}; // tabId -> session_id (fast path; may be wiped on evict)
+const sessionCache = Object.create(null); // tabId -> bound session record
+const activeTabOrigins = Object.create(null); // blocks stale cross-navigation writes
+let activeBackend = null;
 
 // Clicking the toolbar icon opens the docked side panel (no popup). The
 // behavior is persisted by Chrome, but re-asserting it on install and on
@@ -31,69 +37,204 @@ function sessionKey(tabId) {
   return "aiguard_sid_" + tabId;
 }
 
-async function storeSession(tabId, sid) {
-  if (tabId == null) return;
-  sessionCache[tabId] = sid;
+function httpsOrigin(value) {
   try {
-    await chrome.storage.session.set({ [sessionKey(tabId)]: sid });
-  } catch (e) {
-    /* cache still holds it for this worker's lifetime */
-  }
-}
-
-async function loadSession(tabId) {
-  if (tabId == null) return null;
-  if (sessionCache[tabId]) return sessionCache[tabId];
-  try {
-    const o = await chrome.storage.session.get(sessionKey(tabId));
-    const sid = o[sessionKey(tabId)] || null;
-    if (sid) sessionCache[tabId] = sid;
-    return sid;
-  } catch (e) {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" ? parsed.origin : null;
+  } catch {
     return null;
   }
 }
 
-async function postJSON(path, body) {
-  let lastErr;
-  for (const base of BACKENDS) {
-    try {
-      const r = await fetch(base + path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json().catch(() => ({}));
-      return { ok: r.ok, status: r.status, data };
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  return { ok: false, status: 0, error: String(lastErr) };
+function sessionScope(sender) {
+  if (!sender || !sender.tab) return null;
+  const tabId = sender.tab.id;
+  if (!Number.isInteger(tabId) || tabId < 0) return null;
+
+  // Content scripts are installed in the top frame only. Rejecting other
+  // frames prevents a future manifest change from silently sharing a vault
+  // between different frame origins.
+  if (sender.frameId !== 0) return null;
+  if (sender.documentLifecycle && sender.documentLifecycle !== "active") return null;
+
+  const values = [sender.origin, sender.url, sender.tab.url].filter(
+    (value) => typeof value === "string" && value.length > 0
+  );
+  if (values.length === 0) return null;
+  const origins = values.map(httpsOrigin);
+  if (origins.some((origin) => !origin)) return null;
+  if (origins.some((origin) => origin !== origins[0])) return null;
+
+  // Do not bind documentId: a same-origin reload should keep multi-turn token
+  // identity. Origin changes still invalidate the tab's vault reference.
+  return { tabId, origin: origins[0] };
 }
 
-async function getJSON(path) {
-  let lastErr;
+function isBoundSession(record, scope) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return false;
+  const keys = Object.keys(record).sort();
+  return (
+    keys.length === 2 &&
+    keys[0] === "origin" &&
+    keys[1] === "session_id" &&
+    typeof record.session_id === "string" &&
+    record.session_id.length > 0 &&
+    record.origin === scope.origin
+  );
+}
+
+async function clearStoredSession(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) return;
+  delete sessionCache[tabId];
+  try {
+    await chrome.storage.session.remove(sessionKey(tabId));
+  } catch {
+    /* the in-memory reference is still gone */
+  }
+}
+
+async function activateSessionScope(scope) {
+  const previousOrigin = activeTabOrigins[scope.tabId];
+  activeTabOrigins[scope.tabId] = scope.origin;
+  if (previousOrigin && previousOrigin !== scope.origin) {
+    await clearStoredSession(scope.tabId);
+  }
+}
+
+async function storeSession(scope, sid) {
+  if (!scope || activeTabOrigins[scope.tabId] !== scope.origin) return;
+  const record = { session_id: sid, origin: scope.origin };
+  sessionCache[scope.tabId] = record;
+  try {
+    await chrome.storage.session.set({ [sessionKey(scope.tabId)]: record });
+  } catch {
+    /* cache still holds it for this worker's lifetime */
+  }
+}
+
+async function loadSession(scope) {
+  if (!scope) return null;
+  const cached = sessionCache[scope.tabId];
+  if (isBoundSession(cached, scope)) return cached.session_id;
+  if (cached) delete sessionCache[scope.tabId];
+
+  try {
+    const key = sessionKey(scope.tabId);
+    const stored = (await chrome.storage.session.get(key))[key];
+    if (!isBoundSession(stored, scope)) {
+      if (stored != null) await chrome.storage.session.remove(key);
+      return null;
+    }
+    sessionCache[scope.tabId] = stored;
+    return stored.session_id;
+  } catch {
+    return null;
+  }
+}
+
+async function readJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("invalid-json");
+  }
+}
+
+function contractFailure() {
+  activeBackend = null;
+  return { ok: false, status: 0, error: "contract-invalid" };
+}
+
+async function getHealth() {
+  activeBackend = null;
   for (const base of BACKENDS) {
+    let response;
     try {
-      const r = await fetch(base + path);
-      const data = await r.json().catch(() => ({}));
-      return { ok: r.ok, status: r.status, data };
-    } catch (e) {
-      lastErr = e;
+      response = await fetch(base + "/api/health", { cache: "no-store" });
+    } catch {
+      continue;
+    }
+    try {
+      if (!CONTRACT.hasHeader(response)) return contractFailure();
+      const body = await readJson(response);
+      if (!response.ok) {
+        const error = CONTRACT.validateError(body, response.status);
+        return {
+          ok: false,
+          status: error.error.status,
+          error: error.error.code,
+        };
+      }
+      const data = CONTRACT.validateHealth(body);
+      if (data.capabilities.api_key_required) {
+        return { ok: false, status: 401, error: "authentication-required" };
+      }
+      activeBackend = base;
+      return { ok: true, status: response.status, data };
+    } catch {
+      return contractFailure();
     }
   }
-  return { ok: false, status: 0, error: String(lastErr) };
+  return { ok: false, status: 0, error: "backend-unavailable" };
+}
+
+async function postJSON(path, body, validator) {
+  if (!activeBackend) return contractFailure();
+  let response;
+  try {
+    response = await fetch(activeBackend + path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [CONTRACT.HEADER]: CONTRACT.VERSION,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    activeBackend = null;
+    return { ok: false, status: 0, error: "backend-unavailable" };
+  }
+  try {
+    if (!CONTRACT.hasHeader(response)) return contractFailure();
+    const payload = await readJson(response);
+    if (!response.ok) {
+      const projected = CONTRACT.validateError(payload, response.status);
+      return {
+        ok: false,
+        status: projected.error.status,
+        error: projected.error.code,
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      data: validator(payload),
+    };
+  } catch {
+    return contractFailure();
+  }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  const tabId = sender.tab && sender.tab.id;
   (async () => {
     if (msg.type === "health") {
-      sendResponse(await getJSON("/api/health"));
+      sendResponse(await getHealth());
       return;
     }
+    const isTabSender = Boolean(sender && sender.tab);
+    const scope = isTabSender ? sessionScope(sender) : null;
+    if (isTabSender && !scope) {
+      sendResponse({ ok: false, status: 0, error: "invalid-sender-context" });
+      return;
+    }
+    if (scope) await activateSessionScope(scope);
+
     if (msg.type === "sanitize") {
+      const health = await getHealth();
+      if (!health.ok) {
+        sendResponse(health);
+        return;
+      }
       // mode comes from the side panel message, else the saved toggle (so the
       // in-page Mask button honors the same choice), else token.
       let mode = msg.mode;
@@ -106,36 +247,56 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
       mode = mode === "surrogate" ? "surrogate" : "token";
-      // Reuse the tab's session so multi-turn token numbering stays consistent
-      // ([ชื่อ_1] keeps meaning the same person across turns). Without this,
-      // each Mask minted a fresh session and a later Restore mapped the token
-      // with the wrong vault -> wrong person's PII (EXT-1).
-      const priorSid = msg.session_id || (await loadSession(tabId));
+      // Reuse the tab's session so multi-turn mappings remain available. A
+      // replacement session has a different token namespace, so an older reply
+      // is reported as foreign instead of restoring through the wrong vault.
+      // Explicit session IDs belong only to extension pages such as the side
+      // panel. A tab caller can use only the session bound to its own origin.
+      const priorSid = scope ? await loadSession(scope) : msg.session_id || null;
       let resp = await postJSON(
         "/api/sanitize",
-        priorSid ? { text: msg.text, mode, session_id: priorSid } : { text: msg.text, mode }
+        priorSid ? { text: msg.text, mode, session_id: priorSid } : { text: msg.text, mode },
+        CONTRACT.validateSanitize
       );
-      // A stored session can be expired (404) or locked to a different mode
-      // (400) if the user switched token<->surrogate. Fall back to a fresh
-      // session so a Mask never silently fails on reuse.
-      if (priorSid && (resp.status === 404 || resp.status === 400)) {
-        resp = await postJSON("/api/sanitize", { text: msg.text, mode });
+      // Retry only the two exact session-reset outcomes. Other 400/404 errors
+      // stay failed instead of being reinterpreted from their HTTP status.
+      const retryFresh =
+        priorSid &&
+        ((resp.status === 404 && resp.error === "session_unavailable") ||
+          (resp.status === 400 && resp.error === "invalid_request"));
+      if (retryFresh) {
+        resp = await postJSON(
+          "/api/sanitize",
+          { text: msg.text, mode },
+          CONTRACT.validateSanitize
+        );
       }
       if (resp.ok && resp.data && resp.data.session_id) {
-        await storeSession(tabId, resp.data.session_id);
+        await storeSession(scope, resp.data.session_id);
       }
       sendResponse(resp);
       return;
     }
     if (msg.type === "reidentify") {
+      const health = await getHealth();
+      if (!health.ok) {
+        sendResponse(health);
+        return;
+      }
       // The side panel passes session_id explicitly; content script relies on
-      // the session stored for its tab.
-      const sid = msg.session_id || (await loadSession(tabId));
+      // the session stored for its tab and site origin.
+      const sid = scope ? await loadSession(scope) : msg.session_id || null;
       if (!sid) {
         sendResponse({ ok: false, status: 0, error: "no-session" });
         return;
       }
-      sendResponse(await postJSON("/api/reidentify", { session_id: sid, text: msg.text }));
+      sendResponse(
+        await postJSON(
+          "/api/reidentify",
+          { session_id: sid, text: msg.text },
+          CONTRACT.validateReidentify
+        )
+      );
       return;
     }
     sendResponse({ ok: false, status: 0, error: "unknown-message" });
@@ -144,6 +305,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  delete sessionCache[tabId];
-  chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
+  delete activeTabOrigins[tabId];
+  void clearStoredSession(tabId);
 });

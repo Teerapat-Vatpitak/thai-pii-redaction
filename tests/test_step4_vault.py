@@ -78,13 +78,16 @@ def test_vault_snapshot_and_restore():
     vault = SessionVault()
     record = _make_record()
     vault.write(record)
+    original_namespace = vault.token_namespace
     snap = vault.snapshot()
     # Clear vault
     vault._table.clear()
     vault._reverse.clear()
+    vault._token_namespace = "f" * 25
     # Restore
     vault.restore(snap)
     assert vault.get_by_entity_id(record.entity_id) is not None
+    assert vault.token_namespace == original_namespace
 
 
 def test_vault_clone_is_complete_and_mutation_is_detached():
@@ -103,6 +106,7 @@ def test_vault_clone_is_complete_and_mutation_is_detached():
     assert clone._last_access == vault._last_access
     assert clone._idle_timeout_s == vault._idle_timeout_s
     assert clone.session_id == vault.session_id
+    assert clone._token_namespace == vault._token_namespace
     assert clone._clear_epoch == vault._clear_epoch
     assert clone._lifecycle_lock is not vault._lifecycle_lock
     assert clone._audit_entries == vault._audit_entries
@@ -450,6 +454,7 @@ def test_clone_preserves_safe_seed_audit_without_sharing_mutable_state():
     clone = vault.clone()
     assert clone.audit_log() == original_audit
     assert clone._table[first.entity_id] is first
+    assert clone.token_namespace == vault.token_namespace
 
     clone.seed("[ชื่อ_2]", "สมหญิง ร้ายกาจ")
 
@@ -460,6 +465,19 @@ def test_clone_preserves_safe_seed_audit_without_sharing_mutable_state():
         "[ชื่อ_2]": "สมหญิง ร้ายกาจ",
     }
     assert [entry["action"] for entry in clone.audit_log()] == ["seed", "seed"]
+
+
+def test_clear_invalidates_token_namespace_before_vault_reuse(monkeypatch):
+    import pii_redactor.session_vault as vault_mod
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    vault = SessionVault()
+
+    assert vault.token_namespace == "a" * 25
+    vault.clear()
+    assert vault._token_namespace is None
+    assert vault.token_namespace == "f" * 25
 
 
 def test_seed_audit_failure_rolls_back_and_retry_records_once():

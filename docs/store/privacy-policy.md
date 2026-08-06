@@ -21,7 +21,7 @@ Extension เรียก backend บนเครื่องของคุณ�
 
 เมื่อใช้ปุ่ม Mask ในหน้าเว็บ ข้อความดิบถูกพิมพ์ลงใน DOM ที่ควบคุมโดยเว็บ AI ก่อน extension ทำงาน โค้ดของเว็บอาจเห็นหรือส่ง draft นั้นได้ก่อนถูกแทนที่ Contract v2 และ native broker แก้ขอบเขตนี้ไม่ได้ หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ AI
 
-ตารางหลักที่แปลงค่าจริงกลับไปกลับมากับรหัสปลอม ("vault") อยู่ใน **หน่วยความจำของ backend บนเครื่องคุณ** และไม่มีการจงใจเขียนลงดิสก์ แต่ HTTP contract v1 ปัจจุบันส่ง field ที่มีหรือใช้ประกอบ token-to-original mapping กลับมาในหน่วยความจำของ extension ได้ แม้ extension จะไม่จงใจเก็บ field เหล่านี้แบบถาวร เป้าหมายของ contract v2 คือไม่ส่ง explicit mapping DTO และให้ extension เก็บ `session_id` แบบ opaque ซึ่งเป็นรหัสอ้างอิงที่มีความสำคัญด้านความปลอดภัย
+ตารางหลักที่แปลงค่าจริงกลับไปกลับมากับรหัสปลอม ("vault") อยู่ใน **หน่วยความจำของ backend บนเครื่องคุณ** และไม่มีการจงใจเขียนลงดิสก์ Source ปัจจุบันใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง explicit mapping DTO และให้ extension เก็บเพียง `session_id` แบบ opaque ซึ่งเป็นรหัสอ้างอิงที่มีความสำคัญด้านความปลอดภัย แต่ backend 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อนการแก้นี้ และยังไม่มี package/browser acceptance สำหรับ source candidate ปัจจุบัน
 
 ### Extension เก็บอะไรไว้ในเบราว์เซอร์ของคุณบ้าง
 
@@ -35,7 +35,7 @@ extension ไม่จงใจเก็บข้อความที่คุ�
 
 ### Audit log ของ backend
 
-Backend v1 เขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping source ปัจจุบันใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend ที่เผยแพร่ใน Desktop 2.5.0 ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และยังเกิดก่อน outbound-policy change ปัจจุบัน ยังไม่มี package ที่รวมการเปลี่ยนทั้งสองส่วนผ่าน acceptance
+Backend source ปัจจุบันเขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping และใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend 2.5.0/v1 ที่เผยแพร่ใน Desktop ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และเกิดก่อน outbound-policy change ปัจจุบัน ยังไม่มี package ที่รวมการเปลี่ยนเหล่านี้ผ่าน acceptance
 
 ### สิทธิ์ (permissions) ที่ขอ และเหตุผล
 
@@ -72,7 +72,7 @@ When you click "Mask PII" (on the floating bar shown on supported AI chat sites,
 
 For in-page Mask, raw text is already typed into the AI site's provider-controlled DOM before the extension acts. Site code can observe or transmit that draft before replacement; contract v2 and a native broker cannot remove this earlier boundary. For stronger isolation, enter raw text in the side panel and paste only the reviewed masked result into the AI site.
 
-The canonical mapping between real values and fake placeholders (the "vault") is kept **in the memory of the backend running on your machine** and is not deliberately written to disk. Current HTTP contract v1 can return fields containing, or permitting reconstruction of, token-to-original pairs in extension process memory, although the extension does not deliberately persist them. Contract v2 is intended to return no explicit mapping DTO and leave the extension with an opaque, security-sensitive `session_id`.
+The canonical mapping between real values and fake placeholders (the "vault") is kept **in the memory of the backend running on your machine** and is not deliberately written to disk. Current source uses strict HTTP v2, returns no explicit mapping DTO, and leaves the extension with an opaque, security-sensitive `session_id`. The published 2.5.0/v1 backend predates that repair, and the current source candidate has not yet received matching package/browser acceptance.
 
 ### What the extension stores in your browser
 
@@ -86,7 +86,7 @@ The extension does not deliberately persist the text you type, detected PII, or 
 
 ### Backend audit logs
 
-The v1 backend writes process/security audit JSONL to the source or packaged
+The current source backend writes process/security audit JSONL to the source or packaged
 application log directory (or stdout when hosted mode is enabled). It does not
 write request text, pseudonyms, or the mapping. Current source uses a fresh
 non-authorizing operation UUID for sanitize, reidentify, and roundtrip

@@ -13,6 +13,11 @@ import time
 import uuid
 from typing import NamedTuple
 
+from pii_redactor.anonymizer.token_generator import (
+    is_valid_token_namespace,
+    new_token_namespace,
+    token_namespace_from_candidate,
+)
 from pii_redactor.models import VaultRecord
 
 # data_type stamped on records re-admitted through seed(). An exported mapping
@@ -49,23 +54,59 @@ class SessionVault:
     - session_id: UUID string for audit trail
     - _audit_entries: local audit log (never contains PII)
     - _clear_epoch: prevents stale rollback snapshots from reviving cleared data
+    - _token_namespace: non-secret generation tag for token-mode identity
     - _lifecycle_lock: serializes snapshot/restore/clear generation decisions
     """
 
-    def __init__(self, idle_timeout_s: int = 1800):
+    def __init__(
+        self,
+        idle_timeout_s: int = 1800,
+        *,
+        token_namespace: str | None = None,
+    ):
         """Initialize a new session vault.
 
         Args:
             idle_timeout_s: Idle timeout in seconds (default 30 minutes)
+            token_namespace: Existing stateless-chain namespace to continue
         """
+        if token_namespace is not None and not is_valid_token_namespace(token_namespace):
+            raise ValueError("invalid token namespace")
         self._table: dict[str, VaultRecord] = {}  # entity_id → VaultRecord
         self._reverse: dict[str, str] = {}  # pseudonym → entity_id
         self._last_access: float = time.monotonic()
         self._idle_timeout_s = idle_timeout_s
         self.session_id: str = str(uuid.uuid4())
+        self._token_namespace: str | None = token_namespace or new_token_namespace()
         self._audit_entries: list[_VaultAuditEntry] = []  # local audit log
         self._clear_epoch = 0
         self._lifecycle_lock = threading.RLock()
+
+    @property
+    def token_namespace(self) -> str:
+        """Return the generation tag for tokens minted by this vault."""
+        with self._lifecycle_lock:
+            if self._token_namespace is None:
+                self._token_namespace = new_token_namespace()
+            return self._token_namespace
+
+    def adopt_token_namespace(self, namespace: str) -> bool:
+        """Continue a seeded stateless token chain before minting new tokens."""
+        if not is_valid_token_namespace(namespace):
+            raise ValueError("invalid token namespace")
+        with self._lifecycle_lock:
+            generated_namespaces = {
+                candidate_namespace
+                for entity_id, record in self._table.items()
+                if record.data_type != SEEDED_DATA_TYPE
+                and self._reverse.get(record.pseudonym) == entity_id
+                and (candidate_namespace := token_namespace_from_candidate(record.pseudonym))
+                is not None
+            }
+            if generated_namespaces and generated_namespaces != {namespace}:
+                return False
+            self._token_namespace = namespace
+            return True
 
     def write(self, record: VaultRecord) -> None:
         """Store a vault record. Updates both _table and _reverse.
@@ -275,6 +316,7 @@ class SessionVault:
             clone._last_access = self._last_access
             clone._idle_timeout_s = self._idle_timeout_s
             clone.session_id = self.session_id
+            clone._token_namespace = self._token_namespace
             # Entries are immutable tuples, so the detached list can share them
             # safely. Staged actions append only to the clone's list.
             clone._audit_entries = list(self._audit_entries)
@@ -292,6 +334,7 @@ class SessionVault:
             return {
                 "_table": dict(self._table),
                 "_reverse": dict(self._reverse),
+                "_token_namespace": self._token_namespace,
                 "_clear_epoch": self._clear_epoch,
             }
 
@@ -309,6 +352,7 @@ class SessionVault:
                 return False
             self._table = dict(snapshot["_table"])
             self._reverse = dict(snapshot["_reverse"])
+            self._token_namespace = snapshot["_token_namespace"]
             self._audit("restore", "snapshot")
             return True
 
@@ -323,6 +367,9 @@ class SessionVault:
             self._clear_epoch += 1
             self._table.clear()
             self._reverse.clear()
+            # A reused vault must never mint a token that can mean something
+            # from the cleared generation. Create the next tag lazily.
+            self._token_namespace = None
             self._audit("clear", "all")
 
     def is_idle(self) -> bool:
