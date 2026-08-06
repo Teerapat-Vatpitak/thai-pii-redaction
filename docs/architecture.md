@@ -97,28 +97,41 @@ remains unauthenticated. CORS and
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
 
-`SessionService` owns one earliest-deadline timer and expires every due session
-at the exact half-open TTL boundary (`age >= TTL`) without waiting for a client
-request. Timer generations make canceled or stale callbacks inert. A request
-that acquires the coarse lifecycle lock before its deadline completes
-atomically and receives a fresh TTL only after a successful sanitize or
-restore; expiry, explicit disposal, shutdown, and capacity eviction serialize
-on the same lock. A timer-start failure closes the service and releases all
-registered state rather than continuing without eager expiry.
+`SessionService` is the sole TTL authority for its managed vaults. It owns one
+earliest-deadline timer and expires every due session at the exact half-open TTL
+boundary (`age >= TTL`) without waiting for a client request; managed
+`SessionVault` instances do not make a second expiry decision. Standalone
+vaults retain their own exact-boundary idle expiry. Timer generations make
+canceled or stale callbacks inert. A request that acquires the coarse lifecycle
+lock before its deadline completes atomically. Sanitize and restore receive a
+fresh TTL only after successful completion; failed restore attempts leave the
+original access time, deadline, and timer unchanged. Expiry, explicit disposal,
+shutdown, and capacity eviction serialize on the same lock. The service
+validates every managed deadline before scheduling. A timer-start or scheduling
+prerequisite failure closes the service and releases all registered state
+rather than continuing without eager expiry.
 
 A session ID is a security-sensitive, bearer-like restoration reference on the
 local data plane when its optional API key is unset. The internal
 `DELETE /api/session/{session_id}` route requires exactly one short-lived HMAC
 authorization derived from the boot secret inside the trusted control plane.
 The signature binds its version, target session, expiry, and random nonce.
-Verification rejects exact-boundary expiry, malformed values, duplicate
-headers, a different target, and replay; no configured boot secret means
-disposal is unavailable. A fresh valid authorization makes repeated disposal
-idempotent, while the same authorization is single-use. Desktop web and hotkey
-paths reuse their prior session and retry once without it only for exact
-expiry/mode-reset errors. Extension tab close and Office reset still clear only
-client references. No JavaScript client receives the boot secret or a derived
-disposal authorization; broker-backed client disposal remains Phase 8.
+Verification accepts only canonical unpadded base64url, fingerprints canonical
+authenticated content, and rejects exact-boundary expiry, malformed or
+noncanonical values, duplicate headers, a different target, and replay. Final
+expiry validation, replay consumption, and disposal occur atomically under the
+lifecycle lock, so authority that expires while waiting is not consumed. No
+configured boot secret means disposal is unavailable. A fresh valid
+authorization makes repeated disposal idempotent, while the same authorization
+is single-use. Recognized Uvicorn access records discard query values and
+replace the bearer-like session path value with a fixed redaction marker before
+launcher or Desktop output forwarding; an unknown access-record shape is
+suppressed fail-closed. Non-sensitive access and application logs remain
+enabled. Desktop web and hotkey paths reuse their prior session and retry once
+without it only for exact expiry/mode-reset errors. Extension tab close and
+Office reset still clear only client references. No JavaScript client receives
+the boot secret or a derived disposal authorization; broker-backed client
+disposal remains Phase 8.
 
 The session resource graph is deliberately small: the service owns each
 in-memory vault/mapping namespace, entity list, trusted digest list, salt,

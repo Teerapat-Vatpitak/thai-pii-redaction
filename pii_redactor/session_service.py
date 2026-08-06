@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import secrets
 import threading
 import time
@@ -208,12 +209,23 @@ class SessionService:
         if self._closed or self._timer_factory is None or not self._sessions:
             return
 
-        next_deadline = min(
-            session.last_access + self._ttl_s for session in self._sessions.values()
-        )
-        delay = max(0.0, next_deadline - self._now())
-        generation = self._timer_generation
         try:
+            deadlines = [session.last_access + self._ttl_s for session in self._sessions.values()]
+            if any(
+                isinstance(deadline, bool)
+                or not isinstance(deadline, (int, float))
+                or not math.isfinite(deadline)
+                for deadline in deadlines
+            ):
+                raise ValueError("invalid lifecycle deadline")
+            next_deadline = min(deadlines)
+            now = self._now()
+            if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now):
+                raise ValueError("invalid lifecycle clock")
+            delay = max(0.0, next_deadline - now)
+            if not math.isfinite(delay):
+                raise ValueError("invalid lifecycle delay")
+            generation = self._timer_generation
             timer = self._timer_factory(
                 delay,
                 lambda: self._expiry_timer_fired(generation),
@@ -231,7 +243,7 @@ class SessionService:
             self._lifecycle_tombstones.clear()
             for session in doomed:
                 self._discard_detached(session)
-            _LOG.error("Session expiry timer did not start; service closed")
+            _LOG.error("Session expiry scheduling failed; service closed")
             raise SessionExpiredError("Session service is closed") from None
 
     def _take_expired_locked(self, now: float) -> list[_Session]:
@@ -321,15 +333,8 @@ class SessionService:
     ) -> tuple[str, _Session]:
         self._ensure_open_locked()
         if session_id is not None:
-            session = self._sessions.get(session_id)
-            now = self._now()
-            if session is None or self._is_expired(session, now, self._ttl_s):
-                if session is not None:
-                    self.drop(session_id)
-                raise SessionExpiredError("Session not found or expired")
-            if mode is not None and mode != session.mode:
-                raise ModeMismatchError(f"session mode is '{session.mode}', got '{mode}'")
-            session.last_access = now
+            session, admitted_at = self._get_existing_locked(session_id, mode)
+            session.last_access = admitted_at
             self._reschedule_expiry_locked()
             return session_id, session
 
@@ -347,11 +352,10 @@ class SessionService:
             self.drop(lru)
         sid = str(uuid.uuid4())
         now = self._now()
-        # vault idle timeout mirrors the service TTL as a second layer; if the
-        # vault trips first (it only refreshes on vault access), sanitize/
-        # restore translate it to SessionExpiredError.
+        # The service is the sole TTL authority for managed vaults. Standalone
+        # SessionVault instances retain their own idle expiry.
         session = _Session(
-            vault=SessionVault(idle_timeout_s=self._ttl_s),
+            vault=SessionVault(idle_timeout_s=None),
             mode=resolved_mode,
             salt=secrets.token_hex(16),
             created=now,
@@ -360,6 +364,23 @@ class SessionService:
         self._sessions[sid] = session
         self._reschedule_expiry_locked()
         return sid, session
+
+    def _get_existing_locked(
+        self,
+        session_id: str,
+        mode: str | None,
+    ) -> tuple[_Session, float]:
+        """Admit an existing session without refreshing its deadline."""
+        self._ensure_open_locked()
+        session = self._sessions.get(session_id)
+        now = self._now()
+        if session is None or self._is_expired(session, now, self._ttl_s):
+            if session is not None:
+                self.drop(session_id)
+            raise SessionExpiredError("Session not found or expired")
+        if mode is not None and mode != session.mode:
+            raise ModeMismatchError(f"session mode is '{session.mode}', got '{mode}'")
+        return session, now
 
     def drop(self, session_id: str) -> bool:
         session = None
@@ -381,14 +402,14 @@ class SessionService:
         *,
         authorization_fingerprint: bytes,
         authorization_expires_at_ms: int,
-        authorization_now_ms: float,
+        authorization_now_ms_fn: Callable[[], float],
     ) -> bool:
         """Consume one verified authority and dispose only its target session."""
         if (
             not isinstance(authorization_fingerprint, bytes)
             or len(authorization_fingerprint) != hashlib.sha256().digest_size
             or type(authorization_expires_at_ms) is not int
-            or authorization_expires_at_ms <= authorization_now_ms
+            or not callable(authorization_now_ms_fn)
         ):
             raise DisposalAuthorizationError("invalid disposal authorization")
 
@@ -398,6 +419,18 @@ class SessionService:
         try:
             with self._lock:
                 self._ensure_open_locked()
+                try:
+                    authorization_now_ms = authorization_now_ms_fn()
+                except Exception as error:
+                    discard_exception_graph(error)
+                    raise DisposalAuthorizationError("invalid disposal authorization") from None
+                if (
+                    isinstance(authorization_now_ms, bool)
+                    or not isinstance(authorization_now_ms, (int, float))
+                    or not math.isfinite(authorization_now_ms)
+                    or authorization_expires_at_ms <= authorization_now_ms
+                ):
+                    raise DisposalAuthorizationError("invalid disposal authorization")
                 expired_keys = [
                     fingerprint
                     for fingerprint, expires_at in (self._used_disposal_authorizations.items())
@@ -668,7 +701,7 @@ class SessionService:
             raise ModeMismatchError(f"unknown mode '{resolved_mode}'")
         sid = str(uuid.uuid4())
         staged = _Session(
-            vault=SessionVault(idle_timeout_s=self._ttl_s),
+            vault=SessionVault(idle_timeout_s=None),
             mode=resolved_mode,
             salt=secrets.token_hex(16),
             created=now,
@@ -771,7 +804,8 @@ class SessionService:
         raise RestoreTransactionError("restore failed")
 
     def _restore_locked_impl(self, session_id: str, text: str) -> RestoreOutcome:
-        sid, session = self._get_or_create_locked(session_id, None)
+        session, _admitted_at = self._get_existing_locked(session_id, None)
+        sid = session_id
         if not text or not text.strip():
             return RestoreOutcome(
                 restored_text=text,

@@ -232,6 +232,37 @@ def test_vault_idle_timeout():
         vault.get_by_entity_id("any")
 
 
+@pytest.mark.parametrize(
+    ("elapsed", "expired"),
+    [
+        (9.999, False),
+        (10.0, True),
+        (10.001, True),
+    ],
+)
+def test_standalone_vault_idle_boundary_is_half_open(monkeypatch, elapsed, expired):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("pii_redactor.session_vault.time.monotonic", lambda: clock["now"])
+    vault = SessionVault(idle_timeout_s=10)
+    clock["now"] += elapsed
+
+    if expired:
+        with pytest.raises(VaultTimeoutError):
+            vault.check_idle()
+    else:
+        vault.check_idle()
+
+
+def test_lifecycle_managed_vault_has_no_independent_idle_expiry(monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("pii_redactor.session_vault.time.monotonic", lambda: clock["now"])
+    vault = SessionVault(idle_timeout_s=None)
+    clock["now"] += 10_000
+
+    assert vault.is_idle() is False
+    vault.check_idle()
+
+
 def test_vault_not_idle_when_active():
     """Test that is_idle returns False when vault is active."""
     vault = SessionVault(idle_timeout_s=3600)

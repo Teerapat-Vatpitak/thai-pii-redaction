@@ -78,11 +78,15 @@ HTTP v2 response minimization and strict first-party client schemas; matching
 packaged/installed, real-host, live-provider, authenticated local-process,
 broker-backed client lifecycle, and official-platform evidence remains open.
 
-The F-06 record closes current-source automated eager-expiry, internal
-authenticated-disposal, replay, race, and session-owned cleanup checks only.
-It does not provide a native broker, browser/Office/extension disposal,
-authenticated localhost process identity, packaged/installed evidence, or any
-real-host Office acceptance.
+The F-06 record now has status **corrected; independent re-review pending**.
+The first merge review rejected `f968833` with six lifecycle, authorization,
+logging, and documentation blockers. Corrective local regressions cover
+post-success-only restore refresh, sole managed TTL authority, canonical replay
+identity, in-lock expiry validation, real-Uvicorn route redaction, and
+session-isolated cleanup. This is not merge approval and does not provide a
+native broker, browser/Office/extension disposal, authenticated localhost
+process identity, packaged/installed evidence, or any real-host Office
+acceptance.
 
 ## Automated HTTP and live-provider run
 

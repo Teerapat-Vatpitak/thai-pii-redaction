@@ -33,17 +33,20 @@ def _encode(value: bytes) -> str:
 
 
 def _decode(value: str) -> bytes | None:
-    if not value or not _AUTH_PART.fullmatch(value):
+    if not value or not _AUTH_PART.fullmatch(value) or len(value) % 4 == 1:
         return None
     padding = "=" * (-len(value) % 4)
     try:
-        return base64.b64decode(
+        decoded = base64.b64decode(
             value + padding,
             altchars=b"-_",
             validate=True,
         )
     except (ValueError, TypeError):
         return None
+    if not hmac.compare_digest(_encode(decoded), value):
+        return None
+    return decoded
 
 
 def _signed_message(session_id: str, expires_at_ms: int, nonce: bytes) -> bytes:
@@ -142,7 +145,13 @@ def verify_session_disposal_authorization(
     ).digest()
     if not hmac.compare_digest(signature, expected):
         return None
+    canonical_authenticated = b"\0".join(
+        (
+            _signed_message(session_id, expires_at_ms, nonce),
+            signature,
+        )
+    )
     return VerifiedDisposalAuthorization(
-        fingerprint=hashlib.sha256(supplied.encode("ascii")).digest(),
+        fingerprint=hashlib.sha256(canonical_authenticated).digest(),
         expires_at_ms=expires_at_ms,
     )

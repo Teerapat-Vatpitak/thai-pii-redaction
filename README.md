@@ -207,7 +207,8 @@ The broad local FastAPI adapter exposes `/api/health`, `/api/detect`, `/api/sani
 `/api/guard`, and `/api/redact-pdf`. Local introspection and lifecycle routes
 also include `GET /api/audit-log`, `DELETE /api/session/{session_id}`, and
 `POST /api/shutdown`; audit-log uses the data-plane API key when configured,
-while session deletion and shutdown use the control token when configured.
+session deletion uses a short-lived, target-bound authorization derived from
+the configured control token, and shutdown uses the control token directly.
 Stateful local use pairs `sanitize` with `reidentify`; `/api/roundtrip` masks,
 calls the selected provider, and restores inside one request without retaining
 the mapping. Health is open for contract discovery; every other current

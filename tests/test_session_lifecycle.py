@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import math
 import threading
+import time
 from dataclasses import dataclass
 
 import pytest
 
 import pii_redactor.session_service as service_module
 from pii_redactor.models import VaultRecord
-from pii_redactor.session_service import SessionExpiredError, SessionService
+from pii_redactor.session_service import (
+    DisposalAuthorizationError,
+    RestoreTransactionError,
+    SessionExpiredError,
+    SessionService,
+)
 from pii_redactor.session_vault import SessionVault
 
 
@@ -200,6 +207,166 @@ def test_request_started_before_expiry_wins_over_stale_timer(monkeypatch):
     assert service._sessions[outcome.session_id].last_access == 1015.0
 
 
+def test_successful_restore_refreshes_access_and_timer_once():
+    service, clock, timers = _service(ttl_s=10)
+    session_id, session = service._get_or_create(None, None)
+    prior_timer = timers.latest
+    prior_timer_count = len(timers.timers)
+    clock["now"] = 1005.0
+
+    restored = service.restore(session_id, "   ")
+
+    assert restored.restored_text == "   "
+    assert session.last_access == 1005.0
+    assert len(timers.timers) == prior_timer_count + 1
+    assert prior_timer.cancelled is True
+    assert timers.latest.delay == 10.0
+
+
+def test_failed_restore_does_not_refresh_access_or_timer(monkeypatch):
+    service, clock, timers = _service(ttl_s=10)
+    session_id, session = service._get_or_create(None, None)
+    prior_access = session.last_access
+    prior_timer = timers.latest
+    prior_timer_count = len(timers.timers)
+    clock["now"] = 1005.0
+
+    def fail_restore(*_args, **_kwargs):
+        raise RuntimeError("synthetic restore failure")
+
+    monkeypatch.setattr(service_module, "reverse_map", fail_restore)
+    with pytest.raises(RestoreTransactionError, match="^restore failed$"):
+        service.restore(session_id, "synthetic reply")
+
+    assert session.last_access == prior_access
+    assert service._expiry_timer is prior_timer
+    assert prior_timer.cancelled is False
+    assert len(timers.timers) == prior_timer_count
+
+
+def test_repeated_failed_restores_do_not_extend_expiry(monkeypatch):
+    service, clock, timers = _service(ttl_s=10)
+    session_id, session = service._get_or_create(None, None)
+    original_deadline_timer = timers.latest
+    original_access = session.last_access
+
+    def fail_restore(*_args, **_kwargs):
+        raise RuntimeError("synthetic restore failure")
+
+    monkeypatch.setattr(service_module, "reverse_map", fail_restore)
+    for attempt_time in (1005.0, 1009.0, 1009.999):
+        clock["now"] = attempt_time
+        with pytest.raises(RestoreTransactionError, match="^restore failed$"):
+            service.restore(session_id, "synthetic reply")
+        assert session.last_access == original_access
+        assert service._expiry_timer is original_deadline_timer
+
+    clock["now"] = 1010.0
+    original_deadline_timer.fire()
+
+    assert service.session_count == 0
+    with pytest.raises(SessionExpiredError):
+        service.restore(session_id, "synthetic reply")
+
+
+def test_failed_restore_immediately_before_expiry_cannot_retain_session(monkeypatch):
+    service, clock, timers = _service(ttl_s=10)
+    session_id, _session = service._get_or_create(None, None)
+    original_deadline_timer = timers.latest
+
+    monkeypatch.setattr(
+        service_module,
+        "reverse_map",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("synthetic restore failure")),
+    )
+    clock["now"] = 1009.999
+    with pytest.raises(RestoreTransactionError, match="^restore failed$"):
+        service.restore(session_id, "synthetic reply")
+
+    clock["now"] = 1010.0
+    original_deadline_timer.fire()
+
+    assert service.session_count == 0
+
+
+def test_failed_restore_racing_eager_expiry_is_deterministic(monkeypatch):
+    service, clock, timers = _service(ttl_s=10)
+    session_id, _session = service._get_or_create(None, None)
+    original_deadline_timer = timers.latest
+    restore_entered = threading.Event()
+    release_restore = threading.Event()
+    restore_errors: list[BaseException] = []
+
+    def fail_after_pause(*_args, **_kwargs):
+        restore_entered.set()
+        assert release_restore.wait(timeout=5)
+        raise RuntimeError("synthetic restore failure")
+
+    monkeypatch.setattr(service_module, "reverse_map", fail_after_pause)
+
+    def restore():
+        try:
+            service.restore(session_id, "synthetic reply")
+        except BaseException as error:
+            restore_errors.append(error)
+
+    restore_thread = threading.Thread(target=restore)
+    restore_thread.start()
+    assert restore_entered.wait(timeout=5)
+
+    clock["now"] = 1010.0
+    expiry_thread = threading.Thread(target=original_deadline_timer.fire)
+    expiry_thread.start()
+    release_restore.set()
+    restore_thread.join(timeout=5)
+    expiry_thread.join(timeout=5)
+
+    assert not restore_thread.is_alive()
+    assert not expiry_thread.is_alive()
+    assert len(restore_errors) == 1
+    assert isinstance(restore_errors[0], RestoreTransactionError)
+    assert service.session_count == 0
+
+
+def test_failed_restore_does_not_modify_another_session(monkeypatch):
+    service, clock, timers = _service(ttl_s=10)
+    first_id, first = service._get_or_create(None, None)
+    clock["now"] = 1001.0
+    second_id, second = service._get_or_create(None, None)
+    timer_before_failure = timers.latest
+    timer_count = len(timers.timers)
+    first_access = first.last_access
+    second_access = second.last_access
+
+    monkeypatch.setattr(
+        service_module,
+        "reverse_map",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("synthetic restore failure")),
+    )
+    clock["now"] = 1005.0
+    with pytest.raises(RestoreTransactionError, match="^restore failed$"):
+        service.restore(first_id, "synthetic reply")
+
+    assert first.last_access == first_access
+    assert second.last_access == second_access
+    assert service._sessions[second_id] is second
+    assert service._expiry_timer is timer_before_failure
+    assert len(timers.timers) == timer_count
+
+
+def test_managed_vault_cannot_independently_expire_service_admission():
+    service, clock, _timers = _service(ttl_s=10)
+    outcome = service.sanitize("โทร 081-234-5678")
+    session = service._sessions[outcome.session_id]
+    session.vault._last_access = time.monotonic() - 1000
+    clock["now"] = 1009.999
+
+    restored = service.restore(outcome.session_id, outcome.sanitized_text)
+
+    assert restored.restored_text == "โทร 081-234-5678"
+    assert service.session_count == 1
+
+
 def test_disposal_racing_expiry_cleans_once():
     service, clock, timers = _service(ttl_s=10)
     session_id, session = service._get_or_create(None, None)
@@ -339,10 +506,82 @@ def test_timer_start_failure_closes_and_cleans_service(caplog):
         service._get_or_create(None, None)
 
     assert service.session_count == 0
-    assert "Session expiry timer did not start; service closed" in caplog.text
+    assert "Session expiry scheduling failed; service closed" in caplog.text
     assert "synthetic timer start failure" not in caplog.text
     with pytest.raises(SessionExpiredError):
         service._get_or_create(None, None)
+
+
+def test_restore_scheduler_clock_failure_closes_and_cleans_service():
+    service, _clock, timers = _service(ttl_s=10)
+    target_id, target = service._get_or_create(None, None)
+    _write_synthetic_mapping(target, suffix="target")
+    _other_id, other = service._get_or_create(None, None)
+    _write_synthetic_mapping(other, suffix="other")
+    live_timer = timers.latest
+    timer_count = len(timers.timers)
+    calls = 0
+
+    def fail_during_reschedule():
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("synthetic scheduler clock failure")
+        return 1006.0
+
+    service._now = fail_during_reschedule
+
+    with pytest.raises(SessionExpiredError, match="^Session not found or expired$"):
+        service.restore(target_id, "   ")
+
+    assert calls == 3
+    assert service._closed is True
+    assert service.session_count == 0
+    assert service._expiry_timer is None
+    assert live_timer.cancelled is True
+    assert len(timers.timers) == timer_count
+    for session in (target, other):
+        assert session.vault._table == {}
+        assert session.vault._reverse == {}
+        assert session.entities == []
+        assert session.trusted_sanitized_digests == ()
+        assert session.salt == ""
+
+
+@pytest.mark.parametrize("invalid_access", [math.nan, math.inf])
+def test_restore_nonfinite_commit_clock_closes_and_cleans_service(invalid_access):
+    service, _clock, timers = _service(ttl_s=10)
+    _other_id, other = service._get_or_create(None, None)
+    _write_synthetic_mapping(other, suffix="other")
+    target_id, target = service._get_or_create(None, None)
+    _write_synthetic_mapping(target, suffix="target")
+    live_timer = timers.latest
+    timer_count = len(timers.timers)
+    clock_values = iter((1005.0, invalid_access, 1005.0))
+    clock_reads = 0
+
+    def stateful_clock():
+        nonlocal clock_reads
+        clock_reads += 1
+        return next(clock_values)
+
+    service._now = stateful_clock
+
+    with pytest.raises(SessionExpiredError, match="^Session not found or expired$"):
+        service.restore(target_id, "   ")
+
+    assert clock_reads == 2
+    assert service._closed is True
+    assert service.session_count == 0
+    assert service._expiry_timer is None
+    assert live_timer.cancelled is True
+    assert len(timers.timers) == timer_count
+    for session in (target, other):
+        assert session.vault._table == {}
+        assert session.vault._reverse == {}
+        assert session.entities == []
+        assert session.trusted_sanitized_digests == ()
+        assert session.salt == ""
 
 
 def test_expiry_reschedule_failure_cleans_detached_and_remaining_sessions():
@@ -407,7 +646,7 @@ def test_disposal_reschedule_failure_cleans_target_and_remaining_session():
             first_id,
             authorization_fingerprint=b"a" * 32,
             authorization_expires_at_ms=10_000,
-            authorization_now_ms=0,
+            authorization_now_ms_fn=lambda: 0,
         )
 
     assert service.session_count == 0
@@ -497,7 +736,7 @@ def test_authenticated_disposal_waits_for_active_restore(monkeypatch):
                 outcome.session_id,
                 authorization_fingerprint=b"b" * 32,
                 authorization_expires_at_ms=10_000,
-                authorization_now_ms=0,
+                authorization_now_ms_fn=lambda: 0,
             )
         )
 
@@ -523,6 +762,96 @@ def test_authenticated_disposal_waits_for_active_restore(monkeypatch):
     assert service.session_count == 0
     with pytest.raises(SessionExpiredError):
         service.restore(outcome.session_id, outcome.sanitized_text)
+
+
+@pytest.mark.parametrize(
+    ("final_now_ms", "expected"),
+    [
+        (999.0, True),
+        (1000.0, False),
+    ],
+)
+def test_disposal_authorization_is_validated_after_lock_wait(final_now_ms, expected):
+    service = SessionService()
+    target_id, _target = service._get_or_create(None, None)
+    other_id, _other = service._get_or_create(None, None)
+    auth_clock = {"now": 900.0}
+    entered = threading.Event()
+    results: list[bool] = []
+    errors: list[BaseException] = []
+
+    service._lock.acquire()
+
+    def dispose():
+        entered.set()
+        try:
+            results.append(
+                service.dispose_authenticated(
+                    target_id,
+                    authorization_fingerprint=b"c" * 32,
+                    authorization_expires_at_ms=1000,
+                    authorization_now_ms_fn=lambda: auth_clock["now"],
+                )
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=dispose)
+    thread.start()
+    assert entered.wait(timeout=5)
+    auth_clock["now"] = final_now_ms
+    service._lock.release()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    if expected:
+        assert results == [True]
+        assert errors == []
+        assert target_id not in service._sessions
+    else:
+        assert results == []
+        assert len(errors) == 1
+        assert isinstance(errors[0], DisposalAuthorizationError)
+        assert target_id in service._sessions
+        assert service._used_disposal_authorizations == {}
+    assert service._get_or_create(other_id, None)[0] == other_id
+
+
+def test_concurrent_same_authorization_cannot_both_succeed():
+    service = SessionService()
+    session_id, _session = service._get_or_create(None, None)
+    start = threading.Barrier(3)
+    results: list[bool] = []
+    errors: list[BaseException] = []
+    result_lock = threading.Lock()
+
+    def dispose():
+        start.wait(timeout=5)
+        try:
+            result = service.dispose_authenticated(
+                session_id,
+                authorization_fingerprint=b"d" * 32,
+                authorization_expires_at_ms=1000,
+                authorization_now_ms_fn=lambda: 900.0,
+            )
+            with result_lock:
+                results.append(result)
+        except BaseException as error:
+            with result_lock:
+                errors.append(error)
+
+    threads = [threading.Thread(target=dispose) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=5)
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert results == [True]
+    assert len(errors) == 1
+    assert isinstance(errors[0], DisposalAuthorizationError)
+    assert service.session_count == 0
 
 
 def test_shutdown_waits_for_active_sanitize_and_cleans_once(monkeypatch):

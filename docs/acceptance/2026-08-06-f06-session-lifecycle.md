@@ -3,11 +3,17 @@
 - Evidence date (Asia/Bangkok): `2026-08-06`
 - Clean base commit: `35b451768db420bb6c6c6e20120f6105bff5336d`
 - Candidate branch: `codex/phase-7-session-lifecycle`
+- Original Phase 7 commit: `f968833fd563b530bb68a5104ea9969ad537dd94`
+- Corrective commit: this record's commit, directly on top of `f968833`
+  (`fix(security): close Phase 7 lifecycle review blockers`)
 - Product version: `2.5.0` (unchanged)
+- Status: **corrected; independent re-review pending**
 
-This is current-source automated evidence for Phase 7 / F-06. It covers the
-backend session lifetime, internal authenticated disposal, deterministic
-cleanup, and their races. It is not packaged/installed, browser, Office-host,
+This is current-source automated corrective evidence for Phase 7 / F-06. The
+first independent merge review rejected `f968833` with six confirmed blockers;
+this record covers their fixes, backend session lifetime, internal
+authenticated disposal, log secrecy, deterministic cleanup, and races. It is
+not independent merge approval or packaged/installed, browser, Office-host,
 live-provider, deployment, release, or official-platform evidence.
 
 All runtime checks used synthetic values. This record contains no request text,
@@ -16,22 +22,39 @@ machine-specific artifact.
 
 ## Behavior established
 
-`SessionService` owns one timer for the earliest active deadline. A session is
-available immediately before its boundary and unavailable at `age >= TTL`.
-The callback expires due sessions without a later request and reschedules for
-the next session. Timer generations prevent canceled or stale callbacks from
-reviving or re-cleaning state. A request that acquires the lifecycle lock
-before its deadline completes atomically and receives a fresh TTL only after
-successful completion.
+`SessionService` is the sole TTL authority for its managed vaults and owns one
+timer for the earliest active deadline. A session is available immediately
+before its boundary and unavailable at `age >= TTL`; managed vaults cannot make
+a second conflicting expiry decision. Standalone vaults retain the same exact
+idle boundary. The callback expires due sessions without a later request and
+reschedules for the next session. Timer generations prevent canceled or stale
+callbacks from reviving or re-cleaning state. A request admitted under the
+lifecycle lock before its deadline completes atomically. Successful sanitize
+and restore refresh once at commit. Failed and repeated failed restore leave
+the original access time, deadline, and timer unchanged, including immediately
+before expiry and while racing the eager callback.
 
 The existing internal `DELETE /api/session/{session_id}` route requires exactly
 one short-lived HMAC authorization derived from the configured control secret.
 The signed message binds the contract context, target session, expiry, and a
-random nonce. Missing, malformed, invalid, expired, duplicate-header,
-cross-session, and replayed authority fails closed with a bounded error. Raw
+random nonce. Only canonical unpadded base64url is accepted, and replay identity
+is derived from canonical authenticated content. Missing, malformed,
+noncanonical, invalid, expired, duplicate-header, cross-session, and replayed
+authority fails closed with a bounded error. Final expiry validation, replay
+consumption, and disposal occur under the lifecycle lock; authority that
+expires while waiting is rejected without consumption or disposal. Raw
 boot-token use and an unset control secret do not authorize disposal. A fresh
 authorization makes repeated disposal idempotent; the same authorization is
-single-use.
+single-use, including concurrent use.
+
+Uvicorn access logging stays enabled for non-sensitive operations. The
+disposal request target is reduced to `/api/session/[redacted]` at the backend
+logging boundary before launcher output or Desktop sidecar forwarding. Query
+values are discarded, and an unknown Uvicorn access-record shape is suppressed
+fail-closed. Bounded real-Uvicorn HTTP regressions cover launcher-configured and
+default CLI startup, capture stdout and stderr, and reject the session ID,
+derived authorization, control secret, request PII, and query authority while
+requiring a health access row and the fixed redacted disposal row.
 
 Expiry, authenticated disposal, capacity eviction, shutdown, and lifecycle
 failure detach only the owned session and clear its vault mappings, entity
@@ -57,28 +80,36 @@ session disposal.
 
 | Gate | Result |
 |---|---|
-| Phase 7 deterministic lifecycle module | PASS — 17 passed |
-| Focused lifecycle/core/authentication matrix | PASS — 121 passed, 1 warning |
-| Full Python suite | PASS — 2,220 passed, 5 skipped, 1 warning in 143.99 seconds |
+| Focused lifecycle/core/authentication/API matrix | PASS — 307 passed, 1 warning |
+| Hosted/API/shutdown/cleanup matrix | PASS — 521 passed, 1 warning |
+| Full Python suite | PASS — 2,250 passed, 5 skipped, 1 warning in 139.26 seconds |
 | Documentation coverage | PASS — 6 passed |
+| Root/desktop/extension JavaScript | PASS — 123 passed |
+| Desktop Rust tests | PASS — 31 passed |
 | `python -m ruff check .` | PASS |
-| `python -m ruff format --check .` | PASS |
+| `python -m ruff format --check .` | PASS — 217 files |
 | Version synchronization | PASS — `2.5.0` |
-| Release-readiness check | PASS |
+| Release-readiness check | PASS — 39 tests plus both scripts |
+| Performance gate | RED — sanitize +58%; established privacy trade, baseline unchanged |
 | `git diff --check` | PASS |
-| Independent security review | PASS — cleanup failure-path gap fixed; no remaining Phase 7 blocker |
+| Corrective read-only security review | PASS — two follow-up gaps fixed; final focused checks found no blockers |
+| Independent merge re-review | PENDING — do not treat Phase 7 as merge-approved |
+| Corrective branch CI | Pending push; original `f968833` branch run passed 11/11 before rejection |
 
 The warning is the existing Starlette/httpx TestClient deprecation warning.
 The five skips are optional OpenCV OCR cases because `cv2` is not installed.
-No CI was run because this branch was not pushed.
+Corrective branch CI has not run because this commit has not yet been pushed.
 
 The principal commands were:
 
 ```powershell
 $env:PYTHONUTF8='1'
 .\.venv\Scripts\python.exe -m pytest tests\test_session_lifecycle.py -q
-.\.venv\Scripts\python.exe -m pytest tests\test_session_lifecycle.py tests\test_session_service.py tests\test_api_token.py -q
+.\.venv\Scripts\python.exe -m pytest tests\test_session_lifecycle.py tests\test_session_service.py tests\test_step4_vault.py tests\test_api_token.py tests\test_api_hardening.py tests\test_http_v2_contract.py tests\test_uvicorn_log_secrecy.py -q
+.\.venv\Scripts\python.exe -m pytest tests\test_session_lifecycle.py tests\test_session_service.py tests\test_step4_vault.py tests\test_api_token.py tests\test_api_hardening.py tests\test_http_v2_contract.py tests\test_step11_api.py tests\test_api_demo.py tests\test_hosted_readiness.py tests\test_platform_api_contract.py tests\test_safe_errors.py tests\test_launcher.py tests\test_uvicorn_log_secrecy.py tests\test_worker_handler.py tests\test_worker_runner.py tests\test_worker_acceptance_runner.py -q
 .\.venv\Scripts\python.exe -m pytest -q
+npm run test:js
+cargo test --manifest-path desktop\src-tauri\Cargo.toml
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
 .\.venv\Scripts\python.exe scripts\measure_perf.py
@@ -89,44 +120,63 @@ git diff --check
 
 ## Performance
 
-The formal command remained red against the older committed sanitize anchor:
+The corrective candidate's formal command remained red against the older
+committed sanitize anchor:
 
 | Operation | Candidate | Committed baseline | Delta | Formal result |
 |---|---:|---:|---:|---|
-| Detect | 5.74 ms | 5.73 ms | approximately 0% | within 20% |
-| Sanitize | 15.01 ms | 10.08 ms | +49% | over 20% |
-| Restore | 0.24 ms | 0.28 ms | -14% | within 20% |
-| PDF redact | 70.92 ms | 67.67 ms | +5% | within 20% |
-| Resident memory | 153.3 MiB | 151.4 MiB | +1% | within 15% |
+| Detect | 5.95 ms | 5.73 ms | +4% | within 20% |
+| Sanitize | 15.94 ms | 10.08 ms | +58% | over 20% |
+| Restore | 0.25 ms | 0.28 ms | -11% | within 20% |
+| PDF redact | 76.15 ms | 67.67 ms | +13% | within 20% |
+| Resident memory | 151.9 MiB | 151.4 MiB | less than +1% | within 15% |
 
-Phase 7 does not alter the sanitize detection, replacement, or residual-policy
-algorithm, and the performance harness constructs `SessionService` without a
-timer factory. The pre-existing longer-token/full-residual-scan trade remains
-the established explanation for the red sanitize anchor and was owner-accepted
-on 2026-08-06. This run is lower than the previously recorded exact-current
-sanitize result, but the formal gate is still red and the baseline was not
-changed.
+Neither original Phase 7 nor this correction alters the sanitize detection,
+replacement, token shape, or residual-policy algorithm, and the performance
+harness constructs `SessionService` without a timer factory. The pre-existing
+longer-token/full-residual-scan trade remains the established explanation for
+the red sanitize anchor and was owner-accepted on 2026-08-06. The formal gate
+is still red and the baseline was not changed.
 
-## Review findings and fixes
+## First merge-review findings and corrective disposition
 
-The first independent review found that timer rescheduling could fail after a
-session was detached, causing the fail-closed service transition to clean the
-remaining registry without cleaning that detached object. Cleanup now runs in
-`finally` for eager expiry, deterministic sweeps, raw drops, and authenticated
-disposal. Sanitize publication also clears both an evicted session and the
-staged replacement if replacement-timer startup fails.
+The first independent merge review rejected original commit `f968833` with six
+confirmed blockers:
 
-The review also requested deterministic active-request races. Tests now prove
-that authenticated disposal waits for active restore, shutdown waits for
-active sanitize, stale expiry callbacks cannot remove a successfully refreshed
-session, concurrent repeated disposal cleans once, and expiry/disposal/shutdown
-races remain idempotent. A final read-only review reported no remaining Phase 7
-security blocker.
+1. Restore used a touching lookup before reverse mapping, so failed attempts
+   renewed retention. Restore now uses non-touching admission and refreshes
+   access/timer once only after success.
+2. Managed service and vault clocks made competing TTL decisions. Managed
+   vault idle expiry is now disabled; `SessionService` owns the exact boundary,
+   while standalone vault expiry remains `age >= TTL`.
+3. Base64url decoding accepted non-zero unused pad bits and replay identity
+   hashed supplied text. Decode/re-encode canonical equality is now mandatory,
+   and the fingerprint hashes canonical authenticated bytes.
+4. Authorization expiry was checked before lock acquisition. The authoritative
+   clock is now invoked inside the lifecycle lock immediately before replay
+   insertion and disposal.
+5. Uvicorn logged the bearer-like disposal path and Desktop forwarded it. A
+   fixed-value access-log filter now removes the route value before either
+   output boundary while retaining safe operational logs.
+6. Current-state documents claimed raw-token disposal, lazy hosted expiry, and
+   merge-review PASS. They now describe the corrected behavior and carry
+   **corrected; independent re-review pending**.
 
-The final primary diff audit found that a timer-start fail-closed transition
-could retain bounded replay fingerprints and hashed tombstones after clearing
-the session registry. That path now clears both metadata caches immediately;
-the same reviewer found no blocker in the final change.
+The two corrective read-only reviewers then found two gaps in the initial
+correction. Deadline/clock calculation was outside part of the scheduler's
+fail-closed guard, and aggregate-only finiteness validation could hide a later
+invalid deadline; the scheduler now validates every deadline and its clock and
+clears/closes on any scheduling prerequisite failure. The initial access-log
+filter assumed Uvicorn's current private tuple shape; unknown shapes are now
+suppressed, queries are discarded, and real regressions cover both launcher and
+default CLI startup. Deterministic reviewer-remediation tests pass, and both
+reviewers' final focused checks found no remaining blocker.
+
+The earlier internal Phase 7 review still explains the detached-cleanup,
+timer-start, active-request, and metadata-cache corrections already present in
+`f968833`; it did not cover the six later merge blockers. The corrective
+read-only review is complete, but the fresh independent merge re-review remains
+pending and is recorded only after it occurs.
 
 ## Evidence boundaries and deferrals
 
@@ -144,6 +194,6 @@ Phase 8 still owns:
 
 All eight Office real-host/package gates remain pending. No Office application
 was opened, no add-in was sideloaded, no certificate or machine trust was
-changed, and no live provider or real credential was used. No CI, push, merge,
-release, deployment, package publication, or pull request was performed for
-this record.
+changed, and no live provider or real credential was used. Phase 8 remains
+deferred. At this corrective checkpoint, no push, merge, release, deployment,
+package publication, or pull request has been performed.

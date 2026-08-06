@@ -1,5 +1,6 @@
 """Authenticated localhost control-plane coverage."""
 
+import logging
 import threading
 
 import pytest
@@ -17,6 +18,7 @@ pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 
 TOKEN = "boot-token-under-test-0123456789abcdef"
 AUTH_NOW = 1_800_000_000.0
+_BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 
 def _client():
@@ -51,6 +53,15 @@ def _disposal_authorization(
         lifetime_s=lifetime_s,
         nonce=nonce,
     )
+
+
+def _with_noncanonical_pad_bits(authorization: str, component_index: int) -> str:
+    parts = authorization.split(".")
+    component = parts[component_index]
+    assert len(component) % 4 in {2, 3}
+    last_index = _BASE64URL_ALPHABET.index(component[-1])
+    parts[component_index] = component[:-1] + _BASE64URL_ALPHABET[last_index ^ 1]
+    return ".".join(parts)
 
 
 # ── /api/health capability discovery ───────────────────────────────────
@@ -341,6 +352,117 @@ def test_disposal_authorization_replay_fails_closed(monkeypatch):
     assert replay.status_code == 403
 
 
+@pytest.mark.parametrize("component_index", [2, 3])
+def test_noncanonical_base64url_cannot_bypass_replay_identity(
+    monkeypatch,
+    component_index,
+):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    sid = _make_session(client)
+    canonical = _disposal_authorization(sid, nonce=b"p" * 16)
+    alternate = _with_noncanonical_pad_bits(canonical, component_index)
+    assert alternate != canonical
+
+    rejected = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": alternate},
+    )
+    accepted = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": canonical},
+    )
+    replay = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": canonical},
+    )
+
+    assert rejected.status_code == 403
+    assert accepted.status_code == 200
+    assert accepted.json() == {"deleted": True}
+    assert replay.status_code == 403
+
+
+@pytest.mark.parametrize("component_index", [2, 3])
+def test_padded_authorization_variant_cannot_create_replay_identity(
+    monkeypatch,
+    component_index,
+):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    sid = _make_session(client)
+    canonical = _disposal_authorization(sid, nonce=b"q" * 16)
+    parts = canonical.split(".")
+    parts[component_index] += "="
+    padded = ".".join(parts)
+
+    accepted = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": canonical},
+    )
+    rejected_padded = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": padded},
+    )
+    rejected_replay = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": canonical},
+    )
+
+    assert accepted.status_code == 200
+    assert rejected_padded.status_code == 403
+    assert rejected_replay.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda parts: [*parts[:2], "+" + parts[2][1:], parts[3]],
+        lambda parts: [*parts[:2], "A", parts[3]],
+    ],
+)
+def test_authorization_malformed_alphabet_and_length_fail_closed(monkeypatch, mutate):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    sid = _make_session(client)
+    canonical = _disposal_authorization(sid, nonce=b"r" * 16)
+    malformed = ".".join(mutate(canonical.split(".")))
+
+    response = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": malformed},
+    )
+
+    assert response.status_code == 403
+    assert (
+        client.post(
+            "/api/reidentify",
+            json={"session_id": sid, "text": "x"},
+        ).status_code
+        == 200
+    )
+
+
+def test_rejected_authorization_is_absent_from_errors_and_logs(monkeypatch, caplog):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    sid = _make_session(client)
+    canonical = _disposal_authorization(sid, nonce=b"s" * 16)
+    noncanonical = _with_noncanonical_pad_bits(canonical, 2)
+    caplog.set_level(logging.DEBUG)
+
+    response = client.delete(
+        f"/api/session/{sid}",
+        headers={"X-AIGuard-Token": noncanonical},
+    )
+
+    authorization_logged = noncanonical in caplog.text or canonical in caplog.text
+    authorization_returned = noncanonical in response.text or canonical in response.text
+    assert response.status_code == 403
+    assert authorization_logged is False
+    assert authorization_returned is False
+
+
 def test_repeated_disposal_with_fresh_authority_is_idempotent(monkeypatch):
     monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
     client = _client()
@@ -434,6 +556,107 @@ def test_disposal_of_already_expired_session_is_safe_noop(monkeypatch):
 
     assert resp.status_code == 200
     assert resp.json() == {"deleted": False}
+
+
+@pytest.mark.parametrize(
+    ("final_elapsed_s", "expected_status"),
+    [
+        (0.999, 200),
+        (1.0, 403),
+    ],
+)
+def test_disposal_rechecks_expiry_after_lifecycle_lock(
+    monkeypatch,
+    final_elapsed_s,
+    expected_status,
+):
+    authorization_clock = {"now": AUTH_NOW}
+    monkeypatch.setattr(server, "_authorization_now", lambda: authorization_clock["now"])
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    target_id = _make_session(client)
+    other_id = _make_session(client)
+    authorization = _disposal_authorization(
+        target_id,
+        lifetime_s=1.0,
+        nonce=b"t" * 16,
+    )
+    dispose_entered = threading.Event()
+    responses = []
+    errors: list[BaseException] = []
+    real_dispose = server.SERVICE.dispose_authenticated
+
+    def observed_dispose(*args, **kwargs):
+        dispose_entered.set()
+        return real_dispose(*args, **kwargs)
+
+    monkeypatch.setattr(server.SERVICE, "dispose_authenticated", observed_dispose)
+    server.SERVICE._lock.acquire()
+
+    def request_disposal():
+        try:
+            responses.append(
+                _client().delete(
+                    f"/api/session/{target_id}",
+                    headers={"X-AIGuard-Token": authorization},
+                )
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=request_disposal)
+    thread.start()
+    assert dispose_entered.wait(timeout=5)
+    authorization_clock["now"] = AUTH_NOW + final_elapsed_s
+    server.SERVICE._lock.release()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert len(responses) == 1
+    assert responses[0].status_code == expected_status
+    if expected_status == 200:
+        assert responses[0].json() == {"deleted": True}
+        assert target_id not in server.SERVICE._sessions
+    else:
+        assert target_id in server.SERVICE._sessions
+        assert server.SERVICE._used_disposal_authorizations == {}
+    assert (
+        client.post(
+            "/api/reidentify",
+            json={"session_id": other_id, "text": "x"},
+        ).status_code
+        == 200
+    )
+
+
+def test_concurrent_same_authorization_is_consumed_once(monkeypatch):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", TOKEN)
+    client = _client()
+    sid = _make_session(client)
+    authorization = _disposal_authorization(sid, nonce=b"u" * 16)
+    start = threading.Barrier(3)
+    responses = []
+
+    def dispose():
+        start.wait(timeout=5)
+        responses.append(
+            _client().delete(
+                f"/api/session/{sid}",
+                headers={"X-AIGuard-Token": authorization},
+            )
+        )
+
+    threads = [threading.Thread(target=dispose) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait(timeout=5)
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert sorted(response.status_code for response in responses) == [200, 403]
+    assert sum(response.json().get("deleted") is True for response in responses) == 1
 
 
 # ── the 403 body must never echo the token ──────────────────────────────

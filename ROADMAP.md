@@ -155,19 +155,24 @@ reviewed, independently revertible squashes in this order:
    a provider, release, or deploy. All eight real-host/package checks remain
    open.
 7. **Make request-driven lifecycle behavior eager and finish authenticated
-   disposal — delivered in current source.** One backend-owned earliest-
-   deadline timer expires idle sessions at the exact TTL boundary without a
-   later request. Expiry, explicit disposal, capacity eviction, shutdown, and
-   lifecycle failures use the same idempotent session-scoped cleanup. The
-   existing internal `DELETE /api/session/{session_id}` route now requires a
-   short-lived, one-use HMAC authorization derived inside the trusted control
-   plane and bound to that exact target; missing configuration and every
-   invalid or replayed authorization fail closed. The boot token and derived
-   authority are not exposed to JavaScript clients. Current Desktop web and
-   hotkey paths still reuse their prior session and retry once without it only
-   for exact expiry or mode-mismatch errors. Broker-backed extension, Office,
-   and Desktop disposal remains Phase 8 work, and all real-host/package
-   acceptance remains open.
+   disposal — corrected on the Phase 7 branch; independent re-review
+   pending.** The first independent merge review of `f968833` found six
+   blockers: failed-restore retention refresh, competing service/vault TTL
+   decisions, noncanonical authorization replay identity, pre-lock-only
+   authorization expiry, bearer-like access-log disclosure, and contradictory
+   status documentation. The corrective commit makes `SessionService` the sole
+   managed TTL authority, refreshes restore access only after success, accepts
+   only canonical authorization text, performs final expiry/replay/disposal
+   atomically under the lifecycle lock, and redacts the disposal route before
+   launcher/Desktop forwarding while retaining safe access logs. One
+   backend-owned earliest-deadline timer expires idle sessions at the exact TTL
+   boundary without a later request. Expiry, explicit disposal, capacity
+   eviction, shutdown, and lifecycle failures use the same idempotent
+   session-scoped cleanup. The boot token and derived authority are not exposed
+   to JavaScript clients. This status is not merge approval; branch CI and a
+   fresh independent merge review remain required. Broker-backed extension,
+   Office, and Desktop disposal remains Phase 8 work, and all eight Office
+   real-host/package gates remain open.
 8. **Converge longer-term choke points.** Specify and implement the native
    localhost broker, fail-closed explicit TNER behavior, shared protected
    provider orchestration, and authoritative PDF source-to-box intervals in

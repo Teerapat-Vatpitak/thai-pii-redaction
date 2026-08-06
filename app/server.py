@@ -38,6 +38,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
 
+from app.access_logging import install_uvicorn_access_log_filter
 from app.http_v2 import (
     CONTRACT_HEADER,
     CONTRACT_VERSION,
@@ -239,6 +240,7 @@ class _StrictCORSMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        install_uvicorn_access_log_filter()
         header_values: dict[str, list[str]] = {}
         for key, value in scope.get("headers", []):
             header_values.setdefault(key.decode("latin-1").lower(), []).append(
@@ -1094,7 +1096,7 @@ def delete_session(
             session_id,
             authorization_fingerprint=authorization.fingerprint,
             authorization_expires_at_ms=authorization.expires_at_ms,
-            authorization_now_ms=_authorization_now() * 1000,
+            authorization_now_ms_fn=lambda: _authorization_now() * 1000,
         )
     except DisposalAuthorizationError as error:
         discard_exception_graph(error)

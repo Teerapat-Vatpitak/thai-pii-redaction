@@ -52,10 +52,15 @@ state which context it affects.
   the sidecar. Current unreleased source makes session expiry eager at the
   exact TTL boundary and requires a short-lived, single-use disposal
   authorization derived inside the trusted control plane and bound to the
-  target session. Missing configuration, malformed/expired/cross-session
-  authority, and replay fail closed. The raw boot token no longer authorizes
-  session disposal. Browser, Office, and extension code receive neither form
-  of control authority; broker-backed client disposal remains open.
+  target session. Only canonical unpadded base64url is accepted, and final
+  expiry validation, replay consumption, and disposal serialize under the
+  lifecycle lock. Missing configuration, malformed/noncanonical,
+  expired/cross-session authority, and replay fail closed. The raw boot token
+  no longer authorizes session disposal. Uvicorn access logging discards query
+  values, replaces the bearer-like route value with a fixed marker before
+  launcher/Desktop forwarding, and suppresses unknown access-record shapes.
+  Browser, Office, and extension code receive neither form of control
+  authority; broker-backed client disposal remains open.
 - A separately configured API key can authenticate HTTP callers, but normal
   fixed-port first-party clients do not receive it and still cannot
   authenticate the process that owns localhost.

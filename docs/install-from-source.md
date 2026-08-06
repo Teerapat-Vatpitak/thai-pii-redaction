@@ -71,15 +71,17 @@ gates are documented in
 [AI for Thai integration](platform/ai-for-thai.md).
 
 The sanitize/reidentify pair retains its canonical mapping in the serving
-process until lazy expiry, LRU eviction, or restart; the hosted allowlist has no
-explicit disposal route. Roundtrip instead consumes a request-transient
-mapping. Current v2 responses project only sanitized/restored text and safe
-counts/metadata. Token mode combines a non-secret random vault-generation tag
-with an unpredictable nonce for each newly minted token. Exercised regressions
-keep stale and guessed tokens foreign; the random 64-bit tag plus approximately
-94-bit nonce makes accidental reuse and preplay computationally impractical,
-not impossible. Neither component is a credential. API process-audit callers use fresh non-authorizing operation UUIDs
-instead of live restoration session IDs; the legacy audit field remains named
+process until service-managed eager expiry at the exact `age >= TTL` boundary,
+LRU eviction, or restart; the hosted allowlist has no explicit disposal route.
+Roundtrip instead consumes a request-transient mapping. Current v2 responses
+project only sanitized/restored text and safe counts/metadata. Token mode
+combines a non-secret random vault-generation tag with an unpredictable nonce
+for each newly minted token. Exercised regressions keep stale and guessed
+tokens foreign; the random 64-bit tag plus approximately 94-bit nonce makes
+accidental reuse and preplay computationally impractical, not impossible.
+Neither component is a credential. API process-audit callers use fresh
+non-authorizing operation UUIDs instead of live restoration session IDs; the
+legacy audit field remains named
 `session_id`, and local files have no timed retention policy. Source automation
 is not packaged Desktop or official-platform acceptance and does not authorize
 sticky multi-instance routing around this candidate.

@@ -155,9 +155,10 @@ The platform receives the raw request before AI Guard can sanitize it. The
 intended hosted boundaries, with current hardening exceptions called out, are:
 
 - canonical mappings are not deliberately written to disk. Main
-  sanitize/reidentify retain an in-process session mapping until lazy expiry,
-  eviction, or restart and expose no hosted disposal route; main roundtrip and
-  sibling roundtrip use request-transient mappings;
+  sanitize/reidentify retain an in-process session mapping until
+  service-managed eager expiry at the exact `age >= TTL` boundary, eviction, or
+  restart and expose no hosted disposal route; main roundtrip and sibling
+  roundtrip use request-transient mappings;
 - normal hosted results must not export explicit mapping DTOs. Current main v2
   uses minimized projections without token/original pairs or reconstructable
   original-space entities. The sibling port's v1 roundtrip still returns

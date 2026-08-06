@@ -26,6 +26,10 @@ use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+fn backend_output_line(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim_end().to_string()
+}
+
 /// Holds the running sidecar child so it can be killed on exit.
 #[derive(Default)]
 pub struct SidecarState {
@@ -228,10 +232,10 @@ pub fn spawn(app: &AppHandle) -> Result<(), String> {
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    log::info!("[aiguard] {}", String::from_utf8_lossy(&bytes).trim_end());
+                    log::info!("[aiguard] {}", backend_output_line(&bytes));
                 }
                 CommandEvent::Stderr(bytes) => {
-                    log::warn!("[aiguard] {}", String::from_utf8_lossy(&bytes).trim_end());
+                    log::warn!("[aiguard] {}", backend_output_line(&bytes));
                 }
                 CommandEvent::Terminated(payload) => {
                     log::warn!("[aiguard] terminated: {:?}", payload.code);
@@ -333,6 +337,24 @@ pub fn kill(app: &AppHandle) {
 pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
     if let RunEvent::ExitRequested { .. } = event {
         kill(app);
+    }
+}
+
+#[cfg(test)]
+mod backend_output_tests {
+    use super::*;
+
+    #[test]
+    fn desktop_forwarding_preserves_backend_redaction_without_reconstruction() {
+        let backend = b"127.0.0.1 - \"DELETE /api/session/[redacted] HTTP/1.1\" 200\r\n";
+        let forwarded = backend_output_line(backend);
+
+        assert_eq!(
+            forwarded,
+            "127.0.0.1 - \"DELETE /api/session/[redacted] HTTP/1.1\" 200"
+        );
+        assert!(!forwarded.contains("synthetic-session-authority"));
+        assert!(!forwarded.contains("synthetic-control-authorization"));
     }
 }
 
