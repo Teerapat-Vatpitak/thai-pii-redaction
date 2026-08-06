@@ -34,3 +34,4 @@ _HOSTED_PATHS = frozenset(
 app.router.routes[:] = [
     route for route in app.router.routes if getattr(route, "path", None) in _HOSTED_PATHS
 ]
+app.state.session_disposal_enabled = False

@@ -16,6 +16,8 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not DEPS, reason="fastapi not installed")
 
 EXT_ORIGIN = "chrome-extension://" + "a" * 32
+CONTROL_TOKEN = "api-hardening-control-token"
+AUTH_NOW = 1_800_000_000.0
 
 
 def _client():
@@ -24,6 +26,32 @@ def _client():
         base_url="http://localhost",
         headers={"X-AIGuard-Contract-Version": "2"},
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_session_service(monkeypatch, tmp_path):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", None)
+    monkeypatch.setattr(server, "_authorization_now", lambda: AUTH_NOW)
+    monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        server,
+        "SERVICE",
+        server.SessionService(
+            cap=server._SESSION_CAP,
+            ttl_s=server._SESSION_TTL_S,
+            now_fn=lambda: server._now(),
+        ),
+    )
+
+
+def _disposal_headers(session_id: str) -> dict[str, str]:
+    return {
+        "X-AIGuard-Token": server._make_session_disposal_authorization(
+            CONTROL_TOKEN,
+            session_id,
+            now=AUTH_NOW,
+        )
+    }
 
 
 def test_cors_allows_extension_origin():
@@ -147,21 +175,30 @@ def test_session_idle_timer_resets_on_access(monkeypatch):
     )
 
 
-def test_delete_session_clears_reidentify():
+def test_delete_session_clears_reidentify(monkeypatch):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", CONTROL_TOKEN)
     client = _client()
     s = client.post("/api/sanitize", json={"text": "โทร 0812345678"}).json()
     sid = s["session_id"]
-    deleted = client.delete(f"/api/session/{sid}")
+    deleted = client.delete(
+        f"/api/session/{sid}",
+        headers=_disposal_headers(sid),
+    )
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
     resp = client.post("/api/reidentify", json={"session_id": sid, "text": s["sanitized_text"]})
     assert resp.status_code == 404
 
 
-def test_delete_unknown_session_returns_false():
-    resp = _client().delete("/api/session/does-not-exist")
-    assert resp.status_code == 200
-    assert resp.json()["deleted"] is False
+def test_delete_unknown_session_is_unavailable(monkeypatch):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", CONTROL_TOKEN)
+    session_id = "does-not-exist"
+    resp = _client().delete(
+        f"/api/session/{session_id}",
+        headers=_disposal_headers(session_id),
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "session_unavailable"
 
 
 def test_reidentify_unknown_session_404():

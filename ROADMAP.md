@@ -93,11 +93,13 @@ reviewed, independently revertible squashes in this order:
    failed sanitize publishes no new session, mapping, session-vault audit
    entry, ordinal, session timestamp, or eviction. One safe operation-ID-only
    `prepared` or `blocked` process-attempt record may exist; it carries no live
-   session authority or mapping material. Known-session expiry is
-   request-driven lifecycle disposal outside rollback, and displaced-vault
-   cleanup after publication is best effort. Current main-API source
+   session authority or mapping material. Known-session expiry is lifecycle
+   disposal outside rollback, and displaced-vault cleanup after publication
+   is best effort. Current main-API source
    process-audit callers use fresh operation IDs; the legacy audit field remains
-   named `session_id`.
+   named `session_id`. Phase 7 later made known-session expiry eager at the
+   exact TTL boundary; it remains lifecycle cleanup outside transaction
+   rollback.
 3. **Harden vault seeding and audit — delivered in current source.** New seeds
    use opaque `seed:<uuid4>` IDs and one structural `seed` audit row. Replaying
    an identical pair returns the existing immutable record without changing
@@ -153,11 +155,27 @@ reviewed, independently revertible squashes in this order:
    a provider, release, or deploy. All eight real-host/package checks remain
    open.
 7. **Make request-driven lifecycle behavior eager and finish authenticated
-   disposal.** Current Desktop web and hotkey paths reuse their prior session
-   and retry once without it only for exact expiry or mode-mismatch errors.
-   A general request-start expiry sweep and broker-authenticated extension,
-   Office, and Desktop disposal remain open; no unauthenticated disposal
-   endpoint is added.
+   disposal — corrected on the Phase 7 branch; independent re-review
+   pending.** The first independent merge review of `f968833` found six
+   blockers: failed-restore retention refresh, competing service/vault TTL
+   decisions, noncanonical authorization replay identity, pre-lock-only
+   authorization expiry, bearer-like access-log disclosure, and contradictory
+   status documentation. The corrective commit makes `SessionService` the sole
+   managed TTL authority, refreshes restore access only after success, accepts
+   only canonical authorization text, performs final expiry/replay/disposal
+   atomically under the lifecycle lock, and redacts the disposal route before
+   launcher/Desktop forwarding while retaining safe access logs. One
+   backend-owned earliest-deadline timer expires idle sessions at the exact TTL
+   boundary without a later request. Expiry, explicit disposal, capacity
+   eviction, shutdown, and lifecycle failures use the same idempotent
+   session-scoped cleanup. The boot token and derived authority are not exposed
+   to JavaScript clients. Corrective commit `b9c0b745` passed branch CI 11/11,
+   but its post-CI review found an eager-callback fail-closed gap and stale
+   pre-push status text. Follow-up `6cd109d1` closes both with deterministic
+   evidence and passed its branch CI 11/11. This status is not merge approval;
+   a fresh independent merge re-review remains required. Broker-backed
+   extension, Office, and Desktop disposal remains Phase 8 work, and all eight
+   Office real-host/package gates remain open.
 8. **Converge longer-term choke points.** Specify and implement the native
    localhost broker, fail-closed explicit TNER behavior, shared protected
    provider orchestration, and authoritative PDF source-to-box intervals in

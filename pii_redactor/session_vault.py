@@ -60,14 +60,15 @@ class SessionVault:
 
     def __init__(
         self,
-        idle_timeout_s: int = 1800,
+        idle_timeout_s: float | None = 1800,
         *,
         token_namespace: str | None = None,
     ):
         """Initialize a new session vault.
 
         Args:
-            idle_timeout_s: Idle timeout in seconds (default 30 minutes)
+            idle_timeout_s: Standalone idle timeout in seconds (default 30
+                minutes). ``None`` delegates expiry to a lifecycle manager.
             token_namespace: Existing stateless-chain namespace to continue
         """
         if token_namespace is not None and not is_valid_token_namespace(token_namespace):
@@ -373,13 +374,16 @@ class SessionVault:
             self._audit("clear", "all")
 
     def is_idle(self) -> bool:
-        """Return True if idle timeout has been exceeded.
+        """Return True at or beyond the standalone idle timeout.
 
         Returns:
-            True if time since last access exceeds idle_timeout_s, False otherwise
+            True if age is at least idle_timeout_s, False when managed elsewhere
         """
         with self._lifecycle_lock:
-            return (time.monotonic() - self._last_access) > self._idle_timeout_s
+            return (
+                self._idle_timeout_s is not None
+                and (time.monotonic() - self._last_access) >= self._idle_timeout_s
+            )
 
     def check_idle(self) -> None:
         """Raise VaultTimeoutError if idle timeout exceeded.
@@ -389,6 +393,7 @@ class SessionVault:
         """
         with self._lifecycle_lock:
             if self.is_idle():
+                assert self._idle_timeout_s is not None
                 raise VaultTimeoutError(f"Session vault idle timeout after {self._idle_timeout_s}s")
 
     def audit_log(self) -> list[dict]:

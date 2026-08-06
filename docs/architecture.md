@@ -97,15 +97,52 @@ remains unauthenticated. CORS and
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
 
-Session expiry is request-driven: there is no wall-clock sweep; cleanup occurs
-when that known session is accessed, through capacity-driven LRU eviction, or
-through explicit/process lifecycle. A session ID is a security-sensitive,
-bearer-like restoration reference on the local data plane when its optional API
-key is unset. Desktop web and hotkey paths now reuse their prior session and
-retry once without it only for the exact expiry/mode-reset errors. Extension
-tab close and Office reset still clear client references without authenticated
-backend disposal. The broker/lifecycle work must not introduce or retain an
-unauthenticated disposal path.
+`SessionService` is the sole TTL authority for its managed vaults. It owns one
+earliest-deadline timer and expires every due session at the exact half-open TTL
+boundary (`age >= TTL`) without waiting for a client request; managed
+`SessionVault` instances do not make a second expiry decision. Standalone
+vaults retain their own exact-boundary idle expiry. Timer generations make
+canceled or stale callbacks inert. A request that acquires the coarse lifecycle
+lock before its deadline completes atomically. Sanitize and restore receive a
+fresh TTL only after successful completion; failed restore attempts leave the
+original access time, deadline, and timer unchanged. Expiry, explicit disposal,
+shutdown, and capacity eviction serialize on the same lock. The service
+validates every managed deadline before scheduling. A timer-start or scheduling
+prerequisite failure closes the service and releases all registered state
+rather than continuing without eager expiry. An ordinary eager-callback
+failure follows the same close-and-clear path; process signals still propagate.
+
+A session ID is a security-sensitive, bearer-like restoration reference on the
+local data plane when its optional API key is unset. The internal
+`DELETE /api/session/{session_id}` route requires exactly one short-lived HMAC
+authorization derived from the boot secret inside the trusted control plane.
+The signature binds its version, target session, expiry, and random nonce.
+Verification accepts only canonical unpadded base64url, fingerprints canonical
+authenticated content, and rejects exact-boundary expiry, malformed or
+noncanonical values, duplicate headers, a different target, and replay. Final
+expiry validation, replay consumption, and disposal occur atomically under the
+lifecycle lock, so authority that expires while waiting is not consumed. No
+configured boot secret means disposal is unavailable. A fresh valid
+authorization makes repeated disposal idempotent, while the same authorization
+is single-use. Recognized Uvicorn access records discard query values and
+replace the bearer-like session path value with a fixed redaction marker before
+launcher or Desktop output forwarding; an unknown access-record shape is
+suppressed fail-closed. Non-sensitive access and application logs remain
+enabled. Desktop web and hotkey paths reuse their prior session and retry once
+without it only for exact expiry/mode-reset errors. Extension tab close and
+Office reset still clear only client references. No JavaScript client receives
+the boot secret or a derived disposal authorization; broker-backed client
+disposal remains Phase 8.
+
+The session resource graph is deliberately small: the service owns each
+in-memory vault/mapping namespace, entity list, trusted digest list, salt,
+lifecycle timer state, bounded authorization-replay fingerprints, and hashed
+tombstones. Cleanup clears those references on authenticated disposal, eager
+expiry, shutdown, eviction, and lifecycle failures. Current provider clients
+are per-call resources rather than session-owned handles, and `SessionService`
+owns no provider process, child process or handle, listener/port, temporary
+path, or delivery queue. Process-audit records use non-authorizing operation
+IDs and are not a session-owned restoration namespace.
 
 Local sanitize runs under the existing coarse `RLock`. A complete detached
 session state is staged through masking, residual scanning, response
@@ -115,7 +152,9 @@ exception before that assignment discards staged references without changing
 the published graph or capacity/LRU state. Known-session expiry disposal is
 lifecycle cleanup outside this rollback guarantee. Cleanup of a replaced or
 evicted vault happens after publication and is best effort; it cannot turn an
-already-published success into a caller-visible failure. Immutable entity,
+already-published success into a caller-visible failure. A required timer that
+cannot start is different: the service fails closed, clears both detached and
+registered session state, and returns no success. Immutable entity,
 mapping, and internal-audit records permit detached containers to share prior
 values without a growing deep-copy cost. A clear generation and lifecycle lock
 prevent a stale provider rollback snapshot from reviving disposed mappings.
@@ -333,8 +372,10 @@ is deferred unless a concrete dependency or ownership problem appears.
   on every API operation except health; clients also validate the fixed
   response header before using a result.
 - `AIGUARD_NER_ENGINE` selects a process-wide NER implementation.
-- `AIGUARD_TOKEN` is local control-plane authority for shutdown and session
-  disposal when configured; it is not a data-plane client credential.
+- `AIGUARD_TOKEN` is local control-plane authority for shutdown and the secret
+  from which trusted native/backend code derives target-bound session-disposal
+  authorization. Raw boot-token use does not authorize session disposal, and
+  neither form is a data-plane client credential.
 - `AIGUARD_API_KEY` protects data-plane, document, and introspection routes
   when configured. These two trust domains must not be collapsed into one
   health capability.

@@ -11,6 +11,7 @@ memory. HTTP contract v2 returns only strict, data-minimized projections.
 
 from __future__ import annotations
 
+import atexit
 import base64
 import glob
 import hashlib
@@ -37,6 +38,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
 
+from app.access_logging import install_uvicorn_access_log_filter
 from app.http_v2 import (
     CONTRACT_HEADER,
     CONTRACT_VERSION,
@@ -62,6 +64,10 @@ from app.http_v2 import (
     error_response,
     finite_nonnegative,
     validated_payload,
+)
+from app.session_control_auth import (
+    make_session_disposal_authorization,
+    verify_session_disposal_authorization,
 )
 from pii_redactor.ai_client import (
     DEFAULT_SYSTEM_PROMPT,
@@ -161,6 +167,7 @@ app = FastAPI(
     version=__version__,
     redirect_slashes=False,
 )
+app.state.session_disposal_enabled = True
 
 
 @app.exception_handler(ContractError)
@@ -233,6 +240,7 @@ class _StrictCORSMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        install_uvicorn_access_log_filter()
         header_values: dict[str, list[str]] = {}
         for key, value in scope.get("headers", []):
             header_values.setdefault(key.decode("latin-1").lower(), []).append(
@@ -351,12 +359,31 @@ async def enforce_http_v2(request: Request, call_next):
         "/api/redact-pdf",
         "/api/audit-log",
     }
-    is_control = path == "/api/shutdown" or path.startswith("/api/session/")
+    is_session_control = bool(
+        app.state.session_disposal_enabled and path.startswith("/api/session/")
+    )
+    is_control = path == "/api/shutdown" or is_session_control
     if is_control and request.headers.getlist("origin"):
         return error_response("control_forbidden")
     if path in data_paths and not _api_key_ok(request.headers.get("X-AIGuard-Key")):
         return error_response("authentication_required")
-    if is_control and not _boot_token_ok(request.headers.get("X-AIGuard-Token")):
+    if is_session_control:
+        session_id = path.removeprefix("/api/session/")
+        authorizations = request.headers.getlist("X-AIGuard-Token")
+        verified = (
+            verify_session_disposal_authorization(
+                _BOOT_TOKEN,
+                session_id,
+                authorizations[0],
+                now=_authorization_now(),
+            )
+            if len(authorizations) == 1
+            else None
+        )
+        if verified is None:
+            return error_response("control_forbidden")
+        request.state.session_disposal_authorization = verified
+    elif path == "/api/shutdown" and not _boot_token_ok(request.headers.get("X-AIGuard-Token")):
         return error_response("control_forbidden")
 
     query_items = list(request.query_params.multi_items())
@@ -426,11 +453,11 @@ app.add_middleware(_StrictCORSMiddleware)
 
 # ── boot token (Horizon-1 #2) ──────────────────────────────────────────
 # Random shared secret read once at import from the AIGUARD_TOKEN env var.
-# Enforced ONLY on the control plane (`POST /api/shutdown`,
-# `DELETE /api/session/{id}`) and ONLY when set. Source development may leave
-# it unset; packaged launchers generate a value and pass it through the
-# environment. The value is never logged. Tests monkeypatch this module global
-# directly, so the checks below read it dynamically at call time.
+# Shutdown accepts the secret directly when configured. Session disposal always
+# requires a short-lived target-bound authorization derived from it; an unset
+# secret therefore leaves no disposal grace path. Packaged launchers keep the
+# secret in the native/backend trust domain. The value is never logged. Tests
+# monkeypatch this module global directly, so checks read it dynamically.
 _BOOT_TOKEN: str | None = os.environ.get("AIGUARD_TOKEN") or None
 
 # Optional v2 data-plane authentication. It is distinct from the control token,
@@ -469,6 +496,28 @@ def _boot_token_ok(supplied: str | None) -> bool:
         return secrets.compare_digest(supplied, _BOOT_TOKEN)
     except TypeError:
         return False
+
+
+def _authorization_now() -> float:
+    return time.time()
+
+
+def _make_session_disposal_authorization(
+    control_secret: str,
+    session_id: str,
+    *,
+    now: float | None = None,
+    lifetime_s: float = 30.0,
+    nonce: bytes | None = None,
+) -> str:
+    """Trusted helper for the existing target-bound control-plane route."""
+    return make_session_disposal_authorization(
+        control_secret,
+        session_id,
+        now=_authorization_now() if now is None else now,
+        lifetime_s=lifetime_s,
+        nonce=nonce,
+    )
 
 
 def _api_key_ok(supplied: str | None) -> bool:
@@ -529,6 +578,7 @@ def _schedule_exit() -> None:
 @app.post("/api/shutdown", response_model=ShutdownResponse)
 @_contain_public_errors
 def shutdown():
+    SERVICE.close()
     _schedule_exit()
     return validated_payload(
         ShutdownResponse,
@@ -583,6 +633,7 @@ def _now() -> float:
 # The single core brain. now_fn is late-bound through the module global so
 # tests that monkeypatch app.server._now keep working.
 from pii_redactor.session_service import (
+    DisposalAuthorizationError,
     ModeMismatchError,
     OutboundLeakError,
     SanitizeOutcome,
@@ -590,7 +641,23 @@ from pii_redactor.session_service import (
     SessionService,
 )
 
-SERVICE = SessionService(cap=_SESSION_CAP, ttl_s=_SESSION_TTL_S, now_fn=lambda: _now())
+
+def _new_session_expiry_timer(
+    delay: float,
+    callback,
+) -> threading.Timer:
+    timer = threading.Timer(delay, callback)
+    timer.daemon = True
+    return timer
+
+
+SERVICE = SessionService(
+    cap=_SESSION_CAP,
+    ttl_s=_SESSION_TTL_S,
+    now_fn=lambda: _now(),
+    timer_factory=_new_session_expiry_timer,
+)
+atexit.register(SERVICE.close)
 
 
 _SECTION26_CATEGORIES = (
@@ -1012,13 +1079,34 @@ def reidentify(request: ReidentifyRequest):
 @app.delete("/api/session/{session_id}", response_model=DeleteSessionResponse)
 @_contain_public_errors
 def delete_session(
+    request: Request,
     session_id: str,
 ):
     if not session_id:
         raise ContractError("invalid_request")
+    authorization = getattr(
+        request.state,
+        "session_disposal_authorization",
+        None,
+    )
+    if authorization is None:
+        raise ContractError("control_forbidden")
+    try:
+        deleted = SERVICE.dispose_authenticated(
+            session_id,
+            authorization_fingerprint=authorization.fingerprint,
+            authorization_expires_at_ms=authorization.expires_at_ms,
+            authorization_now_ms_fn=lambda: _authorization_now() * 1000,
+        )
+    except DisposalAuthorizationError as error:
+        discard_exception_graph(error)
+        raise ContractError("control_forbidden") from None
+    except SessionExpiredError as error:
+        discard_exception_graph(error)
+        raise ContractError("session_unavailable") from None
     return validated_payload(
         DeleteSessionResponse,
-        {"deleted": SERVICE.drop(session_id)},
+        {"deleted": deleted},
     )
 
 

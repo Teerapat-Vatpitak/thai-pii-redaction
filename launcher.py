@@ -13,6 +13,8 @@ import threading
 import time
 import webbrowser
 
+from app.access_logging import uvicorn_log_config
+
 # UTF-8 mode (needed for Thai) is forced at build time via PyInstaller's
 # --python-option "X utf8=1"; see build_exe.ps1.
 
@@ -72,6 +74,11 @@ def _browser_open_enabled() -> bool:
     return os.environ.get("AIGUARD_NO_BROWSER") != "1"
 
 
+def _uvicorn_log_config() -> dict:
+    """Keep normal access logs while redacting bearer-like route values."""
+    return uvicorn_log_config()
+
+
 def _ensure_boot_token():
     """Generate a random boot token if the environment hasn't supplied one, so
     the in-process server enforces the control plane (shutdown / delete-session)
@@ -105,7 +112,13 @@ def main():
     print("Keep this window open; close it to stop the server.")
     if _browser_open_enabled():
         threading.Thread(target=_open_browser, daemon=True).start()
-    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+    uvicorn.run(
+        app,
+        host=HOST,
+        port=PORT,
+        log_level="info",
+        log_config=_uvicorn_log_config(),
+    )
 
 
 if __name__ == "__main__":
