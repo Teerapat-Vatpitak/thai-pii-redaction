@@ -49,8 +49,15 @@ state which context it affects.
   source evidence; packaged, real-host, live-provider, and official hosted
   acceptance remains open.
 - The control plane uses a boot token when the bundled desktop shell launches
-  the sidecar. A separately configured API key can authenticate HTTP callers,
-  but normal fixed-port first-party clients do not receive it and still cannot
+  the sidecar. Current unreleased source makes session expiry eager at the
+  exact TTL boundary and requires a short-lived, single-use disposal
+  authorization derived inside the trusted control plane and bound to the
+  target session. Missing configuration, malformed/expired/cross-session
+  authority, and replay fail closed. The raw boot token no longer authorizes
+  session disposal. Browser, Office, and extension code receive neither form
+  of control authority; broker-backed client disposal remains open.
+- A separately configured API key can authenticate HTTP callers, but normal
+  fixed-port first-party clients do not receive it and still cannot
   authenticate the process that owns localhost.
 
 For the browser in-page flow, raw text is typed into provider-controlled page

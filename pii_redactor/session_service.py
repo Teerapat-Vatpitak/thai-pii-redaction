@@ -17,9 +17,10 @@ import secrets
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 from pii_redactor.leak_guard import (
     OutboundPolicyError,
@@ -59,6 +60,19 @@ class SanitizeTransactionError(RuntimeError):
 
 class RestoreTransactionError(RuntimeError):
     """A restore stage failed without exposing its exception object graph."""
+
+
+class DisposalAuthorizationError(Exception):
+    """A verified disposal authorization is invalid or already consumed."""
+
+
+class _ExpiryTimer(Protocol):
+    def start(self) -> None: ...
+
+    def cancel(self) -> None: ...
+
+
+_TimerFactory = Callable[[float, Callable[[], None]], _ExpiryTimer]
 
 
 # Flags with these prefixes are informational only on the inbound (restore)
@@ -139,11 +153,20 @@ class SessionService:
         cap: int = 200,
         ttl_s: int = 1800,
         now_fn: Callable[[], float] = time.monotonic,
+        timer_factory: _TimerFactory | None = None,
     ):
         self._sessions: dict[str, _Session] = {}
         self._cap = cap
         self._ttl_s = ttl_s
         self._now = now_fn
+        self._timer_factory = timer_factory
+        self._expiry_timer: _ExpiryTimer | None = None
+        self._timer_generation = 0
+        self._closed = False
+        self._used_disposal_authorizations: OrderedDict[bytes, int] = OrderedDict()
+        self._authorization_cache_limit = max(256, cap * 4)
+        self._lifecycle_tombstones: OrderedDict[bytes, None] = OrderedDict()
+        self._tombstone_limit = max(256, cap * 4)
         # FastAPI runs sync endpoints in a threadpool, so every public entry
         # point serializes on this lock: without it, drop/evict can clear vault
         # lookup state while another thread is mid-restore. RLock because sanitize/
@@ -160,6 +183,135 @@ class SessionService:
         with self._lock:
             return len(self._sessions)
 
+    @staticmethod
+    def _is_expired(session: _Session, now: float, ttl_s: int) -> bool:
+        return now - session.last_access >= ttl_s
+
+    def _ensure_open_locked(self) -> None:
+        if self._closed:
+            raise SessionExpiredError("Session service is closed")
+
+    def _cancel_expiry_timer_locked(self) -> _ExpiryTimer | None:
+        timer = self._expiry_timer
+        self._expiry_timer = None
+        self._timer_generation += 1
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception as error:
+                discard_exception_graph(error)
+                _LOG.error("Session expiry timer cancellation did not complete")
+        return timer
+
+    def _reschedule_expiry_locked(self) -> None:
+        self._cancel_expiry_timer_locked()
+        if self._closed or self._timer_factory is None or not self._sessions:
+            return
+
+        next_deadline = min(
+            session.last_access + self._ttl_s for session in self._sessions.values()
+        )
+        delay = max(0.0, next_deadline - self._now())
+        generation = self._timer_generation
+        try:
+            timer = self._timer_factory(
+                delay,
+                lambda: self._expiry_timer_fired(generation),
+            )
+            self._expiry_timer = timer
+            timer.start()
+        except Exception as error:
+            discard_exception_graph(error)
+            doomed = list(self._sessions.values())
+            self._sessions = {}
+            self._expiry_timer = None
+            self._closed = True
+            self._timer_generation += 1
+            self._used_disposal_authorizations.clear()
+            self._lifecycle_tombstones.clear()
+            for session in doomed:
+                self._discard_detached(session)
+            _LOG.error("Session expiry timer did not start; service closed")
+            raise SessionExpiredError("Session service is closed") from None
+
+    def _take_expired_locked(self, now: float) -> list[_Session]:
+        expired_ids = [
+            session_id
+            for session_id, session in self._sessions.items()
+            if self._is_expired(session, now, self._ttl_s)
+        ]
+        if not expired_ids:
+            return []
+        next_sessions = dict(self._sessions)
+        expired = [next_sessions.pop(session_id) for session_id in expired_ids]
+        self._sessions = next_sessions
+        for session_id in expired_ids:
+            self._remember_tombstone_locked(session_id)
+        return expired
+
+    def _remember_tombstone_locked(self, session_id: str) -> None:
+        key = hashlib.sha256(b"aiguard-session-tombstone\0" + session_id.encode("utf-8")).digest()
+        self._lifecycle_tombstones[key] = None
+        self._lifecycle_tombstones.move_to_end(key)
+        while len(self._lifecycle_tombstones) > self._tombstone_limit:
+            self._lifecycle_tombstones.popitem(last=False)
+
+    def _has_tombstone_locked(self, session_id: str) -> bool:
+        key = hashlib.sha256(b"aiguard-session-tombstone\0" + session_id.encode("utf-8")).digest()
+        return key in self._lifecycle_tombstones
+
+    def _expiry_timer_fired(self, generation: int) -> None:
+        expired: list[_Session] = []
+        try:
+            with self._lock:
+                if (
+                    self._closed
+                    or generation != self._timer_generation
+                    or self._expiry_timer is None
+                ):
+                    return
+                self._expiry_timer = None
+                expired = self._take_expired_locked(self._now())
+                self._reschedule_expiry_locked()
+        except SessionExpiredError as error:
+            discard_exception_graph(error)
+        finally:
+            for session in expired:
+                self._discard_detached(session)
+
+    def expire_due(self) -> int:
+        """Expire every due session now without waiting for a client request."""
+        expired: list[_Session] = []
+        try:
+            with self._lock:
+                if self._closed:
+                    return 0
+                expired = self._take_expired_locked(self._now())
+                self._reschedule_expiry_locked()
+        finally:
+            for session in expired:
+                self._discard_detached(session)
+        return len(expired)
+
+    def close(self) -> None:
+        """Cancel lifecycle work and release every session-owned reference."""
+        with self._lock:
+            if (
+                self._closed
+                and not self._sessions
+                and not self._used_disposal_authorizations
+                and not self._lifecycle_tombstones
+            ):
+                return
+            self._closed = True
+            self._cancel_expiry_timer_locked()
+            sessions = list(self._sessions.values())
+            self._sessions = {}
+            self._used_disposal_authorizations.clear()
+            self._lifecycle_tombstones.clear()
+        for session in sessions:
+            self._discard_detached(session)
+
     def _get_or_create(self, session_id: str | None, mode: str | None) -> tuple[str, _Session]:
         with self._lock:
             return self._get_or_create_locked(session_id, mode)
@@ -167,15 +319,18 @@ class SessionService:
     def _get_or_create_locked(
         self, session_id: str | None, mode: str | None
     ) -> tuple[str, _Session]:
+        self._ensure_open_locked()
         if session_id is not None:
             session = self._sessions.get(session_id)
-            if session is None or self._now() - session.last_access > self._ttl_s:
+            now = self._now()
+            if session is None or self._is_expired(session, now, self._ttl_s):
                 if session is not None:
                     self.drop(session_id)
                 raise SessionExpiredError("Session not found or expired")
             if mode is not None and mode != session.mode:
                 raise ModeMismatchError(f"session mode is '{session.mode}', got '{mode}'")
-            session.last_access = self._now()
+            session.last_access = now
+            self._reschedule_expiry_locked()
             return session_id, session
 
         # Validate mode BEFORE eviction so malformed requests have no side effects.
@@ -203,15 +358,76 @@ class SessionService:
             last_access=now,
         )
         self._sessions[sid] = session
+        self._reschedule_expiry_locked()
         return sid, session
 
     def drop(self, session_id: str) -> bool:
-        with self._lock:
-            session = self._sessions.pop(session_id, None)
-            if session is None:
-                return False
-            session.vault.clear()
-            return True
+        session = None
+        try:
+            with self._lock:
+                session = self._sessions.pop(session_id, None)
+                if session is None:
+                    return False
+                self._remember_tombstone_locked(session_id)
+                self._reschedule_expiry_locked()
+        finally:
+            if session is not None:
+                self._discard_detached(session)
+        return True
+
+    def dispose_authenticated(
+        self,
+        session_id: str,
+        *,
+        authorization_fingerprint: bytes,
+        authorization_expires_at_ms: int,
+        authorization_now_ms: float,
+    ) -> bool:
+        """Consume one verified authority and dispose only its target session."""
+        if (
+            not isinstance(authorization_fingerprint, bytes)
+            or len(authorization_fingerprint) != hashlib.sha256().digest_size
+            or type(authorization_expires_at_ms) is not int
+            or authorization_expires_at_ms <= authorization_now_ms
+        ):
+            raise DisposalAuthorizationError("invalid disposal authorization")
+
+        expired: list[_Session] = []
+        disposed = None
+        unknown_target = False
+        try:
+            with self._lock:
+                self._ensure_open_locked()
+                expired_keys = [
+                    fingerprint
+                    for fingerprint, expires_at in (self._used_disposal_authorizations.items())
+                    if expires_at <= authorization_now_ms
+                ]
+                for fingerprint in expired_keys:
+                    self._used_disposal_authorizations.pop(fingerprint, None)
+                if authorization_fingerprint in self._used_disposal_authorizations:
+                    raise DisposalAuthorizationError("disposal authorization replayed")
+                if len(self._used_disposal_authorizations) >= self._authorization_cache_limit:
+                    raise DisposalAuthorizationError("disposal authorization cache full")
+                self._used_disposal_authorizations[authorization_fingerprint] = (
+                    authorization_expires_at_ms
+                )
+
+                expired = self._take_expired_locked(self._now())
+                disposed = self._sessions.pop(session_id, None)
+                if disposed is not None:
+                    self._remember_tombstone_locked(session_id)
+                elif not self._has_tombstone_locked(session_id):
+                    unknown_target = True
+                self._reschedule_expiry_locked()
+        finally:
+            for session in expired:
+                self._discard_detached(session)
+            if disposed is not None:
+                self._discard_detached(disposed)
+        if unknown_target:
+            raise SessionExpiredError("Session not found or expired")
+        return disposed is not None
 
     def sanitize(
         self,
@@ -386,6 +602,9 @@ class SessionService:
                     staged.trusted_sanitized_digests = (prior_digests + (digest,))[
                         -_TRUSTED_SANITIZED_DIGEST_LIMIT:
                     ]
+                    # A request that acquired the lifecycle lock before expiry
+                    # stays active for one full TTL after its successful commit.
+                    staged.last_access = self._now()
                     discarded = self._publish_sanitize_locked(sid, staged, is_new=is_new)
             except Exception:
                 self._discard_detached(staged)
@@ -421,10 +640,11 @@ class SessionService:
         mode: str | None,
     ) -> tuple[str, _Session, bool]:
         """Build a detached target without touching or evicting live state."""
+        self._ensure_open_locked()
         now = self._now()
         if session_id is not None:
             published = self._sessions.get(session_id)
-            if published is None or now - published.last_access > self._ttl_s:
+            if published is None or self._is_expired(published, now, self._ttl_s):
                 if published is not None:
                     self.drop(session_id)
                 raise SessionExpiredError("Session not found or expired")
@@ -470,15 +690,22 @@ class SessionService:
             if len(next_sessions) >= self._cap:
                 lru = min(self._sessions, key=lambda key: self._sessions[key].last_access)
                 discarded = next_sessions.pop(lru)
+                self._remember_tombstone_locked(lru)
         else:
             discarded = next_sessions.get(sid)
         next_sessions[sid] = staged
         self._sessions = next_sessions
+        try:
+            self._reschedule_expiry_locked()
+        except BaseException:
+            if discarded is not None:
+                self._discard_detached(discarded)
+            raise
         return discarded
 
     @staticmethod
     def _discard_detached(session: _Session) -> None:
-        """Release detached or displaced vault data without changing outcomes."""
+        """Release every session-owned reference without changing outcomes."""
         try:
             session.vault.clear()
         except Exception as error:
@@ -486,6 +713,10 @@ class SessionService:
             # The service reference is already absent (or was never published).
             # Do not turn a completed commit into a caller-visible failure.
             _LOG.error("Session vault cleanup did not complete")
+        finally:
+            session.entities.clear()
+            session.trusted_sanitized_digests = ()
+            session.salt = ""
 
     def restore(self, session_id: str, text: str) -> RestoreOutcome:
         failure_kind = None
@@ -509,7 +740,12 @@ class SessionService:
     def _restore_locked(self, session_id: str, text: str) -> RestoreOutcome:
         failure_kind = None
         try:
-            return self._restore_locked_impl(session_id, text)
+            result = self._restore_locked_impl(session_id, text)
+            session = self._sessions.get(session_id)
+            if session is not None:
+                session.last_access = self._now()
+                self._reschedule_expiry_locked()
+            return result
         except VaultTimeoutError as error:
             failure_kind = "vault_expired"
             discard_exception_graph(error)

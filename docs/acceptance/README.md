@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-06 F-06 eager session lifecycle and authenticated disposal](2026-08-06-f06-session-lifecycle.md)
 - [2026-08-06 Office v2 packaged-backend and HTTPS proxy preflight](2026-08-06-office-v2-composition.md)
 - [2026-08-06 F-09 outbound fail-closed policy](2026-08-06-f09-outbound-fail-closed.md)
 - [2026-08-05 F-04 vault seed and audit hygiene](2026-08-05-f04-vault-seed-hygiene.md)
@@ -51,7 +52,8 @@ The open hardening recertification boundaries are:
 - no live restoration session ID or other bearer authority in audit filenames,
   entries, stdout, public audit/log projections, or retained evidence; local
   operation responses may return the opaque `session_id` needed for restoration;
-- request-driven expiry, session continuity, and authenticated disposal;
+- packaged eager backend expiry, session continuity, and broker-backed client
+  disposal;
 - whole-request failure for any failed or incomplete explicitly selected TNER
   chunk;
 - shared provider guards, retries, rollback, and safe error semantics; and
@@ -74,7 +76,13 @@ The F-09 record closes current-source automated outbound residual blocking and
 generic sidecar smoke checks only. Current unreleased source now implements
 HTTP v2 response minimization and strict first-party client schemas; matching
 packaged/installed, real-host, live-provider, authenticated local-process,
-lifecycle-disposal, and official-platform evidence remains open.
+broker-backed client lifecycle, and official-platform evidence remains open.
+
+The F-06 record closes current-source automated eager-expiry, internal
+authenticated-disposal, replay, race, and session-owned cleanup checks only.
+It does not provide a native broker, browser/Office/extension disposal,
+authenticated localhost process identity, packaged/installed evidence, or any
+real-host Office acceptance.
 
 ## Automated HTTP and live-provider run
 

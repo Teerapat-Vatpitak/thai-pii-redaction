@@ -33,6 +33,7 @@ from pii_redactor.session_vault import SessionVault
 V2_HEADERS = {"X-AIGuard-Contract-Version": "2"}
 V2_RESPONSE_HEADER = "X-AIGuard-Contract-Version"
 SYNTHETIC_TEXT = "ติดต่อ 081-234-5678"
+AUTH_NOW = 1_800_000_000.0
 
 
 def _client() -> TestClient:
@@ -43,9 +44,24 @@ def _client() -> TestClient:
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_API_KEY", None)
     monkeypatch.setattr(server, "_BOOT_TOKEN", None)
+    monkeypatch.setattr(server, "_authorization_now", lambda: AUTH_NOW)
     monkeypatch.setattr(server, "_get_audit_log_dir", lambda: str(tmp_path))
     monkeypatch.setattr(server, "SERVICE", SessionService())
     return _client()
+
+
+def _disposal_authorization(
+    session_id: str,
+    *,
+    control_token: str = "control-secret",
+    nonce: bytes | None = None,
+) -> str:
+    return server._make_session_disposal_authorization(
+        control_token,
+        session_id,
+        now=AUTH_NOW,
+        nonce=nonce,
+    )
 
 
 def _assert_v2(response, status: int) -> dict:
@@ -735,8 +751,9 @@ def test_control_token_is_separate_from_data_plane_authority(client, monkeypatch
     monkeypatch.setattr(server, "_BOOT_TOKEN", "control-secret")
     monkeypatch.setattr(server, "_schedule_exit", lambda: None)
 
+    session_id, _session = server.SERVICE._get_or_create(None, None)
     for method, path in (
-        ("DELETE", "/api/session/synthetic-session"),
+        ("DELETE", f"/api/session/{session_id}"),
         ("POST", "/api/shutdown"),
     ):
         denied = client.request(
@@ -751,10 +768,13 @@ def test_control_token_is_separate_from_data_plane_authority(client, monkeypatch
             category="authentication",
         )
 
+        authorization = (
+            _disposal_authorization(session_id) if method == "DELETE" else "control-secret"
+        )
         allowed = client.request(
             method,
             path,
-            headers={**V2_HEADERS, "X-AIGuard-Token": "control-secret"},
+            headers={**V2_HEADERS, "X-AIGuard-Token": authorization},
         )
         assert allowed.status_code == 200
         assert allowed.headers.get_list(V2_RESPONSE_HEADER) == ["2"]
@@ -825,11 +845,21 @@ def test_non_ascii_control_token_is_a_safe_mismatch_before_route_work(client, mo
         ("POST", "/api/shutdown", b"unexpected-body"),
     ],
 )
-def test_query_and_bodyless_routes_reject_extra_input(client, method, path, content):
+def test_query_and_bodyless_routes_reject_extra_input(
+    client,
+    monkeypatch,
+    method,
+    path,
+    content,
+):
+    headers = dict(V2_HEADERS)
+    if method == "DELETE":
+        monkeypatch.setattr(server, "_BOOT_TOKEN", "control-secret")
+        headers["X-AIGuard-Token"] = _disposal_authorization("session-1")
     response = client.request(
         method,
         path,
-        headers=V2_HEADERS,
+        headers=headers,
         content=content,
     )
 
@@ -1069,13 +1099,17 @@ def test_actual_cross_origin_control_request_is_rejected_before_service(
         nonlocal scheduled
         scheduled = True
 
-    def drop(_session_id):
+    def dispose_authenticated(_session_id, **_kwargs):
         nonlocal dropped
         dropped = True
         return True
 
     monkeypatch.setattr(server, "_schedule_exit", schedule)
-    monkeypatch.setattr(server.SERVICE, "drop", drop)
+    monkeypatch.setattr(
+        server.SERVICE,
+        "dispose_authenticated",
+        dispose_authenticated,
+    )
     origin = "chrome-extension://" + "a" * 32
 
     response = client.request(

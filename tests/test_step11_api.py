@@ -243,6 +243,7 @@ def test_sanitize_token_mode_unchanged(client):
 
 def test_shutdown_endpoint_returns_ack(monkeypatch):
     import app.server as server
+    from pii_redactor.session_service import SessionService
 
     called = {}
 
@@ -250,6 +251,7 @@ def test_shutdown_endpoint_returns_ack(monkeypatch):
         called["scheduled"] = True
 
     monkeypatch.setattr(server, "_schedule_exit", fake_schedule_exit)
+    monkeypatch.setattr(server, "SERVICE", SessionService())
 
     from fastapi.testclient import TestClient
 
