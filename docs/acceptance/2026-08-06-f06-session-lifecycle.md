@@ -6,7 +6,8 @@
 - Original Phase 7 commit: `f968833fd563b530bb68a5104ea9969ad537dd94`
 - Corrective commit: `b9c0b745f07059850592977c904f22098c1e41b7`,
   directly on top of `f968833`
-- Review-follow-up commit: this record's commit, directly on top of `b9c0b745`
+- Review-follow-up commit: `6cd109d11478a05e711064d227a8241ecb38ea39`,
+  directly on top of `b9c0b745`
 - Product version: `2.5.0` (unchanged)
 - Status: **corrected; independent re-review pending**
 
@@ -96,14 +97,16 @@ session disposal.
 | Corrective read-only security review | PASS — two follow-up gaps fixed; final focused checks found no blockers |
 | Corrective branch CI | PASS — `b9c0b745`, run `31090571421`, 11/11 jobs |
 | Post-CI independent merge re-review | BLOCKED on `b9c0b745` — callback fail-closed and stale-status findings corrected here |
-| Follow-up branch CI and re-review | PENDING — do not treat Phase 7 as merge-approved |
+| Follow-up branch CI | PASS — `6cd109d1`, run `31092753172`, 11/11 jobs |
+| Final independent merge re-review | PENDING — do not treat Phase 7 as merge-approved |
 
 The warning is the existing Starlette/httpx TestClient deprecation warning.
 The five skips are optional OpenCV OCR cases because `cv2` is not installed.
 Corrective commit `b9c0b745` passed all 11 jobs in
 [run 31090571421](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
-The review-follow-up commit still requires its own branch CI and independent
-re-review.
+Review-follow-up `6cd109d1` passed all 11 jobs in
+[run 31092753172](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31092753172).
+Its final independent re-review remains pending.
 
 The principal commands were:
 
@@ -193,8 +196,8 @@ pre-push/CI status text had become stale. The follow-up validates callback time,
 routes every ordinary callback failure through the same close/invalidate/clear
 path, preserves process-signal propagation, and adds deterministic exception,
 `NaN`, and infinity regressions. This record now carries the exact first CI
-evidence. Follow-up CI and another fresh independent merge re-review remain
-pending.
+evidence. Follow-up `6cd109d1` also passed branch CI 11/11; another fresh
+independent merge re-review remains pending.
 
 ## Evidence boundaries and deferrals
 
@@ -213,6 +216,6 @@ Phase 8 still owns:
 All eight Office real-host/package gates remain pending. No Office application
 was opened, no add-in was sideloaded, no certificate or machine trust was
 changed, and no live provider or real credential was used. Phase 8 remains
-deferred. At this follow-up checkpoint the Phase 7 branch has been pushed, but
-no merge, release, deployment, package publication, or pull request has been
-performed.
+deferred. At this evidence checkpoint both corrective branch runs are green,
+but no merge, release, deployment, package publication, or pull request has
+been performed.

@@ -123,9 +123,11 @@ CI [passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/action
 The post-CI review then found that an ordinary eager-callback clock failure
 could leave the service open without a timer and that these current-state
 documents still claimed the push/CI had not occurred. The follow-up commit
-containing this ledger entry closes both findings. It is not an independent
-merge approval; follow-up branch CI and a fresh separate-context review remain
-required.
+`6cd109d11478a05e711064d227a8241ecb38ea39` closes both findings,
+and its branch CI
+[passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31092753172).
+It is not an independent merge approval; a fresh separate-context review
+remains required.
 
 Corrective local checkpoint: the focused lifecycle/core/authentication/API set
 passed 312; the hosted/API/shutdown/cleanup matrix passed 526; the full Python
@@ -145,8 +147,9 @@ read-only corrective reviewers found a scheduler-prerequisite fail-closed gap
 and a Uvicorn record-shape drift gap; both were corrected with deterministic
 regressions, and their final focused checks found no remaining blocker. This is
 not independent merge approval. The first corrective branch CI is green, but
-the post-CI findings require this follow-up commit, another fully green branch
-run, and another fresh independent merge re-review before integration.
+the post-CI findings required follow-up `6cd109d1`. Its 11/11 branch run is now
+green; another fresh independent merge re-review remains required before
+integration.
 
 These changes do not close the remaining baseline gaps. The fixed localhost
 data plane does not authenticate the process that owns the port; explicit TNER

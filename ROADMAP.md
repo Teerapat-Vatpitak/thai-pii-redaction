@@ -171,11 +171,11 @@ reviewed, independently revertible squashes in this order:
    session-scoped cleanup. The boot token and derived authority are not exposed
    to JavaScript clients. Corrective commit `b9c0b745` passed branch CI 11/11,
    but its post-CI review found an eager-callback fail-closed gap and stale
-   pre-push status text. The follow-up closes both with deterministic evidence.
-   This status is not merge approval; follow-up branch CI and a fresh
-   independent merge re-review remain required. Broker-backed extension,
-   Office, and Desktop disposal remains Phase 8 work, and all eight Office
-   real-host/package gates remain open.
+   pre-push status text. Follow-up `6cd109d1` closes both with deterministic
+   evidence and passed its branch CI 11/11. This status is not merge approval;
+   a fresh independent merge re-review remains required. Broker-backed
+   extension, Office, and Desktop disposal remains Phase 8 work, and all eight
+   Office real-host/package gates remain open.
 8. **Converge longer-term choke points.** Specify and implement the native
    localhost broker, fail-closed explicit TNER behavior, shared protected
    provider orchestration, and authoritative PDF source-to-box intervals in
