@@ -84,7 +84,7 @@ to Done it must have:
 Track A detection remains the declared normal product priority. The owner has
 approved this bounded privacy/security/correctness campaign as an explicit
 exception; it does not mean Track A is complete. Work proceeds as small,
-reviewed, independently revertible squashes in this order:
+reviewed, independently revertible integration units in this order:
 
 1. **Preserve the clean baseline and correct current truth — delivered at
    `304b071`.** Record the `93a7108` gates without promoting historical
@@ -155,8 +155,8 @@ reviewed, independently revertible squashes in this order:
    a provider, release, or deploy. All eight real-host/package checks remain
    open.
 7. **Make request-driven lifecycle behavior eager and finish authenticated
-   disposal — corrected on the Phase 7 branch; independent re-review
-   pending.** The first independent merge review of `f968833` found six
+   disposal — integrated into main; post-merge CI green.** The first
+   independent merge review of `f968833` found six
    blockers: failed-restore retention refresh, competing service/vault TTL
    decisions, noncanonical authorization replay identity, pre-lock-only
    authorization expiry, bearer-like access-log disclosure, and contradictory
@@ -172,10 +172,13 @@ reviewed, independently revertible squashes in this order:
    to JavaScript clients. Corrective commit `b9c0b745` passed branch CI 11/11,
    but its post-CI review found an eager-callback fail-closed gap and stale
    pre-push status text. Follow-up `6cd109d1` closes both with deterministic
-   evidence and passed its branch CI 11/11. This status is not merge approval;
-   a fresh independent merge re-review remains required. Broker-backed
-   extension, Office, and Desktop disposal remains Phase 8 work, and all eight
-   Office real-host/package gates remain open.
+   evidence and passed its branch CI 11/11. Final branch head `2e147481` passed
+   11/11 jobs, and the two read-only lifecycle/concurrency and
+   authentication/secrecy reviewers found no blocker on that exact head. Main
+   integrated the branch with history-preserving merge `eb0c45c`; post-merge
+   CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed extension,
+   Office, and Desktop disposal remains Phase 8 work, and all eight Office
+   real-host/package gates remain open.
 8. **Converge longer-term choke points.** Specify and implement the native
    localhost broker, fail-closed explicit TNER behavior, shared protected
    provider orchestration, and authoritative PDF source-to-box intervals in
