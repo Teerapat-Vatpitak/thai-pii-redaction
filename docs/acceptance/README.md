@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-06 Office v2 packaged-backend and HTTPS proxy preflight](2026-08-06-office-v2-composition.md)
 - [2026-08-06 F-09 outbound fail-closed policy](2026-08-06-f09-outbound-fail-closed.md)
 - [2026-08-05 F-04 vault seed and audit hygiene](2026-08-05-f04-vault-seed-hygiene.md)
 - [2026-08-05 F-01 transactional sanitize](2026-08-05-f01-transactional-sanitize.md)
@@ -203,7 +204,13 @@ both.
 
 ## Office Add-in checklist
 
-Office evidence has two levels that must not be combined:
+Automated packaged-backend/HTTPS-development-proxy composition is a preflight
+below both Office acceptance levels. It builds the Office bundle, boots the
+packaged backend, fetches the development task-pane entry, and drives strict-v2
+API calls through Vite, but it does not execute Office JavaScript or an Office
+host and closes no checklist item.
+
+Office evidence has two acceptance levels that must not be combined:
 
 1. **Local host-functional acceptance** runs the exact branch/candidate backend
    and `office-addin/` HTTPS development server through a Microsoft-validated

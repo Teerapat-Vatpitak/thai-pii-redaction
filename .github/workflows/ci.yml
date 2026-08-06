@@ -342,9 +342,12 @@ jobs:
 
   windows-exe-smoke:
     # Build the PyInstaller sidecar and boot the shipped exe end-to-end: confirm
-    # it serves /api/health + /api/sanitize (Thai NER actually loaded), then
-    # taskkill /T /F its tree and assert port 8000 frees. Windows is the primary
-    # platform and the one no other workflow boots.
+    # strict-v2 health/sanitize/reidentify directly, while the separate Office
+    # gate builds and tests the client bundle. Then taskkill /T /F the sidecar
+    # tree and assert the ports free.
+    # A clean runner has no trusted Office development certificate, so the
+    # runner records the HTTPS proxy leg as pending without changing trust.
+    # A machine with an already trusted certificate runs that leg too.
     name: packaged exe smoke (windows)
     runs-on: windows-latest
     steps:
@@ -356,6 +359,13 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirements*.lock
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: office-addin/package-lock.json
 
       - name: Install deps (locked, incl. the PyInstaller pin)
         run: |
@@ -370,10 +380,19 @@ jobs:
         with:
           toolchain: "1.97.0"
 
+      - name: Build the Office development bundle
+        working-directory: office-addin
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
       - name: Build + stage the sidecar
         run: python scripts/build_sidecar.py
 
-      - name: Boot the packaged exe and smoke the API
+      - name: Run the headless packaged-backend v2 preflight
         env:
           PYTHONUTF8: "1"
-        run: python scripts/smoke_exe.py
+        run: >-
+          python scripts/office_v2_composition.py
+          --skip-sidecar-build
+          --skip-office-build

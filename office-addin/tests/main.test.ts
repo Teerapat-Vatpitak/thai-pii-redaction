@@ -23,13 +23,16 @@ function installTaskPaneDom(): void {
   `;
 }
 
-function healthResponse(apiKeyRequired = false): Response {
+function healthResponse(
+  apiKeyRequired = false,
+  controlTokenRequired = true,
+): Response {
   return new Response(JSON.stringify({
     status: "ok",
     version: "2.5.0",
     contract_version: 2,
     capabilities: {
-      control_token_required: true,
+      control_token_required: controlTokenRequired,
       api_key_required: apiKeyRequired,
     },
   }), {
@@ -122,6 +125,116 @@ describe("Office task-pane startup boundary", () => {
       expect(action.disabled).toBe(true);
     }
     expect(document.querySelector<HTMLSelectElement>("#mode")?.disabled).toBe(true);
+  });
+
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    "handles a backend without control-plane protection when API-key-required is %s",
+    async (apiKeyRequired, expectedReady) => {
+      installTaskPaneDom();
+      type ReadyInfo = { host: Office.HostType; platform: Office.PlatformType };
+      let readyCallback: ((info: ReadyInfo) => Promise<void>) | undefined;
+      vi.stubGlobal("Office", {
+        HostType: { Word: 0, Excel: 1, PowerPoint: 2 },
+        PlatformType: { PC: 0 },
+        onReady(callback: (info: ReadyInfo) => Promise<void>) {
+          readyCallback = callback;
+        },
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockResolvedValue(healthResponse(apiKeyRequired, false)),
+      );
+
+      await import("../src/main");
+      await readyCallback?.({
+        host: 0 as Office.HostType,
+        platform: 0 as Office.PlatformType,
+      });
+
+      expect(document.querySelector<HTMLSelectElement>("#mode")?.disabled).toBe(!expectedReady);
+      expect(document.querySelector<HTMLElement>("#backend-banner")?.className).toBe(
+        expectedReady ? "banner ok" : "banner error",
+      );
+      expect(document.querySelector<HTMLButtonElement>(
+        'button[data-action="detect"]',
+      )?.disabled).toBe(!expectedReady);
+    },
+  );
+
+  it.each([
+    [
+      "missing v2 assertion",
+      new Response(JSON.stringify({
+        status: "ok",
+        version: "2.5.0",
+        contract_version: 2,
+        capabilities: {
+          control_token_required: true,
+          api_key_required: false,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+    ],
+    [
+      "missing capability",
+      apiResponse({
+        status: "ok",
+        version: "2.5.0",
+        contract_version: 2,
+        capabilities: { control_token_required: true },
+      }),
+    ],
+    [
+      "unknown capability",
+      apiResponse({
+        status: "ok",
+        version: "2.5.0",
+        contract_version: 2,
+        capabilities: {
+          control_token_required: true,
+          api_key_required: false,
+          token: "must-not-cross",
+        },
+      }),
+    ],
+    [
+      "wrong contract version",
+      apiResponse({
+        status: "ok",
+        version: "2.5.0",
+        contract_version: 1,
+        capabilities: {
+          control_token_required: true,
+          api_key_required: false,
+        },
+      }),
+    ],
+  ])("keeps every operation disabled at startup for %s", async (_label, response) => {
+    installTaskPaneDom();
+    type ReadyInfo = { host: Office.HostType; platform: Office.PlatformType };
+    let readyCallback: ((info: ReadyInfo) => Promise<void>) | undefined;
+    vi.stubGlobal("Office", {
+      HostType: { Word: 0, Excel: 1, PowerPoint: 2 },
+      PlatformType: { PC: 0 },
+      onReady(callback: (info: ReadyInfo) => Promise<void>) {
+        readyCallback = callback;
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(response));
+
+    await import("../src/main");
+    await readyCallback?.({
+      host: 0 as Office.HostType,
+      platform: 0 as Office.PlatformType,
+    });
+
+    for (const action of document.querySelectorAll<HTMLButtonElement>("button[data-action]")) {
+      expect(action.disabled).toBe(true);
+    }
+    expect(document.querySelector<HTMLSelectElement>("#mode")?.disabled).toBe(true);
+    expect(document.querySelector<HTMLElement>("#backend-banner")?.className).toBe("banner error");
   });
 
   it("sends no PII request or Office write when the operation health gate becomes invalid", async () => {

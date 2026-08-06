@@ -142,9 +142,16 @@ reviewed, independently revertible squashes in this order:
    control/data-plane health capabilities. The worker envelope remains version
    1. The source gates do not establish packaged Desktop, real-browser,
    HTTPS-proxy/Office-host, or live-provider acceptance.
-6. **Verify packaged-backend and Office development composition.** Automated
-   sidecar plus HTTPS-proxy evidence must remain distinct from the eight open
-   real-host/package checks; no certificate trust or sideload is implied.
+6. **Verify packaged-backend and Office development composition — delivered as
+   automated local transport evidence.** The Windows runner builds the Office
+   production bundle and packaged sidecar, boots the sidecar headlessly,
+   validates strict-v2 health, token sanitize, and reidentify directly, and
+   repeats the API flow through the Office HTTPS development proxy when valid,
+   already-trusted development certificate files are present. The dated run
+   left those files unchanged. It did not execute Office JavaScript or the
+   built bundle, open an Office host, sideload a manifest, provision trust, call
+   a provider, release, or deploy. All eight real-host/package checks remain
+   open.
 7. **Make request-driven lifecycle behavior eager and finish authenticated
    disposal.** Current Desktop web and hotkey paths reuse their prior session
    and retry once without it only for exact expiry or mode-mismatch errors.

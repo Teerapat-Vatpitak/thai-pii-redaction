@@ -67,6 +67,11 @@ def _open_browser():
         pass
 
 
+def _browser_open_enabled() -> bool:
+    """Keep packaged checks headless without changing normal launch behavior."""
+    return os.environ.get("AIGUARD_NO_BROWSER") != "1"
+
+
 def _ensure_boot_token():
     """Generate a random boot token if the environment hasn't supplied one, so
     the in-process server enforces the control plane (shutdown / delete-session)
@@ -98,7 +103,8 @@ def main():
     print(f"  Health: {URL}/api/health")
     print("Load the browser extension, then use ChatGPT/Claude.")
     print("Keep this window open; close it to stop the server.")
-    threading.Thread(target=_open_browser, daemon=True).start()
+    if _browser_open_enabled():
+        threading.Thread(target=_open_browser, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
 
 

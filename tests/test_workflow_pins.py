@@ -105,6 +105,20 @@ def test_docker_smoke_covers_authenticated_declared_contract():
     assert "out['session_id']" in docker_job
 
 
+def test_windows_packaged_smoke_runs_office_v2_composition():
+    """CI builds Office and runs the packaged-backend v2 preflight."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    packaged_job = ci.split("  windows-exe-smoke:", 1)[1]
+
+    assert 'node-version: "22"' in packaged_job
+    assert "working-directory: office-addin" in packaged_job
+    assert "npm ci --ignore-scripts --no-audit --no-fund" in packaged_job
+    assert "npm run build" in packaged_job
+    assert "python scripts/office_v2_composition.py" in packaged_job
+    assert "--skip-sidecar-build" in packaged_job
+    assert "--skip-office-build" in packaged_job
+
+
 def test_compose_keeps_api_key_optional_for_local_and_worker_modes():
     """The adapter enforces values at boot; interpolation must not block worker.
 

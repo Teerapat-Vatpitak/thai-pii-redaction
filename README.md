@@ -305,12 +305,14 @@ temporary exception, not completion of Track A. Accuracy numbers live in
 generated benchmark reports with corpus size and limitations — do not infer a
 public accuracy claim from prose.
 
-The outbound residual, strict HTTP-v2, and session-namespaced-token paths are
-green in current-source automated tests. Earlier packaged-sidecar smoke is not
-evidence for the exact v2/token candidate and was not an installed Desktop or
-client-composition run; real-browser, Office-host/HTTPS-proxy, installed
-Desktop, storefront, and live-provider evidence predates this change and must
-be rerun. The sibling
+The exact current candidate now has automated local transport evidence: a
+newly built packaged sidecar served strict-v2 health, token sanitize, and
+reidentify directly and through the Office HTTPS development proxy. The proxy
+reused pre-existing trusted development certificates and left them unchanged.
+This did not execute an Office client or host, install Desktop, sideload or
+activate a unified manifest, call a live provider, release, or deploy anything.
+Real-browser, installed Desktop, storefront, live-provider, and all eight
+Office real-host/package gates remain open. The sibling
 hosted port also carries a pre-F09 v1 core and needs a separately authorized
 re-vendor plus privacy/soak rerun before its first push. The worker envelope
 remains version 1, and shared provider orchestration, broker/auth, lifecycle,
