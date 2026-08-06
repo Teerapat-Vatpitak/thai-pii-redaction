@@ -82,7 +82,6 @@ def test_cli_presend_blocks_obfuscated_structured_pii_before_provider(text):
     ],
 )
 def test_unrelated_hidden_characters_and_grouped_text_remain_exact(text):
-
     result = sanitize_stateless(text, mode="token", salt="synthetic-salt")
 
     assert result.sanitized_text == text
