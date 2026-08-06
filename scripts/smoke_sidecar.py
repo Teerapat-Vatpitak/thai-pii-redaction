@@ -18,6 +18,25 @@ import time
 import urllib.request
 from pathlib import Path
 
+try:
+    from scripts.http_v2_client import (
+        CONTRACT_HEADER,
+        CONTRACT_VERSION,
+        ContractError,
+        require_contract_header,
+        validate_health,
+        validate_sanitize,
+    )
+except ModuleNotFoundError:  # Direct ``python scripts/smoke_sidecar.py`` execution.
+    from http_v2_client import (  # type: ignore[no-redef]
+        CONTRACT_HEADER,
+        CONTRACT_VERSION,
+        ContractError,
+        require_contract_header,
+        validate_health,
+        validate_sanitize,
+    )
+
 ROOT = Path(__file__).resolve().parent.parent
 HOST = "127.0.0.1"
 PORT = 8000
@@ -48,10 +67,29 @@ def wait_for(pred, timeout, interval=0.5):
     return False
 
 
+def _valid_health_response(status, headers, body):
+    try:
+        require_contract_header(headers)
+        validate_health(body)
+    except ContractError:
+        return False
+    return status == 200
+
+
+def _valid_sanitize_response(status, headers, body):
+    try:
+        require_contract_header(headers)
+        validate_sanitize(body)
+    except ContractError:
+        return False
+    return status == 200
+
+
 def health_ok():
     try:
         with urllib.request.urlopen(f"http://{HOST}:{PORT}/api/health", timeout=1.5) as r:
-            return r.status == 200
+            body = json.loads(r.read())
+            return _valid_health_response(r.status, r.headers, body)
     except Exception:
         return False
 
@@ -61,15 +99,17 @@ def sanitize_ok():
     req = urllib.request.Request(
         f"http://{HOST}:{PORT}/api/sanitize",
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            CONTRACT_HEADER: CONTRACT_VERSION,
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=15) as r:
-        if r.status != 200:
-            raise SystemExit(f"FAIL: /api/sanitize returned {r.status}")
         body = json.loads(r.read())
-    if "sanitized_text" not in body:
-        raise SystemExit("FAIL: /api/sanitize response missing sanitized_text (engine did not run)")
+        valid = _valid_sanitize_response(r.status, r.headers, body)
+    if not valid:
+        raise SystemExit("FAIL: /api/sanitize did not satisfy HTTP v2")
     print("PASS: /api/sanitize ran (engine loaded)")
 
 

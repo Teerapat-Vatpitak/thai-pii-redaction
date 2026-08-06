@@ -29,7 +29,11 @@ def client():
 
     from app.server import app
 
-    return TestClient(app, base_url="http://localhost")
+    return TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 def _pdf_with_pii(tmp_path) -> bytes:
@@ -56,12 +60,13 @@ def test_redact_pdf_blacks_out_pii(client, tmp_path):
     data = resp.json()
 
     # detection found the phone + email
-    assert data["entity_count"] >= 2
+    assert data["detected_entity_count"] >= 2
 
     # a real redacted PDF and both previews come back
     redacted = base64.b64decode(data["redacted_pdf_b64"])
     assert redacted[:4] == b"%PDF"
-    assert data["before_png_b64"] and data["after_png_b64"]
+    assert data["after_png_b64"]
+    assert "before_png_b64" not in data
 
     # the redacted PDF is flattened to an image, so its text layer is empty --
     # the PII (and everything else) is unrecoverable via text extraction.
@@ -77,7 +82,8 @@ def test_redact_pdf_rejects_non_pdf(client):
         "/api/redact-pdf",
         files={"pdf_file": ("note.txt", b"hello", "text/plain")},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "document_invalid"
 
 
 def _scanned_pdf(tmp_path) -> bytes:
@@ -92,6 +98,27 @@ def _scanned_pdf(tmp_path) -> bytes:
     c = canvas.Canvas(str(path), pagesize=letter)
     c.drawImage(ImageReader(image), 0, 0, width=letter[0], height=letter[1])
     c.save()
+    return path.read_bytes()
+
+
+def _two_page_text_pdf_with_logos(tmp_path) -> bytes:
+    from PIL import Image
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    image = Image.new("RGB", (2, 2), (0, 0, 0))
+    path = tmp_path / "two-page-text-with-logos.pdf"
+    pdf = canvas.Canvas(str(path), pagesize=letter)
+    for page_num in (1, 2):
+        pdf.drawImage(ImageReader(image), 50, letter[1] - 20, width=8, height=8)
+        pdf.drawString(
+            50,
+            letter[1] - 50,
+            f"Selectable synthetic page {page_num} with enough safe text for extraction",
+        )
+        pdf.showPage()
+    pdf.save()
     return path.read_bytes()
 
 
@@ -196,7 +223,7 @@ def test_redact_pdf_hybrid_ocr_path(client, tmp_path, monkeypatch):
     assert data["source_type"] == "pdf_hybrid"
     assert data["ocr_confidence"] == pytest.approx(0.85)
     assert data["human_review"] is False
-    assert data["entity_count"] >= 2
+    assert data["detected_entity_count"] >= 2
 
 
 def test_redact_pdf_marks_review_in_the_audit_log(client, tmp_path, monkeypatch):
@@ -227,7 +254,12 @@ def test_redact_pdf_marks_review_in_the_audit_log(client, tmp_path, monkeypatch)
     )
 
     assert resp.status_code == 200
-    assert resp.json()["human_review"] is True
+    data = resp.json()
+    assert data["human_review"] is True
+    assert data["warnings"] == [
+        {"code": "ocr_low_confidence", "count": 1},
+        {"code": "human_review_required", "count": 1},
+    ]
     assert audit_rows[-1]["validation_result"] == "warn"
 
 
@@ -282,6 +314,28 @@ def test_redact_pdf_hybrid_without_ocr_deps_returns_503(client, tmp_path, monkey
         files={"pdf_file": ("scan.pdf", pdf, "application/pdf")},
     )
     assert resp.status_code == 503
+
+
+def test_redact_pdf_counts_each_unreadable_image_page_for_review(
+    client,
+    tmp_path,
+    monkeypatch,
+):
+    from pii_redactor.ingest import ocr_processor
+
+    pdf = _two_page_text_pdf_with_logos(tmp_path)
+    monkeypatch.setattr(ocr_processor, "is_available", lambda: False)
+
+    response = client.post(
+        "/api/redact-pdf",
+        files={"pdf_file": ("text-with-logos.pdf", pdf, "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source_type"] == "pdf_hybrid"
+    assert data["human_review"] is True
+    assert data["warnings"] == [{"code": "human_review_required", "count": 2}]
 
 
 # --- Coverage-gap regression: adjacent word bboxes of one entity must merge
@@ -524,7 +578,7 @@ def test_redact_pdf_covers_thai_numeral_phone_number(client, tmp_path):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["entity_count"] >= 1  # detection side; already fixed by 2aeb219
+    assert data["detected_entity_count"] >= 1  # detection side; already fixed by 2aeb219
 
     # Independently locate the phone-number word's bbox via the same
     # extraction the endpoint used internally -- raw text, Thai digits intact

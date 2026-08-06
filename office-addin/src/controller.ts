@@ -1,4 +1,4 @@
-import { ApiError, type AIGuardApi } from "./api";
+import { ApiError, type AIGuardApi, type AnalyzeRecommendation, type WarningDto } from "./api";
 import { UserVisibleError } from "./errors";
 import type { HostAdapter, GuardMode, ReplacementPayload, SelectionSnapshot, TaskPhase } from "./types";
 import { isMaskPreviewProvider, isRestorePreviewProvider } from "./types";
@@ -33,6 +33,29 @@ function splitBoundaryWhitespace(text: string): { leading: string; core: string;
     core: withoutLeading.slice(0, withoutLeading.length - trailing.length),
     trailing,
   };
+}
+
+function warningText(warning: WarningDto): string {
+  if (warning.code === "generated_pii") {
+    return `คำตอบมีข้อมูลที่ตรวจพบใหม่ ${warning.count} รายการ`;
+  }
+  return `พบ replacement ที่ไม่อยู่ใน session ${warning.count} รายการ`;
+}
+
+function recommendationText(recommendation: AnalyzeRecommendation): string {
+  return `${recommendation.title}: ${recommendation.desc}`;
+}
+
+function restoreIsSafe(leftoverCount: number, warnings: WarningDto[]): boolean {
+  return leftoverCount === 0 && warnings.length === 0;
+}
+
+function replacementPreview(replacement: ReplacementPayload): string {
+  return typeof replacement === "string" ? replacement : replacement.previewText;
+}
+
+function replacementCopyIsSafe(replacement: ReplacementPayload): boolean {
+  return typeof replacement === "string" || replacement.copySafe === true;
 }
 
 export class StaleSelectionError extends UserVisibleError {
@@ -82,7 +105,7 @@ export class TaskController {
       const result = await this.api.detect(selection.text);
       const rows = Object.entries(result.entity_type_counts).map(([type, count]) => `${type}: ${count}`);
       return {
-        summary: `พบ ${result.entities.length} รายการ`,
+        summary: `พบ ${result.detected_entity_count} รายการ`,
         output: rows.join("\n") || "ไม่พบ PII",
         warnings: selection.writeback.reasons,
       };
@@ -94,7 +117,10 @@ export class TaskController {
       const result = await this.api.analyze(selection.text);
       return {
         summary: `ความเสี่ยง ${result.risk_label} · ${result.overall_score}/100 (${result.overall_grade})`,
-        output: [`PII โดยตรง: ${result.direct_pii_count}`, ...result.recommendations].join("\n"),
+        output: [
+          `PII โดยตรง: ${result.direct_pii_count}`,
+          ...result.recommendations.map(recommendationText),
+        ].join("\n"),
         warnings: selection.writeback.reasons,
       };
     });
@@ -113,8 +139,14 @@ export class TaskController {
       const sanitizePreservingBoundary = async (text: string): Promise<string> => {
         const { leading, core, trailing } = splitBoundaryWhitespace(text);
         const result = await this.api.sanitize(core, mode, nextSessionId);
+        if (result.safety.status !== "pass" || result.safety.residual_count !== 0) {
+          throw new UserVisibleError("ผล Mask ไม่ผ่านการตรวจความปลอดภัย จึงยกเลิก Preview");
+        }
+        if (result.sanitized_text.length === 0) {
+          throw new UserVisibleError("ผล Mask ว่างเปล่า จึงยกเลิก Preview");
+        }
         nextSessionId = result.session_id;
-        warnings.push(...result.warnings);
+        warnings.push(...result.warnings.map(warningText));
         return `${leading}${result.sanitized_text}${trailing}`;
       };
       let replacement: ReplacementPayload;
@@ -127,16 +159,20 @@ export class TaskController {
       await this.assertStillCurrent(token, selection);
       this.sessionId = nextSessionId;
       this.pendingWrite = { selection, replacement, kind: "mask" };
-      const output = typeof replacement === "string"
-        ? replacement
-        : replacement.values.map((row) => row.join("\t")).join("\n");
+      const copySafe = replacementCopyIsSafe(replacement);
       this.emit({
         phase: "preview",
-        summary: selection.writeback.allowed ? "ตรวจ Preview แล้ว กด Apply เพื่อเขียนกลับ" : "Preview/Copy เท่านั้น",
-        output,
+        summary: copySafe
+          ? selection.writeback.allowed
+            ? "ตรวจ Preview แล้ว กด Apply เพื่อเขียนกลับ"
+            : "Preview/Copy เท่านั้น"
+          : selection.writeback.allowed
+            ? "Preview พร้อม Apply แต่ปิด Copy เพราะมีเซลล์ที่ถูกข้าม"
+            : "Preview เท่านั้น และปิด Copy เพราะมีเซลล์ที่ถูกข้าม",
+        output: replacementPreview(replacement),
         warnings,
         canApply: selection.writeback.allowed,
-        canCopy: true,
+        canCopy: copySafe,
         canInsert: false,
       });
     } catch (error) {
@@ -158,13 +194,17 @@ export class TaskController {
       const selection = await this.readNonEmptySelection();
       let replacement: ReplacementPayload;
       let replacedCount = 0;
+      let restoreSafe = true;
       const warnings = [...selection.writeback.reasons];
       if (isRestorePreviewProvider(this.adapter)) {
         replacement = await this.adapter.buildRestorePreview(selection, async (text) => {
           const result = await this.api.reidentify(sessionId, text);
           replacedCount += result.replaced_count;
-          warnings.push(...result.warnings);
-          if (result.leftover_tokens.length > 0) warnings.push(`ยังมี token ที่คืนค่าไม่ได้ ${result.leftover_tokens.length} รายการ`);
+          warnings.push(...result.warnings.map(warningText));
+          if (result.leftover_count > 0) {
+            warnings.push(`ยังมี replacement ที่คืนค่าไม่ได้ ${result.leftover_count} รายการ`);
+          }
+          restoreSafe &&= restoreIsSafe(result.leftover_count, result.warnings);
           return result.restored_text;
         });
         warnings.push(...replacement.skipped);
@@ -172,21 +212,32 @@ export class TaskController {
         const result = await this.api.reidentify(sessionId, selection.text);
         replacement = result.restored_text;
         replacedCount = result.replaced_count;
-        warnings.push(...result.warnings);
-        if (result.leftover_tokens.length > 0) warnings.push(`ยังมี token ที่คืนค่าไม่ได้ ${result.leftover_tokens.length} รายการ`);
+        warnings.push(...result.warnings.map(warningText));
+        if (result.leftover_count > 0) {
+          warnings.push(`ยังมี replacement ที่คืนค่าไม่ได้ ${result.leftover_count} รายการ`);
+        }
+        restoreSafe = restoreIsSafe(result.leftover_count, result.warnings);
       }
       await this.assertStillCurrent(token, selection);
-      this.pendingWrite = { selection, replacement, kind: "restore" };
-      const output = typeof replacement === "string"
-        ? replacement
-        : replacement.values.map((row) => row.join("\t")).join("\n");
+      this.pendingWrite = restoreSafe
+        ? { selection, replacement, kind: "restore" }
+        : undefined;
+      const copySafe = restoreSafe && replacementCopyIsSafe(replacement);
       this.emit({
         phase: "preview",
-        summary: selection.writeback.allowed ? `พร้อม Restore ${replacedCount} รายการ` : "Restore Preview/Copy เท่านั้น",
-        output,
+        summary: restoreSafe
+          ? copySafe
+            ? selection.writeback.allowed
+              ? `พร้อม Restore ${replacedCount} รายการ`
+              : "Restore Preview/Copy เท่านั้น"
+            : selection.writeback.allowed
+              ? "Restore Preview พร้อม Apply แต่ปิด Copy เพราะมีเซลล์ที่ถูกข้าม"
+              : "Restore Preview เท่านั้น และปิด Copy เพราะมีเซลล์ที่ถูกข้าม"
+          : "Restore Preview ยังไม่ปลอดภัยสำหรับ Apply หรือ Copy",
+        output: replacementPreview(replacement),
         warnings,
-        canApply: selection.writeback.allowed,
-        canCopy: true,
+        canApply: restoreSafe && selection.writeback.allowed,
+        canCopy: copySafe,
         canInsert: false,
       });
     } catch (error) {
@@ -221,16 +272,37 @@ export class TaskController {
       const requestText = instruction.trim() ? `${instruction.trim()}\n\n${selection.text}` : selection.text;
       const result = await this.api.roundtrip(requestText, mode);
       await this.assertStillCurrent(token, selection);
-      this.pendingInsert = { selection, response: result.restored_text };
-      const warnings = [...selection.writeback.reasons, ...result.warnings];
+      const restorationSafe = (
+        result.provider_used === "pathumma"
+        && result.sanitized_text.length > 0
+        && result.safety.status === "pass"
+        && result.safety.residual_count === 0
+        && result.restoration.status === "complete"
+        && result.restoration.leftover_count === 0
+        && result.warnings.length === 0
+      );
+      this.pendingInsert = restorationSafe
+        ? { selection, response: result.restored_text }
+        : undefined;
+      const warnings = [
+        ...selection.writeback.reasons,
+        ...result.warnings.map(warningText),
+      ];
+      if (result.restoration.leftover_count > 0) {
+        warnings.push(
+          `ยังมี replacement ที่คืนค่าไม่ได้ ${result.restoration.leftover_count} รายการ`,
+        );
+      }
       this.emit({
         phase: "result",
-        summary: `Pathumma ตอบสำเร็จ · outbound ถูกปกปิดแล้ว`,
+        summary: restorationSafe
+          ? "Pathumma ตอบสำเร็จ · outbound ถูกปกปิดแล้ว"
+          : "แสดง Preview เท่านั้น เพราะคำตอบคืนค่าไม่สมบูรณ์หรือไม่ปลอดภัย",
         output: `ข้อความที่ส่งออก (masked)\n${result.sanitized_text}\n\nคำตอบที่คืนค่าแล้ว\n${result.restored_text}`,
         warnings,
         canApply: false,
-        canCopy: true,
-        canInsert: this.adapter.canInsertResponse,
+        canCopy: restorationSafe,
+        canInsert: restorationSafe && this.adapter.canInsertResponse,
       });
     } catch (error) {
       this.fail(error, token);

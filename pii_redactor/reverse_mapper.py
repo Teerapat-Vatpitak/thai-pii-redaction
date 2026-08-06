@@ -6,6 +6,7 @@ Restores original PII from pseudonymized AI response using the vault's reverse i
 import re
 from collections.abc import Iterable
 
+from pii_redactor.anonymizer.token_generator import token_namespace_from_candidate
 from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.models import AIResponse, EntityRegistry, ReverseResult
 from pii_redactor.session_vault import SessionVault
@@ -17,8 +18,8 @@ def _char_class(c: str) -> str | None:
     A surrogate-mode pseudonym is a bare value (a fake phone / name), so a raw
     substring match can land INSIDE a longer number or Thai word and splice the
     real value mid-token. We only claim a match when neither edge is glued to a
-    character of the same class. Token-mode pseudonyms ([ชื่อ_1]) start/end with
-    brackets (class None), so they are never boundary-rejected.
+    character of the same class. Token-mode pseudonyms start/end with brackets
+    (class None), so they are never boundary-rejected.
     """
     if c.isdigit():  # covers Thai (๐-๙) and ASCII digits
         return "digit"
@@ -51,11 +52,10 @@ def _boundary_ok(text: str, start: int, end: int, pseudonym: str) -> bool:
 
 
 # Foreign-token detector (spec 2026-07-27): bracket-shaped tokens in the raw
-# model reply that we never sent. The model translating [ชื่อ_1] to [Name_1]
-# leaves the original as a weak unused_pseudonyms signal while nothing at all
-# classifies the [Name_1] left in the text -- this does. Alert-only: guessing
-# that [Name_1] "means" [ชื่อ_1] and restoring would put the wrong person in.
-_BRACKET_CANDIDATE = re.compile(r"\[([^\[\]\r\n]{1,64})\]")
+# model reply that we never sent. A translated or stale token remains a weak
+# unused-pseudonym signal while nothing else classifies the bracket value left
+# in the text. Alert-only: guessing its meaning could restore the wrong person.
+_BRACKET_CANDIDATE = re.compile(r"\[([^\[\]\r\n]{1,128})\]")
 # ASCII-only ordinal: str.isdigit() accepts Thai digits the generator never emits.
 _TOKEN_ORDINAL = re.compile(r"[1-9][0-9]*")
 
@@ -67,13 +67,19 @@ def _is_token_shaped(inner: str) -> bool:
     return _TOKEN_ORDINAL.fullmatch(ordinal) is not None
 
 
-def count_foreign_tokens(raw_text: str, sent_pseudonyms: Iterable[str]) -> int:
+def count_foreign_tokens(
+    raw_text: str,
+    sent_pseudonyms: Iterable[str],
+    *,
+    mode: str | None = None,
+) -> int:
     """Occurrences of bracket tokens in `raw_text` that are not in the sent set.
 
-    Active only when at least one sent pseudonym is itself bracket-token-shaped
-    (token mode); in surrogate mode every match would be a false positive.
-    Returns a count, never the candidates: a bracket candidate is arbitrary
-    model output and flags can reach audit logs (VAULT-4).
+    Exact current namespaced tokens remain active in every mode so stale token
+    text cannot fail open through a replacement surrogate session. Legacy or
+    translated bracket shapes remain active only in explicit/inferred token
+    mode to avoid surrogate-mode false positives. Returns a count, never the
+    candidates: arbitrary model output must not reach audit logs (VAULT-4).
     """
     sent = {p for p in sent_pseudonyms if p}
 
@@ -81,13 +87,15 @@ def count_foreign_tokens(raw_text: str, sent_pseudonyms: Iterable[str]) -> int:
         m = _BRACKET_CANDIDATE.fullmatch(p)
         return bool(m) and _is_token_shaped(m.group(1))
 
-    if not any(_is_token(p) for p in sent):
-        return 0
+    token_mode = mode == "token" or (mode is None and any(_is_token(p) for p in sent))
     count = 0
     for match in _BRACKET_CANDIDATE.finditer(raw_text):
-        if match.group(0) in sent:
+        candidate = match.group(0)
+        if candidate in sent:
             continue
-        if _is_token_shaped(match.group(1)):
+        if token_namespace_from_candidate(candidate) is not None or (
+            token_mode and _is_token_shaped(match.group(1))
+        ):
             count += 1
     return count
 
@@ -108,7 +116,10 @@ def _pre_reverse_validate(ai_response: AIResponse, vault: SessionVault) -> None:
         raise ValueError("Empty or blank AI response — cannot reverse map")
 
 
-def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
+def _do_reverse(
+    text: str,
+    vault: SessionVault,
+) -> tuple[str, list[str], tuple[tuple[int, int], ...]]:
     """Replace pseudonyms with originals.
 
     Algorithm:
@@ -117,10 +128,10 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
        longest pseudonym first so a shorter pseudonym cannot claim a slice of a
        longer one; claimed ranges never overlap (same rule as
        leak_guard.pseudonym_ranges).
-    3. Splice the originals in a single tail-first pass.
-    4. Return (restored_text, list_of_replaced_pseudonyms).
+    3. Build the restored text left-to-right and record each inserted interval.
+    4. Return restored text, distinct replaced pseudonyms, and inserted ranges.
 
-    Positional replacement (not a progressive str.replace) is what keeps a
+    Positional reconstruction (not a progressive str.replace) is what keeps a
     short pseudonym from corrupting an original already spliced in — a
     `.replace` re-scans the growing text and would rewrite a pseudonym-looking
     substring inside a restored value (see
@@ -132,7 +143,7 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
         vault: The session vault with reverse index
 
     Returns:
-        Tuple of (restored_text, list_of_replaced_pseudonyms)
+        Restored text, replaced pseudonyms, and restored-output ranges.
     """
     # Build pseudonym → original map
     pseudo_to_original: dict[str, str] = {}
@@ -161,11 +172,24 @@ def _do_reverse(text: str, vault: SessionVault) -> tuple[str, list[str]]:
         if found:
             replaced.append(pseudonym)
 
-    restored = text
-    for cs, ce, pseudonym in sorted(claimed, key=lambda t: t[0], reverse=True):
-        restored = restored[:cs] + pseudo_to_original[pseudonym] + restored[ce:]
+    parts: list[str] = []
+    restored_ranges: list[tuple[int, int]] = []
+    source_cursor = 0
+    restored_cursor = 0
+    for cs, ce, pseudonym in sorted(claimed, key=lambda item: item[0]):
+        prefix = text[source_cursor:cs]
+        parts.append(prefix)
+        restored_cursor += len(prefix)
+        original = pseudo_to_original[pseudonym]
+        start = restored_cursor
+        parts.append(original)
+        restored_cursor += len(original)
+        restored_ranges.append((start, restored_cursor))
+        source_cursor = ce
+    parts.append(text[source_cursor:])
+    restored = "".join(parts)
 
-    return restored, replaced
+    return restored, replaced, tuple(restored_ranges)
 
 
 def _post_reverse_validate(
@@ -196,11 +220,9 @@ def _post_reverse_validate(
     flags = []
 
     # 1. Pseudonym residue check
-    residue = []
-    for pseudonym in vault._reverse.keys():
-        if pseudonym in restored_text:
-            residue.append(pseudonym)
-            flags.append(f"pseudonym_residue:{pseudonym[:8]}")
+    residue_count = sum(1 for pseudonym in vault._reverse if pseudonym in restored_text)
+    if residue_count:
+        flags.append(f"pseudonym_residue:{residue_count}")
 
     # 2. Completeness check — count DISTINCT pseudonyms, not raw entities. The
     # same person mentioned N times is N entities but one pseudonym
@@ -223,9 +245,8 @@ def _post_reverse_validate(
     audit_summary = {
         "total_entities": total_entities,
         "replaced_count": replaced_count,
-        "residue_count": len(residue),
+        "residue_count": residue_count,
         "restored_pii_types": list({e.data_type for e in restored_pii}),
-        "replaced_pseudonyms": list(replaced),
         "request_id": "unknown",  # Caller can set this
     }
 
@@ -236,6 +257,8 @@ def reverse_map(
     ai_response: AIResponse,
     entity_registry: EntityRegistry,
     vault: SessionVault,
+    *,
+    mode: str | None = None,
 ) -> ReverseResult:
     """Restore original PII values in AI response text.
 
@@ -258,10 +281,14 @@ def reverse_map(
 
     # Scan the RAW reply, before splice: after restoration the sent tokens are
     # gone and a restored original may itself contain bracket-looking text.
-    foreign_count = count_foreign_tokens(ai_response.text, vault._reverse.keys())
+    foreign_count = count_foreign_tokens(
+        ai_response.text,
+        vault._reverse.keys(),
+        mode=mode,
+    )
 
     # Core reverse
-    restored_text, replaced = _do_reverse(ai_response.text, vault)
+    restored_text, replaced, restored_ranges = _do_reverse(ai_response.text, vault)
 
     # Post-validate
     flags, audit_summary = _post_reverse_validate(restored_text, replaced, entity_registry, vault)
@@ -272,6 +299,7 @@ def reverse_map(
 
     return ReverseResult(
         text=restored_text,
+        restored_ranges=restored_ranges,
         flags=flags,
         audit_summary=audit_summary,
     )

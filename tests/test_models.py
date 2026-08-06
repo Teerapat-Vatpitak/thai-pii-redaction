@@ -276,7 +276,12 @@ class TestPseudonymizedDocument:
     def test_pseudonymized_document_fields_exist(self):
         """Test that all expected fields exist."""
         field_names = {f.name for f in fields(PseudonymizedDocument)}
-        expected_fields = {"text", "entity_registry", "session_id"}
+        expected_fields = {
+            "text",
+            "entity_registry",
+            "session_id",
+            "replacement_highlights",
+        }
         assert field_names == expected_fields
 
 
@@ -420,7 +425,7 @@ class TestReverseResult:
     def test_reverse_result_fields_exist(self):
         """Test that all expected fields exist."""
         field_names = {f.name for f in fields(ReverseResult)}
-        expected_fields = {"text", "flags", "audit_summary"}
+        expected_fields = {"text", "restored_ranges", "flags", "audit_summary"}
         assert field_names == expected_fields
 
 

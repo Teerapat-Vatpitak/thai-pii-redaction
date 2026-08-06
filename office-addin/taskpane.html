@@ -25,24 +25,24 @@
       <section class="card">
         <div class="row spread">
           <label for="mode">รูปแบบการปกปิด</label>
-          <select id="mode">
+          <select id="mode" disabled>
             <option value="token" selected>Token (แนะนำ)</option>
             <option value="surrogate">ข้อมูลสมมติ</option>
           </select>
         </div>
         <p id="host-note" class="muted"></p>
         <div class="actions primary-actions">
-          <button data-action="detect">ตรวจ PII</button>
-          <button data-action="analyze">วิเคราะห์ PDPA</button>
-          <button data-action="mask" class="primary">Preview Mask</button>
-          <button data-action="restore">Preview Restore</button>
+          <button data-action="detect" disabled>ตรวจ PII</button>
+          <button data-action="analyze" disabled>วิเคราะห์ PDPA</button>
+          <button data-action="mask" class="primary" disabled>Preview Mask</button>
+          <button data-action="restore" disabled>Preview Restore</button>
         </div>
       </section>
 
       <section class="card">
         <label for="prompt">คำสั่งสำหรับ Pathumma</label>
         <textarea id="prompt" rows="3" placeholder="เช่น สรุปข้อความนี้เป็นภาษาทางการ"></textarea>
-        <button data-action="ask" class="wide">Ask Pathumma</button>
+        <button data-action="ask" class="wide" disabled>Ask Pathumma</button>
       </section>
 
       <section class="card output-card">
@@ -54,9 +54,9 @@
         <pre id="output" tabindex="0" aria-live="polite"></pre>
         <ul id="warnings" class="warnings"></ul>
         <div class="actions">
-          <button data-action="apply" class="primary" hidden>Apply</button>
+          <button data-action="apply" class="primary" hidden disabled>Apply</button>
           <button data-action="copy" disabled>Copy</button>
-          <button data-action="insert" hidden>Insert response</button>
+          <button data-action="insert" hidden disabled>Insert response</button>
         </div>
       </section>
 

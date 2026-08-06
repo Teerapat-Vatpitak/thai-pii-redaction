@@ -316,6 +316,7 @@ def test_tiny_logo_degrades_loudly_without_optional_ocr(tmp_path, monkeypatch):
 
     assert "Selectable text with a small logo" in text
     assert meta["human_review"] is True
+    assert meta["human_review_pages"] == [1]
     assert any("OCR is not installed" in warning for warning in meta["warnings"])
 
 
@@ -422,6 +423,7 @@ def test_extract_pdf_hybrid_returns_3_tuple_with_meta(tmp_path, monkeypatch):
     assert meta["pages_text_layer"] == []
     assert meta["ocr_confidence"] == pytest.approx(0.9)
     assert meta["human_review"] is False
+    assert meta["human_review_pages"] == []
     assert meta["warnings"] == []
 
 
@@ -499,6 +501,7 @@ def test_extract_pdf_hybrid_human_review_propagates(tmp_path, monkeypatch):
     text, bboxes, meta = extract(str(pdf_path), "pdf_hybrid")
 
     assert meta["human_review"] is True
+    assert meta["human_review_pages"] == [1]
     assert meta["ocr_confidence"] == pytest.approx(0.2)
     assert len(meta["warnings"]) == 1
 

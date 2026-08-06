@@ -181,7 +181,11 @@ def _op_roundtrip(payload: dict) -> dict:
 
     restore_failed = False
     try:
-        restored = restore_stateless(ai_text, mapping=masked.mapping)
+        restored = restore_stateless(
+            ai_text,
+            mapping=masked.mapping,
+            mode=mode,
+        )
     except Exception as error:
         discard_exception_graph(error)
         restore_failed = True

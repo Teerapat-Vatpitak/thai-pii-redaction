@@ -11,7 +11,7 @@
 // blocking overlay warning on top of the tiny status.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-function makeSite({ writeActuallyWrites }) {
+function makeSite({ writeActuallyWrites, writeTransform = (text) => text }) {
   const textarea = document.createElement("textarea");
   document.body.appendChild(textarea);
   return {
@@ -19,22 +19,60 @@ function makeSite({ writeActuallyWrites }) {
     name: "fake",
     composer: () => textarea,
     assistantMessages: () => [],
-    readComposer: (el) => (el.value || "").trim(),
+    readComposer: (el) => el.value || "",
+    sameComposerText: (_el, actual, expected) => actual === expected,
     // Mirrors the real writeComposer contract under attack: claims success
     // unconditionally, whether or not the write landed.
     writeComposer: (el, text) => {
-      if (writeActuallyWrites) el.value = text;
+      if (writeActuallyWrites) el.value = writeTransform(text);
       return true;
     },
   };
 }
 
-function makeChrome(resp) {
+function makeChrome(resp, sent = []) {
   return {
     runtime: {
       getURL: (p) => "chrome-extension://aiguard/" + p,
-      sendMessage: (msg, cb) => cb(resp),
+      sendMessage: (msg, cb) => {
+        sent.push(msg);
+        cb(
+          msg.type === "health"
+            ? {
+                ok: true,
+                status: 200,
+                data: {
+                  status: "ok",
+                  version: "2.5.0",
+                  contract_version: 2,
+                  capabilities: {
+                    control_token_required: true,
+                    api_key_required: false,
+                  },
+                },
+              }
+            : resp
+        );
+      },
     },
+  };
+}
+
+function sanitizeData() {
+  return {
+    session_id: "session",
+    sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]",
+    detected_entity_count: 2,
+    replacement_count: 2,
+    entity_type_counts: { NAME: 1, PHONE: 1 },
+    highlights: [
+      { start: 7, end: 15, data_type: "NAME", redact_type: "TB" },
+      { start: 20, end: 32, data_type: "PHONE", redact_type: "FP" },
+    ],
+    section26_categories: [],
+    guard_findings: [],
+    warnings: [],
+    safety: { status: "pass", residual_count: 0 },
   };
 }
 
@@ -56,7 +94,9 @@ async function loadContent(site, chrome) {
     return root;
   });
   vi.resetModules();
+  await import("../contract-v2.js");
   await import("../content.js");
+  await Promise.resolve();
 }
 
 function statusEl() {
@@ -81,6 +121,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   delete global.chrome;
   delete window.AIGUARD_SITES;
+  delete global.AIGUARD_CONTRACT_V2;
 });
 
 describe("doMask verification (EXT-2)", () => {
@@ -89,7 +130,7 @@ describe("doMask verification (EXT-2)", () => {
     site._textarea.value = "ผมชื่อ สมชาย โทร 081-234-5678";
     const chrome = makeChrome({
       ok: true,
-      data: { sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]", entities: [{}, {}] },
+      data: sanitizeData(),
     });
     await loadContent(site, chrome);
     await clickMask();
@@ -104,7 +145,7 @@ describe("doMask verification (EXT-2)", () => {
     site._textarea.value = "ผมชื่อ สมชาย โทร 081-234-5678";
     const chrome = makeChrome({
       ok: true,
-      data: { sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]", entities: [{}, {}] },
+      data: sanitizeData(),
     });
     await loadContent(site, chrome);
     await clickMask();
@@ -126,13 +167,63 @@ describe("doMask verification (EXT-2)", () => {
     };
     const chrome = makeChrome({
       ok: true,
-      data: { sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]", entities: [{}, {}] },
+      data: sanitizeData(),
     });
     await loadContent(site, chrome);
     await clickMask();
     expect(site._textarea.value).toBe("ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]");
     expect(statusEl().textContent).toContain("ปกปิด 2 รายการ");
     expect(warningOverlay()).toBeNull();
+  });
+
+  it("sends the exact composer representation to sanitize", async () => {
+    const source = "  ผมชื่อ สมชาย\r\nโทร 081-234-5678\u200b  ";
+    const sent = [];
+    const site = makeSite({ writeActuallyWrites: true });
+    site._textarea.value = source;
+    const browserSource = site._textarea.value;
+    const chrome = makeChrome({ ok: true, data: sanitizeData() }, sent);
+    await loadContent(site, chrome);
+    await clickMask();
+
+    expect(sent.find((message) => message.type === "sanitize").text).toBe(browserSource);
+  });
+
+  it("fails closed when a host collapses sanitized whitespace", async () => {
+    const site = makeSite({
+      writeActuallyWrites: true,
+      writeTransform: (text) => text.replace(/\s+/g, " "),
+    });
+    site._textarea.value = "source";
+    const data = sanitizeData();
+    data.sanitized_text = "A  [ชื่อ_1]\nB";
+    const chrome = makeChrome({ ok: true, data });
+    await loadContent(site, chrome);
+    await clickMask();
+
+    expect(statusEl().className).toContain("aiguard-err");
+    expect(warningOverlay()).not.toBeNull();
+  });
+
+  it("does not erase the composer when a success payload has empty masked text", async () => {
+    const source = "ข้อความต้นฉบับสังเคราะห์";
+    const site = makeSite({ writeActuallyWrites: true });
+    site._textarea.value = source;
+    const data = sanitizeData();
+    Object.assign(data, {
+      sanitized_text: "",
+      detected_entity_count: 0,
+      replacement_count: 0,
+      entity_type_counts: {},
+      highlights: [],
+    });
+    const chrome = makeChrome({ ok: true, data });
+    await loadContent(site, chrome);
+    await clickMask();
+
+    expect(site._textarea.value).toBe(source);
+    expect(statusEl().className).toContain("aiguard-err");
+    expect(warningOverlay()).not.toBeNull();
   });
 });
 

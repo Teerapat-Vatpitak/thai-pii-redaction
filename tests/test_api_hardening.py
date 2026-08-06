@@ -19,7 +19,11 @@ EXT_ORIGIN = "chrome-extension://" + "a" * 32
 
 
 def _client():
-    return TestClient(server.app, base_url="http://localhost")
+    return TestClient(
+        server.app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 def test_cors_allows_extension_origin():
@@ -81,12 +85,13 @@ def test_trusted_host_allows_loopback_ip():
     assert resp.status_code == 200
 
 
-def test_shutdown_rejected_without_local_header(monkeypatch):
+def test_shutdown_grace_path_is_open_when_control_token_is_unset(monkeypatch):
+    monkeypatch.setattr(server, "_BOOT_TOKEN", None)
     called = {}
     monkeypatch.setattr(server, "_schedule_exit", lambda: called.setdefault("hit", True))
     resp = _client().post("/api/shutdown")
-    assert resp.status_code == 403
-    assert "hit" not in called
+    assert resp.status_code == 200
+    assert called.get("hit") is True
 
 
 def test_shutdown_allowed_with_local_header(monkeypatch):
@@ -210,7 +215,18 @@ def test_audit_log_read_is_bounded_by_max_files(tmp_path, monkeypatch):
     for i in range(10):
         p = tmp_path / f"audit_{i}_process.jsonl"
         p.write_text(
-            json.dumps({"type": "process", "timestamp": i, "step": "s", "entity_count": 0}) + "\n",
+            json.dumps(
+                {
+                    "type": "process",
+                    "timestamp": i,
+                    "step": "api_analyze",
+                    "entity_count": 0,
+                    "validation_result": "pass",
+                    "latency_ms": 0.0,
+                    "flags": [],
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         os.utime(p, (float(i), float(i)))
@@ -233,7 +249,6 @@ def test_reidentify_audit_log_never_records_the_pseudonym(tmp_path, monkeypatch)
         "restore",
         lambda session_id, text: SimpleNamespace(
             restored_text=text,
-            replaced=[],
             replaced_count=0,
             leftover_tokens=[secret_token],
             warnings=[],

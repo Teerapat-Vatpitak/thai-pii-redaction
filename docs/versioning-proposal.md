@@ -1,9 +1,11 @@
 # Versioning advisory
 
-Updated: 2026-07-27
+Updated: 2026-08-06
 
-Status: `v2.5.0` is the published product baseline; a separate service-version
-field still awaits an explicit platform requirement.
+Status: `v2.5.0` is the published product baseline. Current unreleased source
+implements HTTP contract 2, while the published 2.5.0 artifact used contract 1.
+A separate service-version field still awaits an explicit platform
+requirement.
 
 ## Recommendation
 
@@ -19,7 +21,7 @@ Use three independent numbers instead:
 |---|---|---|
 | Desktop/extension/product `VERSION` | Published `2.5.0`; choose the next value only from delivered scope. | Monotonic SemVer; compatible fixes are a patch, additive capability is a minor, and a breaking public contract is a major. Never reset, move, or reuse a tag. |
 | AI for Thai service deployment | `0.1.0` remains a possible first value, not an implemented source of truth. | Create a separate version only if the official platform requires it in an image tag, response, registry, or deployment manifest. |
-| Public API contract | Current `1`. | Change only for an incompatible caller contract; independent of either release line. |
+| Public API contract | Current source `2`; published 2.5.0 artifact `1`. | Change only for an incompatible caller contract; independent of either release line. The first release containing current contract 2 is expected to require product `3.0.0`, but release preparation and version change are not authorized by source hardening work. |
 
 The service version should become a separate source such as
 `AIFORTHAI_SERVICE_VERSION` only after the platform confirms where it must

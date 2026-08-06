@@ -1,27 +1,9 @@
 import { sanitize, reidentify } from "./api.js";
-import { screenHeader, escapeHtml } from "./ui.js";
-
-/** Wrap every occurrence of each entity's pseudonym token in a chip span.
- * Tokens are matched longest-first so a token that is a substring of another
- * (e.g. two surrogate names sharing a prefix) never gets partially wrapped.
- * `sanitizedText` must already be escaped with escapeHtml before calling.
- */
-function highlightTokens(escapedSanitized, entities, chipClass) {
-  const tokens = [...new Set(entities.map((e) => e.token))]
-    .map((t) => escapeHtml(t))
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length);
-  if (!tokens.length) return escapedSanitized;
-
-  const pattern = new RegExp(
-    tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
-    "g"
-  );
-  return escapedSanitized.replace(
-    pattern,
-    (match) => `<span class="chip ${chipClass}">${match}</span>`
-  );
-}
+import {
+  renderHighlightedText,
+  restorationIsComplete,
+} from "./contract-v2.js";
+import { screenHeader } from "./ui.js";
 
 export function renderText(root) {
   let mode = localStorage.getItem("aiguard.mode") || "token";
@@ -54,7 +36,8 @@ export function renderText(root) {
   `;
 
   let sessionId = null;
-  let lastEntities = [];
+  let maskedText = "";
+  let copyAllowed = false;
   const $ = (id) => root.querySelector(id);
 
   function showError(message, retryFn) {
@@ -79,25 +62,59 @@ export function renderText(root) {
   $("#t-mode-token").addEventListener("click", () => setMode("token"));
   $("#t-mode-surrogate").addEventListener("click", () => setMode("surrogate"));
 
+  async function sanitizeInCurrentSession(text) {
+    try {
+      return sessionId
+        ? await sanitize(text, mode, sessionId)
+        : await sanitize(text, mode);
+    } catch (error) {
+      const retryFresh =
+        sessionId &&
+        error &&
+        error.name === "ApiError" &&
+        ((error.status === 404 && error.code === "session_unavailable") ||
+          (error.status === 400 && error.code === "invalid_request"));
+      if (!retryFresh) throw error;
+      sessionId = null;
+      return sanitize(text, mode);
+    }
+  }
+
   async function doMask() {
     $("#t-mask").disabled = true;
-    const text = $("#t-input").value.trim();
-    if (!text) {
+    const text = $("#t-input").value;
+    if (!text.trim()) {
       $("#t-mask").disabled = false;
       return;
     }
     hideError();
+    copyAllowed = false;
+    maskedText = "";
+    $("#t-out").classList.add("hidden");
+    $("#t-restored").classList.add("hidden");
+    $("#t-leftover").classList.add("hidden");
     try {
-      const res = await sanitize(text, mode);
+      const res = await sanitizeInCurrentSession(text);
+      if (
+        !res ||
+        typeof res.sanitized_text !== "string" ||
+        res.sanitized_text.length === 0 ||
+        !res.safety ||
+        res.safety.status !== "pass" ||
+        res.safety.residual_count !== 0
+      ) {
+        throw new Error("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย");
+      }
       sessionId = res.session_id;
-      lastEntities = res.entities || [];
+      maskedText = res.sanitized_text;
+      copyAllowed = true;
       const chipClass = mode === "surrogate" ? "chip--surrogate" : "chip--token";
-      $("#t-masked").innerHTML = highlightTokens(
-        escapeHtml(res.sanitized_text),
-        lastEntities,
+      $("#t-masked").innerHTML = renderHighlightedText(
+        maskedText,
+        res.highlights,
         chipClass
       );
-      $("#t-count").textContent = `ปกปิด ${lastEntities.length} รายการ`;
+      $("#t-count").textContent = `ปกปิด ${res.replacement_count} รายการ`;
       $("#t-out").classList.remove("hidden");
     } catch (e) {
       showError("ปกปิดไม่สำเร็จ: " + e.message, doMask);
@@ -110,8 +127,12 @@ export function renderText(root) {
 
   $("#t-copy").addEventListener("click", async () => {
     const btn = $("#t-copy");
+    if (!copyAllowed || !maskedText) {
+      showError("ยังไม่มีผลลัพธ์ที่ผ่านการตรวจความปลอดภัย", doMask);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText($("#t-masked").textContent);
+      await navigator.clipboard.writeText(maskedText);
       const prev = btn.textContent;
       btn.textContent = "คัดลอกแล้ว";
       setTimeout(() => { btn.textContent = prev; }, 1200);
@@ -125,15 +146,22 @@ export function renderText(root) {
     const reply = $("#t-reply").value;
     try {
       const res = await reidentify(sessionId, reply);
+      if (!restorationIsComplete(res)) {
+        $("#t-restored").textContent = "";
+        $("#t-restored").classList.add("hidden");
+        const warningCount = res.warnings.reduce(
+          (sum, warning) => sum + warning.count,
+          0
+        );
+        $("#t-leftover").textContent =
+          `คืนค่าไม่ครบ เหลือ ${res.leftover_count} รายการ` +
+          (warningCount ? ` และมีคำเตือน ${warningCount} รายการ` : "");
+        $("#t-leftover").classList.remove("hidden");
+        return;
+      }
       $("#t-restored").textContent = res.restored_text;
       $("#t-restored").classList.remove("hidden");
-      if (res.leftover_tokens && res.leftover_tokens.length) {
-        $("#t-leftover").textContent =
-          "โทเคนที่ยังคืนค่าไม่ได้: " + res.leftover_tokens.join(", ");
-        $("#t-leftover").classList.remove("hidden");
-      } else {
-        $("#t-leftover").classList.add("hidden");
-      }
+      $("#t-leftover").classList.add("hidden");
     } catch (e) {
       showError("คืนค่าไม่สำเร็จ: " + e.message, doRestore);
     }

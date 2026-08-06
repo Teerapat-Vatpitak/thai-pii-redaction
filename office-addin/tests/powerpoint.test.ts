@@ -102,7 +102,14 @@ describe("PowerPointHostAdapter hardening", () => {
     expect(adapter.canInsertResponse).toBe(false);
     await expect(adapter.insertResponse(snapshot, "answer")).rejects.toThrow("Copy");
     await expect(
-      adapter.applyReplacement(snapshot, { kind: "excel-cells", values: [], changedCells: [], skipped: [] }),
+      adapter.applyReplacement(snapshot, {
+        kind: "excel-cells",
+        values: [],
+        changedCells: [],
+        skipped: [],
+        previewText: "",
+        copySafe: false,
+      }),
     ).rejects.toThrow("เฉพาะข้อความ");
     expect(gateway.replace).not.toHaveBeenCalled();
   });

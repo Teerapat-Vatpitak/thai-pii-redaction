@@ -19,6 +19,9 @@ const prompt = document.querySelector<HTMLTextAreaElement>("#prompt")!;
 let controller: TaskController | undefined;
 let backendReady = false;
 
+for (const candidate of actionButtons) candidate.disabled = true;
+modeSelect.disabled = true;
+
 function button(action: string): HTMLButtonElement {
   return document.querySelector<HTMLButtonElement>(`button[data-action="${action}"]`)!;
 }
@@ -33,8 +36,10 @@ function render(state: TaskViewState): void {
     return item;
   }));
   button("apply").hidden = !state.canApply;
-  button("copy").disabled = !state.canCopy;
+  button("apply").disabled = !backendReady || !state.canApply;
+  button("copy").disabled = !backendReady || !state.canCopy;
   button("insert").hidden = !state.canInsert;
+  button("insert").disabled = !backendReady || !state.canInsert;
   const busy = state.phase === "applying" || state.phase === "asking";
   modeSelect.disabled = !backendReady || busy;
   for (const candidate of actionButtons) {
@@ -77,7 +82,8 @@ Office.onReady(async (info) => {
 
   const api = new ApiClient();
   controller = new TaskController(api, adapter, render);
-  bindActions(controller);
+  backendReady = false;
+  render(controller.viewState);
   let health: HealthResponse;
   try {
     health = await api.health();
@@ -95,5 +101,6 @@ Office.onReady(async (info) => {
   backendReady = availability.ready;
   banner.className = availability.ready ? "banner ok" : "banner error";
   banner.textContent = availability.message;
+  if (availability.ready) bindActions(controller);
   render(controller.viewState);
 });

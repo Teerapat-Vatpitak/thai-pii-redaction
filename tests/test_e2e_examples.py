@@ -7,6 +7,7 @@ examples/ double as the test corpus and as try-it-yourself material for users.
 
 import base64
 import io
+import re
 from pathlib import Path
 
 import pdfplumber
@@ -33,39 +34,43 @@ def client():
 
     from app.server import app
 
-    return TestClient(app, base_url="http://localhost")
+    return TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"X-AIGuard-Contract-Version": "2"},
+    )
 
 
 @pytest.mark.parametrize("prompt_file", PROMPTS, ids=lambda p: p.stem)
 def test_prompt_round_trip_token(client, prompt_file):
     text = prompt_file.read_text(encoding="utf-8")
     s = client.post("/api/sanitize", json={"text": text, "mode": "token"}).json()
-    assert len(s["entities"]) >= 1
-    assert s["sanitized_text"] != s["original_text"]  # PII was masked
+    assert s["detected_entity_count"] >= 1
+    assert s["sanitized_text"] != text  # PII was masked
     r = client.post(
         "/api/reidentify", json={"session_id": s["session_id"], "text": s["sanitized_text"]}
     ).json()
-    # exact round-trip against the cleaned text the API returns
-    assert r["restored_text"] == s["original_text"]
-    assert r["leftover_tokens"] == []
+    assert r["restored_text"] == text
+    assert r["leftover_count"] == 0
 
 
 @pytest.mark.parametrize("prompt_file", PROMPTS, ids=lambda p: p.stem)
 def test_prompt_round_trip_surrogate(client, prompt_file):
     text = prompt_file.read_text(encoding="utf-8")
     s = client.post("/api/sanitize", json={"text": text, "mode": "surrogate"}).json()
-    assert s["sanitized_text"] != s["original_text"]
+    assert s["sanitized_text"] != text
     r = client.post(
         "/api/reidentify", json={"session_id": s["session_id"], "text": s["sanitized_text"]}
     ).json()
-    assert r["restored_text"] == s["original_text"]
+    assert r["restored_text"] == text
+    assert r["leftover_count"] == 0
 
 
 def test_analyze_flags_health_in_medical_prompt(client):
     medical = next(p for p in PROMPTS if "medical" in p.stem)
     text = medical.read_text(encoding="utf-8")
     data = client.post("/api/analyze", json={"text": text}).json()
-    assert "HEALTH" in {s["category"] for s in data["section26"]}
+    assert "HEALTH" in data["section26_categories"]
 
 
 def test_sample_pdf_is_redacted(client):
@@ -76,7 +81,7 @@ def test_sample_pdf_is_redacted(client):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["entity_count"] >= 2
+    assert data["detected_entity_count"] >= 2
 
     redacted = base64.b64decode(data["redacted_pdf_b64"])
     with pdfplumber.open(io.BytesIO(redacted)) as doc:
@@ -100,9 +105,9 @@ def test_multi_turn_mask_restore_round_trip(client):
         },
     ).json()
     assert t2["session_id"] == t1["session_id"]
-    tok1 = next(e["token"] for e in t1["entities"] if e["data_type"] == "PHONE")
-    tok2 = next(e["token"] for e in t2["entities"] if e["data_type"] == "PHONE")
-    assert tok1 == tok2
+    tokens1 = set(re.findall(r"\[[^\[\]\r\n]+\]", t1["sanitized_text"]))
+    tokens2 = set(re.findall(r"\[[^\[\]\r\n]+\]", t2["sanitized_text"]))
+    assert len(tokens1 & tokens2) == 1
     reply = t1["sanitized_text"] + "\n" + t2["sanitized_text"]
     r = client.post("/api/reidentify", json={"session_id": t1["session_id"], "text": reply}).json()
     assert "081-234-5678" in r["restored_text"]
@@ -117,6 +122,7 @@ def test_sanitize_mode_conflict_400(client):
         json={"text": "อีกข้อความ", "mode": "surrogate", "session_id": s["session_id"]},
     )
     assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "invalid_request"
 
 
 def test_business_doc_surrogates_stay_plausible(client):
@@ -129,7 +135,8 @@ def test_business_doc_surrogates_stay_plausible(client):
     s = client.post("/api/sanitize", json={"text": text, "mode": "surrogate"}).json()
     assert "12345678" not in s["sanitized_text"]
     assert "12/05/2569" not in s["sanitized_text"]
-    types = {e["data_type"] for e in s["entities"]}
+    detected = client.post("/api/detect", json={"text": text}).json()
+    types = set(detected["entity_type_counts"])
     assert "ID_NUMBER" in types and "DATE" in types
     assert "PASSPORT" not in types and "DATE_OF_BIRTH" not in types
     r = client.post(

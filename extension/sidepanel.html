@@ -35,14 +35,14 @@
       </p>
 
       <div class="seg" id="mode-seg" role="tablist" aria-label="โหมดการปกปิด">
-        <button class="seg__opt" data-mode="token" aria-selected="true">Token [ชื่อ_1]</button>
+        <button class="seg__opt" data-mode="token" aria-selected="true">Token [ชื่อ_…_1]</button>
         <button class="seg__opt" data-mode="surrogate" aria-selected="false">Surrogate</button>
       </div>
 
       <label class="lbl" for="input">ข้อความของคุณ</label>
       <textarea id="input" rows="5" placeholder="วางข้อความที่มีข้อมูลส่วนบุคคล..."></textarea>
       <div class="row">
-        <button id="maskBtn" class="btn btn--primary">ปกปิดข้อมูล</button>
+        <button id="maskBtn" class="btn btn--primary" disabled>ปกปิดข้อมูล</button>
         <button id="copyBtn" class="btn btn--secondary" hidden>คัดลอก</button>
         <span id="msg" class="msg"></span>
       </div>
@@ -61,6 +61,7 @@
       <div id="out" class="well" hidden></div>
     </main>
 
+    <script src="contract-v2.js"></script>
     <script src="sidepanel.js"></script>
   </body>
 </html>

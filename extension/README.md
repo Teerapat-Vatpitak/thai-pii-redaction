@@ -4,20 +4,27 @@ Masks Thai PII in your AI chat prompt before you send it, then restores the
 real values locally from the AI's reply. The canonical token -> original vault
 stays in the local backend's memory and is not deliberately persisted.
 
-Current source uses HTTP contract v1. Its responses can contain fields with, or
-allowing reconstruction of, token-to-original pairs in extension process
-memory even though the extension does not deliberately persist them. It also
-trusts whichever process owns the configured fixed localhost port; CORS does
-not authenticate that process. The current backend source now returns no
-masked result when it finds structured FP, text-based TB,
-detector-independent contiguous 6+ digit residuals, or a missing replacement
-record; the extension therefore has no warning-only residual result to write.
-That behavior has automated source evidence only. The published 2.5.0 backend
-and historical browser/store candidates predate it and must be rerun before a
-package is accepted. Contract v2 with no explicit mapping DTO, strict client
-validation, broker-backed identity/lifecycle, and fresh package acceptance
-remain open hardening gates. Run the source extension only with a local backend
-you started and trust, and review high-risk output before submitting it.
+Current source uses strict HTTP contract v2. It validates exact health and
+operation DTOs before sending PII or writing a result, and the backend returns
+no explicit mapping DTO, original/token pair, raw Section 26 match, or guard
+excerpt. The backend also returns no masked result when it finds structured FP,
+text-based TB, detector-independent contiguous 6+ digit residuals, or a missing
+replacement record. Token text combines a random vault-generation tag with an
+unpredictable nonce for each newly minted token. Regressions keep stale and
+guessed tokens foreign in the exercised lifecycle cases. The random 64-bit tag
+plus approximately 94-bit nonce makes accidental identity reuse and
+same-session future-token preplay computationally impractical; this is
+probabilistic separation, not impossibility. Unknown tokens become count-only
+unsafe warnings.
+
+These behaviors have automated source evidence only. The published 2.5.0
+backend and historical browser/store candidates predate them and must be rerun
+before a package is accepted. The extension still trusts whichever process
+owns the configured fixed localhost port; CORS does not authenticate that
+process. Broker-backed identity/lifecycle and fresh package acceptance remain
+open hardening gates. Run this source extension only with the matching source
+backend that you started and trust, and review high-risk output before
+submitting it.
 
 The default detector is local. If the backend is explicitly configured with
 `AIGUARD_NER_ENGINE=tner`, it sends raw pre-mask chunks to AI for Thai. The
@@ -67,8 +74,9 @@ On a supported site (`chatgpt.com`, `claude.ai`, `gemini.google.com`,
 bar appears (bottom right):
 
 1. Type your prompt (with names, phone numbers, IDs, etc.) in the chat box.
-2. Click **Mask PII** -- the box now shows tokens like `[ชื่อ_1]`,
-   `[โทรศัพท์_1]`. Send it with the site's own Send button.
+2. Click **Mask PII** -- the box now shows session-namespaced tokens like
+   `[ชื่อ_<generation-tag>_<token-nonce>_1]`. Send it with the site's own Send
+   button.
 3. When the AI replies (keeping the tokens), click **Restore PII** -- the
    real values are shown back in an overlay. You can also select any reply
    text first and then click Restore to restore just that selection.
@@ -82,8 +90,7 @@ to the side of the browser. Unlike a popup it stays open while you work: paste
 text, Mask, copy the safe version, then paste the reply and Restore. Use it on
 any page (not just ChatGPT/Claude), or as a fallback if a site update ever
 moves the in-page bar. The panel also shows live backend status. Close it with
-the toolbar icon again or the panel's own close button; drag its edge to
-resize.
+Chrome's browser-owned side-panel close control; drag its edge to resize.
 
 ## When something breaks
 

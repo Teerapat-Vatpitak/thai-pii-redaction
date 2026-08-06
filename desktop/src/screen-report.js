@@ -84,22 +84,18 @@ export function renderReport(root) {
 
   function renderReportBody(r) {
     const gradeClass = gradeChipClass(r.overall_grade);
-    const reidCombo = r.reid.high_risk_combo
+    const reidCombo = r.reidentification.high_risk_combination
       ? `<span class="chip chip--warn">เสี่ยงสูงจากการรวมข้อมูล</span>`
       : "";
 
-    const section26Html = r.section26.length
+    const section26Html = r.section26_categories.length
       ? `<div class="card">
-          <p class="muted">ข้อมูลอ่อนไหว มาตรา 26 (${r.section26.length})</p>
-          ${r.section26
-            .map(
-              (s) => `<div class="row">
-                <span class="chip chip--warn">${escapeHtml(s.category)}</span>
-                <span>${escapeHtml(s.text)}</span>
-                ${s.source === "semantic" ? `<span class="meta">semantic</span>` : ""}
-              </div>`
-            )
+          <p class="muted">ข้อมูลอ่อนไหว มาตรา 26 (${r.section26_categories.length})</p>
+          <div class="row">
+          ${r.section26_categories
+            .map((category) => `<span class="chip chip--warn">${escapeHtml(category)}</span>`)
             .join("")}
+          </div>
         </div>`
       : "";
 
@@ -146,8 +142,8 @@ export function renderReport(root) {
           <span class="stat__cap"><span class="chip ${gradeClass}">เกรด ${escapeHtml(r.overall_grade)}</span> ${escapeHtml(r.risk_label)}</span>
         </div>
         <div class="stat">
-          <span class="stat__num">${r.reid.score.toFixed(1)}</span>
-          <span class="stat__cap">re-identification (เกรด ${escapeHtml(r.reid.grade)}) ${reidCombo}</span>
+          <span class="stat__num">${r.reidentification.score.toFixed(1)}</span>
+          <span class="stat__cap">re-identification (เกรด ${escapeHtml(r.reidentification.grade)}) ${reidCombo}</span>
         </div>
         <div class="stat">
           <span class="stat__num">${Number(r.direct_pii_count) || 0}</span>

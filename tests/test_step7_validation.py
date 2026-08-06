@@ -30,10 +30,16 @@ def _make_vault(original: str = "safe text", pseudonym: str = "SAFE_PSEUDO") -> 
     return vault
 
 
-def _make_reverse_result(text: str, flags=None, summary=None) -> ReverseResult:
+def _make_reverse_result(
+    text: str,
+    flags=None,
+    summary=None,
+    restored_ranges: tuple[tuple[int, int], ...] = (),
+) -> ReverseResult:
     """Helper to create a ReverseResult."""
     return ReverseResult(
         text=text,
+        restored_ranges=restored_ranges,
         flags=flags or [],
         audit_summary=summary or {"total_entities": 0, "replaced_count": 0},
     )
@@ -75,7 +81,7 @@ class TestValidateOutput:
         vault = _make_vault()
         rr = _make_reverse_result(
             "text",
-            flags=["pseudonym_residue:SAFE_PS"],
+            flags=["pseudonym_residue:1"],
             summary={"total_entities": 1, "replaced_count": 0},
         )
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
@@ -99,7 +105,12 @@ class TestValidateOutput:
         """VAULT-5: a normal document routinely ends with a number — a restored
         phone number on the last line must not halt the export."""
         vault = _make_vault(original="081-234-5678", pseudonym="[โทรศัพท์_1]")
-        rr = _make_reverse_result("ติดต่อกลับได้ที่เบอร์ 081-234-5678")
+        text = "ติดต่อกลับได้ที่เบอร์ 081-234-5678"
+        start = text.index("081-234-5678")
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((start, start + len("081-234-5678")),),
+        )
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
         result = validate_output(rr, registry, vault)
         assert [f for f in result.flags if "truncation" in f] == []
@@ -140,15 +151,163 @@ class TestValidateOutput:
         with pytest.raises(PIILeakError):
             validate_output(rr, registry, vault)
 
+    @pytest.mark.parametrize(
+        "original",
+        [
+            "081\u200b-234-5678",
+            "081  234  5678",
+            "081\u202e-234-5678",
+            "081\u2066-234-5678",
+            "081\u2060-234-5678",
+            "081\u00ad-234-5678",
+        ],
+    )
+    def test_validate_output_raises_on_unexpected_obfuscated_pii(self, original):
+        vault = SessionVault()
+        rr = _make_reverse_result(f"Call {original} please.")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count == 1
+
+    @pytest.mark.parametrize(
+        "original",
+        [
+            "081\u200b-234-5678",
+            "081  234  5678",
+            "081\u202e-234-5678",
+        ],
+    )
+    def test_validate_output_allows_obfuscated_pii_only_in_restored_range(self, original):
+        vault = _make_vault(original=original, pseudonym="[โทรศัพท์_1]")
+        text = f"Call {original} please."
+        start = text.index(original)
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((start, start + len(original)),),
+        )
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        result = validate_output(rr, registry, vault)
+
+        assert result.layer1_pii_clean
+        assert rr.text == text
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "ยอดขาย 12  345  678 บาท.",
+            "ยอดขาย 100  000 บาท.",
+            "ordinary\u202e text remains exact.",
+        ],
+    )
+    def test_validate_output_preserves_safe_security_view_negatives(self, text):
+        vault = SessionVault()
+        rr = _make_reverse_result(text)
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        result = validate_output(rr, registry, vault)
+
+        assert result.layer1_pii_clean
+        assert rr.text == text
+
+    def test_validate_output_deduplicates_normal_and_security_view_detection(self):
+        vault = SessionVault()
+        rr = _make_reverse_result("prefix\u200b Call 081-234-5678 please.")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count == 1
+
+    def test_security_view_candidate_extending_past_restored_range_is_unexpected(self):
+        original = "a@b.co"
+        vault = _make_vault(original=original, pseudonym="[อีเมล_1]")
+        text = f"ส่งไปที่ {original}\u200b.th"
+        start = text.index(original)
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((start, start + len(original)),),
+        )
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count == 1
+
+    def test_validate_output_raises_on_generated_single_spaced_iban(self):
+        text = "ตอบกลับ IBAN GB82 WEST 1234 5698 7654 32"
+        vault = SessionVault()
+        rr = _make_reverse_result(text)
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count == 1
+
     def test_validate_output_expected_pii_ok(self):
         """PII in vault should be considered expected and not raise."""
         vault = _make_vault(original="081-234-5678", pseudonym="PHONE_1")
         # Text contains the real phone from the vault
-        rr = _make_reverse_result("Call 081-234-5678 please.")
+        text = "Call 081-234-5678 please."
+        start = text.index("081-234-5678")
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((start, start + len("081-234-5678")),),
+        )
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
         # Should not raise
         result = validate_output(rr, registry, vault)
         assert result.layer1_pii_clean
+
+    def test_validate_output_raises_on_unexpected_text_based_pii(self):
+        vault = SessionVault()
+        rr = _make_reverse_result("นายสมหญิง ทดสอบดี")
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count == 1
+
+    def test_validate_output_allows_expected_text_based_original(self):
+        original = "นายสมหญิง ทดสอบดี"
+        vault = _make_vault(original=original, pseudonym="[ชื่อ_1]")
+        text = f"เรียน {original}"
+        start = text.index(original)
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((start, start + len(original)),),
+        )
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        assert validate_output(rr, registry, vault).layer1_pii_clean
+
+    @pytest.mark.parametrize(
+        ("original", "text"),
+        [
+            ("081-234-5678", "Call 081-234-5678 then backup 081-234-5678"),
+            ("นายสมหญิง ทดสอบดี", "เรียน นายสมหญิง ทดสอบดี สำรอง นายสมหญิง ทดสอบดี"),
+        ],
+    )
+    def test_known_original_is_expected_only_inside_restored_ranges(self, original, text):
+        vault = _make_vault(original=original, pseudonym="[VALUE_1]")
+        first = text.index(original)
+        rr = _make_reverse_result(
+            text,
+            restored_ranges=((first, first + len(original)),),
+        )
+        registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
+
+        with pytest.raises(PIILeakError) as excinfo:
+            validate_output(rr, registry, vault)
+
+        assert excinfo.value.count >= 1
 
     def test_validate_output_utf8_encoding_check(self):
         """Valid UTF-8 text should pass Layer 3."""
@@ -164,7 +323,7 @@ class TestValidateOutput:
         vault = _make_vault()
         rr = _make_reverse_result(
             "text",
-            flags=["pseudonym_residue:TEST"],
+            flags=["pseudonym_residue:1"],
             summary={"total_entities": 1, "replaced_count": 0},
         )
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)

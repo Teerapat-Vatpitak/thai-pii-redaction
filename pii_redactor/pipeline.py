@@ -133,7 +133,12 @@ def run_pipeline(
     # --- Step 6: Reverse mapping ---
     from pii_redactor.reverse_mapper import reverse_map
 
-    reverse_result = reverse_map(ai_response, entity_registry, vault)
+    reverse_result = reverse_map(
+        ai_response,
+        entity_registry,
+        vault,
+        mode="surrogate",
+    )
 
     # --- Step 7: Output validation ---
     from pii_redactor.output_validator import validate_output

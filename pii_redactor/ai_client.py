@@ -67,6 +67,15 @@ class ProviderCallError(RuntimeError):
         super().__init__("AI provider call failed")
 
 
+class _PreSendAttemptError(RuntimeError):
+    """Fixed internal signal for a failed per-attempt safety check."""
+
+    def __init__(self, code: str, attempt: int):
+        self.code = code
+        self.attempt = attempt
+        super().__init__("pre-send validation failed")
+
+
 class AIProvider(ABC):
     """Abstract base class for AI providers."""
 
@@ -382,6 +391,103 @@ def complete_provider_call(
     return response
 
 
+def _provider_failure_is_retryable(category: str, status_code: int | None) -> bool:
+    if category in {"timeout", "network"}:
+        return True
+    return category == "http_status" and (
+        status_code == 429 or (status_code is not None and status_code >= 500)
+    )
+
+
+def complete_provider_with_retry_policy(
+    provider: AIProvider,
+    system: str,
+    user: str,
+    *,
+    before_attempt: Callable[[int], None],
+    max_attempts: int = 3,
+) -> tuple[str, float, int]:
+    """Run the shared three-attempt policy with a fresh safety gate each time."""
+    try:
+        handles_retries = getattr(provider, "handles_retries", False) is True
+    except Exception as error:
+        category = "failed"
+        error_type = "ProviderError"
+        status_code = None
+        if type(error) is ProviderCallError:
+            category = error.category if type(error.category) is str else category
+            error_type = error.error_type if type(error.error_type) is str else error_type
+            candidate_status = error.status_code
+            if type(candidate_status) is int and 100 <= candidate_status <= 599:
+                status_code = candidate_status
+        discard_exception_graph(error)
+        provider = None
+        system = ""
+        user = ""
+        before_attempt = None
+        raise ProviderCallError(
+            category=category,
+            error_type=error_type,
+            status_code=status_code,
+            attempts=0,
+        ) from None
+
+    effective_attempts = 1 if handles_retries else max_attempts
+    for attempt in range(effective_attempts):
+        before_attempt(attempt)
+        started = time.monotonic()
+        try:
+            response = complete_provider_call(
+                provider,
+                system,
+                user,
+                timeout=60.0,
+            )
+        except ProviderCallError as error:
+            category = error.category if type(error.category) is str else "failed"
+            error_type = error.error_type if type(error.error_type) is str else "ProviderError"
+            status_code = error.status_code if type(error.status_code) is int else None
+            retryable = _provider_failure_is_retryable(category, status_code)
+            discard_exception_graph(error)
+            if retryable and attempt + 1 < effective_attempts:
+                try:
+                    _sleep(2**attempt)
+                except Exception as sleep_error:
+                    discard_exception_graph(sleep_error)
+                    provider = None
+                    system = ""
+                    user = ""
+                    before_attempt = None
+                    raise ProviderCallError(
+                        category="failed",
+                        error_type="ProviderError",
+                        attempts=attempt + 1,
+                    ) from None
+                continue
+            attempts = attempt + 1
+            provider = None
+            system = ""
+            user = ""
+            before_attempt = None
+            raise ProviderCallError(
+                category=category,
+                error_type=error_type,
+                status_code=status_code,
+                attempts=attempts,
+            ) from None
+        return response, time.monotonic() - started, attempt + 1
+
+    provider = None
+    system = ""
+    user = ""
+    before_attempt = None
+    raise ProviderCallError(
+        category="failed",
+        error_type="ProviderError",
+        attempts=0,
+    )
+
+
 def _validate_pre_send(text: str, vault: SessionVault) -> None:
     """
     4 checks before sending any prompt to AI.
@@ -529,27 +635,40 @@ def _send_to_ai(
     # Snapshot for rollback
     snapshot = vault.snapshot()
 
-    # First check keeps validation outside the provider retry policy. The
-    # snapshot read has no side effects, so a blocked request adds no rollback
-    # audit entry.
-    validation_failure = None
+    def validate_attempt(attempt: int) -> None:
+        validation_failure = None
+        try:
+            _validate_pre_send(pseudonymized_text, vault)
+        except PreSendValidationError as error:
+            validation_failure = (
+                error.code
+                if error.code in {"outbound_residual", "prompt_too_large"}
+                else "validation_failed"
+            )
+            discard_exception_graph(error)
+        except VaultTimeoutError as error:
+            discard_exception_graph(error)
+            validation_failure = "vault_timeout"
+        except Exception as error:
+            discard_exception_graph(error)
+            validation_failure = "validation_failed"
+        if validation_failure is not None:
+            raise _PreSendAttemptError(validation_failure, attempt) from None
+
     try:
-        _validate_pre_send(pseudonymized_text, vault)
-    except PreSendValidationError as error:
-        code = (
-            error.code
-            if error.code in {"outbound_residual", "prompt_too_large"}
-            else "validation_failed"
+        response_text, latency, attempts_used = complete_provider_with_retry_policy(
+            provider,
+            system,
+            pseudonymized_text,
+            before_attempt=validate_attempt,
+            max_attempts=max_retries,
         )
+    except _PreSendAttemptError as error:
+        validation_failure = error.code
+        failed_attempt = error.attempt
         discard_exception_graph(error)
-        validation_failure = code
-    except VaultTimeoutError as error:
-        discard_exception_graph(error)
-        validation_failure = "vault_timeout"
-    except Exception as error:
-        discard_exception_graph(error)
-        validation_failure = "validation_failed"
-    if validation_failure is not None:
+        if failed_attempt > 0:
+            _restore_snapshot_after_failure(vault, snapshot)
         provider = None
         vault = None
         snapshot = None
@@ -557,142 +676,76 @@ def _send_to_ai(
         pseudonymized_text = ""
         system_prompt = None
         system = ""
-        error = None
+        response_text = None
+        validate_attempt = None
         _raise_pre_send_failure(validation_failure)
+    except ProviderCallError as error:
+        category = error.category
+        error_type = error.error_type
+        status_code = error.status_code
+        attempts_used = error.attempts
+        discard_exception_graph(error)
+        if type(attempts_used) is int and attempts_used > 0:
+            _restore_snapshot_after_failure(vault, snapshot)
+        provider = None
+        vault = None
+        snapshot = None
+        entity_registry = None
+        pseudonymized_text = ""
+        system_prompt = None
+        system = ""
+        response_text = None
+        validate_attempt = None
+        raise ProviderCallError(
+            category=category,
+            error_type=error_type,
+            status_code=status_code,
+            attempts=attempts_used,
+        ) from None
 
-    # A provider that retries transient failures inside complete() gets ONE
-    # outer attempt -- otherwise a flaky endpoint costs 3x3 calls.
-    effective_attempts = 1 if getattr(provider, "handles_retries", False) else max_retries
+    response_failure = False
+    warnings = None
+    warning = None
+    result = None
+    try:
+        # Response validation warnings do not halt normal processing.
+        warnings = _validate_response(response_text, entity_registry, vault)
+        for warning in warnings:
+            logger.warning("AI response validation: %s", warning)
 
-    # Retry loop
-    last_failure = ("failed", "ProviderError", None)
-    attempts_used = 0
-    for attempt in range(effective_attempts):
-        if attempt:
-            # A retry gets a fresh check immediately before the provider.
-            # If prior provider code changed the vault, preserve the existing
-            # rollback contract before surfacing the validation failure.
-            validation_failure = None
-            try:
-                _validate_pre_send(pseudonymized_text, vault)
-            except PreSendValidationError as error:
-                code = (
-                    error.code
-                    if error.code in {"outbound_residual", "prompt_too_large"}
-                    else "validation_failed"
-                )
-                discard_exception_graph(error)
-                validation_failure = code
-            except VaultTimeoutError as error:
-                discard_exception_graph(error)
-                validation_failure = "vault_timeout"
-            except Exception as error:
-                discard_exception_graph(error)
-                validation_failure = "validation_failed"
-            if validation_failure is not None:
-                _restore_snapshot_after_failure(vault, snapshot)
-                provider = None
-                vault = None
-                snapshot = None
-                entity_registry = None
-                pseudonymized_text = ""
-                system_prompt = None
-                system = ""
-                response_text = None
-                error = None
-                _raise_pre_send_failure(validation_failure)
+        result = AIResponse(
+            text=response_text,
+            request_id=str(uuid.uuid4()),
+            latency=latency,
+        )
+    except Exception as error:
+        discard_exception_graph(error)
+        response_failure = True
+    if response_failure:
+        # Tail failures are fatal, not transient provider failures. Preserve
+        # the pre-call rollback contract without entering the retry path.
+        _restore_snapshot_after_failure(vault, snapshot)
 
-        start_time = time.monotonic()
-        try:
-            response_text = complete_provider_call(
-                provider,
-                system,
-                pseudonymized_text,
-                timeout=60.0,
-            )
-        except ProviderCallError as error:
-            attempts_used = attempt + 1
-            # Only rate limits and server errors are transient; other 4xx
-            # (auth, bad request) will never succeed on retry.
-            retryable = error.category in ("timeout", "network")
-            if error.category == "http_status":
-                status = error.status_code
-                retryable = status == 429 or (status is not None and status >= 500)
-            last_failure = (error.category, error.error_type, error.status_code)
-            discard_exception_graph(error)
-            if not retryable:
-                break
-            if attempt < effective_attempts - 1:
-                backoff = 2**attempt  # 1s, 2s
-                _sleep(backoff)
-            continue
-        response_failure = False
+        provider = None
+        vault = None
+        snapshot = None
+        entity_registry = None
+        pseudonymized_text = ""
+        system_prompt = None
+        system = ""
+        response_text = None
         warnings = None
         warning = None
+        latency = None
         result = None
-        try:
-            latency = time.monotonic() - start_time
-
-            # Response validation warnings do not halt normal processing.
-            warnings = _validate_response(response_text, entity_registry, vault)
-            for warning in warnings:
-                logger.warning("AI response validation: %s", warning)
-
-            result = AIResponse(
-                text=response_text,
-                request_id=str(uuid.uuid4()),
-                latency=latency,
-            )
-        except Exception as error:
-            discard_exception_graph(error)
-            response_failure = True
-        if response_failure:
-            # Tail failures are fatal, not transient provider failures. Preserve
-            # the pre-call rollback contract without entering the retry path.
-            _restore_snapshot_after_failure(vault, snapshot)
-
-            provider = None
-            vault = None
-            snapshot = None
-            entity_registry = None
-            pseudonymized_text = ""
-            system_prompt = None
-            system = ""
-            response_text = None
-            warnings = None
-            warning = None
-            latency = None
-            result = None
-            raise ProviderCallError(
-                category="failed",
-                error_type="ProviderError",
-                attempts=attempt + 1,
-            )
-        assert result is not None
-        return result
-
-    # All retries exhausted - rollback
-    _restore_snapshot_after_failure(vault, snapshot)
-    category, error_type, status_code = last_failure
-    if not attempts_used:
-        attempts_used = effective_attempts
-
-    # Drop every reference that can reach credentials, mappings, originals, or
-    # masked text before this safe failure reaches the public wrapper.
-    provider = None
-    vault = None
-    snapshot = None
-    entity_registry = None
-    pseudonymized_text = ""
-    system_prompt = None
-    system = ""
-    response_text = None
-    raise ProviderCallError(
-        category=category,
-        error_type=error_type,
-        status_code=status_code,
-        attempts=attempts_used,
-    )
+        validate_attempt = None
+        raise ProviderCallError(
+            category="failed",
+            error_type="ProviderError",
+            attempts=attempts_used,
+        )
+    assert result is not None
+    return result
 
 
 def _public_send_failure_metadata(

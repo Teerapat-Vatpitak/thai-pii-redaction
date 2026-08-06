@@ -9,12 +9,13 @@ Add-in
 สาม host แต่ release unified manifest เปิด Word เท่านั้นจนกว่า real-host acceptance
 ของ Excel และ PowerPoint จะผ่าน; XML manifests ของสอง host เป็น acceptance-only
 transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting.
-HTTP contract v2, packaged-backend composition และการแยก health capability ระหว่าง
-control token กับ data-plane API key ยังเป็น hardening gate ที่ไม่ผ่าน acceptance
-Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6
-หลักที่ detector ไม่พบ และ missing replacement record แล้ว แต่หลักฐาน Office
-real-host เดิมเกิดก่อนการเปลี่ยนนี้และต้องทดสอบซ้ำ รายการ real-host/package ที่เปิด
-อยู่ทั้งแปดยังไม่เปลี่ยน
+Source ปัจจุบันย้าย Office client ไป HTTP contract v2 แล้ว แต่
+packaged-backend/HTTPS-proxy composition และ real-host acceptance ยังไม่ผ่าน
+Client ตรวจ health และ response assertion แบบ exact, แยก control token ออกจาก
+data-plane API key, และปฏิเสธ response ที่มี field เกินหรือ safety state ไม่ถูกต้อง
+Backend ปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector
+ไม่พบ และ missing replacement record แล้ว แต่หลักฐาน Office real-host เดิมเกิดก่อน
+การเปลี่ยนนี้และต้องทดสอบซ้ำ รายการ real-host/package ที่เปิดอยู่ทั้งแปดยังไม่เปลี่ยน
 
 การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
 host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
@@ -44,30 +45,35 @@ Excel และ PowerPoint ต้องผ่าน host-functional และ un
 
 - Add-in เรียก relative `/api/*`; Vite proxy ส่งต่อไป
   `http://127.0.0.1:8000` จึงไม่เพิ่ม wildcard CORS
+- task pane ปิด operation ทุกอย่างไว้จนกว่า `GET /api/health` จะผ่าน
+  `X-AIGuard-Contract-Version: 2` และ strict v2 schema; operation ถัดไปส่ง
+  contract assertion เดิมและตรวจ assertion ในทุก success/error response
 - `AIFORTHAI_API_KEY` อยู่ที่ backend เท่านั้น
 - canonical vault อยู่ใน memory ของ backend และ task pane ไม่จงใจ persist mapping
-  หรือข้อความใน `localStorage`/`sessionStorage`; อย่างไรก็ตาม contract v1 ปัจจุบัน
-  ส่ง field ที่มีหรือใช้ประกอบ token-to-original mapping กลับมาใน response object
-  ของ task pane ได้ `session_id` ไม่ใช่ mapping แต่เป็น bearer-like restoration
-  reference ที่มีความสำคัญด้านความปลอดภัย ขอบเขตที่ไม่มี explicit mapping DTO
-  ต้องบังคับด้วย contract v2
-- API success responses ผ่านการตรวจ schema ก่อนเข้า controller; response ที่ผิดรูป
-  จะกลายเป็น error ทั่วไป และ body จาก backend/provider จะไม่ถูกแสดงเป็น error
-- health v1 ใช้ `token_required` สำหรับ control-plane boot token แต่ Office
-  ตีความเป็น data-plane credential requirement ทำให้ packaged backend ที่ปลอดภัย
-  สามารถถูกปฏิเสธได้ v2 ต้องแยก `control_token_required` กับ
-  `api_key_required`; automated composition และ real-host acceptance ยังไม่ผ่าน
+  หรือข้อความใน `localStorage`/`sessionStorage`; strict v2 projection สร้าง DTO ใหม่
+  และไม่รับ `original_text`, token/original pair, replaced collection,
+  leftover value หรือ field เกินใด ๆ `session_id` ยังเป็น opaque restoration
+  reference ที่มีความสำคัญด้านความปลอดภัย แต่ไม่ใช่ mapping
+- API success และ safe error responses ผ่าน exact recursive schema ก่อนเข้า
+  controller; response ที่ผิดรูปจะกลายเป็น error ข้อความคงที่ และ body จาก
+  backend/provider จะไม่ถูกแสดงเป็น error
+- health v2 แยก `control_token_required` กับ `api_key_required`; Office พร้อมทำงาน
+  เมื่อ control token เปิดอยู่ได้ และปิด data-plane เมื่อ API key จำเป็น เพราะ
+  task pane ไม่อ่านหรือเก็บ credential
 - backend source ปัจจุบันไม่คืน masked result เมื่อพบ structured FP,
   text-based TB, เลขติดกันตั้งแต่ 6 หลักจาก detector-independent scan หรือ
   missing replacement record และ HTTP roundtrip สแกนซ้ำทันทีก่อนเรียก provider
-  โดยตรง จึงไม่มี residual warning-only result ให้ Apply/Copy/Insert แต่ Office
-  ยังใช้ contract v1 และไม่ใช่ strict v2 client หลักฐาน automated composition,
-  real-host และ package ของการเปลี่ยนนี้ยังไม่ผ่าน
+  โดยตรง จึงไม่มี residual warning-only result ให้ Apply/Copy/Insert ฝั่ง Office
+  ตรวจ `safety.status == "pass"` ซ้ำและปิด Apply/Copy/Insert เมื่อ Restore หรือ
+  roundtrip incomplete/unsafe หลักฐาน automated source gates
+  (manifest/typecheck/unit/build) ผ่านแล้ว; packaged-backend/HTTPS-proxy
+  composition, real-host rerun และ package acceptance ยังไม่ผ่าน
 - detector ปกติอยู่ในเครื่อง แต่ถ้า backend เลือก
   `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน จะส่ง raw pre-mask chunk ไป AI for Thai
 - ปิด backend หรือ task pane แล้ว session อาจหายและ Restore ไม่ได้ ระบบต้องแจ้ง
   failure และไม่เดาข้อมูลเดิม
-- คำตอบ Pathumma อาจไม่คืน token ทุกตัว; warning คือผลที่ถูกต้องและห้ามเติมค่าเอง
+- คำตอบ Pathumma อาจคืนค่าไม่ครบ; Office แสดง Preview/count-only warning ได้ แต่
+  ปิด Copy/Insert และห้ามเติมค่าเอง
 
 ## Development
 

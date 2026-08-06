@@ -35,11 +35,11 @@ state which context it affects.
   authenticate which process owns the fixed port; native-broker identity is an
   open hardening gate.
 - The canonical pseudonym-to-original mapping lives in process memory and is
-  not intentionally persisted. Contract-v1 responses nevertheless send direct
-  or reconstructable mapping fields to first-party clients over loopback;
-  contract v2 must remove those explicit DTO fields. Contract v1 also projects
-  raw Section 26 matched text and prompt-guard excerpts/rationales; v2 reduces
-  them to category/severity/count-only metadata.
+  not intentionally persisted. The published 2.5.0/v1 artifact sent direct or
+  reconstructable mapping fields, raw Section 26 matches, and prompt-guard
+  excerpts/rationales to first-party clients over loopback. Current unreleased
+  source implements strict v2 DTOs without those fields and reduces findings
+  to category/severity/count-only metadata. This is not a shipped-fix claim.
 - The extension may retain a security-sensitive opaque session ID, not a
   mapping collection, and necessarily handles input/output text transiently.
 - Default PII detection and pseudonym generation run locally. Explicit remote
@@ -49,7 +49,9 @@ state which context it affects.
   source evidence; packaged, real-host, live-provider, and official hosted
   acceptance remains open.
 - The control plane uses a boot token when the bundled desktop shell launches
-  the sidecar. The contract-v1 local data plane is not authenticated.
+  the sidecar. A separately configured API key can authenticate HTTP callers,
+  but normal fixed-port first-party clients do not receive it and still cannot
+  authenticate the process that owns localhost.
 
 For the browser in-page flow, raw text is typed into provider-controlled page
 DOM before Mask runs. Page code can observe or transmit it; AI Guard does not
@@ -67,10 +69,13 @@ container. The local claim "PII never leaves the device" does not apply.
 Hosted security relies on:
 
 - an accepted hosted adapter authenticating every approved public operation.
-  Main-server `AIGUARD_API_KEY` currently gates only four legacy-v1 local POST
-  routes and does not by itself make the broader surface hosted-safe;
-- transient in-process mappings with no persistence and no explicit mapping DTO
-  in normal hosted results. The internal worker-v1 result can still include a
+  The current main-repository `app.hosted` candidate requires
+  `AIGUARD_API_KEY` plus a provider allowlist and gates every non-health route,
+  but that local candidate is not official-platform authentication evidence;
+- no explicit mapping DTO in hosted results and no deliberate mapping write to
+  disk. The current candidate is mixed: sanitize/reidentify retain process
+  session state without a hosted disposal route, while roundtrip uses a
+  request-transient mapping. The internal worker-v1 result can still include a
   mapping after an exact opt-in and is not the official delivery contract;
 - application logs and public errors without request text, raw PII, or bearer
   authority. Current-source API process-audit callers use fresh
@@ -103,11 +108,11 @@ repository's code.
   mode, fresh IDs create operation-specific files and no timed retention policy
   exists; configured stdout mode creates no file. Published 2.5.0 predates this
   source change; official-platform logging remains outside this evidence.
-- Current v1 public errors omit payloads, upstream bodies, and raw exception
-  messages. Some HTTP/PDF response paths and worker envelope/log paths still
-  expose reduced exception type names. Contract v2 replaces HTTP public details
-  with stable codes; worker envelope/log cleanup remains separate
-  provider-orchestration work. Request-validation errors are fixed and do not
+- Current unreleased HTTP v2 errors expose only stable codes plus bounded safe
+  metadata; they omit payloads, upstream bodies, pseudonyms, mappings, and raw
+  exception messages. The published 2.5.0/v1 artifact predates this boundary.
+  Worker-envelope compatibility and provider-orchestration convergence remain
+  separate work. Request-validation errors are fixed and do not
   echo rejected body/query values; an outer HTTP boundary also contains
   pre-response-start JSON rendering failures. Current HTTP endpoint, direct
   stateless/session transaction and restore, provider, PDF/OCR fallback, and

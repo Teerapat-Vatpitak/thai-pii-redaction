@@ -27,6 +27,8 @@ export interface ExcelReplacement {
   values: unknown[][];
   changedCells: Array<{ row: number; column: number }>;
   skipped: string[];
+  previewText: string;
+  copySafe: boolean;
 }
 
 export type ReplacementPayload = string | ExcelReplacement;

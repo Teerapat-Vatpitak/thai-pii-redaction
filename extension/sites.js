@@ -47,8 +47,16 @@ window.AIGUARD_SITES = (function () {
   }
 
   function readComposer(el) {
-    if (isTextField(el)) return (el.value || "").trim();
-    return (el.innerText || el.textContent || "").trim();
+    if (isTextField(el)) return el.value || "";
+    return el.innerText || el.textContent || "";
+  }
+
+  function sameComposerText(el, actual, expected) {
+    if (isTextField(el)) return actual === expected;
+    const normalizeLineEndings = function (text) {
+      return (text || "").replace(/\r\n?/g, "\n");
+    };
+    return normalizeLineEndings(actual) === normalizeLineEndings(expected);
   }
 
   // Write text into the composer so React / ProseMirror / Quill register it.
@@ -129,6 +137,7 @@ window.AIGUARD_SITES = (function () {
       );
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -157,6 +166,7 @@ window.AIGUARD_SITES = (function () {
       return nodes;
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -177,6 +187,7 @@ window.AIGUARD_SITES = (function () {
       );
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -206,6 +217,7 @@ window.AIGUARD_SITES = (function () {
       );
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -225,6 +237,7 @@ window.AIGUARD_SITES = (function () {
       return Array.from(document.querySelectorAll("div.prose, [class*='prose']"));
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -247,6 +260,7 @@ window.AIGUARD_SITES = (function () {
       );
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -259,6 +273,7 @@ window.AIGUARD_SITES = (function () {
       return [];
     },
     readComposer: readComposer,
+    sameComposerText: sameComposerText,
     writeComposer: writeComposer,
   };
 
@@ -293,6 +308,7 @@ window.AIGUARD_SITES = (function () {
         pickVisible: pickVisible,
         genericComposer: genericComposer,
         readComposer: readComposer,
+        sameComposerText: sameComposerText,
         writeComposer: writeComposer,
       },
     };

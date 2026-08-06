@@ -23,11 +23,20 @@ The historical submission capability concept was:
 4. `roundtrip` - optional protected Pathumma call with mapping lifetime limited
    to the job.
 
-The current sibling port does not expose that list verbatim. Its nginx
+Current source has two distinct candidates and neither defines the official
+contract:
+
+- main-repository `app.hosted` is strict HTTP v2 and hard-allows health,
+  detect, analyze, guard, sanitize, reidentify, and roundtrip. Its
+  sanitize/reidentify pair retains process session state; roundtrip is
+  request-transient;
+- the separately versioned sibling remains HTTP v1. Its nginx
 exact-match allowlist contains `health`, `detect`, `guard`, `roundtrip`,
 `analyze-report`, and `redact-pdf`, plus `/v1/<same>` aliases. It intentionally
-returns 404 for `/sanitize` and `/reidentify`. This describes the current local
-port configuration, not a completed official platform deployment.
+returns 404 for `/sanitize` and `/reidentify`.
+
+These describe local candidates, not a completed official platform deployment
+or approval of either route set.
 
 Local session-based re-identification remains available to the desktop and
 extension product. It is not assumed to survive platform container restarts or
@@ -57,17 +66,18 @@ service-access messages received between 25 and 27 July establish that:
   yet answer whether this API-only submission must add a frontend.
 
 GitLab sign-in and group membership are verified, with Maintainer rights in the
-team subgroup, so the team creates its own project rather than waiting for a
-staff-provisioned template. The deployment is built as a separate port
-repository, not pushed from this repo (see "Port repository" below). No project
-has yet been pushed to GitLab; that step is owner-gated.
+team subgroup. Historical deployment preparation used the separate port
+repository described below; the new main-repository candidate does not migrate,
+replace, or authorize a push of that sibling. No project has yet been pushed to
+GitLab; repository selection and any push remain owner-gated.
 
 The platform also issued a separate LLM endpoint, model identifier, and secret
 through a private channel. This repository records only that they exist.
-Request/response compatibility and authentication placement are now settled in
-code — the gateway speaks an OpenAI-compatible `/v1` protocol, the `tokenmind`
-provider drives it through `pii_redactor/openai_compat.py`, and the 2026-07-28
-acceptance run reached the live model twice — while quota, acceptable-use
+The dated developer-machine candidate established OpenAI-compatible
+request/response behavior and server-side provider-auth placement: the gateway
+speaks a `/v1` protocol, the `tokenmind` provider drives it through
+`pii_redactor/openai_compat.py`, and the 2026-07-28 acceptance run reached the
+live model twice. Quota, acceptable-use
 policy, logging policy, timeout ownership, and an acceptance run originating
 from platform infrastructure rather than a developer machine are still open.
 Credentials, account identifiers, and provider bodies must never be copied into
@@ -84,8 +94,9 @@ delivery path.
 
 ## Port repository (deployment vehicle)
 
-The AI for Thai deployment is built in a **separate port repository**
-(`aiguard-aift`, targeted at the event's GitLab), not pushed from this repo.
+Historical deployment preparation exists in a **separate port repository**
+(`aiguard-aift`, targeted at the event's GitLab). It has not been pushed or
+accepted as an official deployment.
 This repo keeps its local-first role (extension, desktop, CLI, Office add-in);
 the port is a thin service shell around a vendored slice of the core:
 
@@ -101,8 +112,8 @@ the port is a thin service shell around a vendored slice of the core:
   literal transient mapping internally, but its returned token-bearing
   `entities[]` uses original-space offsets and permits reconstruction against
   caller-held source text. Hosted response minimization therefore remains open.
-  The sibling remains separately versioned; it must not be described as
-  migrated to this campaign's future v2.
+  The sibling remains separately versioned; it is not migrated to the
+  main-repository HTTP v2 contract.
 
 The pre-F09 port passed a full local Docker phase: the ก-ฌ checklist, fail-loud
 and 503 failure modes, and a service-level soak (an 8-way 10-minute run with no
@@ -115,13 +126,14 @@ records the decision and the thaillm-8b detector numbers.
 
 ## Measured container profile
 
-Measured from the production Dockerfile on 22 July 2026, using the default
-offline CRF engine:
+Measured from the then-current Dockerfile on 22 July 2026, using the default
+offline CRF engine. These numbers predate the `app.hosted` entrypoint and route
+surface and are historical until the exact current image is rebuilt:
 
 | Item | Observation | Local target / platform use |
 |---|---|---|
 | Model | PyThaiNLP `thainer-1.4` CRF, about 1.8 MB | CPU only; baked into image; runtime downloads disabled. |
-| Image | Current local image is 115,898,138 bytes after excluding non-service build context. | Pull from a registry; do not build optional ML/OCR extras into this image. |
+| Image | The dated local image was 115,898,138 bytes after excluding non-service build context. | Pull from a registry; do not build optional ML/OCR extras into this image. |
 | Startup | Health ready in about 2 seconds locally | Platform readiness timeout should leave margin for slower hosts. |
 | Memory | A post-workload Docker sample used 177.2 MiB of a constrained 1 GiB container; the earlier high-water observation was about 198 MB. | Request 1 GB RAM; 512 MB is a measured minimum test, not the production request. |
 | CPU | Eight concurrent feature requests completed on one constrained vCPU without OOM | Request 1 vCPU initially; measure platform p95 before changing. |
@@ -142,13 +154,17 @@ PII-free log scan. It is local readiness evidence only.
 The platform receives the raw request before AI Guard can sanitize it. The
 intended hosted boundaries, with current hardening exceptions called out, are:
 
-- mappings remain transient and are not persisted;
-- normal hosted results must not export explicit mapping DTOs; current main
-  and the sibling port's v1 roundtrip both consume the literal mapping
-  dictionary internally, but still return token-bearing entity projections
-  with original-space offsets that permit reconstruction against caller-held
-  source text. Response minimization, packaged acceptance, and
-  official-platform acceptance remain unverified;
+- canonical mappings are not deliberately written to disk. Main
+  sanitize/reidentify retain an in-process session mapping until lazy expiry,
+  eviction, or restart and expose no hosted disposal route; main roundtrip and
+  sibling roundtrip use request-transient mappings;
+- normal hosted results must not export explicit mapping DTOs. Current main v2
+  uses minimized projections without token/original pairs or reconstructable
+  original-space entities. The sibling port's v1 roundtrip still returns
+  token-bearing entity projections with original-space offsets that permit
+  reconstruction against caller-held source text. Main exact-image acceptance,
+  sibling response minimization, and official-platform acceptance remain
+  unverified;
 - application logs and public errors must not contain request text, raw PII, or
   bearer authority. Current-source shared-server API callers use fresh
   non-authorizing operation UUIDs rather than live restoration session IDs,
@@ -172,9 +188,12 @@ deployment.
 
 ## Official HTTP adapter boundary
 
-The main FastAPI server remains local-first. The separate port repository
-already realizes a local hosted shell without forking the core, but its exact
-public contract and platform behavior remain unconfirmed:
+The broad main FastAPI server remains local-first. `app.hosted` narrows it to a
+seven-route, API-key-protected v2 candidate, but it still uses `/api/health` and
+does not by itself implement or prove the platform prefix/proxy contract. The
+separate port repository realizes a different v1 nginx-backed shell. The table
+below describes that historical sibling candidate; neither candidate's public
+contract or platform behavior is confirmed:
 
 | Area | Local candidate implementation | Still unconfirmed or unaccepted |
 |---|---|---|
@@ -186,11 +205,12 @@ public contract and platform behavior remain unconfirmed:
 | Frontend | The sibling includes a five-scene product page. | Whether that frontend is required and accepted. |
 | Deployment | The sibling includes platform-shaped Compose/CI, loopback publication, health, limits, masked variables, and bounded logs. | Exact repository/registry/template rules and official platform acceptance. |
 
-Do not change detection, masking, transient mapping, residual leak checks,
-provider calls, or restoration to satisfy this layer. Do not expose
-`/api/reidentify`, mapping-return options, demo routes, shutdown/session
-controls, or PDF endpoints unless the official contract explicitly requires
-and protects them.
+Do not change detection, masking, mapping lifecycle, residual leak checks,
+provider calls, or restoration to satisfy this layer. Main's generic candidate
+currently includes reidentify, while the sibling excludes it; neither choice
+is official approval. Do not expose mapping-return options, demo routes,
+shutdown/session controls, PDF endpoints, or any other operation on the
+official surface unless the confirmed contract requires and protects it.
 
 The remaining answers are narrow but security-sensitive: approved operations,
 caller-authentication/header rules, payload and timeout limits, proxy
@@ -248,10 +268,11 @@ the design to the old queue assumption.
 1. Build the exact commit and identify the image by immutable digest.
 2. Boot with no runtime model download and pass the platform health check.
 3. Exercise every approved public operation with synthetic Thai input and
-   validate UTF-8 spans and strict response projections. The current local port
-   candidate has a six-route allowlist that includes roundtrip and
-   analyze-report and deliberately excludes sanitize and reidentify; this is a
-   candidate, not the official operation contract.
+   validate UTF-8 spans and strict response projections. Main `app.hosted` has
+   a seven-route v2 allowlist including stateful sanitize/reidentify; the
+   sibling v1 candidate has a different six-route allowlist that includes
+   roundtrip and analyze-report and excludes sanitize/reidentify. Neither is
+   the official operation contract.
 4. Confirm that no approved response exports a mapping.
 5. Complete a protected roundtrip through the configured downstream provider
    if outbound access and credentials are approved. The current local port uses

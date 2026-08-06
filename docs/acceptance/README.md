@@ -47,8 +47,9 @@ The open hardening recertification boundaries are:
 - no composer, clipboard, document, or provider write after any residual-PII
   signal;
 - authenticated local backend identity before a PII-bearing request;
-- no live session ID or other bearer authority in audit filenames, entries,
-  stdout, public projections, or retained evidence;
+- no live restoration session ID or other bearer authority in audit filenames,
+  entries, stdout, public audit/log projections, or retained evidence; local
+  operation responses may return the opaque `session_id` needed for restoration;
 - request-driven expiry, session continuity, and authenticated disposal;
 - whole-request failure for any failed or incomplete explicitly selected TNER
   chunk;
@@ -69,10 +70,10 @@ live-provider, release, deployment, and official-platform recertification
 remain open.
 
 The F-09 record closes current-source automated outbound residual blocking and
-generic sidecar smoke checks only. HTTP v2 response minimization and strict
-client schemas, installed/real-host/live-provider evidence, authenticated local
-process identity, lifecycle disposal, and the other hardening boundaries
-remain open.
+generic sidecar smoke checks only. Current unreleased source now implements
+HTTP v2 response minimization and strict first-party client schemas; matching
+packaged/installed, real-host, live-provider, authenticated local-process,
+lifecycle-disposal, and official-platform evidence remains open.
 
 ## Automated HTTP and live-provider run
 
@@ -117,10 +118,15 @@ uv pip check --python .venv-full\Scripts\python.exe
 Keep this environment outside release packaging. ML/OCR are optional product
 paths and remain excluded from the frozen desktop sidecar and hosted core image.
 
+The checked storefront/PDF boxes below describe their cited 2026-07 or
+published-2.5.0 candidates. They are historical evidence, not acceptance of the
+current HTTP-v2, outbound-policy, or token-identity source candidate. Only a new
+dated record against the exact candidate can promote those paths.
+
 ## Extension checklist
 
-Precondition: current `extension/` is loaded unpacked in Chrome and the exact
-candidate backend is healthy.
+Historical precondition: the exact 2026-07-23 `extension/` candidate is loaded
+unpacked in Chrome and its matching candidate backend is healthy.
 
 - [x] On every declared site, the AI Guard bar is visible once and does not
   cover the composer/send controls.
@@ -138,15 +144,16 @@ candidate backend is healthy.
 Declared sites: ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM/Z.ai. A DOM
 fixture test is not a substitute for one current live-site smoke per release.
 
-Candidate follow-up, recorded on 2026-07-24: all six declared sites completed
-the basic Mask smoke; backend-offline blocking and same-session token
-consistency also passed. The generic side-panel Mask was **not** re-run in that
-follow-up, so its prior evidence remains carry-forward only. See the
+The exact candidate follow-up recorded on 2026-07-24 completed the basic Mask
+smoke on all six declared sites; backend-offline blocking and same-session
+token consistency also passed. The generic side-panel Mask was **not** re-run
+in that follow-up, so its prior evidence remains carry-forward only. See the
 [candidate record](2026-07-24-storefront-candidate-run.md); do not infer an
 unrecorded Restore/side-panel result from the all-sites Mask smoke.
-The only candidate change under `extension/` is the synchronized manifest
-version, so the checked Restore, side-panel, and screenshot rows retain the
-2026-07-23 real-browser evidence rather than claiming a new run.
+Between those exact 2026-07-23 and 2026-07-24 candidates, the only
+`extension/` change was the synchronized manifest version. The checked Restore,
+side-panel, and screenshot rows therefore retain the 2026-07-23 real-browser
+evidence rather than claiming a new run. Current source has changed since both.
 
 ## Desktop checklist
 
@@ -185,13 +192,14 @@ observations. See the [Issue #69 run record](2026-08-02-desktop-2.5.0-issue-69-r
 - [x] PDF upload shows before/after previews and offers a redacted download.
 - [x] At projector width and at less than 900 px, every control remains usable.
 
-The 2026-07-24 candidate follow-up covered the basic live playground flow and
+The exact 2026-07-24 candidate follow-up covered the basic live playground flow and
 the PII-free HTTP runner. It also added headless regressions for report and
 redacted-PDF download wiring. Those tests do not prove that a browser completed
 or opened either download; browser artifact evidence is carried forward from
-the 2026-07-23 storefront run. No production playground/PDF implementation
-changed between that release and this candidate; 2.5.0 adds the missing
-headless artifact regressions.
+the exact 2026-07-23 storefront run. Between those two historical candidates,
+no production playground/PDF implementation changed; the later candidate added
+the missing headless artifact regressions. Current source has changed since
+both.
 
 ## Office Add-in checklist
 
@@ -324,9 +332,9 @@ On the 2026-07-24 candidate, the HTTP runner passed the text-layer redaction,
 preview payload, flattened-output, and non-PDF checks. Browser download/open,
 visual coverage, oversized-upload, OCR-unavailable, and temporary-file
 observations are carry-forward evidence from 2026-07-23 unless explicitly
-rerun on a clean release candidate. The PDF implementation is byte-for-byte
-unchanged from that accepted release path; the exact candidate additionally
-repeated the HTTP redaction/preview/flattening and invalid-file gates.
+rerun on a clean release candidate. Current HTTP-v2 response projection and
+client changes invalidate any claim that this composition was rerun unchanged;
+exact-candidate package/browser/PDF acceptance remains open.
 
 ## Live provider acceptance semantics
 

@@ -38,6 +38,7 @@ def _service_state(svc):
                 "created": session.created,
                 "last_access": session.last_access,
                 "entities": [asdict(entity) for entity in session.entities],
+                "trusted_sanitized_digests": session.trusted_sanitized_digests,
                 "vault": {
                     "table": {
                         entity_id: asdict(record)
@@ -47,6 +48,7 @@ def _service_state(svc):
                     "last_access": session.vault._last_access,
                     "idle_timeout_s": session.vault._idle_timeout_s,
                     "session_id": session.vault.session_id,
+                    "token_namespace": session.vault._token_namespace,
                     "clear_epoch": session.vault._clear_epoch,
                     "audit_entries": [entry._asdict() for entry in session.vault._audit_entries],
                 },
@@ -189,10 +191,10 @@ def test_drop_blocks_while_restore_is_in_flight(monkeypatch):
     release = threading.Event()
     real_reverse = svc_mod.reverse_map
 
-    def slow_reverse(response, registry, vault):
+    def slow_reverse(response, registry, vault, **kwargs):
         in_restore.set()
         release.wait(timeout=5)
-        return real_reverse(response, registry, vault)
+        return real_reverse(response, registry, vault, **kwargs)
 
     monkeypatch.setattr(svc_mod, "reverse_map", slow_reverse)
 
@@ -242,8 +244,13 @@ def test_sanitize_token_mode_v2_shape():
     assert isinstance(out, SanitizeOutcome)
     assert "081-234-5678" not in out.sanitized_text
     assert "somchai@example.com" not in out.sanitized_text
-    assert "[โทรศัพท์_1]" in out.sanitized_text
-    assert "[อีเมล_1]" in out.sanitized_text
+    namespace = svc._sessions[out.session_id].vault.token_namespace
+    phone_token = next(e["token"] for e in out.entities if e["data_type"] == "PHONE")
+    email_token = next(e["token"] for e in out.entities if e["data_type"] == "EMAIL")
+    assert phone_token.startswith(f"[โทรศัพท์_{namespace}_")
+    assert email_token.startswith(f"[อีเมล_{namespace}_")
+    assert phone_token.endswith("_1]") and email_token.endswith("_1]")
+    assert phone_token in out.sanitized_text and email_token in out.sanitized_text
     for e in out.entities:
         assert set(e) == {"start", "end", "data_type", "redact_type", "token"}
     assert out.entity_type_counts["PHONE"] == 1
@@ -486,7 +493,45 @@ def test_failed_sanitize_does_not_consume_the_next_token_ordinal(monkeypatch):
     email_token = next(
         entity["token"] for entity in after.entities if entity["data_type"] == "EMAIL"
     )
-    assert email_token == "[อีเมล_1]"
+    namespace = svc._sessions[existing.session_id].vault.token_namespace
+    assert email_token.startswith(f"[อีเมล_{namespace}_")
+    assert email_token.endswith("_1]")
+
+
+def test_token_nonce_exhaustion_is_value_free_and_does_not_publish(monkeypatch):
+    import pii_redactor.anonymizer.anonymizer as anonymizer_mod
+    import pii_redactor.session_vault as vault_mod
+    from pii_redactor.anonymizer.token_generator import generate_token
+
+    namespace = "a" * 25
+    nonce = "n" * 20
+    collision = generate_token("EMAIL", 1, namespace=namespace, nonce=nonce)
+    source = f"a@b.co {collision}"
+    entity = Entity(
+        entity_id="synthetic-entity",
+        redact_type="FP",
+        data_type="EMAIL",
+        span=(0, 6),
+        score=1.0,
+        original_text="a@b.co",
+    )
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: namespace)
+    monkeypatch.setattr(anonymizer_mod, "new_token_nonce", lambda: nonce)
+    monkeypatch.setattr(stateless_mod, "detect_all", lambda _text: [entity])
+    service, _ = _svc()
+
+    with pytest.raises(
+        OutboundLeakError,
+        match=r"^outbound residual risk: \['ANONYMIZE_FAILED'\]$",
+    ) as excinfo:
+        service.sanitize(source, mode="token")
+
+    assert service.session_count == 0
+    assert excinfo.value.leak_types == ["ANONYMIZE_FAILED"]
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    assert "a@b.co" not in str(excinfo.value)
+    assert collision not in str(excinfo.value)
 
 
 def test_residual_error_graph_drops_input_and_staged_service_state(monkeypatch):
@@ -741,8 +786,7 @@ def test_restore_round_trip_token_mode():
     assert "081-234-5678" in r.restored_text
     assert "a@b.co" in r.restored_text
     assert r.replaced_count >= 2
-    tokens = {p["token"] for p in r.replaced}
-    assert any(t.startswith("[โทรศัพท์_") for t in tokens)
+    assert not hasattr(r, "replaced")
     assert r.leftover_tokens == []
 
 
@@ -778,6 +822,31 @@ def test_restore_warns_on_ai_generated_pii():
     assert any(w.startswith("ai_generated_pii") for w in r.warnings)
 
 
+def test_restore_warns_when_ai_duplicates_a_known_original():
+    svc, _ = _svc()
+    original = "081-234-5678"
+    out = svc.sanitize(f"เบอร์ {original}")
+    reply = f"{out.sanitized_text} สำรอง {original}"
+
+    restored = svc.restore(out.session_id, reply)
+
+    assert restored.restored_text.count(original) == 2
+    assert restored.generated_pii_count >= 1
+    assert "ai_generated_pii" in restored.warnings
+
+
+def test_restore_warns_on_ai_generated_text_based_pii():
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+    reply = f"{out.sanitized_text} และ นายสมหญิง ทดสอบดี"
+
+    restored = svc.restore(out.session_id, reply)
+
+    assert restored.leftover_tokens == []
+    assert restored.generated_pii_count == 1
+    assert "ai_generated_pii" in restored.warnings
+
+
 def test_restore_warning_discards_retained_validator_exception(monkeypatch):
     from pii_redactor.output_validator import PIILeakError as OutputPIILeakError
 
@@ -789,12 +858,129 @@ def test_restore_warning_discards_retained_validator_exception(monkeypatch):
         raise retained_error
 
     monkeypatch.setattr(svc_mod, "validate_output", fail_validation)
-    restored = svc.restore(out.session_id, out.sanitized_text)
+    restored = svc.restore(out.session_id, out.sanitized_text + " safe")
 
     assert "ai_generated_pii" in restored.warnings
     assert retained_error.__traceback__ is None
     assert retained_error.__cause__ is None
     assert retained_error.__context__ is None
+
+
+def test_restore_exact_successful_sanitize_skips_generated_output_scan(monkeypatch):
+    svc, _ = _svc()
+    out = svc.sanitize("เบอร์ 081-234-5678")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("known sanitized output must not need a generated-output scan")
+
+    monkeypatch.setattr(svc_mod, "validate_output", forbidden)
+
+    restored = svc.restore(out.session_id, out.sanitized_text)
+
+    assert restored.restored_text == "เบอร์ 081-234-5678"
+    assert restored.generated_pii_count == 0
+
+
+@pytest.mark.parametrize("replacement_mode", ["token", "surrogate"])
+@pytest.mark.parametrize("lifecycle", ["drop", "restart", "expiry", "eviction"])
+def test_replacement_session_cannot_silently_restore_an_old_token_to_new_data(
+    monkeypatch,
+    lifecycle,
+    replacement_mode,
+):
+    import pii_redactor.session_vault as vault_mod
+
+    namespaces = iter(("a" * 25, "f" * 25))
+    monkeypatch.setattr(vault_mod, "new_token_namespace", lambda: next(namespaces))
+    service, clock = _svc(cap=1, ttl_s=10)
+    old = service.sanitize("รายการเดิม โทร 081-234-5678", mode="token")
+    old_masked_text = old.sanitized_text
+
+    if lifecycle == "drop":
+        assert service.drop(old.session_id)
+        replacement = service.sanitize(
+            "รายการใหม่ โทร 089-765-4321",
+            mode=replacement_mode,
+        )
+    elif lifecycle == "restart":
+        service, _ = _svc(cap=1, ttl_s=10)
+        replacement = service.sanitize(
+            "รายการใหม่ โทร 089-765-4321",
+            mode=replacement_mode,
+        )
+    elif lifecycle == "expiry":
+        clock["t"] += 11
+        with pytest.raises(SessionExpiredError):
+            service.restore(old.session_id, old_masked_text)
+        replacement = service.sanitize(
+            "รายการใหม่ โทร 089-765-4321",
+            mode=replacement_mode,
+        )
+    else:
+        replacement = service.sanitize(
+            "รายการใหม่ โทร 089-765-4321",
+            mode=replacement_mode,
+        )
+
+    restored = service.restore(replacement.session_id, old_masked_text)
+
+    assert old.sanitized_text != replacement.sanitized_text.replace("รายการใหม่", "รายการเดิม")
+    assert restored.restored_text == old_masked_text
+    assert restored.replaced_count == 0
+    assert restored.foreign_replacement_count == 1
+    assert "foreign_tokens:1" in restored.warnings
+
+
+def test_foreign_future_token_cannot_become_trusted_later_in_same_session(
+    monkeypatch,
+):
+    import pii_redactor.anonymizer.anonymizer as anonymizer_mod
+    from pii_redactor.anonymizer.token_generator import generate_token
+
+    nonces = iter(("a" * 20, "b" * 20))
+    monkeypatch.setattr(anonymizer_mod, "new_token_nonce", lambda: next(nonces))
+    service, _ = _svc()
+    first = service.sanitize("โทร 081-234-5678", mode="token")
+    namespace = service._sessions[first.session_id].vault.token_namespace
+    predicted = generate_token(
+        "EMAIL",
+        1,
+        namespace=namespace,
+        nonce="z" * 20,
+    )
+    retained_reply = f"{first.sanitized_text} {predicted}"
+
+    before = service.restore(first.session_id, retained_reply)
+    assert before.foreign_replacement_count == 1
+
+    later = service.sanitize(
+        "อีเมล a@b.co",
+        session_id=first.session_id,
+        mode="token",
+    )
+    email_token = next(item["token"] for item in later.entities if item["data_type"] == "EMAIL")
+    after = service.restore(first.session_id, retained_reply)
+
+    assert email_token != predicted
+    assert "a@b.co" not in after.restored_text
+    assert predicted in after.restored_text
+    assert after.foreign_replacement_count == 1
+    assert "foreign_tokens:1" in after.warnings
+
+
+def test_session_bounds_trusted_sanitized_digests():
+    svc, _ = _svc()
+    out = None
+    for index in range(svc_mod._TRUSTED_SANITIZED_DIGEST_LIMIT + 3):
+        out = svc.sanitize(
+            f"ครั้ง {index} โทร 081-234-{5600 + index}",
+            session_id=None if out is None else out.session_id,
+        )
+
+    assert out is not None
+    session = svc._sessions[out.session_id]
+    assert len(session.trusted_sanitized_digests) == svc_mod._TRUSTED_SANITIZED_DIGEST_LIMIT
+    assert len(set(session.trusted_sanitized_digests)) == len(session.trusted_sanitized_digests)
 
 
 def test_restore_multi_turn_uses_accumulated_registry():
@@ -827,7 +1013,7 @@ def test_restore_error_graph_drops_reply_and_live_session_state(monkeypatch, ent
     reply = f"คำตอบ {out.sanitized_text}"
     retained_error = RuntimeError("synthetic restore failure")
 
-    def fail_restore(response, _registry, active_vault):
+    def fail_restore(response, _registry, active_vault, **_kwargs):
         hidden_reply = response.text
         hidden_service = svc
         hidden_session = session
@@ -871,7 +1057,7 @@ def test_restore_vault_timeout_translation_has_no_exception_context(monkeypatch,
     reply = f"คำตอบ {out.sanitized_text}"
     retained_timeout = VaultTimeoutError("synthetic vault timeout")
 
-    def fail_restore(response, _registry, active_vault):
+    def fail_restore(response, _registry, active_vault, **_kwargs):
         hidden_reply = response.text
         hidden_service = svc
         hidden_session = session

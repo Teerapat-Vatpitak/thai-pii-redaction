@@ -2,17 +2,11 @@
 // Fetches go through the service worker so they share its host permissions.
 
 const $ = (id) => document.getElementById(id);
+const CONTRACT = globalThis.AIGUARD_CONTRACT_V2;
+if (!CONTRACT) throw new Error("HTTP v2 contract helpers are unavailable");
 let sessionId = null;
 let maskedText = "";
-
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+let backendReady = false;
 
 function send(message) {
   return new Promise((resolve) => {
@@ -52,23 +46,24 @@ document.querySelectorAll(".seg__opt").forEach((b) =>
   })
 );
 
-// wrap each detected pseudonym in a chip so the user sees what was masked
-function highlightTokens(text, entities, mode) {
-  let html = escapeHtml(text);
-  const cls = mode === "surrogate" ? "chip chip--surrogate" : "chip chip--token";
-  const tokens = [...new Set((entities || []).map((e) => e.token).filter(Boolean))].sort(
-    (a, b) => b.length - a.length
-  );
-  for (const t of tokens) {
-    const et = escapeHtml(t);
-    html = html.split(et).join(`<span class="${cls}">${et}</span>`);
-  }
-  return html;
-}
-
 async function checkHealth() {
   const r = await send({ type: "health" });
-  const up = r && r.ok;
+  const up =
+    r &&
+    r.ok &&
+    r.data &&
+    r.data.status === "ok" &&
+    r.data.contract_version === 2 &&
+    r.data.capabilities &&
+    r.data.capabilities.api_key_required === false;
+  backendReady = Boolean(up);
+  $("maskBtn").disabled = !backendReady;
+  if (!backendReady) {
+    sessionId = null;
+    maskedText = "";
+    $("copyBtn").hidden = true;
+    $("restoreBtn").disabled = true;
+  }
   $("dot").className = "dot " + (up ? "up" : "down");
   $("conn").textContent = up
     ? "พร้อมใช้งาน v" + ((r.data && r.data.version) || "?")
@@ -76,27 +71,50 @@ async function checkHealth() {
 }
 
 async function doMask() {
-  const text = $("input").value.trim();
-  if (!text) {
+  if (!backendReady) {
+    setMsg("backend ยังไม่พร้อมใช้งาน", "err");
+    return;
+  }
+  const text = $("input").value;
+  if (!text.trim()) {
     setMsg("ใส่ข้อความก่อน", "err");
     return;
   }
   setMsg("กำลังปกปิด...");
   $("maskBtn").disabled = true;
+  maskedText = "";
+  $("copyBtn").hidden = true;
+  $("maskedWrap").hidden = true;
+  $("restoreBtn").disabled = true;
   const mode = currentMode();
   // Reuse the panel's own session so multi-turn token numbering stays consistent
   // (the panel's message has no tab, so background.js can't key reuse on tabId;
   // we must pass session_id explicitly). EXT-1.
   const r = await send({ type: "sanitize", text, mode, session_id: sessionId });
-  $("maskBtn").disabled = false;
+  $("maskBtn").disabled = !backendReady;
   if (!r || !r.ok) {
     setMsg(r && r.status === 0 ? "backend ยังไม่ทำงาน" : "ปกปิดไม่สำเร็จ", "err");
     return;
   }
+  if (
+    !r.data ||
+    typeof r.data.sanitized_text !== "string" ||
+    r.data.sanitized_text.length === 0 ||
+    !r.data.safety ||
+    r.data.safety.status !== "pass" ||
+    r.data.safety.residual_count !== 0
+  ) {
+    setMsg("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย", "err");
+    return;
+  }
   sessionId = r.data.session_id;
   maskedText = r.data.sanitized_text;
-  $("masked").innerHTML = highlightTokens(maskedText, r.data.entities, mode);
-  $("count").textContent = "ปกปิด " + (r.data.entities || []).length + " รายการ";
+  $("masked").innerHTML = CONTRACT.renderHighlightedText(
+    maskedText,
+    r.data.highlights,
+    mode
+  );
+  $("count").textContent = "ปกปิด " + r.data.replacement_count + " รายการ";
   $("maskedWrap").hidden = false;
   $("copyBtn").hidden = false;
   $("restoreBtn").disabled = false;
@@ -104,8 +122,8 @@ async function doMask() {
 }
 
 async function doRestore() {
-  const text = $("reply").value.trim();
-  if (!text) {
+  const text = $("reply").value;
+  if (!text.trim()) {
     setMsg("วางคำตอบจาก AI ก่อน", "err");
     return;
   }
@@ -118,24 +136,34 @@ async function doRestore() {
     setMsg("คืนค่าไม่สำเร็จ", "err");
     return;
   }
+  if (!CONTRACT.restorationIsComplete(r.data)) {
+    $("out").textContent = "";
+    $("out").hidden = true;
+    const warningCount = r.data.warnings.reduce(
+      (sum, warning) => sum + warning.count,
+      0
+    );
+    setMsg(
+      "คืนค่าไม่ครบ เหลือ " +
+        r.data.leftover_count +
+        " รายการ" +
+        (warningCount ? " และมีคำเตือน " + warningCount + " รายการ" : ""),
+      "err"
+    );
+    return;
+  }
   $("out").hidden = false;
   $("out").textContent = r.data.restored_text;
-  const leftover = (r.data.leftover_tokens || []).length;
-  const foreign = (r.data.warnings || []).reduce((n, w) => {
-    const m = /^foreign_tokens:(\d+)$/.exec(w);
-    return m ? n + Number(m[1]) : n;
-  }, 0);
-  setMsg(
-    "คืนค่า " + r.data.replaced_count + " รายการ" +
-      (leftover ? " เหลือ " + leftover : "") +
-      (foreign ? " โทเคนแปลกปลอม " + foreign : ""),
-    leftover || foreign ? "err" : "ok"
-  );
+  setMsg("คืนค่า " + r.data.replaced_count + " รายการ", "ok");
 }
 
 $("maskBtn").addEventListener("click", doMask);
 $("restoreBtn").addEventListener("click", doRestore);
 $("copyBtn").addEventListener("click", async () => {
+  if (!backendReady || !maskedText) {
+    setMsg("ยังไม่มีผลลัพธ์ที่ผ่านการตรวจความปลอดภัย", "err");
+    return;
+  }
   try {
     await navigator.clipboard.writeText(maskedText);
     const btn = $("copyBtn");
@@ -186,6 +214,7 @@ renderThemeBtn();
 // The side panel stays open, so unlike the old popup we can't rely on a fresh
 // load to re-check the backend. Poll lightly, and re-check whenever the panel
 // regains focus/visibility, so the status dot tracks the backend going up/down.
+$("maskBtn").disabled = true;
 checkHealth();
 setInterval(checkHealth, 8000);
 document.addEventListener("visibilitychange", () => {

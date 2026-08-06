@@ -34,6 +34,12 @@ describe("ExcelHostAdapter cell safety", () => {
     expect(masked.values).toEqual([["[alpha]", 42, "calculated"], [45123, "", "[beta]"]]);
     expect(restored.values).toEqual([["restored-alpha", 42, "calculated"], [45123, "", "restored-beta"]]);
     expect(masked.skipped).toHaveLength(4);
+    expect(masked.copySafe).toBe(false);
+    expect(masked.previewText).toContain("[alpha]");
+    expect(masked.previewText).toContain("[beta]");
+    expect(masked.previewText).not.toContain("42");
+    expect(masked.previewText).not.toContain("45123");
+    expect(masked.previewText).not.toContain("calculated");
   });
 
   it.each([
@@ -65,6 +71,8 @@ describe("ExcelHostAdapter cell safety", () => {
       values: selectedRange.values.map((row) => [...row]),
       changedCells: [changedCell],
       skipped: [],
+      previewText: "",
+      copySafe: false,
     };
     replacement.values[changedCell.row] ??= [];
     replacement.values[changedCell.row]![changedCell.column] = "[TOKEN]";
