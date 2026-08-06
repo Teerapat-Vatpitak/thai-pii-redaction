@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -137,6 +137,41 @@ Post-merge
 and
 [cross-platform smoke passed 2/2](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31094033956).
 
+Phase 8 first-unit status: **explicit-TNER source hardening in progress**.
+Current source makes the opt-in remote engine fail the whole operation on any
+failed request or incomplete ordered token stream. Configuration/dependency
+and network/upstream unavailability become bounded `ner_unavailable` metadata;
+malformed, unequal, misaligned, or truncated responses become
+`ner_incomplete`. Earlier chunk candidates are discarded, later chunks and
+providers are not called, no local session is published, and no PDF output is
+retained. Local/default engines keep their structural skip-and-continue
+behavior. The same fixed metadata is contained across direct detection,
+analysis, local-session and stateless sanitize, roundtrip, HTTP v2, the hosted
+allowlist, PDF cleanup, and the version-1 worker envelope. This is automated
+source evidence using synthetic failures; no live TNER credential or call was
+used, so fresh response-shape and end-to-end mapping acceptance remains open.
+The native broker is not specified sufficiently to implement without an
+owner-approved ADR; shared provider orchestration and authoritative PDF
+source-to-box intervals remain separate Phase 8 units.
+
+Phase 8 local checkpoint: the final Python suite passed 2,299 tests with five
+optional OpenCV skips and the existing Starlette/httpx deprecation warning.
+The focused TNER/core/adapter matrix passed 411, the local span/window matrix
+passed 179, documentation passed 6, and Ruff, version `2.5.0`,
+release-readiness, and `git diff --check` are green. A read-only
+privacy/correctness review found whitespace-shortened spans, fail-open
+malformed/unknown BIO streams, retry-category drift, provider-controlled label
+logging, and unpinned populated-stage cleanup; all were fixed and the exact
+current diff re-review found no remaining blocker. The formal performance
+command remains red only on the older sanitize anchor: detect `6.01 ms`,
+sanitize `15.76 ms`, restore `0.25 ms`, PDF `73.17 ms`, and resident memory
+`152.9 MiB`. Three alternating exact-base pairs measured candidate/base
+medians of detect `6.07/5.96 ms` (`+1.8%`), sanitize `16.13/15.96 ms`
+(`+1.1%`), restore `0.25/0.24 ms` (`+4.2%`), PDF `73.61/74.36 ms` (`-1.0%`),
+and resident memory `153.5/153.3 MiB` (`+0.1%`). The branch itself is inside
+the 20% time and 15% memory budgets; the unchanged committed baseline and the
+previously recorded sanitize-anchor explanation remain unchanged.
+
 Corrective local checkpoint: the focused lifecycle/core/authentication/API set
 passed 312; the hosted/API/shutdown/cleanup matrix passed 526; the full Python
 suite passed 2,255 with five optional OpenCV skips; documentation passed 6;
@@ -161,10 +196,11 @@ live-provider, official-platform, or Phase 8 trust-boundary gate.
 
 These changes do not close the remaining baseline gaps. The fixed localhost
 data plane does not authenticate the process that owns the port; explicit TNER
-chunk failures can degrade to partial detection; shared provider roundtrip
-orchestration is not yet one choke point; and PDF boxes are selected through
-global original-text-fragment matching rather than authoritative source
-offsets. Their effects in real browsers, installed Desktop, Office hosts, live
+whole-operation failure has automated source coverage but no fresh live
+response/mapping evidence; shared provider roundtrip orchestration is not yet
+one choke point; and PDF boxes are selected through global
+original-text-fragment matching rather than authoritative source offsets.
+Their effects in real browsers, installed Desktop, Office hosts, live
 providers, or official platforms remain inferred or unverified unless a dated
 record exercises that composition.
 
@@ -251,7 +287,7 @@ applicable trade. The baseline was not moved.
 | Feature | Status | Evidence / remaining gate |
 |---|---|---|
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
-| AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Explicit TNER receives raw chunks, and current chunk exceptions can be skipped, allowing incomplete detection. Whole-request `ner_unavailable`/`ner_incomplete` behavior is not implemented or live-validated. |
+| AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries, while local/default engines retain skip-and-continue behavior. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
 | Browser extension | Hardening open | The exact 2026-07 unpacked candidate passed the recorded live Mask, backend-offline, closed-shadow Restore, consistency, and side-panel checks. That evidence remains historical and predates the current backend residual/v2/token-identity changes. Current source validates exact v2 health and operation schemas, rejects malformed/unsafe responses before a composer or copy write, and treats a stale namespaced token as unsafe. Authenticated backend identity, broker-backed lifecycle disposal, and fresh browser/package evidence remain open. Separately, raw text typed into an AI site's provider-controlled DOM can be observed before in-page Mask acts; the side panel is the stronger raw-entry boundary, and making it mandatory would require an owner product decision. |
 | Desktop app | Hardening open | The published Windows `2.5.0` installer passed its exact installed-artifact checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid for that artifact. It predates the current transaction/audit, outbound-policy, v2, and token-identity source changes. Current web and Rust hotkey paths validate strict v2 responses, reuse the prior session, retry fresh only for exact expiry/mode errors, and block unsafe clipboard writes. Authenticated broker work, session disposal, and new packaged/installed-artifact evidence remain open. |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |

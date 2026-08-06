@@ -651,6 +651,84 @@ def test_detect_operation():
     assert d["result"]["entities"], "expected entities"
 
 
+@pytest.mark.parametrize("operation", ["sanitize", "roundtrip", "detect", "analyze"])
+def test_explicit_tner_failure_uses_fixed_worker_v1_error(monkeypatch, operation):
+    import app.worker.handler as handler
+    from pii_redactor.detectors.ner_failure import NERFailureError
+
+    failure = NERFailureError("ner_incomplete", category="upstream", count=1)
+
+    def fail(*_args, **_kwargs):
+        failure.provider_body = THAI_TEXT
+        raise failure
+
+    if operation in {"sanitize", "roundtrip"}:
+        monkeypatch.setattr(handler, "sanitize_stateless", fail)
+    elif operation == "detect":
+        monkeypatch.setattr(handler, "detect_all", fail)
+    else:
+        monkeypatch.setattr(handler, "analyze_text", fail)
+
+    out = handle_job(
+        {
+            "job_id": f"j-tner-{operation}",
+            "operation": operation,
+            "payload": {"text": THAI_TEXT, "mode": "token", "provider": "fake"},
+        }
+    )
+
+    assert out["contract_version"] == CONTRACT_VERSION == 1
+    assert out["status"] == "error"
+    assert out["error"] == {
+        "type": "ner_incomplete",
+        "message": "explicit TNER result incomplete",
+    }
+    assert "result" not in out
+    assert THAI_TEXT not in str(out)
+    assert failure.__traceback__ is None
+    assert failure.__cause__ is None
+    assert failure.__context__ is None
+    assert failure.__dict__ == {}
+
+
+def test_worker_roundtrip_tner_unavailable_never_invokes_provider(monkeypatch):
+    import app.worker.handler as handler
+    from pii_redactor.detectors.ner_failure import NERFailureError
+
+    calls = []
+
+    class SpyProvider:
+        def complete(self, _system, _user, *, timeout=30.0):
+            calls.append(timeout)
+            return "provider must not run"
+
+    def fail_tner(*_args, **_kwargs):
+        raise NERFailureError("ner_unavailable", category="network", count=1)
+
+    monkeypatch.setitem(handler._PROVIDER_FACTORIES, "tner-spy", SpyProvider)
+    monkeypatch.setattr(handler, "sanitize_stateless", fail_tner)
+
+    out = handle_job(
+        {
+            "job_id": "j-tner-provider-block",
+            "operation": "roundtrip",
+            "payload": {
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "tner-spy",
+            },
+        }
+    )
+
+    assert out["status"] == "error"
+    assert out["error"] == {
+        "type": "ner_unavailable",
+        "message": "explicit TNER unavailable",
+    }
+    assert calls == []
+    assert THAI_TEXT not in str(out)
+
+
 def test_analyze_operation():
     a = handle_job({"job_id": "j3", "operation": "analyze", "payload": {"text": THAI_TEXT}})
     assert a["status"] == "ok"

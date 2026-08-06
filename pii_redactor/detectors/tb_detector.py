@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from pythainlp import sent_tokenize
 from pythainlp.tag import NER
 
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
 from pii_redactor.models import Entity
+from pii_redactor.safe_errors import discard_exception_graph
 
 _LOG = logging.getLogger(__name__)
 
@@ -468,6 +470,24 @@ class NEREngineUnavailableError(RuntimeError):
     """AIGUARD_NER_ENGINE is set to an engine whose dependency isn't installed."""
 
 
+def _raise_explicit_ner_failure(
+    error: Exception,
+    *,
+    default_category: str,
+    default_count: int,
+) -> None:
+    """Drop an explicit-engine failure graph and raise fixed metadata only."""
+
+    if isinstance(error, NERFailureError):
+        code, category, count = ner_failure_metadata(error)
+    else:
+        code = "ner_unavailable"
+        category = default_category
+        count = default_count
+    discard_exception_graph(error)
+    raise NERFailureError(code, category=category, count=count) from None
+
+
 # Curated allow-list: only engines verified to emit the same (word, "B-"/"I-"/
 # "O"-tag) shape that _bio_to_spans() below decodes. Do NOT add thai-nner or
 # tltk here without first verifying their .tag() output shape -- they are
@@ -560,43 +580,67 @@ def _bio_to_spans(tokens: list[tuple[str, str]], text: str) -> list[tuple[str, i
     spans: list[tuple[str, int, int, str]] = []
     current_label: str | None = None
     current_start: int | None = None
-    current_chars: list[str] = []
+    current_end: int | None = None
     pos = 0
 
     for word, tag in tokens:
         idx = text.find(word, pos)
         if idx == -1:
             continue
+        token_end = idx + len(word)
+
+        # Live TNER represents separators as whitespace tokens with a blank
+        # tag. Keep them transparent so a following I-tag extends the same
+        # source span without losing the gap.
+        if not word.strip() and not tag.strip():
+            pos = token_end
+            continue
 
         if tag.startswith("B-"):
             # Save previous entity
-            if current_label and current_chars:
-                ent_text = "".join(current_chars)
+            if current_label and current_start is not None and current_end is not None:
                 spans.append(
-                    (ent_text, current_start, current_start + len(ent_text), current_label)
+                    (
+                        text[current_start:current_end],
+                        current_start,
+                        current_end,
+                        current_label,
+                    )
                 )
             current_label = tag[2:]
             current_start = idx
-            current_chars = [word]
+            current_end = token_end
         elif tag.startswith("I-") and current_label == tag[2:]:
-            current_chars.append(word)
+            # Source positions, unlike concatenated token lengths, preserve an
+            # internal separator omitted by the tokenizer.
+            current_end = token_end
         else:
             # O tag or label mismatch — close current entity
-            if current_label and current_chars:
-                ent_text = "".join(current_chars)
+            if current_label and current_start is not None and current_end is not None:
                 spans.append(
-                    (ent_text, current_start, current_start + len(ent_text), current_label)
+                    (
+                        text[current_start:current_end],
+                        current_start,
+                        current_end,
+                        current_label,
+                    )
                 )
             current_label = None
             current_start = None
-            current_chars = []
+            current_end = None
 
-        pos = idx + len(word)
+        pos = token_end
 
     # Flush last entity
-    if current_label and current_chars:
-        ent_text = "".join(current_chars)
-        spans.append((ent_text, current_start, current_start + len(ent_text), current_label))
+    if current_label and current_start is not None and current_end is not None:
+        spans.append(
+            (
+                text[current_start:current_end],
+                current_start,
+                current_end,
+                current_label,
+            )
+        )
 
     return spans
 
@@ -712,7 +756,14 @@ def _finalize_tb_candidate(text: str, orig_start: int, orig_end: int, label: str
     return entities
 
 
-def _retag_degenerate_chunk(text: str, ner: NER, core_begin: int, core_end: int) -> list[Entity]:
+def _retag_degenerate_chunk(
+    text: str,
+    ner: NER,
+    core_begin: int,
+    core_end: int,
+    *,
+    fail_closed: bool = False,
+) -> list[Entity]:
     """Re-tag a degenerate chunk's core one physical line at a time.
 
     The whole-chunk tagging call that produced the degenerate span is not
@@ -732,7 +783,13 @@ def _retag_degenerate_chunk(text: str, ner: NER, core_begin: int, core_end: int)
             line_start = core_begin + offset
             try:
                 tagged_line = ner.tag(line)
-            except Exception as exc:  # pragma: no cover - defensive, see chunk-level guard above
+            except Exception as exc:
+                if fail_closed:
+                    _raise_explicit_ner_failure(
+                        exc,
+                        default_category="dependency",
+                        default_count=1,
+                    )
                 _LOG.warning(
                     "NER tagging failed on degenerate-chunk line at char %d (%d chars; %s); "
                     "skipping — PII on this line may be missed",
@@ -749,7 +806,14 @@ def _retag_degenerate_chunk(text: str, ner: NER, core_begin: int, core_end: int)
     return candidates
 
 
-def _retag_unknown_label_span(text: str, ner: NER, start: int, end: int) -> list[Entity]:
+def _retag_unknown_label_span(
+    text: str,
+    ner: NER,
+    start: int,
+    end: int,
+    *,
+    fail_closed: bool = False,
+) -> list[Entity]:
     """Re-tag an unknown-label multi-line span's physical lines individually.
 
     A label absent from LABEL_MAP entirely (the CRF's LAW-class confusion —
@@ -772,7 +836,13 @@ def _retag_unknown_label_span(text: str, ner: NER, start: int, end: int) -> list
         line_end = len(text)
     return [
         e
-        for e in _retag_degenerate_chunk(text, ner, line_begin, line_end)
+        for e in _retag_degenerate_chunk(
+            text,
+            ner,
+            line_begin,
+            line_end,
+            fail_closed=fail_closed,
+        )
         if e.data_type != "NAME" or not is_non_person_segment(text[e.span[0] : e.span[1]])
     ]
 
@@ -783,6 +853,8 @@ def _ner_candidates(
     sentence_offsets: list[tuple[str, int]],
     margin_sentences: int,
     diagnostics: NERChunkDiagnostics | None = None,
+    *,
+    fail_closed: bool = False,
 ) -> list[Entity]:
     """Run one NER engine over stride chunks and return TB Entity candidates
     mapped to original-text offsets (pre-dedup).
@@ -834,6 +906,12 @@ def _ner_candidates(
             # traceback are NOT logged because they can embed the input text.
             if diagnostics is not None:
                 diagnostics.skipped += 1
+            if fail_closed:
+                _raise_explicit_ner_failure(
+                    exc,
+                    default_category="dependency",
+                    default_count=1,
+                )
             _LOG.warning(
                 "NER tagging failed on chunk chars %d-%d (%d chars; %s); "
                 "skipping — PII in this chunk may be missed",
@@ -871,10 +949,18 @@ def _ner_candidates(
                     _LOG.warning(
                         "Degenerate whole-chunk NER span (label=%s, chunk_chars=%d); "
                         "re-tagging chunk line-by-line",
-                        sp_label,
+                        "remote" if fail_closed else sp_label,
                         core_len,
                     )
-                    candidates.extend(_retag_degenerate_chunk(text, ner, core_begin, core_end))
+                    candidates.extend(
+                        _retag_degenerate_chunk(
+                            text,
+                            ner,
+                            core_begin,
+                            core_end,
+                            fail_closed=fail_closed,
+                        )
+                    )
                     chunk_first = chunk_last + 1
                     continue
 
@@ -884,7 +970,15 @@ def _ner_candidates(
                 if not (core_begin <= orig_start < core_end):
                     continue
                 if label not in LABEL_MAP and "\n" in text[orig_start:orig_end]:
-                    candidates.extend(_retag_unknown_label_span(text, ner, orig_start, orig_end))
+                    candidates.extend(
+                        _retag_unknown_label_span(
+                            text,
+                            ner,
+                            orig_start,
+                            orig_end,
+                            fail_closed=fail_closed,
+                        )
+                    )
                     continue
                 candidates.extend(_finalize_tb_candidate(text, orig_start, orig_end, label))
 
@@ -1028,7 +1122,7 @@ def _isolated_line_name_candidates(
 # ---------------------------------------------------------------------------
 
 
-def detect_tb(
+def _detect_tb_impl(
     text: str,
     *,
     window_size: int = 1,
@@ -1070,12 +1164,26 @@ def detect_tb(
     name = _resolve_engine_name()
     if name == "finetuned":
         return _detect_tb_finetuned(text)
-    if name == "union":
-        ners = [_load_ner("thainer"), _load_ner("wangchanberta")]
-    else:
-        ners = [_get_ner()]
+    try:
+        if name == "union":
+            ners = [_load_ner("thainer"), _load_ner("wangchanberta")]
+        else:
+            ners = [_load_ner(name)]
+    except Exception as error:
+        if name == "tner":
+            _raise_explicit_ner_failure(
+                error,
+                default_category=(
+                    "configuration"
+                    if isinstance(error, NEREngineUnavailableError)
+                    else "dependency"
+                ),
+                default_count=0,
+            )
+        raise
 
     candidates: list[Entity] = []
+    fail_closed = name == "tner"
     for ner in ners:
         candidates.extend(
             _ner_candidates(
@@ -1084,6 +1192,7 @@ def detect_tb(
                 sentence_offsets,
                 window_size,
                 diagnostics=diagnostics,
+                fail_closed=fail_closed,
             )
         )
 
@@ -1107,3 +1216,29 @@ def detect_tb(
 
     # Deduplication
     return _deduplicate(candidates)
+
+
+def detect_tb(
+    text: str,
+    *,
+    window_size: int = 1,
+    diagnostics: NERChunkDiagnostics | None = None,
+) -> list[Entity]:
+    """Run TB detection while containing explicit remote-engine failures."""
+
+    failure = None
+    try:
+        return _detect_tb_impl(
+            text,
+            window_size=window_size,
+            diagnostics=diagnostics,
+        )
+    except NERFailureError as error:
+        failure = ner_failure_metadata(error)
+        discard_exception_graph(error)
+
+    text = ""
+    diagnostics = None
+    code, category, count = failure
+    failure = None
+    raise NERFailureError(code, category=category, count=count) from None

@@ -32,6 +32,7 @@ from pii_redactor.ai_client import (
     get_provider_factories,
 )
 from pii_redactor.detectors.aggregate import detect_all
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
 from pii_redactor.guard.injection import scan_injection, to_wire
 from pii_redactor.ingest.text_cleaner import clean, clean_length_preserving
 from pii_redactor.leak_guard import (
@@ -322,6 +323,19 @@ def handle_job(job: object) -> dict:
                 "type": "residual_pii",
                 "message": "outbound residual detected",
             },
+        }
+    except NERFailureError as error:
+        error_type, _category, _count = ner_failure_metadata(error)
+        discard_exception_graph(error)
+        safe_message = (
+            "explicit TNER result incomplete"
+            if error_type == "ner_incomplete"
+            else "explicit TNER unavailable"
+        )
+        return {
+            **base,
+            "status": "error",
+            "error": {"type": error_type, "message": safe_message},
         }
     except Exception as error:  # poison-job barrier, type name only
         error_type = type(error).__name__

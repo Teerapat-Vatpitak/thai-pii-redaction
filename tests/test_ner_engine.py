@@ -145,3 +145,23 @@ def test_tner_without_credentials_fails_loudly(monkeypatch):
     monkeypatch.delenv("AIFORTHAI_API_KEY", raising=False)
     with pytest.raises(NEREngineUnavailableError):
         _load_ner("tner")
+
+
+def test_detect_resolves_the_selected_tner_engine_once(monkeypatch):
+    calls = []
+
+    class EmptyTner:
+        def tag(self, _text):
+            return []
+
+    def resolve_once():
+        calls.append("resolved")
+        if len(calls) > 1:
+            raise AssertionError("engine selection changed during one detection")
+        return "tner"
+
+    monkeypatch.setattr(tb_detector, "_resolve_engine_name", resolve_once)
+    monkeypatch.setitem(tb_detector._ner_cache, "tner", EmptyTner())
+
+    assert tb_detector.detect_tb("ข้อความทดสอบ") == []
+    assert calls == ["resolved"]

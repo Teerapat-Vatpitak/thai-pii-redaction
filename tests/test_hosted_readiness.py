@@ -149,6 +149,33 @@ def test_hosted_adapter_exposes_only_allowlisted_v2_routes():
     assert "OK" in proc.stdout
 
 
+def test_hosted_explicit_tner_missing_configuration_fails_closed():
+    code = (
+        "import os\n"
+        "os.environ['AIGUARD_API_KEY'] = 'synthetic-hosted-key'\n"
+        "os.environ['AIGUARD_PROVIDERS'] = 'fake'\n"
+        "os.environ['AIGUARD_NER_ENGINE'] = 'tner'\n"
+        "os.environ.pop('AIFORTHAI_API_KEY', None)\n"
+        "from fastapi.testclient import TestClient\n"
+        "from app.hosted import app\n"
+        "c = TestClient(app, base_url='http://localhost')\n"
+        "h = {'X-AIGuard-Contract-Version': '2', 'X-AIGuard-Key': 'synthetic-hosted-key'}\n"
+        "r = c.post('/api/detect', headers=h, json={'text': 'ข้อความทดสอบ'})\n"
+        "assert r.status_code == 503, r.text\n"
+        "assert r.json() == {'error': {'code': 'ner_unavailable', 'category': 'configuration', 'count': 0, 'retryable': False, 'status': 503}}, r.text\n"
+        "print('OK')\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "OK" in proc.stdout
+
+
 @pytest.mark.parametrize("missing_name", ["AIGUARD_API_KEY", "AIGUARD_PROVIDERS"])
 def test_hosted_adapter_refuses_missing_authority_or_provider_policy(missing_name):
     code = (

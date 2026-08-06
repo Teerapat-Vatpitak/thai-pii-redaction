@@ -1,6 +1,6 @@
 # AI for Thai integration
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 ## Submitted service
 
@@ -9,11 +9,16 @@ data-analysis system, and organizational automation component. Pathumma is a
 protected downstream integration, not the identity of the product. TNER is an
 explicit supplementary AI for Thai integration.
 
-On current main, explicitly selecting TNER sends raw, pre-mask text chunks to
-that remote detector. Default local detection does not. The separately
-versioned sibling port may select or configure detectors differently, so its
-runtime choice must be verified in that repository rather than inferred from
-this document.
+On current source, explicitly selecting TNER sends raw, pre-mask text chunks to
+that remote detector. Default local detection does not. A failed TNER request
+now aborts the whole operation as bounded `ner_unavailable` metadata; an
+invalid, incomplete, misaligned, or unknown BIO/token stream aborts as
+`ner_incomplete`. Earlier candidates are discarded, later chunks and providers
+are not called, and no session or PDF output is published. This is automated
+source behavior, not a fresh live TNER certification. The separately versioned
+sibling port may select or configure detectors differently, so its runtime
+choice must be verified in that repository rather than inferred from this
+document.
 
 The historical submission capability concept was:
 

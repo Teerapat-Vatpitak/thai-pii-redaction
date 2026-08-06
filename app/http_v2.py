@@ -69,6 +69,12 @@ ERROR_SPECS: dict[str, _ErrorSpec] = {
     "restore_failed": _ErrorSpec(status=500, category="internal", retryable=False),
     "internal_error": _ErrorSpec(status=500, category="internal", retryable=False),
 }
+_NER_UNAVAILABLE_SPECS: dict[str, _ErrorSpec] = {
+    "configuration": _ErrorSpec(status=503, category="configuration", retryable=False),
+    "dependency": _ErrorSpec(status=503, category="dependency", retryable=False),
+    "network": _ErrorSpec(status=503, category="network", retryable=True),
+    "upstream": _ErrorSpec(status=503, category="upstream", retryable=True),
+}
 _COUNTED_ERROR_CODES = {
     "request_schema_invalid",
     "residual_pii",
@@ -115,10 +121,22 @@ ErrorCode = Literal[
 class ContractError(HTTPException):
     """A value-free marker that selects one fixed public error row."""
 
-    def __init__(self, code: ErrorCode, *, count: int = 0):
+    def __init__(
+        self,
+        code: ErrorCode,
+        *,
+        count: int = 0,
+        ner_category: str | None = None,
+    ):
         self.code = code
         self.count = count if type(count) is int and count >= 0 else 0
-        super().__init__(status_code=ERROR_SPECS[code].status, detail=code)
+        self.ner_category = (
+            ner_category
+            if code == "ner_unavailable" and ner_category in _NER_UNAVAILABLE_SPECS
+            else None
+        )
+        spec = _error_spec(code, ner_category=self.ner_category)
+        super().__init__(status_code=spec.status, detail=code)
 
 
 class StrictDTO(BaseModel):
@@ -137,8 +155,19 @@ class ErrorEnvelope(StrictDTO):
     error: ErrorBody
 
 
-def error_payload(code: ErrorCode, *, count: int = 0) -> dict[str, object]:
-    spec = ERROR_SPECS[code]
+def _error_spec(code: ErrorCode, *, ner_category: str | None = None) -> _ErrorSpec:
+    if code == "ner_unavailable":
+        return _NER_UNAVAILABLE_SPECS.get(ner_category, ERROR_SPECS[code])
+    return ERROR_SPECS[code]
+
+
+def error_payload(
+    code: ErrorCode,
+    *,
+    count: int = 0,
+    ner_category: str | None = None,
+) -> dict[str, object]:
+    spec = _error_spec(code, ner_category=ner_category)
     safe_count = count if type(count) is int and count >= 0 else 0
     if code not in _COUNTED_ERROR_CODES:
         safe_count = 0
@@ -153,11 +182,16 @@ def error_payload(code: ErrorCode, *, count: int = 0) -> dict[str, object]:
     ).model_dump(mode="json")
 
 
-def error_response(code: ErrorCode, *, count: int = 0) -> JSONResponse:
-    spec = ERROR_SPECS[code]
+def error_response(
+    code: ErrorCode,
+    *,
+    count: int = 0,
+    ner_category: str | None = None,
+) -> JSONResponse:
+    spec = _error_spec(code, ner_category=ner_category)
     return JSONResponse(
         status_code=spec.status,
-        content=error_payload(code, count=count),
+        content=error_payload(code, count=count, ner_category=ner_category),
         headers={CONTRACT_HEADER: str(CONTRACT_VERSION)},
     )
 

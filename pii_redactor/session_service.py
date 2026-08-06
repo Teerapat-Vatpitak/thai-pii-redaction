@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, TypeVar
 
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
 from pii_redactor.leak_guard import (
     OutboundPolicyError,
     scan_outbound_leaks,
@@ -504,6 +505,10 @@ class SessionService:
         except ModeMismatchError as error:
             failure_kind = "mode"
             discard_exception_graph(error)
+        except NERFailureError as error:
+            failure_kind = "ner"
+            failure = ner_failure_metadata(error)
+            discard_exception_graph(error)
         except SanitizeTransactionError as error:
             failure_kind = "failed"
             discard_exception_graph(error)
@@ -521,6 +526,9 @@ class SessionService:
             raise SessionExpiredError("Session not found or expired")
         if failure_kind == "mode":
             raise ModeMismatchError("session mode mismatch")
+        if failure_kind == "ner":
+            code, category, count = failure
+            raise NERFailureError(code, category=category, count=count)
         raise SanitizeTransactionError("sanitize transaction failed")
 
     def sanitize_transaction(
@@ -553,6 +561,10 @@ class SessionService:
         except ModeMismatchError as error:
             failure_kind = "mode"
             discard_exception_graph(error)
+        except NERFailureError as error:
+            failure_kind = "ner"
+            failure = ner_failure_metadata(error)
+            discard_exception_graph(error)
         except Exception as error:
             failure_kind = "failed"
             discard_exception_graph(error)
@@ -573,6 +585,9 @@ class SessionService:
             raise SessionExpiredError("Session not found or expired")
         if failure_kind == "mode":
             raise ModeMismatchError("session mode mismatch")
+        if failure_kind == "ner":
+            code, category, count = failure
+            raise NERFailureError(code, category=category, count=count)
         raise SanitizeTransactionError("sanitize transaction failed")
 
     def _sanitize_transaction_impl(
