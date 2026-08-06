@@ -309,13 +309,15 @@ truncated, illegal-BIO, or unknown-label token streams abort as
 non-whitespace source character, and source-position span ends preserve
 internal whitespace that a tokenizer omits. Earlier candidates are discarded,
 later chunks and providers are not called, and no PDF output or session is
-published. Local/default engines retain their structural skip-and-continue
-behavior. Core wrappers copy only fixed code/category/count metadata before
-clearing the original exception graph; retryability is derived from the locked
-code/category pair. HTTP v2 derives its fixed 502/503 envelope and worker v1
-keeps its fixed type/message envelope. This is automated source evidence only:
-fresh live TNER response-shape/mapping acceptance remains open. Shared
-protected-roundtrip orchestration remains a separate gate.
+published. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union)
+retain structural skip-and-continue behavior; the separate fine-tuned offset
+engine is outside this change. Core wrappers copy only fixed
+code/category/count metadata before clearing the original exception graph;
+retryability is derived from the locked code/category pair. HTTP v2 derives its
+fixed 502/503 envelope and worker v1 keeps its fixed type/message envelope.
+This is automated source evidence only: fresh live TNER
+response-shape/mapping acceptance remains open. Shared protected-roundtrip
+orchestration remains a separate gate.
 
 PDF extraction preserves geometry, but `WordBbox` does not yet carry canonical
 source intervals. `redact_pdf()` does not consume `Entity.span`; it derives

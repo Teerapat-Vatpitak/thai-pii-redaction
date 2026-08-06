@@ -182,10 +182,12 @@ reviewed, independently revertible integration units in this order:
 8. **Converge longer-term choke points — in progress.** The first separately
    reviewable unit implements the locked explicit-TNER policy: a failed request
    or incomplete ordered token stream aborts the whole operation with bounded
-   `ner_unavailable` or `ner_incomplete` metadata, while local/default engines
-   retain their structural skip-and-continue behavior. Automated coverage spans
-   core, local session, stateless, HTTP v2, hosted, PDF, and worker-v1 call
-   paths; fresh live TNER response/mapping evidence remains open. The native
+   `ner_unavailable` or `ner_incomplete` metadata, while the shared BIO/chunk
+   engines (`thainer`, WangchanBERTa, and union) retain structural
+   skip-and-continue behavior. The separate fine-tuned offset engine is outside
+   this change. Automated coverage spans core, local session, stateless, HTTP
+   v2, hosted, PDF, and worker-v1 call paths; fresh live TNER response/mapping
+   evidence remains open. The native
    localhost broker and broker-backed client disposal require an owner-approved
    ADR before implementation because transport, process identity, attestation,
    installation, and lifecycle ownership are not yet selected. Shared protected
