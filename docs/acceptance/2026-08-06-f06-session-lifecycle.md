@@ -4,8 +4,9 @@
 - Clean base commit: `35b451768db420bb6c6c6e20120f6105bff5336d`
 - Candidate branch: `codex/phase-7-session-lifecycle`
 - Original Phase 7 commit: `f968833fd563b530bb68a5104ea9969ad537dd94`
-- Corrective commit: this record's commit, directly on top of `f968833`
-  (`fix(security): close Phase 7 lifecycle review blockers`)
+- Corrective commit: `b9c0b745f07059850592977c904f22098c1e41b7`,
+  directly on top of `f968833`
+- Review-follow-up commit: this record's commit, directly on top of `b9c0b745`
 - Product version: `2.5.0` (unchanged)
 - Status: **corrected; independent re-review pending**
 
@@ -80,9 +81,9 @@ session disposal.
 
 | Gate | Result |
 |---|---|
-| Focused lifecycle/core/authentication/API matrix | PASS — 307 passed, 1 warning |
-| Hosted/API/shutdown/cleanup matrix | PASS — 521 passed, 1 warning |
-| Full Python suite | PASS — 2,250 passed, 5 skipped, 1 warning in 139.26 seconds |
+| Focused lifecycle/core/authentication/API matrix | PASS — 312 passed, 1 warning |
+| Hosted/API/shutdown/cleanup matrix | PASS — 526 passed, 1 warning |
+| Full Python suite | PASS — 2,255 passed, 5 skipped, 1 warning in 172.24 seconds |
 | Documentation coverage | PASS — 6 passed |
 | Root/desktop/extension JavaScript | PASS — 123 passed |
 | Desktop Rust tests | PASS — 31 passed |
@@ -90,15 +91,19 @@ session disposal.
 | `python -m ruff format --check .` | PASS — 217 files |
 | Version synchronization | PASS — `2.5.0` |
 | Release-readiness check | PASS — 39 tests plus both scripts |
-| Performance gate | RED — sanitize +58%; established privacy trade, baseline unchanged |
+| Performance gate | RED — both exact follow-up runs recorded; baseline unchanged |
 | `git diff --check` | PASS |
 | Corrective read-only security review | PASS — two follow-up gaps fixed; final focused checks found no blockers |
-| Independent merge re-review | PENDING — do not treat Phase 7 as merge-approved |
-| Corrective branch CI | Pending push; original `f968833` branch run passed 11/11 before rejection |
+| Corrective branch CI | PASS — `b9c0b745`, run `31090571421`, 11/11 jobs |
+| Post-CI independent merge re-review | BLOCKED on `b9c0b745` — callback fail-closed and stale-status findings corrected here |
+| Follow-up branch CI and re-review | PENDING — do not treat Phase 7 as merge-approved |
 
 The warning is the existing Starlette/httpx TestClient deprecation warning.
 The five skips are optional OpenCV OCR cases because `cv2` is not installed.
-Corrective branch CI has not run because this commit has not yet been pushed.
+Corrective commit `b9c0b745` passed all 11 jobs in
+[run 31090571421](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
+The review-follow-up commit still requires its own branch CI and independent
+re-review.
 
 The principal commands were:
 
@@ -120,23 +125,26 @@ git diff --check
 
 ## Performance
 
-The corrective candidate's formal command remained red against the older
-committed sanitize anchor:
+Two consecutive exact follow-up commands remained red against the older
+committed anchors:
 
-| Operation | Candidate | Committed baseline | Delta | Formal result |
+| Operation | First run | Repeat | Committed baseline | Formal result |
 |---|---:|---:|---:|---|
-| Detect | 5.95 ms | 5.73 ms | +4% | within 20% |
-| Sanitize | 15.94 ms | 10.08 ms | +58% | over 20% |
-| Restore | 0.25 ms | 0.28 ms | -11% | within 20% |
-| PDF redact | 76.15 ms | 67.67 ms | +13% | within 20% |
-| Resident memory | 151.9 MiB | 151.4 MiB | less than +1% | within 15% |
+| Detect | 5.70 ms | 7.50 ms | 5.73 ms | first within; repeat +31% |
+| Sanitize | 15.12 ms | 19.16 ms | 10.08 ms | +50% / +90% |
+| Restore | 0.24 ms | 0.27 ms | 0.28 ms | both within |
+| PDF redact | 74.58 ms | 84.23 ms | 67.67 ms | first within; repeat +24% |
+| Resident memory | 151.4 MiB | 151.5 MiB | 151.4 MiB | both within |
 
 Neither original Phase 7 nor this correction alters the sanitize detection,
 replacement, token shape, or residual-policy algorithm, and the performance
-harness constructs `SessionService` without a timer factory. The pre-existing
+harness constructs `SessionService` without a timer factory, so it cannot
+exercise this follow-up's callback change. The pre-existing
 longer-token/full-residual-scan trade remains the established explanation for
-the red sanitize anchor and was owner-accepted on 2026-08-06. The formal gate
-is still red and the baseline was not changed.
+the red sanitize anchor and was owner-accepted on 2026-08-06. Detect and PDF
+crossed their stale anchors only in the immediate repeat, demonstrating the
+already recorded machine variability without changing those paths. Both red
+results are retained here, and the baseline was not changed.
 
 ## First merge-review findings and corrective disposition
 
@@ -175,8 +183,18 @@ reviewers' final focused checks found no remaining blocker.
 The earlier internal Phase 7 review still explains the detached-cleanup,
 timer-start, active-request, and metadata-cache corrections already present in
 `f968833`; it did not cover the six later merge blockers. The corrective
-read-only review is complete, but the fresh independent merge re-review remains
-pending and is recorded only after it occurs.
+read-only review is complete.
+
+Corrective commit `b9c0b745` then passed branch CI 11/11. Its post-CI
+independent re-review found that `_expiry_timer_fired` removed the live timer
+before an unguarded clock read, so an ordinary clock failure could retain every
+mapping with the service still open and no eager timer. It also found the
+pre-push/CI status text had become stale. The follow-up validates callback time,
+routes every ordinary callback failure through the same close/invalidate/clear
+path, preserves process-signal propagation, and adds deterministic exception,
+`NaN`, and infinity regressions. This record now carries the exact first CI
+evidence. Follow-up CI and another fresh independent merge re-review remain
+pending.
 
 ## Evidence boundaries and deferrals
 
@@ -195,5 +213,6 @@ Phase 8 still owns:
 All eight Office real-host/package gates remain pending. No Office application
 was opened, no add-in was sideloaded, no certificate or machine trust was
 changed, and no live provider or real credential was used. Phase 8 remains
-deferred. At this corrective checkpoint, no push, merge, release, deployment,
-package publication, or pull request has been performed.
+deferred. At this follow-up checkpoint the Phase 7 branch has been pushed, but
+no merge, release, deployment, package publication, or pull request has been
+performed.

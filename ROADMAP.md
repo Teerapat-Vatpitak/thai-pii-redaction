@@ -169,8 +169,11 @@ reviewed, independently revertible squashes in this order:
    boundary without a later request. Expiry, explicit disposal, capacity
    eviction, shutdown, and lifecycle failures use the same idempotent
    session-scoped cleanup. The boot token and derived authority are not exposed
-   to JavaScript clients. This status is not merge approval; branch CI and a
-   fresh independent merge review remain required. Broker-backed extension,
+   to JavaScript clients. Corrective commit `b9c0b745` passed branch CI 11/11,
+   but its post-CI review found an eager-callback fail-closed gap and stale
+   pre-push status text. The follow-up closes both with deterministic evidence.
+   This status is not merge approval; follow-up branch CI and a fresh
+   independent merge re-review remain required. Broker-backed extension,
    Office, and Desktop disposal remains Phase 8 work, and all eight Office
    real-host/package gates remain open.
 8. **Converge longer-term choke points.** Specify and implement the native

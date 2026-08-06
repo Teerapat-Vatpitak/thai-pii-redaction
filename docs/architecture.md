@@ -109,7 +109,8 @@ original access time, deadline, and timer unchanged. Expiry, explicit disposal,
 shutdown, and capacity eviction serialize on the same lock. The service
 validates every managed deadline before scheduling. A timer-start or scheduling
 prerequisite failure closes the service and releases all registered state
-rather than continuing without eager expiry.
+rather than continuing without eager expiry. An ordinary eager-callback
+failure follows the same close-and-clear path; process signals still propagate.
 
 A session ID is a security-sensitive, bearer-like restoration reference on the
 local data plane when its optional API key is unset. The internal

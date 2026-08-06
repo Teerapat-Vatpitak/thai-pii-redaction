@@ -124,6 +124,121 @@ def test_timer_expires_idle_session_without_another_request():
         service._get_or_create(session_id, None)
 
 
+@pytest.mark.parametrize("error_type", [RuntimeError, SessionExpiredError])
+def test_timer_callback_clock_exception_closes_and_cleans_service(error_type):
+    service, _clock, timers = _service(ttl_s=10)
+    _first_id, first = service._get_or_create(None, None)
+    _write_synthetic_mapping(first, suffix="first")
+    _second_id, second = service._get_or_create(None, None)
+    _write_synthetic_mapping(second, suffix="second")
+    live_timer = timers.latest
+
+    def fail_clock():
+        raise error_type("synthetic callback clock failure")
+
+    service._now = fail_clock
+
+    live_timer.fire()
+
+    assert service._closed is True
+    assert service.session_count == 0
+    assert service._expiry_timer is None
+    for session in (first, second):
+        assert session.vault._table == {}
+        assert session.vault._reverse == {}
+        assert session.entities == []
+        assert session.trusted_sanitized_digests == ()
+        assert session.salt == ""
+
+
+def test_timer_callback_failure_closes_before_waiting_request_can_enter():
+    service, _clock, timers = _service(ttl_s=10)
+    session_id, _session = service._get_or_create(None, None)
+    live_timer = timers.latest
+    clock_entered = threading.Event()
+    release_clock = threading.Event()
+    request_started = threading.Event()
+    request_finished = threading.Event()
+    callback_errors: list[BaseException] = []
+    request_results = []
+    request_errors: list[BaseException] = []
+
+    def fail_after_pause():
+        clock_entered.set()
+        assert release_clock.wait(timeout=5)
+        raise RuntimeError("synthetic callback clock failure")
+
+    service._now = fail_after_pause
+
+    def fire_callback():
+        try:
+            live_timer.fire()
+        except BaseException as error:
+            callback_errors.append(error)
+
+    def request_session():
+        request_started.set()
+        try:
+            request_results.append(service._get_or_create(session_id, None))
+        except BaseException as error:
+            request_errors.append(error)
+        finally:
+            request_finished.set()
+
+    callback_thread = threading.Thread(target=fire_callback)
+    callback_thread.start()
+    assert clock_entered.wait(timeout=5)
+    request_thread = threading.Thread(target=request_session)
+    request_thread.start()
+    assert request_started.wait(timeout=5)
+    assert request_finished.wait(timeout=0.1) is False
+
+    release_clock.set()
+    callback_thread.join(timeout=5)
+    request_thread.join(timeout=5)
+
+    assert not callback_thread.is_alive()
+    assert not request_thread.is_alive()
+    assert callback_errors == []
+    assert request_results == []
+    assert len(request_errors) == 1
+    assert isinstance(request_errors[0], SessionExpiredError)
+    assert service._closed is True
+    assert service.session_count == 0
+
+
+@pytest.mark.parametrize("invalid_now", [math.nan, math.inf])
+def test_timer_callback_nonfinite_clock_closes_and_cleans_service(invalid_now):
+    service, _clock, timers = _service(ttl_s=10)
+    _first_id, first = service._get_or_create(None, None)
+    _write_synthetic_mapping(first, suffix="first")
+    _second_id, second = service._get_or_create(None, None)
+    _write_synthetic_mapping(second, suffix="second")
+    live_timer = timers.latest
+    clock_values = iter((invalid_now, 1005.0))
+    clock_reads = 0
+
+    def stateful_clock():
+        nonlocal clock_reads
+        clock_reads += 1
+        return next(clock_values)
+
+    service._now = stateful_clock
+
+    live_timer.fire()
+
+    assert clock_reads == 1
+    assert service._closed is True
+    assert service.session_count == 0
+    assert service._expiry_timer is None
+    for session in (first, second):
+        assert session.vault._table == {}
+        assert session.vault._reverse == {}
+        assert session.entities == []
+        assert session.trusted_sanitized_digests == ()
+        assert session.salt == ""
+
+
 def test_timer_expires_only_due_sessions_and_reschedules_next_deadline():
     service, clock, timers = _service()
     first_id, _first = service._get_or_create(None, None)

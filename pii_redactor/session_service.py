@@ -204,6 +204,17 @@ class SessionService:
                 _LOG.error("Session expiry timer cancellation did not complete")
         return timer
 
+    def _fail_closed_locked(self) -> list[_Session]:
+        """Close lifecycle admission and detach all retained session state."""
+        doomed = list(self._sessions.values())
+        self._sessions = {}
+        self._expiry_timer = None
+        self._closed = True
+        self._timer_generation += 1
+        self._used_disposal_authorizations.clear()
+        self._lifecycle_tombstones.clear()
+        return doomed
+
     def _reschedule_expiry_locked(self) -> None:
         self._cancel_expiry_timer_locked()
         if self._closed or self._timer_factory is None or not self._sessions:
@@ -234,13 +245,7 @@ class SessionService:
             timer.start()
         except Exception as error:
             discard_exception_graph(error)
-            doomed = list(self._sessions.values())
-            self._sessions = {}
-            self._expiry_timer = None
-            self._closed = True
-            self._timer_generation += 1
-            self._used_disposal_authorizations.clear()
-            self._lifecycle_tombstones.clear()
+            doomed = self._fail_closed_locked()
             for session in doomed:
                 self._discard_detached(session)
             _LOG.error("Session expiry scheduling failed; service closed")
@@ -256,9 +261,9 @@ class SessionService:
             return []
         next_sessions = dict(self._sessions)
         expired = [next_sessions.pop(session_id) for session_id in expired_ids]
-        self._sessions = next_sessions
         for session_id in expired_ids:
             self._remember_tombstone_locked(session_id)
+        self._sessions = next_sessions
         return expired
 
     def _remember_tombstone_locked(self, session_id: str) -> None:
@@ -282,11 +287,22 @@ class SessionService:
                     or self._expiry_timer is None
                 ):
                     return
-                self._expiry_timer = None
-                expired = self._take_expired_locked(self._now())
-                self._reschedule_expiry_locked()
-        except SessionExpiredError as error:
-            discard_exception_graph(error)
+                try:
+                    self._expiry_timer = None
+                    now = self._now()
+                    if (
+                        isinstance(now, bool)
+                        or not isinstance(now, (int, float))
+                        or not math.isfinite(now)
+                    ):
+                        raise ValueError("invalid lifecycle clock")
+                    expired = self._take_expired_locked(now)
+                    self._reschedule_expiry_locked()
+                except Exception as error:
+                    discard_exception_graph(error)
+                    if not self._closed:
+                        expired.extend(self._fail_closed_locked())
+                        _LOG.error("Session expiry callback failed; service closed")
         finally:
             for session in expired:
                 self._discard_detached(session)

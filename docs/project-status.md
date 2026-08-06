@@ -117,24 +117,36 @@ could conflict, noncanonical base64url bypassed replay identity, authorization
 could expire while waiting for the lifecycle lock, the disposal URL exposed
 session authority through real Uvicorn/Desktop logs, and current-state
 documentation incorrectly described behavior and approval. The corrective
-commit containing this ledger entry keeps `f968833` intact and addresses all
-six with deterministic local regressions. It is not an independent merge
-approval; branch CI and a fresh separate-context review remain required.
+commit `b9c0b745f07059850592977c904f22098c1e41b7` keeps `f968833`
+intact and addresses all six with deterministic local regressions. Its branch
+CI [passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31090571421).
+The post-CI review then found that an ordinary eager-callback clock failure
+could leave the service open without a timer and that these current-state
+documents still claimed the push/CI had not occurred. The follow-up commit
+containing this ledger entry closes both findings. It is not an independent
+merge approval; follow-up branch CI and a fresh separate-context review remain
+required.
 
 Corrective local checkpoint: the focused lifecycle/core/authentication/API set
-passed 307; the hosted/API/shutdown/cleanup matrix passed 521; the full Python
-suite passed 2,250 with five optional OpenCV skips; documentation passed 6;
+passed 312; the hosted/API/shutdown/cleanup matrix passed 526; the full Python
+suite passed 2,255 with five optional OpenCV skips; documentation passed 6;
 JavaScript passed 123; and Desktop Rust passed 31. Ruff, version `2.5.0`,
 release-readiness, and `git diff --check` are green. The formal performance
-command remains red only on the established sanitize anchor (15.94 ms versus
-10.08 ms, +58%); this correction does not change that algorithm or the
-owner-accepted full residual scan, and the baseline remains unchanged. Two
+command remains red. Two consecutive follow-up runs measured detect
+`5.70/7.50 ms`, sanitize `15.12/19.16 ms`, restore `0.24/0.27 ms`, PDF
+`74.58/84.23 ms`, and resident memory `151.4/151.5 MiB`; the first was red only
+on the established sanitize anchor, while the repeat was also over the stale
+detect and PDF anchors. The timer-callback correction is unreachable in the
+harness because it constructs the service without a timer factory, and it does
+not change detection, sanitization, restoration, or PDF logic. The established
+sanitize explanation still applies, machine variability is recorded rather
+than suppressed, and the baseline remains unchanged. Two
 read-only corrective reviewers found a scheduler-prerequisite fail-closed gap
 and a Uvicorn record-shape drift gap; both were corrected with deterministic
 regressions, and their final focused checks found no remaining blocker. This is
-not independent merge approval. Corrective branch CI and a fresh independent
-merge re-review remain pending; the next action is one corrective commit and
-branch CI.
+not independent merge approval. The first corrective branch CI is green, but
+the post-CI findings require this follow-up commit, another fully green branch
+run, and another fresh independent merge re-review before integration.
 
 These changes do not close the remaining baseline gaps. The fixed localhost
 data plane does not authenticate the process that owns the port; explicit TNER
