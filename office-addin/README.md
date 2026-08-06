@@ -9,13 +9,13 @@ Add-in
 สาม host แต่ release unified manifest เปิด Word เท่านั้นจนกว่า real-host acceptance
 ของ Excel และ PowerPoint จะผ่าน; XML manifests ของสอง host เป็น acceptance-only
 transport โครงการนี้ยังไม่ใช่ Marketplace package และยังไม่รวม production hosting.
-Source ปัจจุบันย้าย Office client ไป HTTP contract v2 แล้ว แต่
-packaged-backend/HTTPS-proxy composition และ real-host acceptance ยังไม่ผ่าน
-Client ตรวจ health และ response assertion แบบ exact, แยก control token ออกจาก
-data-plane API key, และปฏิเสธ response ที่มี field เกินหรือ safety state ไม่ถูกต้อง
-Backend ปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector
-ไม่พบ และ missing replacement record แล้ว แต่หลักฐาน Office real-host เดิมเกิดก่อน
-การเปลี่ยนนี้และต้องทดสอบซ้ำ รายการ real-host/package ที่เปิดอยู่ทั้งแปดยังไม่เปลี่ยน
+Source ปัจจุบันใช้ HTTP contract v2 แล้ว และ automated local composition ยืนยัน
+packaged backend ผ่าน health, token sanitize และ reidentify ทั้งโดยตรงและผ่าน
+HTTPS development proxy โดยใช้ certificate ที่มีอยู่เดิมและ trust อยู่แล้วเท่านั้น
+พร้อมตรวจว่าไฟล์ certificate ไม่เปลี่ยน การทดสอบนี้ไม่ได้รัน Office
+JavaScript/host adapter, เปิด Office host, sideload manifest, ติดตั้ง package,
+เรียก provider หรือพิสูจน์ release/deployment หลักฐาน real-host เดิมยังเกิดก่อน
+backend ปัจจุบัน และรายการ real-host/package ที่เปิดอยู่ทั้งแปดยังไม่เปลี่ยน
 
 การลอง unified manifest วันที่ 2026-07-23 พบว่า `validDomains` ใส่ URL แทน
 host:port ทำให้ package ลงทะเบียนแต่ Word ไม่ acquire ribbon/task pane หลังแก้เป็น
@@ -65,9 +65,9 @@ Excel และ PowerPoint ต้องผ่าน host-functional และ un
   missing replacement record และ HTTP roundtrip สแกนซ้ำทันทีก่อนเรียก provider
   โดยตรง จึงไม่มี residual warning-only result ให้ Apply/Copy/Insert ฝั่ง Office
   ตรวจ `safety.status == "pass"` ซ้ำและปิด Apply/Copy/Insert เมื่อ Restore หรือ
-  roundtrip incomplete/unsafe หลักฐาน automated source gates
-  (manifest/typecheck/unit/build) ผ่านแล้ว; packaged-backend/HTTPS-proxy
-  composition, real-host rerun และ package acceptance ยังไม่ผ่าน
+  roundtrip incomplete/unsafe หลักฐาน automated source gates และ automated
+  packaged-backend/HTTPS-development-proxy transport ผ่านแล้ว; real-host rerun
+  และ unified-package acceptance ทั้งแปดยังเปิดอยู่
 - detector ปกติอยู่ในเครื่อง แต่ถ้า backend เลือก
   `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน จะส่ง raw pre-mask chunk ไป AI for Thai
 - ปิด backend หรือ task pane แล้ว session อาจหายและ Restore ไม่ได้ ระบบต้องแจ้ง
@@ -99,6 +99,19 @@ unified manifest สำหรับ Word:
 ```powershell
 npm run start:word
 ```
+
+Automated transport preflight ที่ไม่ติดตั้งหรือเปลี่ยน certificate ใช้:
+
+```powershell
+$env:PYTHONUTF8='1'
+.\.venv\Scripts\python.exe scripts\office_v2_composition.py --require-https
+```
+
+คำสั่งนี้ใช้เฉพาะ Office development certificate มาตรฐานที่มีอยู่และ trust
+อยู่แล้ว สร้าง Office bundle/packaged sidecar แล้วตรวจ v2 โดยตรงและผ่าน HTTPS
+proxy. หากไม่ใส่ `--require-https` เครื่องที่ไม่มี certificate ดังกล่าวจะผ่านเฉพาะ
+build/backend checks และรายงาน HTTPS เป็น `PENDING`; ผลแบบนั้นยังไม่ใช่หลักฐานว่า
+HTTPS composition ผ่าน
 
 ทดสอบ code path ของ Excel และ PowerPoint ผ่าน local add-in-only XML manifest:
 

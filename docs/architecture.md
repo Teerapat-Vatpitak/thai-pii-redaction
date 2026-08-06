@@ -86,10 +86,13 @@ CLI repeats the scan immediately before each
 outer `provider.complete()`
 invocation; a self-retrying provider receives one outer validation before
 resending the same immutable masked text. HTTP and worker roundtrip repeat it
-immediately before their direct calls. Current evidence is source-level
-automation; earlier generic packaged-sidecar smoke predates the exact v2/token
-candidate and is not acceptance of an installed client or real-host
-composition. Fixed-port identity remains unauthenticated. CORS and
+immediately before their direct calls. Current evidence includes source-level
+automation plus an exact-candidate automated local run of the packaged backend
+directly and through the Office HTTPS development proxy. The proxy leg reused
+pre-existing trusted development certificates without changing them; it did
+not exercise an installed client, Office JavaScript or host adapters,
+sideloading, certificate provisioning, or a provider. Fixed-port identity
+remains unauthenticated. CORS and
 `TrustedHost` restrict browser request context and host headers; they do not
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
@@ -296,7 +299,7 @@ signals into automatic blocking or redaction.
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
 | `extension/` | MV3 browser extension and supported-site adapters. |
 | `desktop/` | Tauri shell, static UI, updater, and sidecar lifecycle. |
-| `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Packaged HTTPS-proxy composition and the eight real-host/package gates remain open. |
+| `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Automated packaged-backend/HTTPS-development-proxy transport composition is verified locally; all eight real-host/package gates remain open. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
 | `research/` | Privacy-reviewed external evidence and reproducibility records; not a runtime package. |
