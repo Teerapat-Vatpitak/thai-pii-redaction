@@ -217,8 +217,15 @@ reviewed, independently revertible integration units in this order:
    packaged, real-host, and official-platform acceptance remains open. The native
    localhost broker and broker-backed client disposal require an owner-approved
    ADR before implementation because transport, process identity, attestation,
-   installation, and lifecycle ownership are not yet selected. Authoritative
-   PDF source-to-box intervals remain a separate unit.
+   installation, and lifecycle ownership are not yet selected. The third
+   separately reviewable unit adds authoritative PDF source-to-box intervals:
+   pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
+   the page-joined extraction text, and redaction selects boxes only by
+   interval intersection. Repeated-value, cross-page, overlapping-fragment,
+   Thai combining-character, normalization, missing-provenance, negative-pixel,
+   flattening, and fixed-error regressions are automated. Optional live OCR,
+   physical scans, handwriting, hosted PDF resources/timeouts, and real-host
+   acceptance remain open.
 
 The outbound-policy, HTTP-v2 client, and token-identity source changes plus the
 future broker-backed client lifecycle/disposal, explicit-TNER,
@@ -446,10 +453,11 @@ Exit gate: the accepted HTTP service plus a repeatable soak with no crash,
 duplicate side effect, mapping export, credential exposure, or PII-bearing
 log.
 
-Creating and pushing the GitLab deployment project is owner-gated. The
-remaining local product blocker is the PDF boundary: either narrow/disable the
-route or change its execution model, then prove authoritative source-to-box
-coverage and multi-page resource/timeout behavior. The remaining external
+Creating and pushing the GitLab deployment project is owner-gated. The core
+PDF source-to-box boundary now has authoritative interval and fail-closed
+automated coverage. The remaining hosted PDF blocker is to narrow/disable the
+route or change its execution model, then prove multi-page resource/timeout
+behavior. The remaining external
 blockers are Tokenmind credential rotation, protected production-runner
 confirmation, a confirmed support channel, outbound/LLM/log policy, first
 push, public HTTPS/proxy evidence, and official acceptance. They do not block

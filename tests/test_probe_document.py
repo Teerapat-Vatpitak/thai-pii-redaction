@@ -137,13 +137,21 @@ def test_approx_substring_distance_scores_a_misread_value():
 def test_align_words_pins_offsets_and_counts_what_it_could_not_place():
     text = "ชื่อ สมชาย ใจดี"
     words = [
-        WordBbox(text="ชื่อ", page=1, x=10, y=10, width=20, height=14),
-        WordBbox(text="สมชาย", page=1, x=35, y=10, width=40, height=14),
-        WordBbox(text="ไม่มีในข้อความ", page=1, x=80, y=10, width=40, height=14),
-        WordBbox(text="ใจดี", page=1, x=80, y=10, width=21, height=14),
+        WordBbox(text="ชื่อ", page=1, x=10, y=10, width=20, height=14, source_span=(0, 4)),
+        WordBbox(text="สมชาย", page=1, x=35, y=10, width=40, height=14, source_span=(5, 10)),
+        WordBbox(
+            text="ไม่มีในข้อความ",
+            page=1,
+            x=80,
+            y=10,
+            width=40,
+            height=14,
+            source_span=None,
+        ),
+        WordBbox(text="ใจดี", page=1, x=80, y=10, width=21, height=14, source_span=(11, 15)),
     ]
     aligned, unaligned = align_words(text, words)
-    assert unaligned == 1, "a word absent from the text is dropped and counted, never guessed at"
+    assert unaligned == 1, "a box without provenance is dropped and counted, never guessed at"
     assert [(a.start, a.end) for a in aligned] == [(0, 4), (5, 10), (11, 15)]
 
 

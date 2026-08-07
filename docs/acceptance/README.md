@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-07 Phase 8 authoritative PDF source intervals](2026-08-07-phase-8-pdf-source-intervals.md)
 - [2026-08-07 Phase 8 shared provider orchestration](2026-08-07-phase-8-provider-orchestration.md)
 - [2026-08-07 Phase 8 explicit-TNER fail-closed source hardening](2026-08-07-phase-8-tner-fail-closed.md)
 - [2026-08-06 F-06 eager session lifecycle and authenticated disposal](2026-08-06-f06-session-lifecycle.md)

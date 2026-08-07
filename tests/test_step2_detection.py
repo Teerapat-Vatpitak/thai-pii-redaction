@@ -87,10 +87,8 @@ def test_detect_mobile_with_separator_after_trunk_prefix():
 def test_trunk_prefix_separator_does_not_cross_a_line_break():
     """The trunk-prefix separator must not be `\\s`, which matches a newline: a
     lone '0' ending a table row would then fuse with the digits on the next row
-    into a bogus PHONE. That is not a harmless over-mask -- redactor's
-    _build_redact_set splits an entity on whitespace and registers every word as
-    a GLOBAL fragment, so a Buddhist year like 2565 becomes a document-wide
-    black-box target, and PDF redaction flattens to image (irreversible)."""
+    into a bogus PHONE. That is not a harmless over-mask: interval-based PDF
+    redaction would irreversibly cover the selected fragments on both rows."""
     text = "รายการ  จำนวน\nส่วนลด  0\n2565 1234 บาท\n"
     phones = [e for e in detect_fp(text) if e.data_type == "PHONE"]
     assert not phones, f"line break swallowed into a phone span: {phones}"

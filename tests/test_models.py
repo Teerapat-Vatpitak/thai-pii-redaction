@@ -28,11 +28,12 @@ class TestWordBbox:
         assert wb.y == 20.0
         assert wb.width == 50.0
         assert wb.height == 12.0
+        assert wb.source_span is None
 
     def test_word_bbox_fields_exist(self):
         """Test that all expected fields exist in WordBbox."""
         field_names = {f.name for f in fields(WordBbox)}
-        expected_fields = {"text", "page", "x", "y", "width", "height"}
+        expected_fields = {"text", "page", "x", "y", "width", "height", "source_span"}
         assert field_names == expected_fields
 
     def test_word_bbox_english_text(self):

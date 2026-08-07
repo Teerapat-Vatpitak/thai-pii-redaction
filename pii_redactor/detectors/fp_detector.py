@@ -311,9 +311,8 @@ _RE_PHONE_MOBILE = re.compile(r"(?<!\d)(0[- ]?[6-9]\d[-\s]?\d{3}[-\s]?\d{4})(?!\
 # That trunk-prefix separator is [- ], NOT [-\s]: `\s` matches a newline, which
 # would let a lone '0' ending a table row fuse with the digits on the next row.
 # The interior separators keep [-\s] (a wrapped number is still one number), but
-# a leading zero has no such excuse -- and the blast radius is asymmetric, since
-# redactor._build_redact_set turns each whitespace-separated word of an entity
-# into a document-wide redaction fragment on a path that flattens to image.
+# a leading zero has no such excuse: a false entity spanning rows still causes
+# irreversible interval-based PDF masking across both rows.
 _RE_PHONE_LANDLINE = re.compile(
     r"(?<!\d)(0[- ]?(?:2[-\s]?\d{3}[-\s]?\d{4}|[3-7]\d[-\s]?\d{3}[-\s]?\d{3}))(?!\d)"
 )

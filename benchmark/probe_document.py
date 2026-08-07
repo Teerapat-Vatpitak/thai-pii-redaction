@@ -237,27 +237,27 @@ def load_expectations(path: str | Path) -> dict[str, Any]:
 
 
 def align_words(full_text: str, word_bboxes) -> tuple[list[AlignedWord], int]:
-    """Pin each WordBbox to its character span in the extracted text.
-
-    Both `extract_text()` and `extract_words()` derive from the same coordinate
-    ordered character stream, so walking the word list forward and consuming
-    the text with a moving cursor recovers the offsets. Returns
-    (aligned, unaligned_count); a word whose text cannot be found ahead of the
-    cursor is dropped and counted rather than guessed at, so a caller can see
-    how much of the geometry is actually trustworthy.
-    """
+    """Read each WordBbox's authoritative extracted-text interval."""
     aligned: list[AlignedWord] = []
-    cursor = 0
     unaligned = 0
     for wb in word_bboxes:
-        idx = full_text.find(wb.text, cursor)
-        if idx < 0:
+        span = wb.source_span
+        if (
+            not isinstance(span, tuple)
+            or len(span) != 2
+            or type(span[0]) is not int
+            or type(span[1]) is not int
+            or span[0] < 0
+            or span[1] <= span[0]
+            or span[1] > len(full_text)
+            or full_text[span[0] : span[1]] != wb.text
+        ):
             unaligned += 1
             continue
         aligned.append(
             AlignedWord(
-                start=idx,
-                end=idx + len(wb.text),
+                start=span[0],
+                end=span[1],
                 page=wb.page,
                 x=wb.x,
                 y=wb.y,
@@ -265,7 +265,6 @@ def align_words(full_text: str, word_bboxes) -> tuple[list[AlignedWord], int]:
                 height=wb.height,
             )
         )
-        cursor = idx + len(wb.text)
     return aligned, unaligned
 
 

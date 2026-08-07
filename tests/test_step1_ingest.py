@@ -97,8 +97,10 @@ def test_extract_hybrid_without_ocr_deps_raises(tmp_path, monkeypatch):
 
     path = _make_hybrid_test_pdf(tmp_path)
     monkeypatch.setattr(ocr_processor, "is_available", lambda: False)
-    with pytest.raises(ocr_processor.OCRUnavailableError):
+    with pytest.raises(ocr_processor.OCRUnavailableError) as excinfo:
         extract(path, "pdf_hybrid")
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +147,7 @@ def test_extract_pdf_text_returns_bboxes(tmp_path):
 def test_pdf_text_fallback_discards_retained_exception_graph(tmp_path, monkeypatch):
     from pii_redactor.ingest import text_extractor
 
-    retained_error = RuntimeError("synthetic word-extraction failure")
+    retained_error = RuntimeError("synthetic text-map extraction failure")
     retained: dict[str, weakref.ReferenceType] = {}
 
     class ExtractedText(str):
@@ -154,12 +156,9 @@ def test_pdf_text_fallback_discards_retained_exception_graph(tmp_path, monkeypat
     class Page:
         page_number = 1
 
-        def extract_text(self):
+        def get_textmap(self):
             text = ExtractedText("synthetic extracted page text")
             retained["text"] = weakref.ref(text)
-            return text
-
-        def extract_words(self):
             raise retained_error
 
     class Pdf:
@@ -188,6 +187,36 @@ def test_pdf_text_fallback_discards_retained_exception_graph(tmp_path, monkeypat
     assert retained_error.__context__ is None
     assert retained["page"]() is None
     assert retained["text"]() is None
+
+
+def test_pdf_extraction_error_drops_extracted_input_graph(tmp_path, monkeypatch):
+    from pii_redactor.ingest import text_extractor
+
+    marker = "synthetic-provenance-marker"
+    retained_error = RuntimeError(marker)
+    retained: dict[str, weakref.ReferenceType] = {}
+
+    class Payload:
+        pass
+
+    def fail_with_retained_input(_path):
+        payload = Payload()
+        retained["payload"] = weakref.ref(payload)
+        raise retained_error
+
+    monkeypatch.setattr(text_extractor, "_extract_pdf_text", fail_with_retained_input)
+
+    with pytest.raises(text_extractor._PdfSourceProvenanceError) as excinfo:
+        extract(tmp_path / "synthetic.pdf", "pdf_text")
+
+    gc.collect()
+    assert marker not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
+    assert retained_error.__traceback__ is None
+    assert retained_error.__cause__ is None
+    assert retained_error.__context__ is None
+    assert retained["payload"]() is None
 
 
 def test_detect_pdf_hybrid(tmp_path):
@@ -372,7 +401,12 @@ def test_hybrid_drops_the_same_text_from_the_same_place(tmp_path, monkeypatch):
 
     assert text.count(phone) == 1
     assert len(phones) == 1
-    assert any(word.text == ocr_line for word in bboxes)
+    assert any(word.text == "โทร" for word in bboxes)
+    assert all(
+        word.source_span is not None
+        and text[word.source_span[0] : word.source_span[1]] == word.text
+        for word in bboxes
+    )
 
 
 def test_partial_overlay_cannot_hide_structured_ocr_text(tmp_path, monkeypatch):
@@ -418,7 +452,9 @@ def test_extract_pdf_hybrid_returns_3_tuple_with_meta(tmp_path, monkeypatch):
     text, bboxes, meta = extract(str(pdf_path), "pdf_hybrid")
 
     assert text == "สวัสดี"
-    assert bboxes == fake_words
+    assert len(bboxes) == 1
+    assert bboxes[0].text == fake_words[0].text
+    assert bboxes[0].source_span == (0, len(text))
     assert meta["pages_ocred"] == [1]
     assert meta["pages_text_layer"] == []
     assert meta["ocr_confidence"] == pytest.approx(0.9)
@@ -449,7 +485,9 @@ def test_extract_pdf_hybrid_merges_text_layer_and_ocr_on_one_page(tmp_path, monk
 
     assert "Selectable footer" in text
     assert "OCR image text" in text
-    assert fake_words[0] in bboxes
+    ocr_boxes = [word for word in bboxes if word.text == fake_words[0].text]
+    assert len(ocr_boxes) == 1
+    assert text[slice(*ocr_boxes[0].source_span)] == fake_words[0].text
     assert meta["pages_ocred"] == [1]
     assert meta["pages_text_layer"] == [1]
     assert meta["ocr_text_ranges"]
@@ -482,7 +520,13 @@ def test_extract_pdf_hybrid_keeps_ocr_line_boundaries_in_range(tmp_path, monkeyp
 
     start, end = meta["ocr_text_ranges"][0]
     assert text[start:end] == ocr_text
-    assert fake_words == [word for word in bboxes if word in fake_words]
+    ocr_boxes = [word for word in bboxes if word.text in {item.text for item in fake_words}]
+    assert [word.text for word in ocr_boxes] == [word.text for word in fake_words]
+    assert all(
+        word.source_span is not None
+        and text[word.source_span[0] : word.source_span[1]] == word.text
+        for word in ocr_boxes
+    )
 
 
 def test_extract_pdf_hybrid_human_review_propagates(tmp_path, monkeypatch):

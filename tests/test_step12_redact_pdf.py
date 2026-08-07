@@ -400,7 +400,7 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     from pii_redactor.redactor import (
         REDACT_PAD_PT,
         REDACT_PAD_TOP_PT,
-        _build_redact_set,
+        _map_entities_to_boxes,
         _merge_boxes,
     )
 
@@ -414,25 +414,22 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
     fp = detect_fp(raw_text)
     tb = detect_tb(raw_text)
     registry = EntityRegistry(entities=fp + tb, fp_count=len(fp), tb_count=len(tb))
-    fragments = _build_redact_set(registry)
+    mapped_entities = _map_entities_to_boxes(registry, word_bboxes)
 
     page1_words = [wb for wb in word_bboxes if wb.page == 1]
-    pt_boxes = []
-    for wb in page1_words:
-        word_text = wb.text.strip()
-        should_redact = len(word_text) >= 2 and any(
-            word_text in frag or frag in word_text for frag in fragments
-        )
-        if should_redact:
-            pt_boxes.append(
-                (
-                    wb.x - REDACT_PAD_PT,
-                    wb.y - REDACT_PAD_TOP_PT,
-                    wb.x + wb.width + REDACT_PAD_PT,
-                    wb.y + wb.height + REDACT_PAD_PT,
-                )
+    merged = []
+    for entity_boxes in mapped_entities:
+        pt_boxes = [
+            (
+                wb.x - REDACT_PAD_PT,
+                wb.y - REDACT_PAD_TOP_PT,
+                wb.x + wb.width + REDACT_PAD_PT,
+                wb.y + wb.height + REDACT_PAD_PT,
             )
-    merged = _merge_boxes(pt_boxes)
+            for wb in entity_boxes
+            if wb.page == 1
+        ]
+        merged.extend(_merge_boxes(pt_boxes))
 
     # "สมชาย" and "ใจดี" are two words of the same NAME entity/line, 3.4pt
     # apart -- they must land inside ONE merged rectangle (no exposed gap).
@@ -458,15 +455,26 @@ def test_redact_pdf_covers_full_padded_span_on_sample_document():
         if wb.text.strip() in ("99", "ถนนพหลโยธิน", "แขวงจตุจักร", "กรุงเทพฯ", "10900")
     ]
     assert len(addr_words) == 5
-    addr_covering = [
+    addr_rectangles = [
         (x0, y0, x1, y1)
         for x0, y0, x1, y1 in merged
-        if all(
+        if any(
             x0 <= wb.x and y0 <= wb.y and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
             for wb in addr_words
         )
     ]
-    assert addr_covering, "expected one rectangle covering the full address line with no gap"
+    assert all(
+        any(
+            x0 <= wb.x and y0 <= wb.y and x1 >= wb.x + wb.width and y1 >= wb.y + wb.height
+            for x0, y0, x1, y1 in addr_rectangles
+        )
+        for wb in addr_words
+    )
+    horizontal_coverage = sorted((x0, x1) for x0, _y0, x1, _y1 in addr_rectangles)
+    covered_until = horizontal_coverage[0][1]
+    for x0, x1 in horizontal_coverage[1:]:
+        assert x0 <= covered_until, "expected padded address rectangles to leave no gap"
+        covered_until = max(covered_until, x1)
 
 
 def test_redact_pdf_blacks_out_sample_house_number_pixels(tmp_path):
