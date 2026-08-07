@@ -4,7 +4,8 @@
 - Clean base commit: `37f121515ce6c092bf6ad753a2ceb3ab16c41437`
 - Candidate branch: `codex/phase-8-pdf-source-intervals`
 - Product version: `2.5.0` (unchanged)
-- Status: **implementation and local gates complete; branch CI pending**
+- Status: **implementation, local gates, and reviewed code-candidate branch CI
+  complete; evidence-head CI pending**
 
 This record covers one Phase 8 unit: authoritative mapping from detected source
 intervals to the exact PDF boxes that produced those characters. It does not
@@ -116,7 +117,8 @@ remain regression gates.
 | Version and release-readiness checks | PASS — synchronized `2.5.0`; both scripts and 39 version/workflow/release tests passed |
 | Performance and PDF resource checks | PASS against exact clean base — all paired deltas are inside the 20% time and 15% memory budgets; the formal stale-anchor result is recorded below |
 | `git diff --check` and final privacy/correctness review | PASS — no offset drift, normalization mismatch, wrong-page selection, heuristic fallback, duplicated mapping algorithm, unsafe boundary, provider/native-broker overlap, stale current-state claim, unrelated change, or version drift found |
-| Exact-head branch CI | Pending |
+| Reviewed code-candidate branch CI | PASS — corrected candidate `19b8b71b0c985f6a4939db0489a3300471fb2eaa` passed all 11 required jobs in [run 31190057013](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31190057013) |
+| Evidence-only branch-head CI | Pending |
 | Post-integration main CI and commit alignment | Pending |
 
 Local source automation cannot certify optional real PaddleOCR inference,
@@ -202,3 +204,10 @@ recorded by the preceding Phase 8 unit: one moderate root advisory and 19
 Office development-tool advisories (12 high, 7 moderate). Office has no runtime
 dependency addition, and this branch changes no manifest or lockfile. This is
 not a claim that the development dependency trees are vulnerability-free.
+
+The first branch run on implementation commit
+`7404fc66b4114ede0c6914064f522bbe9886c1c0` passed 10 of 11 jobs. Its core-only
+job exposed a test-collection defect: the new HTTP containment fixture imported
+optional FastAPI before applying the repository's core-only skip convention.
+Commit `19b8b71b0c985f6a4939db0489a3300471fb2eaa` added that skip without changing
+production behavior; the corrected exact candidate then passed all 11 jobs.

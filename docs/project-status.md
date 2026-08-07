@@ -188,13 +188,14 @@ also [passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pi
 This record does not claim post-merge CI.
 
 Phase 8 third-unit status:
-**authoritative PDF source intervals implemented; local gates green; branch CI
-pending**. Every PDF `WordBbox` returned from pdfplumber, the pdfium fallback,
-or hybrid/OCR assembly carries a half-open source interval into the exact
-page-joined extraction text. pdfplumber uses its character-to-text map; pdfium
-assigns offsets while consuming characters and explicitly maps CRLF to LF;
-retained OCR fragments receive offsets when assembled; and page joins shift
-local intervals by the exact separator length. Redaction consumes
+**authoritative PDF source intervals implemented; local gates and reviewed
+code-candidate branch CI green; evidence-head CI pending**. Every PDF
+`WordBbox` returned from pdfplumber, the pdfium fallback, or hybrid/OCR assembly
+carries a half-open source interval into the exact page-joined extraction text.
+pdfplumber uses its character-to-text map; pdfium assigns offsets while
+consuming characters and explicitly maps CRLF to LF; retained OCR fragments
+receive offsets when assembled; and page joins shift local intervals by the
+exact separator length. Redaction consumes
 `Entity.span`, selects only intersecting boxes, validates source text,
 non-whitespace coverage, page and geometry consistency, and fails before
 output with one value-free error when mapping is missing or unsafe. No
@@ -217,6 +218,8 @@ restore `0.34/0.33 ms` (`+3.0%`), PDF `91.09/89.06 ms` (`+2.3%`), and
 resident memory `155.4/155.9 MiB` (`-0.3%`). The committed baseline was not
 moved. Exact commands and limitations are in the
 [dated record](acceptance/2026-08-07-phase-8-pdf-source-intervals.md).
+Corrected candidate `19b8b71b0c985f6a4939db0489a3300471fb2eaa`
+[passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31190057013).
 Optional live OCR, physical scans, handwriting, installed/browser/Office
 hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open. The native broker remains blocked on an owner-approved
