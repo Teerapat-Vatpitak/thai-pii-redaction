@@ -4,7 +4,7 @@
 - Clean base commit: `3c1ec602b396e03411636d26858f34c5fcf0c8a3`
 - Candidate branch: `codex/phase-8-native-broker-protocol`
 - Product version: `2.5.0` (unchanged)
-- Status: **local candidate complete; independent review passed; branch CI and integration pending**
+- Status: **protocol/conformance complete; independent review and reviewed-head branch CI passed**
 
 This record covers Slice 1 only: broker protocol v1, its strict canonical
 framing/envelopes, hello negotiation, closed role/operation policy, safe
@@ -148,12 +148,12 @@ implementations.
 | Performance gate | NOT REQUIRED unless a measured `pii_redactor/` or `app/` path changes |
 | `git diff --check` and final privacy/scope review | PASS — no protocol ambiguity, Python/Rust policy drift, permissive parsing, role escalation, unsafe error content, replay weakening, transport/bootstrap code, raw data, unrelated change, or version drift remained |
 | Independent review | PASS — exact-index read-only review found no remaining actionable blocker after the stale Slice 1 status sentence was corrected |
-| Exact-head branch CI | PENDING |
-| Main integration and post-main CI | PENDING |
+| Exact-head branch CI | PASS — reviewed implementation commit `4ada40d203f98039c93b78d6fb0ab2a14df91f2d` [passed all 11 jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119) |
+| Main integration and post-main CI | Outside this record; checked separately after the squash push |
 
 ## Acceptance boundary
 
-Passing this record will establish protocol/source conformance only. It cannot
+This passing record establishes protocol/source conformance only. It cannot
 establish authenticated OS peer identity, an installed broker, a private
 backend, session ownership/disposal, Chrome or Tauri behavior, a real transport,
 or package/real-host acceptance. Those remain Slice 2 or later work.

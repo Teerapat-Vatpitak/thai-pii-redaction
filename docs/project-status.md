@@ -234,7 +234,7 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR accepted; Slice 1 local source candidate complete; production
+**ADR accepted; Slice 1 protocol/conformance complete; production
 implementation and installed acceptance open**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
@@ -252,10 +252,12 @@ pass `146` Python tests and `20` Rust conformance groups plus two decoder
 allocation regressions; the full Python suite passes `2,478` with five optional
 OpenCV skips. Root JavaScript passes `123`, Desktop Rust `31`,
 and Office passes schema/package/type/`129`-test/build gates. Independent
-exact-index review passes with no unresolved finding; exact-head branch CI and
-main integration remain pending. No listener, bootstrap, OS peer identity,
-backend/data plane, session ownership, storefront migration, or packaging code
-is implemented; Slice 2 has not started.
+exact-index review passes with no unresolved finding, and reviewed
+implementation commit `4ada40d203f98039c93b78d6fb0ab2a14df91f2d`
+[passes all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119).
+No listener, bootstrap, OS peer identity, backend/data plane, session
+ownership, storefront migration, or packaging code is implemented; Slice 2
+has not started.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx
