@@ -6,7 +6,7 @@ This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
 
 This document answers one question: **what is actually finished, and what is the
-evidence**. It is not the code map ([CLAUDE.md](../CLAUDE.md)) and it does not set
+evidence**. It is not the code map ([CODEMAP.md](../CODEMAP.md)) and it does not set
 priority or order ([ROADMAP.md](../ROADMAP.md)). Every storefront named in the
 code map must have a row here; `tests/test_docs_coverage.py` enforces that.
 

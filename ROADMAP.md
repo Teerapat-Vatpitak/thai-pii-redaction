@@ -16,7 +16,7 @@ redaction toolkit. It has one product core and two delivery contexts:
    change remains open.
 
 This document answers one question: **what gets built next, in what order, and
-what is the gate**. It is not the code map ([CLAUDE.md](CLAUDE.md)) and it is
+what is the gate**. It is not the code map ([CODEMAP.md](CODEMAP.md)) and it is
 not the record of what is finished
 ([docs/project-status.md](docs/project-status.md)). Keeping the three separate
 is deliberate — when each file carried a little of all three, they drifted and
