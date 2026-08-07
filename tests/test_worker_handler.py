@@ -4,6 +4,7 @@ The handler is the KNOWN half of the worker: our job schema in, stateless
 core out. The transport half is the guess and lives elsewhere.
 """
 
+import httpx
 import pytest
 
 from app.worker.contract import CONTRACT_VERSION
@@ -159,6 +160,223 @@ def test_roundtrip_defaults_to_fake_provider():
     assert out["result"]["provider_used"] == "fake"
 
 
+def test_worker_roundtrip_uses_shared_three_attempt_policy(monkeypatch):
+    import app.worker.handler as handler
+    import pii_redactor.ai_client as client_module
+
+    provider_calls = []
+    delays = []
+
+    class TransientProvider:
+        def complete(self, system, user, *, timeout=30.0):
+            provider_calls.append((system, user, timeout))
+            if len(provider_calls) == 1:
+                raise httpx.ReadTimeout(
+                    "synthetic timeout",
+                    request=httpx.Request(
+                        "POST",
+                        "https://provider.invalid/v1/complete",
+                    ),
+                )
+            if len(provider_calls) == 2:
+                request = httpx.Request(
+                    "POST",
+                    "https://provider.invalid/v1/complete",
+                )
+                raise httpx.HTTPStatusError(
+                    "synthetic rate limit",
+                    request=request,
+                    response=httpx.Response(429, request=request),
+                )
+            return user
+
+    monkeypatch.setitem(
+        handler._PROVIDER_FACTORIES,
+        "worker-transient",
+        TransientProvider,
+    )
+    monkeypatch.setattr(client_module, "_sleep", delays.append)
+
+    out = handle_job(
+        {
+            "contract_version": 1,
+            "job_id": "j-worker-shared-retry",
+            "operation": "roundtrip",
+            "payload": {
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "worker-transient",
+            },
+        }
+    )
+
+    assert out["status"] == "ok"
+    assert out["result"]["provider_used"] == "worker-transient"
+    assert delays == [1, 2]
+    assert len(provider_calls) == 3
+    assert {call[2] for call in provider_calls} == {60.0}
+    assert len({call[1] for call in provider_calls}) == 1
+    assert all(call[1] != THAI_TEXT for call in provider_calls)
+    assert "mapping" not in out["result"]
+
+
+def test_worker_roundtrip_rechecks_policy_before_actual_retry(monkeypatch):
+    import app.worker.handler as handler
+    import pii_redactor.ai_client as client_module
+    from pii_redactor.leak_guard import OutboundPolicyError
+
+    provider_calls = []
+    policy_calls = []
+    delays = []
+
+    class RetryProvider:
+        def complete(self, _system, _user, *, timeout=30.0):
+            provider_calls.append(timeout)
+            request = httpx.Request(
+                "POST",
+                "https://provider.invalid/v1/complete",
+            )
+            raise httpx.HTTPStatusError(
+                "synthetic upstream status",
+                request=request,
+                response=httpx.Response(503, request=request),
+            )
+
+    def changing_policy(*_args, **_kwargs):
+        policy_calls.append(len(policy_calls) + 1)
+        if len(policy_calls) == 2:
+            raise OutboundPolicyError(
+                ["THAI_ID"],
+                policy_categories=["structured"],
+            )
+
+    monkeypatch.setitem(
+        handler._PROVIDER_FACTORIES,
+        "worker-policy-change",
+        RetryProvider,
+    )
+    monkeypatch.setattr(handler, "enforce_outbound_policy", changing_policy)
+    monkeypatch.setattr(client_module, "_sleep", delays.append)
+
+    out = handle_job(
+        {
+            "contract_version": 1,
+            "job_id": "j-worker-policy-change",
+            "operation": "roundtrip",
+            "payload": {
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "worker-policy-change",
+            },
+        }
+    )
+
+    assert out["status"] == "error"
+    assert out["error"] == {
+        "type": "residual_pii",
+        "message": "outbound residual detected",
+    }
+    assert policy_calls == [1, 2]
+    assert provider_calls == [60.0]
+    assert delays == [1]
+    assert THAI_TEXT not in str(out)
+
+
+def test_worker_retry_policy_failure_drops_provider_mapping_and_error_graph(monkeypatch):
+    import app.worker.handler as handler
+    import pii_redactor.ai_client as client_module
+    from pii_redactor.leak_guard import OutboundPolicyError
+    from pii_redactor.stateless import StatelessSanitizeResult
+
+    forged = StatelessSanitizeResult(
+        sanitized_text="synthetic safe text",
+        mapping={"[EMAIL_9]": SYNTHETIC_VAULT_ORIGINAL},
+        entities=[],
+        entity_type_counts={},
+        section26=[],
+        warnings=[],
+    )
+    request = httpx.Request(
+        "POST",
+        "https://provider.invalid/v1/complete",
+        headers={"Authorization": SYNTHETIC_AUTHORIZATION},
+        content=SYNTHETIC_PROVIDER_BODY.encode(),
+    )
+    provider_error = httpx.HTTPStatusError(
+        "synthetic upstream failure",
+        request=request,
+        response=httpx.Response(
+            503,
+            request=request,
+            content=SYNTHETIC_PROVIDER_BODY.encode(),
+        ),
+    )
+    policy_error = OutboundPolicyError(
+        ["THAI_ID"],
+        policy_categories=["structured"],
+    )
+    policy_error.authorization = SYNTHETIC_AUTHORIZATION
+    policy_error.mapping = forged.mapping
+    policy_calls = 0
+    provider_calls = 0
+
+    class SecretProvider:
+        def __init__(self):
+            self._api_key = SYNTHETIC_AUTHORIZATION
+
+        def complete(self, _system, _user, *, timeout=30.0):
+            nonlocal provider_calls
+            provider_calls += 1
+            raise provider_error
+
+    provider = SecretProvider()
+
+    def changing_policy(*_args, **_kwargs):
+        nonlocal policy_calls
+        policy_calls += 1
+        if policy_calls == 2:
+            raise policy_error
+
+    monkeypatch.setattr(handler, "sanitize_stateless", lambda *_args, **_kwargs: forged)
+    monkeypatch.setitem(
+        handler._PROVIDER_FACTORIES,
+        "worker-policy-graph",
+        lambda: provider,
+    )
+    monkeypatch.setattr(handler, "enforce_outbound_policy", changing_policy)
+    monkeypatch.setattr(client_module, "_sleep", lambda _seconds: None)
+
+    with pytest.raises(handler._SafeJobError) as excinfo:
+        handler._op_roundtrip(
+            {
+                "text": THAI_TEXT,
+                "mode": "token",
+                "provider": "worker-policy-graph",
+            }
+        )
+
+    nodes, graph_text = _exception_graph(excinfo.value)
+    assert excinfo.value.error_type == "residual_pii"
+    assert nodes == [excinfo.value]
+    assert SYNTHETIC_AUTHORIZATION not in graph_text
+    assert SYNTHETIC_PROVIDER_BODY not in graph_text
+    assert SYNTHETIC_VAULT_ORIGINAL not in graph_text
+    frame_locals = _product_traceback_locals(excinfo.value)
+    assert frame_locals
+    assert all(provider is not value for frame in frame_locals for value in frame.values())
+    assert SYNTHETIC_AUTHORIZATION not in repr(frame_locals)
+    assert SYNTHETIC_PROVIDER_BODY not in repr(frame_locals)
+    assert SYNTHETIC_VAULT_ORIGINAL not in repr(frame_locals)
+    assert provider_calls == 1
+    assert policy_calls == 2
+    assert provider_error.__traceback__ is None
+    assert provider_error.args == ()
+    assert provider_error.__dict__ == {}
+    assert policy_error.__traceback__ is None
+    assert policy_error.args == ()
+    assert policy_error.__dict__ == {}
+
+
 def test_roundtrip_unknown_provider_is_safe_error():
     out = handle_job(
         {
@@ -262,7 +480,7 @@ def test_roundtrip_discards_retained_provider_call_error(monkeypatch):
     def fail_provider(*_args, **_kwargs):
         raise retained_error
 
-    monkeypatch.setattr(handler, "complete_provider_call", fail_provider)
+    monkeypatch.setattr(handler, "complete_provider_with_retry_policy", fail_provider)
     with pytest.raises(handler._SafeJobError) as excinfo:
         handler._op_roundtrip({"text": THAI_TEXT, "provider": "fake"})
 

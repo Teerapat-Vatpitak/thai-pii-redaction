@@ -79,10 +79,6 @@ class _PreSendAttemptError(RuntimeError):
 class AIProvider(ABC):
     """Abstract base class for AI providers."""
 
-    # Providers that run their own transient-error retry inside complete()
-    # set this True so send_to_ai() does not multiply attempts (3x3).
-    handles_retries: bool = False
-
     @abstractmethod
     def complete(self, system: str, user: str, *, timeout: float = 30.0) -> str:
         """Send prompt to AI and return response text."""
@@ -192,9 +188,8 @@ class TokenmindProvider(AIProvider):
     """
 
     MODEL = "thaillm-8b"
-    handles_retries = True
 
-    def __init__(self, *, sleep=time.sleep, clock=time.monotonic):
+    def __init__(self):
         base = (os.environ.get("TOKENMIND_BASE_URL") or "").strip()
         if not base:
             raise ValueError("TOKENMIND_BASE_URL environment variable not set")
@@ -212,23 +207,9 @@ class TokenmindProvider(AIProvider):
         self._api_key = validate_header_value(
             os.environ.get("TOKENMIND_API_KEY") or "", env_name="TOKENMIND_API_KEY"
         )
-        self._sleep = sleep
-        self._clock = clock
 
     def _client(self) -> httpx.Client:
         return httpx.Client()
-
-    @staticmethod
-    def _retry_delay(attempt: int, retry_after: str | None) -> float:
-        delay = float(2**attempt)  # 1s, 2s
-        if retry_after is not None:
-            try:
-                parsed = int(retry_after.strip())
-            except ValueError:
-                parsed = -1
-            if parsed >= 0:
-                delay = float(parsed)
-        return delay
 
     def _validated_content(self, resp: httpx.Response) -> str:
         if is_sse_response(resp.headers.get("content-type")):
@@ -274,32 +255,10 @@ class TokenmindProvider(AIProvider):
             "chat_template_kwargs": {"enable_thinking": False},
         }
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        deadline = self._clock() + timeout
-        last_error: Exception | None = None
         with self._client() as client:
-            for attempt in range(3):  # initial + 2 retries, all under one deadline
-                remaining = deadline - self._clock()
-                if remaining <= 0:
-                    break
-                try:
-                    resp = client.post(self._url, json=payload, headers=headers, timeout=remaining)
-                    resp.raise_for_status()
-                    return self._validated_content(resp)
-                except httpx.HTTPStatusError as e:
-                    status = e.response.status_code
-                    if status != 429 and status < 500:
-                        raise
-                    last_error = e
-                    delay = self._retry_delay(attempt, e.response.headers.get("Retry-After"))
-                except (httpx.TimeoutException, httpx.NetworkError) as e:
-                    last_error = e
-                    delay = float(2**attempt)
-                if attempt == 2 or self._clock() + delay >= deadline:
-                    break
-                self._sleep(delay)
-        if last_error is None:  # pragma: no cover - defensive; timeout>0 guarantees one attempt
-            raise RuntimeError("Tokenmind call made no attempt")
-        raise last_error
+            resp = client.post(self._url, json=payload, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return self._validated_content(resp)
 
 
 class FakeLLMProvider(AIProvider):
@@ -408,31 +367,9 @@ def complete_provider_with_retry_policy(
     max_attempts: int = 3,
 ) -> tuple[str, float, int]:
     """Run the shared three-attempt policy with a fresh safety gate each time."""
-    try:
-        handles_retries = getattr(provider, "handles_retries", False) is True
-    except Exception as error:
-        category = "failed"
-        error_type = "ProviderError"
-        status_code = None
-        if type(error) is ProviderCallError:
-            category = error.category if type(error.category) is str else category
-            error_type = error.error_type if type(error.error_type) is str else error_type
-            candidate_status = error.status_code
-            if type(candidate_status) is int and 100 <= candidate_status <= 599:
-                status_code = candidate_status
-        discard_exception_graph(error)
-        provider = None
-        system = ""
-        user = ""
-        before_attempt = None
-        raise ProviderCallError(
-            category=category,
-            error_type=error_type,
-            status_code=status_code,
-            attempts=0,
-        ) from None
-
-    effective_attempts = 1 if handles_retries else max_attempts
+    effective_attempts = 3
+    if type(max_attempts) is int:
+        effective_attempts = min(3, max(1, max_attempts))
     for attempt in range(effective_attempts):
         before_attempt(attempt)
         started = time.monotonic()

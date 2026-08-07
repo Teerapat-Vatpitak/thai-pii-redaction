@@ -151,11 +151,13 @@ reviewed, independently revertible integration units in this order:
    exact-candidate sanitize performance gate is red, its measured security
    trade was owner-accepted on 2026-08-06, and package/real-host acceptance
    remains pending.
-   The CLI rescans before each outer `provider.complete()` invocation. A
-   provider with `handles_retries=True` receives one outer validation before
-   its single invocation and may resend that same immutable masked text
-   internally. HTTP and worker roundtrip rescan immediately before their direct
-   calls. Runtime and first-party clients now use strict HTTP v2 with exact
+   CLI, HTTP/hosted roundtrip, and worker roundtrip now use one shared provider
+   orchestration layer. It rescans immediately before each actual invocation,
+   reuses one immutable masked text, caps execution at three 60-second
+   attempts, and applies fixed one- then two-second delays only for timeout,
+   network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request
+   per invocation and no provider owns retries. Runtime and first-party clients
+   now use strict HTTP v2 with exact
    response projection, sanitized-space highlights, safe errors, and separate
    control/data-plane health capabilities. The worker envelope remains version
    1. The source gates do not establish packaged Desktop, real-browser,
@@ -204,22 +206,28 @@ reviewed, independently revertible integration units in this order:
    engine is outside this change. Automated coverage spans core, local session,
    stateless, HTTP v2, hosted, PDF, and worker-v1 call paths. Exact branch head
    `a7e388257` passed all 11 CI jobs after infrastructure-canceled jobs were
-   rerun; fresh live TNER response/mapping evidence remains open. The native
+   rerun; fresh live TNER response/mapping evidence remains open. The second
+   separately reviewable unit converges protected provider attempts across
+   CLI, HTTP/hosted, and worker on the locked shared retry and outbound-policy
+   contract. Tokenmind now makes one HTTP request per invocation, so no stacked
+   retry path or provider-controlled delay remains. Automated source evidence
+   covers attempt limits, per-attempt timeouts, retry classification, immutable
+   masked input, rollback/stateless boundaries, safe errors, v2/v1 wire
+   compatibility, and unchanged hosted allowlisting. Fresh live-provider,
+   packaged, real-host, and official-platform acceptance remains open. The native
    localhost broker and broker-backed client disposal require an owner-approved
    ADR before implementation because transport, process identity, attestation,
-   installation, and lifecycle ownership are not yet selected. Shared protected
-   provider orchestration and authoritative PDF source-to-box intervals remain
-   separate units. Provider convergence must also replace Tokenmind's current
-   one-total-deadline and `Retry-After` behavior with the locked at-most-three
-   attempts, 60-seconds-per-attempt, fixed 1/2-second policy.
+   installation, and lifecycle ownership are not yet selected. Authoritative
+   PDF source-to-box intervals remain a separate unit.
 
 The outbound-policy, HTTP-v2 client, and token-identity source changes plus the
 future broker-backed client lifecycle/disposal, explicit-TNER,
 provider-orchestration, and PDF-offset changes each invalidate carry-forward
 evidence only for their affected paths. Fresh automated, packaged, real-host,
 live-provider, or official-platform evidence must match the strength of the
-changed path. Shared provider orchestration is still open even though each
-current provider path now has an immediate pre-call rescan. `VERSION` remains
+changed path. Shared provider orchestration has current-source automated
+evidence, while its packaged, live-provider, real-host, and official-platform
+recertification remains open. `VERSION` remains
 `2.5.0` during development; a release containing the breaking HTTP contract is
 expected to be prepared as `3.0.0`, but release work requires separate
 authorization.

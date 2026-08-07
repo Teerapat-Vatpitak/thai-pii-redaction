@@ -1,4 +1,4 @@
-"""TokenmindProvider protocol/retry tests -- MockTransport only, no network."""
+"""Tokenmind protocol and shared-orchestration tests -- no real network."""
 
 import httpx
 import pytest
@@ -8,15 +8,10 @@ from pii_redactor.ai_client import ProviderProtocolError, TokenmindProvider
 BASE = "https://tokenmind.example/v1"
 
 
-def _provider(monkeypatch, handler, *, clock=None, sleep=None):
+def _provider(monkeypatch, handler):
     monkeypatch.setenv("TOKENMIND_BASE_URL", BASE)
     monkeypatch.setenv("TOKENMIND_API_KEY", "sk-test123")
-    kwargs = {}
-    if clock is not None:
-        kwargs["clock"] = clock
-    if sleep is not None:
-        kwargs["sleep"] = sleep
-    p = TokenmindProvider(**kwargs)
+    p = TokenmindProvider()
     transport = httpx.MockTransport(handler)
     p._client = lambda: httpx.Client(transport=transport)
     return p
@@ -62,12 +57,6 @@ class TestConstruction:
         monkeypatch.setenv("TOKENMIND_API_KEY", bad)
         with pytest.raises(ValueError, match="TOKENMIND_API_KEY"):
             TokenmindProvider()
-
-    def test_handles_retries_flag(self, monkeypatch):
-        monkeypatch.setenv("TOKENMIND_BASE_URL", BASE)
-        monkeypatch.setenv("TOKENMIND_API_KEY", "sk-x")
-        assert TokenmindProvider.handles_retries is True
-        assert TokenmindProvider().handles_retries is True
 
 
 class TestPayload:
@@ -139,7 +128,7 @@ class TestProtocolValidation:
         assert secret not in str(exc_info.value)
 
 
-class TestRetry:
+class TestSingleAttempt:
     def _flaky(self, failures, then=_ok):
         calls = {"n": 0}
 
@@ -151,23 +140,41 @@ class TestRetry:
 
         return handler, calls
 
-    def test_retries_on_429_then_succeeds(self, monkeypatch):
-        handler, calls = self._flaky([httpx.Response(429), httpx.Response(429)])
-        slept = []
-        p = _provider(monkeypatch, handler, sleep=slept.append)
-        assert p.complete("s", "u") == "สวัสดี"
-        assert calls["n"] == 3
-        assert len(slept) == 2
+    def test_one_complete_makes_one_request_on_429_and_ignores_retry_after(self, monkeypatch):
+        handler, calls = self._flaky([httpx.Response(429, headers={"Retry-After": "7"})] * 3)
+        p = _provider(monkeypatch, handler)
 
-    def test_retries_on_5xx(self, monkeypatch):
-        handler, calls = self._flaky([httpx.Response(503)])
-        p = _provider(monkeypatch, handler, sleep=lambda s: None)
-        assert p.complete("s", "u") == "สวัสดี"
-        assert calls["n"] == 2
+        with pytest.raises(httpx.HTTPStatusError):
+            p.complete("s", "u")
+
+        assert calls["n"] == 1
+
+    def test_one_complete_makes_one_request_on_5xx(self, monkeypatch):
+        handler, calls = self._flaky([httpx.Response(503)] * 3)
+        p = _provider(monkeypatch, handler)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            p.complete("s", "u")
+
+        assert calls["n"] == 1
+
+    def test_one_complete_makes_one_request_on_timeout(self, monkeypatch):
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+        p = _provider(monkeypatch, handler)
+
+        with pytest.raises(httpx.ReadTimeout):
+            p.complete("s", "u")
+
+        assert calls["n"] == 1
 
     def test_no_retry_on_other_4xx(self, monkeypatch):
         handler, calls = self._flaky([httpx.Response(400)] * 3)
-        p = _provider(monkeypatch, handler, sleep=lambda s: None)
+        p = _provider(monkeypatch, handler)
         with pytest.raises(httpx.HTTPStatusError):
             p.complete("s", "u")
         assert calls["n"] == 1
@@ -179,52 +186,10 @@ class TestRetry:
             calls["n"] += 1
             return _ok(content="")
 
-        p = _provider(monkeypatch, handler, sleep=lambda s: None)
+        p = _provider(monkeypatch, handler)
         with pytest.raises(ProviderProtocolError):
             p.complete("s", "u")
         assert calls["n"] == 1
-
-    def test_exhausted_retries_reraise_last_transient_error(self, monkeypatch):
-        handler, calls = self._flaky([httpx.Response(503)] * 5)
-        p = _provider(monkeypatch, handler, sleep=lambda s: None)
-        with pytest.raises(httpx.HTTPStatusError):
-            p.complete("s", "u")
-        assert calls["n"] == 3  # initial + 2 retries, no more
-
-    def test_retry_after_integer_is_respected(self, monkeypatch):
-        handler, _ = self._flaky([httpx.Response(429, headers={"Retry-After": "7"})])
-        slept = []
-        p = _provider(monkeypatch, handler, sleep=slept.append)
-        assert p.complete("s", "u") == "สวัสดี"
-        assert slept == [7.0]
-
-    def test_retry_after_garbage_falls_back_to_exponential(self, monkeypatch):
-        handler, _ = self._flaky([httpx.Response(429, headers={"Retry-After": "Wed, 21 Oct"})])
-        slept = []
-        p = _provider(monkeypatch, handler, sleep=slept.append)
-        assert p.complete("s", "u") == "สวัสดี"
-        assert slept == [1.0]
-
-    def test_deadline_prevents_sleep_past_budget(self, monkeypatch):
-        # fake clock: each call advances; a 429 asks for a delay that would
-        # cross the deadline -> raise the transient error without sleeping again
-        t = {"now": 0.0}
-
-        def clock():
-            return t["now"]
-
-        def sleep(s):
-            t["now"] += s
-
-        def handler(request):
-            t["now"] += 4.0  # each attempt costs 4s
-            return httpx.Response(429, headers={"Retry-After": "100"})
-
-        p = _provider(monkeypatch, handler, clock=clock, sleep=sleep)
-        with pytest.raises(httpx.HTTPStatusError):
-            p.complete("s", "u", timeout=10.0)
-        # attempt 1 at t=4; delay 100 would pass deadline 10 -> stop, no sleep
-        assert t["now"] == 4.0
 
     @pytest.mark.parametrize("bad", [0, -1, float("inf"), float("nan")])
     def test_invalid_timeout_rejected(self, monkeypatch, bad):
@@ -234,7 +199,37 @@ class TestRetry:
 
 
 class TestSendToAiRetryOwnership:
-    def test_send_to_ai_does_not_stack_retries_on_self_retrying_provider(self, monkeypatch):
+    def test_shared_policy_owns_tokenmind_retries_without_stacking(self, monkeypatch):
+        from pii_redactor import ai_client
+        from pii_redactor.ai_client import complete_provider_with_retry_policy
+
+        calls = {"n": 0}
+
+        def handler(_request):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return httpx.Response(503)
+            return _ok()
+
+        provider = _provider(monkeypatch, handler)
+        checks = []
+        delays = []
+        monkeypatch.setattr(ai_client, "_sleep", delays.append)
+
+        response, _latency, attempts = complete_provider_with_retry_policy(
+            provider,
+            "s",
+            "u",
+            before_attempt=checks.append,
+        )
+
+        assert response == "สวัสดี"
+        assert attempts == 3
+        assert calls["n"] == 3
+        assert checks == [0, 1, 2]
+        assert delays == [1, 2]
+
+    def test_send_to_ai_owns_retries_even_if_legacy_flag_is_present(self, monkeypatch):
         from pii_redactor import ai_client
         from pii_redactor.ai_client import AIProvider, send_to_ai
         from pii_redactor.models import EntityRegistry
@@ -254,7 +249,7 @@ class TestSendToAiRetryOwnership:
         registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
         with pytest.raises(RuntimeError):
             send_to_ai("ข้อความ", registry, vault, SelfRetrying())
-        assert calls["n"] == 1
+        assert calls["n"] == 3
 
     def test_send_to_ai_still_retries_plain_providers(self, monkeypatch):
         from pii_redactor import ai_client

@@ -706,59 +706,31 @@ def test_send_to_ai_contains_snapshot_exception_group_before_provider_call():
     _assert_exception_graph_discarded(snapshot_group)
 
 
-def test_send_to_ai_contains_retry_capability_descriptor_failure():
-    descriptor_error = _CredentialBearingProviderError(
-        httpx.Request(
-            "POST",
-            "https://provider.invalid/v1/complete",
-            headers={"Authorization": SYNTHETIC_AUTHORIZATION},
-            content=SYNTHETIC_PROVIDER_BODY.encode(),
-        )
-    )
+def test_send_to_ai_does_not_inspect_legacy_retry_capability():
     provider_calls = 0
 
-    class DescriptorFailProvider(AIProvider):
-        def __init__(self):
-            self._api_key = SYNTHETIC_AUTHORIZATION
-
+    class LegacyCapabilityProvider(AIProvider):
         @property
         def handles_retries(self):
-            raise descriptor_error
+            raise AssertionError("shared orchestration must own retries")
 
         def complete(self, system, user, *, timeout=30.0):
             nonlocal provider_calls
             provider_calls += 1
             return user
 
-    vault, _ = _make_vault_with_record(original=SYNTHETIC_VAULT_ORIGINAL)
+    vault = SessionVault()
     registry = EntityRegistry(entities=[], fp_count=0, tb_count=0)
-    provider = DescriptorFailProvider()
-
-    with pytest.raises(ProviderCallError) as excinfo:
-        send_to_ai(
-            SYNTHETIC_OUTBOUND_TEXT,
-            registry,
-            vault,
-            provider,
-            system_prompt=SYNTHETIC_SYSTEM_PROMPT,
-        )
-
-    assert excinfo.value.category == "failed"
-    assert excinfo.value.error_type == "ProviderError"
-    assert excinfo.value.attempts == 0
-    assert provider_calls == 0
-    _assert_public_failure_scrubbed(
-        excinfo.value,
-        forbidden_objects=(provider, vault, registry, descriptor_error),
-        forbidden_text=(
-            SYNTHETIC_AUTHORIZATION,
-            SYNTHETIC_OUTBOUND_TEXT,
-            SYNTHETIC_PROVIDER_BODY,
-            SYNTHETIC_SYSTEM_PROMPT,
-            SYNTHETIC_VAULT_ORIGINAL,
-        ),
+    result = send_to_ai(
+        SYNTHETIC_OUTBOUND_TEXT,
+        registry,
+        vault,
+        LegacyCapabilityProvider(),
+        system_prompt=SYNTHETIC_SYSTEM_PROMPT,
     )
-    _assert_exception_graph_discarded(descriptor_error)
+
+    assert result.text == SYNTHETIC_OUTBOUND_TEXT
+    assert provider_calls == 1
 
 
 def test_retry_validation_failure_survives_rollback_exception_group(monkeypatch):
@@ -977,40 +949,32 @@ def test_send_to_ai_discards_retained_provider_call_error(monkeypatch):
     assert retained_error.__dict__ == {}
 
 
-def test_send_to_ai_clamps_poisoned_provider_failure_metadata():
-    private_number = 1101700230708
-    retained_error = ProviderCallError(
-        category="http_status",
-        error_type="HTTPStatusError",
-        status_code=private_number,
-        attempts=private_number,
-    )
+def test_send_to_ai_clamps_requested_attempts_to_three(monkeypatch):
+    import pii_redactor.ai_client as client_module
 
-    class PoisonedCapabilityProvider(AIProvider):
-        @property
-        def handles_retries(self):
-            raise retained_error
+    provider_calls = 0
 
+    class FailingProvider(AIProvider):
         def complete(self, _system, _user, *, timeout=30.0):
-            raise AssertionError("provider must not be called")
+            nonlocal provider_calls
+            provider_calls += 1
+            raise _http_status_error(500)
+
+    monkeypatch.setattr(client_module, "_sleep", lambda _seconds: None)
 
     with pytest.raises(ProviderCallError) as excinfo:
         send_to_ai(
             "text",
             EntityRegistry(entities=[], fp_count=0, tb_count=0),
             SessionVault(),
-            PoisonedCapabilityProvider(),
+            FailingProvider(),
+            max_retries=99,
         )
 
-    assert excinfo.value is not retained_error
     assert excinfo.value.category == "http_status"
-    assert excinfo.value.error_type == "HTTPStatusError"
-    assert excinfo.value.status_code is None
-    assert excinfo.value.attempts == 0
-    assert str(private_number) not in str(excinfo.value)
-    assert retained_error.__traceback__ is None
-    assert retained_error.args == ()
-    assert retained_error.__dict__ == {}
+    assert excinfo.value.status_code == 500
+    assert excinfo.value.attempts == 3
+    assert provider_calls == 3
 
 
 def test_pre_send_blocks_tb_name_leak():
