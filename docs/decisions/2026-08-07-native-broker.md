@@ -38,7 +38,8 @@ The current control boundary already separates:
   target-bound, short-lived, single-use session-disposal authorization is
   derived by [`app/session_control_auth.py`](../../app/session_control_auth.py);
 - `AIGUARD_API_KEY`, the optional HTTP data-plane credential; and
-- provider credentials, which are consumed only by configured provider code.
+- LLM-provider and opt-in remote-engine credentials, which are consumed only by
+  their configured provider/detector code.
 
 The accepted
 [HTTP-v2 decision](2026-08-05-http-contract-v2.md) fixes the health schema to
@@ -56,6 +57,15 @@ uses the same immutable masked text, permits no provider fallback, allows at
 most three attempts, applies 60 seconds per attempt, and delays retryable
 attempts by one then two seconds. A broker must reach that layer through the
 existing adapter/core path; it must not add provider calls or retry policy.
+
+The explicitly selected remote TNER engine is a separate, pre-mask detector
+path. It sends raw source chunks to AI for Thai with a current 15-second timeout
+per call. It is opt-in, never the default, and any unavailable or incomplete
+result fails the whole operation before session/PDF publication or a later LLM
+provider call. It does not use the protected-provider orchestrator. A broker
+must preserve that authorized raw-text boundary, its selection/configuration,
+and its terminal failures; it must not silently make TNER local, retry it, or
+fall back to another detector.
 
 The three current Phase 8 source units are already integrated and have separate
 acceptance records:
@@ -101,6 +111,14 @@ The client paths are different:
   not an Office-host or installed-package run. The add-in has no native IPC
   capability or installed native companion.
 
+The Extension has an earlier boundary that a broker cannot change. Raw text
+typed into an AI site's in-page composer is already in provider-controlled DOM,
+where page code may observe or transmit it before Mask. Broker v1 protects the
+AI Guard-controlled native/backend transport; it does not claim that in-page
+entry is device-confined or attest the provider page's network behavior. The
+side panel is the stronger raw-entry boundary, but making it mandatory requires
+a separate owner product decision and is not selected here.
+
 The Extension and Desktop are therefore direct broker candidates. The current
 Office web add-in is not: Microsoft documents Office Add-ins as HTML/JavaScript
 running in a
@@ -142,15 +160,20 @@ without:
 
 # Security properties
 
-Any accepted design must preserve all of these invariants.
+Any accepted design must preserve all of these invariants for AI
+Guard-controlled transport. They do not erase the documented provider-page DOM
+boundary.
 
-1. **Authorized flow only.** Raw source or restored PII may cross only the
-   admitted first-party client, broker, and broker-owned backend boundary
-   required for the requested operation. It must never cross to another client,
-   an unverified listener, an external provider, logs, errors, or acceptance
-   artifacts. Masked provider-bound text and the provider response may cross
-   only to or from the explicitly selected provider through the existing shared
-   protected-provider orchestration.
+1. **Authorized flow only.** Raw source may cross the admitted first-party
+   client, its native bridge/adapter, broker, and broker-owned backend boundary
+   required for the operation. Only when remote TNER is explicitly selected may
+   raw pre-mask chunks also cross to its configured AI for Thai endpoint through
+   the existing detector path. Restored PII is never sent to an external
+   service. Masked LLM-provider-bound text and the provider response may cross
+   only to or from the explicitly selected LLM provider through the existing
+   shared protected-provider orchestration. None of these values may cross to
+   another client, an unverified listener, an unselected endpoint, logs, errors,
+   or acceptance artifacts.
 2. **Mapping confinement.** Stateful pseudonym-to-original mappings remain only
    in the Python `SessionService` vault. A stateless roundtrip mapping remains
    request-transient in Python and is explicitly cleared. The broker may retain
@@ -165,20 +188,23 @@ Any accepted design must preserve all of these invariants.
    connection and one broker-issued scope. A different connection,
    role, tab, window, or hotkey scope cannot restore or dispose it merely by
    presenting its opaque handle.
-5. **No provider fallback.** The broker preserves the explicitly selected
+5. **No provider fallback.** The broker preserves the explicitly selected LLM
    provider and never substitutes another provider, calls a provider directly,
    or repeats a provider-capable operation.
-6. **Outbound policy remains authoritative.** Every external-AI call continues
-   through the shared protected-provider orchestration and its fresh
-   pre-attempt scan. Broker validation is additional containment, not a
-   replacement for that boundary.
-7. **Credential confinement.** Boot/data-plane keys and provider credentials
-   exist only in the trusted native broker/backend process boundary. They are
-   not command-line arguments, URLs, JavaScript state, IPC responses, log
-   fields, error details, or files created for a request.
+6. **Outbound policy remains authoritative.** Every external LLM
+   provider-completion call continues through the shared protected-provider
+   orchestration and its fresh pre-attempt scan. Remote TNER remains the
+   separate explicitly selected pre-mask detector path and retains its
+   whole-operation fail-closed behavior. Broker validation is additional
+   containment, not a replacement for either boundary.
+7. **Credential confinement.** Boot/data-plane keys, LLM-provider credentials,
+   and remote-engine credentials exist only in the trusted native
+   broker/backend process boundary. They are not command-line arguments, URLs,
+   JavaScript state, IPC responses, log fields, error details, or files created
+   for a request.
 8. **Fixed safe errors.** Public broker failures contain only a stable code and
    a bounded retry classification. They contain no request/response values,
-   exception text or type, provider body, credential, session handle, process
+   exception text or type, upstream body, credential, session handle, process
    path, port, filename, or free-form upstream message.
 9. **No accidental or cross-user local exposure.** A same-machine process does
    not gain data access merely by discovering an endpoint. OS endpoint access
@@ -226,7 +252,7 @@ the existing Python HTTP adapter on a private authenticated loopback listener.
 
 | Dimension | 1. Localhost HTTP broker | 2. Shared native IPC broker | 3. Per-client spawned broker | 4. Hybrid native broker |
 |---|---|---|---|---|
-| Security boundary | Still exposes a discoverable TCP listener. TLS, CORS, random port, or loopback binding alone does not prove process identity. | Kernel endpoint ACL plus peer credentials creates a materially stronger local boundary without a port. | Strongest default channel: parent and child inherit private handles and no unrelated process can connect. | Native clients get option 2's boundary; Chrome gets option 3's channel; the existing Python listener is private, randomly bound, and requires broker-only credentials. |
+| Security boundary | Still exposes a discoverable TCP listener. TLS, CORS, random port, or loopback binding alone does not prove process identity. | Kernel endpoint ACL plus peer credentials creates a materially stronger local boundary without a port. | Strongest default channel: parent and child inherit private handles and no unrelated process can connect. | Native clients get option 2's boundary; Chrome gets option 3's channel; the existing Python listener is private, broker-prebound on a random port, and requires broker-only credentials. |
 | Admission and authorization | Requires a credential, mTLS, or process-to-TCP attribution. JavaScript cannot safely hold the existing credentials. | OS ACLs and peer credentials establish user/process context; platform authorization and role checks gate operations; path/build/digest checks detect package mismatch but do not authenticate a publisher or defeat same-user malware. | Parent/child relationship and inherited handles establish a private channel; platform caller authorization is still required. | Same as native IPC, with exact Chrome `allowed_origins`, allowlisted Tauri commands, and strict broker-to-backend key checks. |
 | Process ownership | Could be a service, Desktop child, or independent daemon; the repository has selected none. | One on-demand per-user broker owns one backend child. | Chrome/Desktop each owns a separate broker/backend process. | One on-demand per-user broker owns the backend; Desktop or the registered Chrome host may start the single instance. |
 | Portability | HTTP libraries are universal. Local TLS and secure credential delivery are not operationally free. | Named-pipe and UDS implementations are platform-specific but standard. | Stdio is portable; parent/lifecycle behavior and packaging still differ. | Common protocol and policy with thin Windows/macOS/Linux endpoint adapters and one Chrome stdio adapter. |
@@ -272,11 +298,11 @@ upgrades, and still not give the Office web add-in a native launch API.
 ## Option 4: hybrid native broker
 
 This uses native IPC as the installed client boundary, a small stdio adapter
-only where Chrome requires it, and an authenticated private loopback connection
-from the broker to the existing Python HTTP-v2 adapter. It preserves the shared
-core and allows migration in independently testable slices. Its cost is a new
-native TCB, three OS endpoint implementations, installer registration, and an
-explicitly deferred Office integration.
+only where Chrome requires it, and a broker-prebound authenticated private
+loopback connection from the broker to the existing Python HTTP-v2 adapter. It
+preserves the shared core and allows migration in independently testable
+slices. Its cost is a new native TCB, three OS endpoint implementations,
+installer registration, and an explicitly deferred Office integration.
 
 # Recommended decision
 
@@ -291,7 +317,7 @@ flowchart LR
     DW["Desktop webview"] -->|Tauri invoke, no credential| DR["Desktop Rust shell"]
     DH["Desktop hotkey"] --> DR
     DR -->|v1-admitted native IPC| B
-    B -->|private random loopback, HTTP v2 plus broker-only keys| PY["Broker-owned Python backend"]
+    B -->|prebound private random loopback, HTTP v2 plus broker-only keys| PY["Broker-owned Python backend"]
     PY --> CORE["Shared core, SessionService, outbound policy, provider orchestration"]
     OFF["Current Office web add-in"] -. "not in broker v1; separate owner decision" .-> B
     CLI["CLI"] --> CORE
@@ -329,15 +355,20 @@ operation.
    a filesystem Unix-domain stream socket in a user-private runtime directory
    on macOS/Linux with directory mode `0700` and socket mode `0600`. Do not use
    a Linux abstract socket because it has no filesystem permission boundary.
-4. The broker owns one Python backend child. It starts the child on a
-   broker-selected random `127.0.0.1` port with both data-plane and control-plane
-   protection required. The two secrets are generated independently for every
-   backend boot so the existing trust domains remain separate. No installed
-   client receives the port or either key.
-5. Bootstrap secrets pass through an inherited anonymous pipe/handle, not
-   command-line arguments, a request URL, stdout, or a request-scoped file.
-   The broker verifies that the bound listener belongs to its live child before
-   sending any secret-bearing request. Backend access logs are disabled.
+4. The broker owns one Python backend child. Before spawning it, the broker
+   exclusively binds a broker-selected random `127.0.0.1` listener and retains a
+   guard handle while transferring a duplicate/inherited listener handle to the
+   child. The child does not select or bind the port. Both data-plane and
+   control-plane protection remain required, and their secrets are generated
+   independently for every backend boot so the existing trust domains stay
+   separate. No installed client receives the port, listener, or either key.
+5. The listener handle and bootstrap secrets pass through inherited
+   handles/channels, not command-line arguments, a request URL, stdout, or a
+   request-scoped file. A check-then-connect port-owner snapshot is insufficient
+   and must not be used. Child exit, failed handle transfer, or uncertain
+   readiness closes every connection and listener handle and discards the boot
+   keys before any replacement backend starts. A later boot uses a new listener
+   and new keys. Backend access logs are disabled.
 6. On Windows, a Job Object ties the child to the broker. On macOS/Linux, the
    equivalent process-group/parent-death supervision is required. If the broker
    exits, the backend must not remain listening.
@@ -358,12 +389,14 @@ reachable through, or selected by, an installed storefront.
 | State | Owner and lifetime |
 |---|---|
 | Backend control token and data-plane key | Independently generated by the broker per backend boot, delivered through the inherited bootstrap channel, held only by broker/backend native memory, and discarded on child shutdown. |
-| Provider credentials/configuration | Read only from the existing approved local configuration source by the trusted broker/backend boundary and delivered to the child without exposing it to a client. Provider code remains the only consumer; the broker does not log, return, or persist it. This ADR does not select a new credential store. |
+| LLM-provider and remote-engine credentials/configuration | Read only from the existing approved local configuration source by the trusted broker/backend boundary and delivered to the child without exposing it to a client. Existing provider/detector code remains the only consumer; the broker does not log, return, or persist it. This ADR does not select a new credential store. |
 | Stateful mapping and vault salt/state | Python `SessionService` only, for the existing session lifetime. It never enters broker state or IPC. |
 | Stateless roundtrip mapping | Request-transient Python memory only; it is consumed and explicitly cleared before a successful response. It never enters broker state or IPC. |
 | Broker session ownership | In-memory broker handle to backend `session_id`, admitted connection, broker-issued scope, mode, and lifecycle metadata. It is never persisted or logged. |
-| Raw source or restored PII | Transient request/response buffers in the admitted client, broker, and backend only. It never crosses to an external provider. No request cache, crash-dump artifact, queue, or diagnostic copy is introduced. |
-| Masked provider-bound text and provider response | Transient buffers in the client/broker/backend path and, only for the requested provider operation, to or from the explicitly selected provider through shared protected-provider orchestration. The broker does not call the provider, cache the values, persist them, or log them. |
+| Raw source | Transient buffers in the admitted client, its native bridge/adapter, broker, and backend. When and only when remote TNER is explicitly selected, raw pre-mask chunks also pass to its configured AI for Thai endpoint through the existing detector. No broker request cache, crash-dump artifact, queue, or diagnostic copy is introduced. |
+| Restored PII | Transient response buffers in the backend, broker, native bridge/adapter, and admitted client only. It is never sent to an external service. |
+| Masked LLM-provider-bound text and provider response | Transient buffers in the client/bridge/adapter/broker/backend path and, only for the requested provider operation, to or from the explicitly selected LLM provider through shared protected-provider orchestration. The broker does not call the provider, cache the values, persist them, or log them. |
+| Extension in-page draft | Provider-controlled page DOM before native broker transport. Page code may already observe or transmit it before Mask. Broker v1 does not claim otherwise; side-panel-only entry is not mandated by this ADR. |
 | Package consistency metadata | Non-secret installed paths, product/build identifiers, and expected component digests in the packaged component manifest. These detect a mismatched component only; they are not publisher or application authentication. Observed values are not logged on mismatch. |
 
 ## Client authentication and authorization
@@ -494,7 +527,14 @@ terminal for that request; a later user action creates a new request only after
 any required session cleanup. The existing shared provider orchestrator remains
 the sole owner of its bounded attempts.
 
-## Provider access, retries, and timeouts
+## Remote TNER, provider access, retries, and timeouts
+
+The broker forwards the selected detection-engine configuration unchanged.
+Explicit remote TNER continues through the existing detector client, receives
+raw pre-mask chunks only when selected, and fails the whole operation on its
+first unavailable or incomplete result. The broker and native adapters do not
+retry it or substitute a local detector. A TNER failure prevents a later LLM
+provider call.
 
 The broker forwards the explicit provider selection to the local adapter. The
 adapter reaches the shared provider registry and protected-provider
@@ -503,9 +543,14 @@ changes provider selection.
 
 Provider-capable operations get a broker deadline that cannot expire before the
 existing worst-case orchestration budget of three 60-second attempts plus the
-one- and two-second delays and bounded adapter overhead. Non-provider and
-document deadlines are enabled only after the corresponding current path is
-measured; a timeout table becomes part of protocol conformance tests.
+one- and two-second delays and bounded adapter overhead. The protocol table has
+a separate remote-TNER budget derived from the enabled input limit, the current
+15-second per-call timeout, worst-case chunk/retag call count, and bounded
+adapter overhead. An operation that combines remote TNER and LLM completion
+must cover both budgets. It must not be misclassified as ordinary local
+non-provider work. Other non-provider and document deadlines are enabled only
+after the corresponding current path is measured; the complete timeout table
+is part of protocol conformance tests.
 
 The broker never retries a data operation. In particular, it does not replay a
 sanitize, restore, PDF, or provider-capable request after disconnect, timeout,
@@ -573,17 +618,26 @@ The broker and native adapters use a closed error vocabulary such as
 `session_unavailable`, and the already stable safe core/provider policy codes.
 Clients branch only on documented codes and never on free-form text.
 
-Production logs may contain only a stable event code, authorized role,
-operation name, protocol/build version, fixed outcome, bounded count, and
-coarse duration. They must not contain:
+Broker and native-adapter operational logs may contain only a stable event
+code, authorized role, operation name, protocol/build version, fixed outcome,
+bounded count, and coarse duration. They must not contain:
 
 - raw, masked, or restored request/response text;
 - entity values, replacements, mapping material, or document bytes;
 - request, session, scope, nonce, audit, or operation identifiers;
 - credentials, authorization headers, environment values, ports, URLs, query
-  strings, process paths, usernames, filenames, clipboard values, or provider
+  strings, process paths, usernames, filenames, clipboard values, or upstream
   bodies; or
 - exception messages, debug representations, or payload-derived metrics.
+
+The private Python backend retains the current value-free structural process
+audit contract. Its internal files may contain fresh non-authorizing operation
+UUIDs in the legacy `session_id` field and filename; those are not restoration
+authority and are not broker operational logs. The private audit directory,
+correlation field, and filenames never cross native IPC, broker logs, or errors.
+The existing strict `/api/audit-log` projection omits the correlation field.
+This ADR does not claim to fix the current file mode's lack of timed retention.
+Any future audit-store or retention change is separate from broker v1.
 
 Authentication diagnostics use fixed reasons such as
 `peer_component_mismatch`, never the observed path or digest. Acceptance uses
@@ -599,6 +653,9 @@ sentinels.
 - Inspect the client token and PID from the pipe, hold the process handle during
   admission checks, and verify package consistency against the installed
   component manifest.
+- Create the private loopback listener in the broker and transfer a duplicated
+  listener handle to the Python child; do not use a port-owner check followed by
+  a new connection.
 - Use a Job Object for broker/backend teardown.
 - The per-user installer must register the Chrome native-host manifest under
   the correct HKCU registry view and remove/update it safely.
@@ -609,6 +666,8 @@ sentinels.
 
 - Use a filesystem UDS in a private per-user runtime directory and the
   platform's peer-credential/audit-token facilities.
+- Pass the broker-prebound private loopback listener file descriptor to the
+  Python child and retain a parent guard until teardown.
 - Package broker, adapter, component manifest, and sidecar in the app bundle
   with stable absolute native-host registration.
 - Test app-bundle relocation, upgrade, browser host discovery, and child
@@ -623,6 +682,8 @@ sentinels.
   paths without assuming an AppImage and a Debian package share installation
   behavior.
 - Do not require systemd or a system-wide daemon; start on demand.
+- Pass the broker-prebound private loopback listener file descriptor to the
+  Python child and retain a parent guard until teardown.
 
 ### Extension
 
@@ -718,6 +779,10 @@ here.
   one shared backend is safer than retaining an uncertain mapping.
 - The design does not strengthen the accepted unsigned-distribution threat
   model into protection from same-user arbitrary code execution.
+- Broker v1 does not remove raw-data exposure already created by Extension
+  in-page entry, and it preserves explicitly selected remote TNER as the
+  authorized raw-text detector boundary. It does not send raw or restored PII
+  to an LLM provider.
 
 ## Operational implications
 
@@ -735,7 +800,8 @@ here.
   longer fetches loopback.
 - Extension background uses a registered native port and production manifest
   no longer needs loopback hosts.
-- Office remains open and cannot be counted as broker-backed acceptance.
+- Office remains unchanged and outside broker v1. Its existing real-host
+  acceptance remains open and is not broker-backed.
 
 ## Packaging changes
 
@@ -751,18 +817,24 @@ here.
 - Protocol schema, framing, size, malformed/unknown-field, fuzz, and
   compatibility tests.
 - Other-user, wrong-peer, wrong-path, wrong-digest, stale endpoint, PID reuse,
-  permissive ACL/mode, and direct-private-port rejection tests.
+  permissive ACL/mode, direct-private-port rejection, and child-exit/rebind race
+  tests for the prebound listener.
 - Concurrent cross-principal/tab/window/hotkey session isolation, expiry,
   eviction, disconnect, disposal, failed-disposal backend teardown, and
   restart/upgrade invalidation tests.
 - No-fallback/no-replay call-count tests across broker, adapters, Tauri, and
   storefronts, plus shared outbound scan/provider retry tests.
+- Explicit-TNER selection, raw-boundary, chunk-budget, terminal-failure, and
+  no-later-provider-call tests.
 - Desktop-exit/Extension-survival and maintenance-role least-authority tests.
-- Sentinel-based stdout/stderr/error/privacy tests using synthetic PII.
+- Sentinel-based stdout/stderr/error/private-audit/privacy tests using
+  synthetic PII.
 - Windows named-pipe, macOS UDS, Linux UDS, Chrome native-host, installed
-  Desktop, and eventually separately approved Office real-host acceptance.
-- Affected Python, JS, Rust, Office, version, packaging, and performance gates
-  from the repository check matrix.
+  Desktop, and private-backend installed-path acceptance. Office is not part of
+  broker v1 testing.
+- Affected Python, JS, Rust, version, packaging, and performance gates from the
+  repository check matrix. Office gates apply only to a separately approved
+  future Office change.
 
 ## Platform-specific work
 
@@ -781,12 +853,14 @@ not enable a production client until its negative security tests pass.
 
 - **Scope:** Define broker hello, framing, strict request/response schemas,
   fixed errors, data-client and maintenance role/operation matrix,
-  no-data-replay semantics, size/deadline table, and synthetic conformance
-  vectors. No listener or client cutover.
+  no-data-replay semantics, local/provider/remote-TNER size and deadline table,
+  and synthetic conformance vectors. No listener or client cutover.
 - **Dependencies:** Approved ADR and confirmed operation inventory.
 - **Acceptance criteria:** Unknown fields/versions/roles/operations and
   malformed/oversized frames fail with exact value-free errors; HTTP v2,
-  worker v1, and `VERSION` are unchanged.
+  worker v1, TNER selection/configuration semantics, and `VERSION` are
+  unchanged; remote-TNER operations have an explicit bounded call/deadline
+  budget rather than the local-operation default.
 - **Likely components:** new `native-broker/` contract module or equivalent,
   shared synthetic fixtures under `tests/`, architecture/code-map updates only
   where the new code actually lands.
@@ -802,40 +876,46 @@ not enable a production client until its negative security tests pass.
 
 - **Scope:** Build the on-demand single-instance broker, Windows pipe and
   macOS/Linux UDS adapters, OS peer-context and package-consistency admission,
-  private random-port backend startup, inherited secret bootstrap, child
-  supervision, broker hello/health, broker self-lifecycle, and the
-  maintenance-only drain/stop path. Enable no PII operation.
+  broker-prebound private random-port listener transfer, inherited secret
+  bootstrap, child supervision, broker hello/health, broker self-lifecycle, and
+  the maintenance-only drain/stop path. Enable no PII operation.
 - **Dependencies:** Slice 1; platform APIs available on all three CI/release
   targets.
 - **Acceptance criteria:** only allowlisted installed native fixtures complete
   hello; arbitrary/other-user/wrong-build peers and direct private-port calls
   cannot reach data routes; storefront roles cannot request global shutdown;
   the maintenance role cannot request data or session operations; broker death
-  terminates the child; no secret or endpoint value appears in output.
+  terminates the child; child exit or uncertain listener transfer sends no
+  secret to a replacement listener; no secret or endpoint value appears in
+  output.
 - **Likely components:** new native broker crate, `launcher.py`,
   `app/server.py` private-mode startup, Desktop build/sidecar staging scripts,
   CI placeholders and platform tests.
 - **Tests:** ACL/mode assertions, peer PID/UID race cases, stale endpoint,
-  port-owner substitution, cross-role lifecycle denial, idle self-exit, child
-  mismatch/crash, secret-channel closure, cross-platform build/smoke, captured
-  log sentinel scan.
+  exclusive bind, check/connect child-exit/rebind race, cross-role lifecycle
+  denial, idle self-exit, child mismatch/crash, listener/secret-channel closure,
+  cross-platform build/smoke, captured log sentinel scan.
 - **Rollback conditions:** any anonymous data access, permissive endpoint,
-  unverified child, orphan listener, secret-bearing argv/file/log, or
-  cross-platform build failure.
+  unverified child, check-then-connect credential delivery, orphan listener,
+  secret-bearing argv/file/log, or cross-platform build failure.
 
 ## Slice 3 — broker data plane, session ownership, and disposal
 
 - **Scope:** Proxy the strict local operation set to HTTP v2, validate exact
   child responses, add broker handles/scopes, serialize session mutations,
-  preserve provider orchestration, and implement confirmed disposal or backend
-  teardown. No storefront cutover.
+  preserve remote-TNER and provider orchestration, project the existing private
+  audit contract without correlation identifiers, and implement confirmed
+  disposal or backend teardown. No storefront cutover.
 - **Dependencies:** Slice 2 and existing F-06 disposal plus provider
   orchestration.
 - **Acceptance criteria:** cross-principal/scope handles never restore; mapping
-  remains backend-only; every external attempt still passes the shared outbound
-  check; broker call counts show no provider fallback or data replay; a known
-  uncertain stateful completion ends in confirmed authenticated disposal or
-  backend teardown; an unknown published-session target and an unconfirmed
+  remains backend-only; every LLM provider attempt still passes the shared
+  outbound check; remote TNER receives raw chunks only when explicitly selected
+  and any failure prevents a later provider call; broker call counts show no
+  provider fallback, detector substitution, or data replay; private audit
+  projection exposes no correlation field/path/filename; a known uncertain
+  stateful completion ends in confirmed authenticated disposal or backend
+  teardown; an unknown published-session target and an unconfirmed
   request-transient mapping cleanup tear down the backend and invalidate every
   handle.
 - **Likely components:** broker routing/session modules, `app/server.py`,
@@ -844,12 +924,15 @@ not enable a production client until its negative security tests pass.
 - **Tests:** concurrent session isolation, expiry/eviction, replay, disconnect,
   child/broker crash, timeout after known-session unknown completion, lost
   sanitize response after session publication, unconfirmed stateless cleanup,
-  provider retry matrix, unsafe response, PDF/document size/deadline tests,
-  privacy scan.
-- **Rollback conditions:** raw backend IDs cross to clients, mapping reaches
-  broker/client, a handle is usable outside its owner, disposal is unconfirmed
-  without teardown, an unknown published session can survive until TTL, or any
-  broker/adapter/storefront retry or fallback bypasses shared policy.
+  remote-TNER selection/chunk timeout/failure call counts, provider retry
+  matrix, private-audit projection, unsafe response, PDF/document size/deadline
+  tests, privacy scan.
+- **Rollback conditions:** any of these occurs: a raw backend ID crosses to a
+  client; a mapping reaches broker/client state; a handle works outside its
+  owner; disposal is unconfirmed without teardown; an unknown published session
+  can survive until TTL; a broker/adapter/storefront retry or fallback bypasses
+  shared policy; raw text reaches an LLM provider or unselected remote detector;
+  or a TNER failure reaches provider completion.
 
 ## Slice 4 — Desktop migration
 
@@ -916,11 +999,12 @@ not enable a production client until its negative security tests pass.
   retains/restores a mapping, any job is red, or evidence comes only from mocks
   when the gate is installed/official-platform.
 
-## Slice 7 — Office architecture, only after a second owner decision
+## Future follow-up — Office architecture under a separate ADR
 
-- **Scope:** Write and approve a separate ADR selecting a Windows-native
-  companion, a proven authenticated HTTPS bridge, or continued deferral. Do not
-  implement Office broker calls before that decision.
+- **Scope:** This is not a broker-v1 implementation slice. Write and approve a
+  separate ADR selecting a Windows-native companion, a proven authenticated
+  HTTPS bridge, or continued deferral. Do not implement Office broker calls
+  before that decision.
 - **Dependencies:** Broker boundary evidence from earlier slices and a concrete
   Office host/distribution target.
 - **Acceptance criteria:** the selected design authenticates the Office caller
