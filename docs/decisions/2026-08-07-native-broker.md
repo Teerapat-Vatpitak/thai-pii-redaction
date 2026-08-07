@@ -1,13 +1,14 @@
 # Phase 8 native broker
 
 - Date: 2026-08-07
-- Status: **PROPOSED / DRAFT — owner decision required**
+- Status: **PROPOSED — owner approved; independent review pending**
 - Scope: local installed clients only
 - Non-goals: implementation, release, deployment, hosted-service changes, worker
   changes, and product-version changes
 
-This record is a recommendation for owner review. It is not an accepted
-decision and does not authorize broker production code.
+The owner approved the four decisions recorded at the end of this document on
+2026-08-07. The ADR is not accepted and does not authorize broker production
+code until the required independent review passes.
 
 # Context
 
@@ -126,7 +127,8 @@ random port alone would reduce collisions but would not establish identity.
 Giving the HTTP data or control credential to Extension, webview, or Office
 JavaScript would violate the existing trust boundary.
 
-The broker must therefore create an authenticated native boundary without:
+The broker must therefore create a controlled native admission boundary
+without:
 
 - moving the canonical mapping out of backend memory;
 - forking detection, document, provider, restore, or outbound-policy logic;
@@ -139,19 +141,19 @@ The broker must therefore create an authenticated native boundary without:
 Any accepted design must preserve all of these invariants.
 
 1. **Authorized flow only.** Raw source or restored PII may cross only the
-   authenticated first-party client, broker, and broker-owned backend boundary
+   admitted first-party client, broker, and broker-owned backend boundary
    required for the requested operation. It must never cross to another client,
    an unverified listener, logs, errors, or acceptance artifacts.
 2. **Mapping confinement.** The pseudonym-to-original mapping remains only in
    the Python backend vault. The broker may retain an in-memory association
    between its opaque session handle and the backend `session_id`; it must
    never receive, persist, reconstruct, or log mapping pairs.
-3. **Fail closed.** Unknown peer identity, missing or malformed handshake,
-   incompatible protocol, backend identity mismatch, uncertain mutation,
+3. **Fail closed.** Unknown peer context, missing or malformed handshake,
+   incompatible protocol, backend-listener mismatch, uncertain mutation,
    timeout, broker/backend crash, unsafe response, or failed disposal produces
    no client write and no HTTP fallback.
-4. **Client and session isolation.** A session is owned by one authenticated
-   native connection and one broker-issued scope. A different connection,
+4. **Client and session isolation.** A session is owned by one admitted native
+   connection and one broker-issued scope. A different connection,
    role, tab, window, or hotkey scope cannot restore or dispose it merely by
    presenting its opaque handle.
 5. **No provider fallback.** The broker preserves the explicitly selected
@@ -169,11 +171,13 @@ Any accepted design must preserve all of these invariants.
    a bounded retry classification. They contain no request/response values,
    exception text or type, provider body, credential, session handle, process
    path, port, filename, or free-form upstream message.
-9. **No anonymous local access.** A same-machine process does not gain data
-   access merely by discovering an endpoint. OS access control, peer process
-   identity, installed-component identity, and role authorization must all
-   succeed before payload parsing.
-10. **Lifecycle disposal.** Closing a client scope or authenticated connection
+9. **No accidental or cross-user local exposure.** A same-machine process does
+   not gain data access merely by discovering an endpoint. OS endpoint access
+   control and peer context, platform-origin/command authorization, package
+   consistency checks, and protocol role authorization must all succeed before
+   payload parsing. Package consistency is not publisher or application
+   authentication.
+10. **Lifecycle disposal.** Closing a client scope or admitted connection
     disposes its backend sessions. If disposal cannot be confirmed, the broker
     invalidates every affected handle and terminates the backend rather than
     retaining an uncertain mapping.
@@ -183,15 +187,25 @@ Any accepted design must preserve all of these invariants.
 12. **Bounded work.** Frames, connections, in-flight operations, per-principal
     sessions, and queues are bounded. Limit failures are fixed and value-free.
 
-The proposed threat boundary protects against wrong-port routing, stale or
-unregistered components, other OS users, and arbitrary processes that do not
-control an allowed installed native component. It does **not** claim to resist
-an attacker with arbitrary code execution as the same OS user, permission to
-replace the installed binaries, browser-process injection, or a compromised
-operating system. The accepted unsigned-distribution decision means runtime
-package checks can detect a mismatched component but are not publisher-backed
-code-signing attestation. Expanding that threat model requires a separate owner
-decision.
+Within its approved v1 boundary, the design protects against unauthorized
+remote/web origins, other OS users, cross-client or cross-session confusion,
+accidental local exposure, protocol misuse, and unsafe fallback.
+
+The following limitations are explicit:
+
+- OS peer credentials establish OS-user and process context; they are not
+  cryptographic publisher attestation.
+- Installed path, build identifier, and digest checks provide package
+  consistency only. They are not strong application authentication.
+- The design does not claim protection against arbitrary malicious code already
+  executing as the same OS user.
+- The design does not claim protection against compromise of the user's OS
+  account.
+- The design does not claim protection against replacement or tampering of
+  unsigned installed binaries.
+
+The accepted unsigned-distribution decision therefore remains unchanged.
+Expanding this threat model requires a separate owner decision.
 
 # Options considered
 
@@ -204,13 +218,13 @@ the existing Python HTTP adapter on a private authenticated loopback listener.
 | Dimension | 1. Localhost HTTP broker | 2. Shared native IPC broker | 3. Per-client spawned broker | 4. Hybrid native broker |
 |---|---|---|---|---|
 | Security boundary | Still exposes a discoverable TCP listener. TLS, CORS, random port, or loopback binding alone does not prove process identity. | Kernel endpoint ACL plus peer credentials creates a materially stronger local boundary without a port. | Strongest default channel: parent and child inherit private handles and no unrelated process can connect. | Native clients get option 2's boundary; Chrome gets option 3's channel; the existing Python listener is private, randomly bound, and requires broker-only credentials. |
-| Authentication | Requires a credential, mTLS, or process-to-TCP attribution. JavaScript cannot safely hold the existing credentials. | Broker authenticates OS user/logon session, peer PID/token/UID, expected installed path and component digest, then applies a role allowlist. | Parent/child relationship and inherited handles establish the initial principal; each platform launcher must still be authenticated. | Same as native IPC, with exact Chrome `allowed_origins`, native-host parent/origin checks, and strict broker-to-backend identity/key checks. |
+| Admission and authorization | Requires a credential, mTLS, or process-to-TCP attribution. JavaScript cannot safely hold the existing credentials. | OS ACLs and peer credentials establish user/process context; platform authorization and role checks gate operations; path/build/digest checks detect package mismatch but do not authenticate a publisher or defeat same-user malware. | Parent/child relationship and inherited handles establish a private channel; platform caller authorization is still required. | Same as native IPC, with exact Chrome `allowed_origins`, allowlisted Tauri commands, and strict broker-to-backend key checks. |
 | Process ownership | Could be a service, Desktop child, or independent daemon; the repository has selected none. | One on-demand per-user broker owns one backend child. | Chrome/Desktop each owns a separate broker/backend process. | One on-demand per-user broker owns the backend; Desktop or the registered Chrome host may start the single instance. |
 | Portability | HTTP libraries are universal. Local TLS and secure credential delivery are not operationally free. | Named-pipe and UDS implementations are platform-specific but standard. | Stdio is portable; parent/lifecycle behavior and packaging still differ. | Common protocol and policy with thin Windows/macOS/Linux endpoint adapters and one Chrome stdio adapter. |
 | Lifecycle | Easy health probing, but stale listeners and port ownership remain concerns. | Broker explicitly owns endpoint, child, client connections, sessions, and shutdown. | Lifecycle follows each client channel, which simplifies cleanup but makes MV3 or UI disconnects destroy all state. | Shared broker provides one backend lifecycle while connection-bound scopes preserve deterministic disposal. |
 | Crash recovery | Clients can reconnect, but cannot know whether an in-flight mutation completed without added semantics. | Disconnect invalidates handles; backend restart clears all mappings. No mutation is replayed. | A client restart creates a fresh empty vault and cannot restore prior text. | Same fail-closed model as native IPC; a later new request may start a fresh child, but the failed request is never replayed. |
 | Concurrency | FastAPI already handles concurrent callers, but HTTP alone does not establish ownership. | A bounded broker executor can serialize mutations per session and allow bounded work across principals. | Natural process isolation, at the cost of duplicate backends and provider/model resources. | Shared bounded execution plus explicit principal/scope/session ownership; backend locking remains authoritative. |
-| Session isolation | Must add an authenticated principal above the global `SessionService`; possession of a raw UUID is otherwise sufficient. | Broker-issued handles map to backend IDs and are checked against connection and scope before every use. | Separate processes isolate clients by construction; tab/window isolation still needs scopes. | Same as shared native IPC; the canonical mapping never leaves `SessionService`. |
+| Session isolation | Must add an admitted and authorized principal above the global `SessionService`; possession of a raw UUID is otherwise sufficient. | Broker-issued handles map to backend IDs and are checked against connection and scope before every use. | Separate processes isolate clients by construction; tab/window isolation still needs scopes. | Same as shared native IPC; the canonical mapping never leaves `SessionService`. |
 | Deployment and packaging | Lowest code change, but requires secure local certificate/key provisioning and still leaves browser-facing HTTP. | Adds a native executable, OS endpoint code, installer lifecycle, and component manifests. | Adds a native host/backend per storefront and duplicates packaging/startup. | Adds one broker plus a small Chrome adapter and changes the existing Desktop installer to register/package them. |
 | Extension/Desktop/Office | All can issue HTTP, but Extension/Office/webview cannot safely hold the credential that would make it secure. | Desktop works directly; Extension needs native messaging; current Office cannot connect. | Desktop and Extension fit; current Office cannot spawn or attach. | Desktop and Extension fit their platform-native paths. Office remains explicitly blocked pending a separate native-companion decision. |
 | Testing | Simple functional tests; difficult negative proof for local process identity and certificate deployment. | Needs OS ACL, peer identity, framing, race, crash, isolation, and packaging tests on three OSes. | Needs lifecycle/resource tests for every client process and MV3 disconnect behavior. | Highest integration matrix, but boundaries can be tested independently and the existing HTTP/core contract remains reusable. |
@@ -257,16 +271,17 @@ explicitly deferred Office integration.
 
 # Recommended decision
 
-**Recommendation only:** choose option 4, with Office excluded from broker
-protocol v1 until the owner separately chooses a native Office integration.
+**Owner-approved decision, pending independent review:** choose option 4, with
+Office excluded from broker protocol v1 until a separate ADR approves a
+concrete native Office integration.
 
 ```mermaid
 flowchart LR
     EXT["Extension service worker"] -->|Chrome native messaging, stdio| NM["Registered native host adapter"]
-    NM -->|authenticated native IPC| B["Per-user native broker"]
+    NM -->|v1-admitted native IPC| B["Per-user native broker"]
     DW["Desktop webview"] -->|Tauri invoke, no credential| DR["Desktop Rust shell"]
     DH["Desktop hotkey"] --> DR
-    DR -->|authenticated native IPC| B
+    DR -->|v1-admitted native IPC| B
     B -->|private random loopback, HTTP v2 plus broker-only keys| PY["Broker-owned Python backend"]
     PY --> CORE["Shared core, SessionService, outbound policy, provider orchestration"]
     OFF["Current Office web add-in"] -. "not in broker v1; separate owner decision" .-> B
@@ -279,9 +294,11 @@ flowchart LR
 
 Broker protocol v1 serves two installed client principals:
 
-- `desktop`, represented only by the authenticated Tauri/Rust process; and
+- `desktop`, represented only by the Tauri/Rust process admitted under the v1
+  boundary; and
 - `extension`, represented only by the registered Chrome native-messaging
-  adapter after it validates the exact allowed extension origin.
+  adapter after Chrome and the adapter validate the exact allowed extension
+  origin.
 
 The Desktop process creates separate UI and hotkey scopes internally. The
 Extension adapter creates separate tab and side-panel scopes. CLI, hosted,
@@ -293,10 +310,10 @@ principals.
 1. Install one native broker executable per product installation. Run at most
    one instance per OS user/logon session, on demand; do not install a privileged
    system service.
-2. The first trusted Desktop launcher or registered Chrome native host starts
-   the broker from the exact installed path. Single-instance creation and
-   endpoint publication must be atomic. A stale endpoint or unexpected owner
-   fails closed.
+2. The first v1-admitted Desktop launcher or registered Chrome native host
+   starts the broker from the expected installed path. Single-instance creation
+   and endpoint publication must be atomic. A stale endpoint or unexpected
+   owner fails closed.
 3. Expose a Windows named pipe with an explicit current-logon-user DACL. Expose
    a filesystem Unix-domain stream socket in a user-private runtime directory
    on macOS/Linux with directory mode `0700` and socket mode `0600`. Do not use
@@ -316,6 +333,13 @@ The private loopback child transport is a migration seam, not the client trust
 boundary. A later inherited-handle backend transport may replace it without
 changing the broker protocol.
 
+The loopback address, port, and backend credentials are never returned to a
+storefront. Production Extension and Desktop code contains no backend URL,
+probing path, or direct HTTP client. Failure to establish native IPC produces a
+fixed unavailable result; it never falls back to localhost HTTP. Source
+development may retain an explicitly started HTTP path, but that path is not
+reachable through, or selected by, an installed storefront.
+
 ## Secret and sensitive-state ownership
 
 | State | Owner and lifetime |
@@ -323,28 +347,34 @@ changing the broker protocol.
 | Backend control token and data-plane key | Generated by the broker per backend boot, delivered through the inherited bootstrap channel, held only by broker/backend native memory, and discarded on child shutdown. |
 | Provider credentials/configuration | Read only from the existing approved local configuration source by the trusted broker/backend boundary and delivered to the child without exposing it to a client. Provider code remains the only consumer; the broker does not log, return, or persist it. This ADR does not select a new credential store. |
 | Canonical mapping and vault salt/state | Python `SessionService` only, for the existing session lifetime. It never enters broker state or IPC. |
-| Broker session ownership | In-memory broker handle to backend `session_id`, authenticated connection, broker-issued scope, mode, and lifecycle metadata. It is never persisted or logged. |
-| Raw, masked, or restored content | Transient request/response buffers in the authenticated client, broker, and backend only. No request cache, crash dump artifact, queue, or diagnostic copy is introduced. |
-| Component identity | Non-secret installed paths, product/build identifiers, and expected component digests in the packaged component manifest. Observed values are not logged on mismatch. |
+| Broker session ownership | In-memory broker handle to backend `session_id`, admitted connection, broker-issued scope, mode, and lifecycle metadata. It is never persisted or logged. |
+| Raw, masked, or restored content | Transient request/response buffers in the admitted client, broker, and backend only. No request cache, crash dump artifact, queue, or diagnostic copy is introduced. |
+| Package consistency metadata | Non-secret installed paths, product/build identifiers, and expected component digests in the packaged component manifest. These detect a mismatched component only; they are not publisher or application authentication. Observed values are not logged on mismatch. |
 
 ## Client authentication and authorization
 
-Authentication has four mandatory layers:
+Admission and authorization have four mandatory checks. They deliberately do
+not conflate OS context or package consistency with publisher-backed
+application authentication:
 
-1. **Endpoint owner:** the client launcher verifies the endpoint owner is the
-   broker it started or the expected installed broker component.
-2. **OS principal:** the broker obtains the peer's logon SID/token and PID on
-   Windows, UID/GID and peer PID/credentials on macOS/Linux, and holds a stable
-   process reference while authenticating it. A client-supplied PID or role is
-   never evidence.
-3. **Installed component:** the peer executable's canonical installed path,
-   build identifier, and digest must match the broker's packaged component
-   manifest. Mismatch, inability to inspect, or PID reuse fails closed. This is
-   package consistency under the stated threat model, not code-signing
-   attestation.
-4. **Role handshake:** after transport authentication, a strict hello selects
-   one common broker protocol and maps the connection to an allowlisted role.
-   A role claim that does not match the authenticated component is rejected.
+1. **Endpoint and OS context:** the client checks that the endpoint belongs to
+   the broker instance it started or expected. The broker obtains the peer's
+   logon SID/token and PID on Windows, or UID/GID and peer process credentials
+   on macOS/Linux, and holds a stable process reference while inspecting it.
+   Client-supplied PID or role values are never evidence. These checks establish
+   OS-user/process context only.
+2. **Package consistency:** the peer executable's canonical installed path,
+   build identifier, and digest must match the packaged component manifest.
+   Mismatch, inability to inspect, or PID reuse fails closed. A match does not
+   authenticate a publisher, prove an untampered unsigned installation, or
+   protect against malicious code already running as the same user.
+3. **Platform caller authorization:** Chrome enforces exact native-host
+   `allowed_origins`, and the adapter rechecks the origin and expected browser
+   process context. Desktop exposes only allowlisted Tauri commands to allowed
+   windows; webview JavaScript never opens native IPC itself.
+4. **Role handshake:** after those admission checks, a strict hello selects one
+   common broker protocol and maps the connection to an allowlisted role. A
+   role claim inconsistent with the admitted platform channel is rejected.
 
 The initial roles are:
 
@@ -355,14 +385,19 @@ The initial roles are:
 
 Chrome provides an additional boundary. Its native-host manifest contains one
 or more exact, stable extension origins and no wildcard. The adapter checks the
-origin argument, expected browser parent, broker protocol, and installed
-component identity before forwarding. It accepts no standalone command-line
-or interactive mode.
+origin argument, expected browser process context, broker protocol, and package
+consistency before forwarding. It accepts no standalone command-line or
+interactive mode.
 
 The Desktop webview never opens the pipe and never receives a native credential.
 It calls allowlisted Tauri commands; Rust validates the command payload and
 projects the fixed broker result. Tauri capability/window labels remain an
 authorization layer inside the Desktop client.
+
+The Desktop companion/package installs and updates the broker, Chrome adapter,
+and native-host registration. That distribution ownership does not make the
+Extension depend on the Desktop GUI lifecycle: the registered native host can
+start or connect to the shared broker while the Desktop GUI process is closed.
 
 ## Session ownership
 
@@ -370,12 +405,12 @@ The broker returns an opaque broker session handle in the broker contract's
 `session_id` field. It is not the backend UUID. The broker stores only:
 
 - broker handle to backend `session_id`;
-- authenticated connection and broker-issued scope ownership;
+- admitted connection and broker-issued scope ownership;
 - mode and lifecycle metadata needed to validate use; and
 - no source, restored text, entity value, replacement, mapping, or credential.
 
 Desktop UI, Desktop hotkey, and each Extension tab/panel use separate
-broker-issued scopes. A session handle is accepted only when the authenticated
+broker-issued scopes. A session handle is accepted only when the admitted
 connection and scope both own it. The backend's existing TTL and global cap
 remain authoritative and are not extended by broker activity. The broker adds
 bounded per-principal accounting to prevent one client from consuming the
@@ -400,11 +435,12 @@ Broker protocol versioning is independent of product `VERSION`, HTTP contract
 
 - The first framed message is a strict `hello` containing a finite list of
   supported broker protocol integers, client product version, and claimed role.
-  Identity still comes from the authenticated transport. The broker selects the
-  highest common protocol or returns fixed `broker_incompatible`.
+  Role binding comes from the admitted platform channel; claimed fields are not
+  identity evidence. The broker selects the highest common protocol or returns
+  fixed `broker_incompatible`.
 - Protocol v1 uses length-prefixed UTF-8 JSON objects. All schemas reject
   unknown fields, invalid Unicode, duplicate semantic fields, oversized frames,
-  and operations outside the authenticated role.
+  and operations outside the authorized role.
 - A request contains exactly `broker_protocol_version`, an opaque
   `request_id`, `operation`, a broker-issued `scope_id` when required, and a
   strict operation payload. The broker—not the client—selects the operation
@@ -446,14 +482,14 @@ scope is invalidated.
 
 ## Lifecycle and concurrency
 
-- One bounded broker executor serves authenticated connections. There is no
+- One bounded broker executor serves admitted connections. There is no
   unbounded task or message queue.
 - Mutating operations for one session scope are serialized. Independent
   principals/scopes may run concurrently within global and per-principal
   bounds. The existing backend lock and transactional semantics remain
   authoritative.
-- When the last authenticated connection closes, all its scopes are disposed.
-  When no authenticated connections, live handles, or in-flight operations
+- When the last admitted connection closes, all its scopes are disposed. When
+  no admitted connections, live handles, or in-flight operations
   remain, the on-demand broker stops its backend and exits; no always-on service
   is required.
 - A client disconnect, broker crash, backend crash, or OS shutdown projects a
@@ -466,6 +502,8 @@ scope is invalidated.
 The Desktop installer updates the Desktop shell, broker, Chrome adapter,
 component manifest, and Python sidecar as one component set. The broker refuses
 to start a sidecar whose build identifier/digest does not match that set.
+The native host launches/connects to the shared broker directly; the Desktop
+GUI process is not a runtime dependency.
 
 Every client advertises an explicit finite set of supported broker protocols.
 There is no implicit “close enough” product-version rule and no silent
@@ -487,7 +525,7 @@ The broker and native adapters use a closed error vocabulary such as
 `session_unavailable`, and the already stable safe core/provider policy codes.
 Clients branch only on documented codes and never on free-form text.
 
-Production logs may contain only a stable event code, authenticated role,
+Production logs may contain only a stable event code, authorized role,
 operation name, protocol/build version, fixed outcome, bounded count, and
 coarse duration. They must not contain:
 
@@ -511,12 +549,13 @@ sentinels.
 - Implement the named pipe with an explicit current-logon SID DACL; do not
   accept the permissive default descriptor, and reject remote pipe clients.
 - Inspect the client token and PID from the pipe, hold the process handle during
-  authentication, and verify the installed component manifest.
+  admission checks, and verify package consistency against the installed
+  component manifest.
 - Use a Job Object for broker/backend teardown.
 - The per-user installer must register the Chrome native-host manifest under
   the correct HKCU registry view and remove/update it safely.
 - The existing unsigned-install decision remains. Runtime digest checks do not
-  become a code-signing claim.
+  become application authentication or a code-signing claim.
 
 ### macOS
 
@@ -581,7 +620,7 @@ here.
   turn a discoverable listener into authenticated process access.
 - **CORS, `Origin`, `Host`, or process image name as authentication:** rejected
   because local non-browser callers can forge request headers, and an image
-  name is not installed-component identity.
+  name is not publisher or application authentication.
 - **Expose the boot token or derived disposal authorization to clients:**
   rejected by the accepted control/data-plane separation and because it would
   authorize more than an opaque session handle.
@@ -608,7 +647,7 @@ here.
 
 ## Implementation work
 
-- Add a native broker protocol, platform IPC adapters, peer/process identity,
+- Add a native broker protocol, platform IPC adapters, OS peer/process context,
   bounded concurrency, session ownership, lifecycle supervision, and fixed
   error/log projection.
 - Add a private authenticated sidecar mode without changing the public HTTP-v2
@@ -619,8 +658,10 @@ here.
 
 ## Security implications
 
-- Arbitrary unauthenticated local processes lose direct access to the installed
-  data plane, and session use becomes connection/scope authorized.
+- Unauthorized remote/web origins, other OS users, accidental local callers,
+  and cross-client/session use lose direct access to the installed data plane
+  within the stated v1 threat boundary. Same-user malicious code remains
+  explicitly out of scope.
 - The broker and its native adapters join the trusted computing base and see
   request/response data transiently. Their parsing, logging, crash, and memory
   behavior require the same privacy review as the Python boundary.
@@ -676,7 +717,7 @@ here.
 ## Platform-specific work
 
 Windows needs named-pipe ACL/token/PID checks, Job Object supervision, and HKCU
-Chrome registration. macOS needs UDS peer identity, app-bundle/native-host
+Chrome registration. macOS needs UDS peer context, app-bundle/native-host
 layout, and lifecycle acceptance. Linux needs verified runtime-directory
 handling, `SO_PEERCRED`, AppImage/deb-specific registration, and teardown
 acceptance. None can be certified by a single-OS mock.
@@ -705,12 +746,12 @@ not enable a production client until its negative security tests pass.
   overloads HTTP v2 or worker v1, permits unknown fields, or lacks a fixed
   failure for incompatibility.
 
-## Slice 2 — authenticated broker bootstrap and health only
+## Slice 2 — admitted broker bootstrap and health only
 
 - **Scope:** Build the on-demand single-instance broker, Windows pipe and
-  macOS/Linux UDS adapters, peer/component authentication, private random-port
-  backend startup, inherited secret bootstrap, child supervision, and broker
-  hello/health. Enable no PII operation.
+  macOS/Linux UDS adapters, OS peer-context and package-consistency admission,
+  private random-port backend startup, inherited secret bootstrap, child
+  supervision, and broker hello/health. Enable no PII operation.
 - **Dependencies:** Slice 1; platform APIs available on all three CI/release
   targets.
 - **Acceptance criteria:** only allowlisted installed native fixtures complete
@@ -832,14 +873,34 @@ not enable a production client until its negative security tests pass.
   approval, or development-proxy evidence is presented as Office-host
   acceptance.
 
-# Owner decision required
+# Owner decisions
 
-1. Approve or reject the hybrid per-user broker: Windows named pipe,
-   macOS/Linux filesystem UDS, Chrome stdio adapter, and broker-owned private
-   authenticated loopback connection to the existing Python HTTP-v2 adapter.
-2. Approve or reject the stated local threat boundary and installed-component
-   identity model under the already accepted unsigned-distribution policy.
-3. Approve or reject making the installed Desktop companion the broker/native
-   host distribution path required by the Extension.
-4. Approve or reject keeping the current Office web add-in outside broker
-   protocol v1 until a separate owner-approved Office-native/bridge ADR exists.
+Recorded 2026-08-07:
+
+1. **Approved — hybrid native broker.** Use a shared per-user broker, Windows
+   named pipe, macOS/Linux filesystem UDS, Chrome Native Messaging adapter,
+   allowlisted Tauri command bridge, and broker-private authenticated loopback
+   to the existing Python HTTP-v2 backend. The private backend binds only to
+   loopback, uses broker-generated authentication material, exposes no
+   credential or endpoint to storefronts, and is never a storefront fallback.
+2. **Approved with explicit threat-boundary limitation — unsigned
+   distribution.** OS peer credentials establish OS-user/process context only.
+   Path/build/digest checks establish package consistency only. Broker v1 makes
+   no publisher-attestation, same-user-malware, compromised-account, or
+   unsigned-binary-tamper-resistance claim. It still protects, within that
+   boundary, against unauthorized remote/web origins, other OS users,
+   cross-client/session confusion, accidental local exposure, protocol misuse,
+   and unsafe fallback.
+3. **Approved for v1 — Desktop companion owns Extension native-host
+   distribution.** The companion package installs and updates the broker,
+   Chrome adapter, and native-host registration. Runtime remains Extension →
+   Chrome native host → shared broker and does not require the Desktop GUI
+   process to be open. Compatibility is explicit through broker protocol
+   negotiation.
+4. **Approved — Office remains outside broker protocol v1.** The existing
+   Office web-add-in architecture remains unchanged. Any future native Office
+   integration requires a separate ADR with a concrete supported host/bridge
+   architecture and its own security, packaging, and acceptance criteria.
+
+These owner decisions remove the product-direction block. ADR acceptance and
+integration still require the independent review and green repository gates.
