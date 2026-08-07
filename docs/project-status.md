@@ -181,6 +181,8 @@ are tracked in the
 [dated record](acceptance/2026-08-07-phase-8-provider-orchestration.md).
 No live provider, installed/package, real-host, deployment, release, or
 official-platform acceptance is claimed.
+Exact reviewed code candidate `593b9d1e55ff0d1a20ef3117f29a5b7c0a5af7ca`
+[passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31177831416).
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx

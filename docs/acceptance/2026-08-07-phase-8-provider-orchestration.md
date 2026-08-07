@@ -2,9 +2,11 @@
 
 - Evidence date (Asia/Bangkok): `2026-08-07`
 - Clean base commit: `a9fbcd3e84fa8834bf323a025b9d45ca89b6127a`
+- Reviewed code candidate: `593b9d1e55ff0d1a20ef3117f29a5b7c0a5af7ca`
+- Branch CI head: `593b9d1e55ff0d1a20ef3117f29a5b7c0a5af7ca`
 - Candidate branch: `codex/phase-8-provider-orchestration`
 - Product version: `2.5.0` (unchanged)
-- Status: **local source verification complete; exact-head branch CI pending**
+- Status: **source candidate branch CI green; integration pending**
 
 This record covers one Phase 8 unit: shared orchestration of protected provider
 requests across the direct CLI/core path, HTTP and hosted roundtrip, the
@@ -94,7 +96,7 @@ fallback, and unchanged hosted allowlists.
 | Version and release-readiness checks | PASS — synchronized `2.5.0`; both scripts passed; 39 version/workflow/release tests passed |
 | Performance gate | PASS against the exact clean base — every paired delta is inside the 20% time and 15% memory budgets; the formal stale-anchor command remains red as recorded below |
 | `git diff --check` and final privacy/correctness review | PASS — no duplicated provider loop, fallback, wire drift, mapping publication, unsafe boundary, allowlist expansion, unrelated change, or version drift found |
-| Exact-head branch CI | Pending |
+| Exact-head branch CI | PASS — [11/11 jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31177831416) on the reviewed code candidate |
 | Post-integration main CI and commit alignment | Pending |
 
 The principal commands were:
@@ -118,7 +120,9 @@ git diff --check
 
 The five skips are optional OpenCV OCR cases because `cv2` is not installed.
 The warning is the existing Starlette/httpx TestClient deprecation warning.
-No optional live provider, real host, installed package, or deployment gate ran.
+Branch CI also passed its headless packaged-backend smoke, but that smoke does
+not invoke a provider and cannot certify packaged orchestration. No optional
+live provider, real host, installed application, or deployment gate ran.
 
 ## Performance
 
