@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from pii_redactor.ingest.file_detector import (
@@ -11,6 +12,115 @@ from pii_redactor.ingest.file_detector import (
 )
 from pii_redactor.models import WordBbox
 from pii_redactor.safe_errors import discard_exception_graph
+
+_PDF_PAGE_SEPARATOR = "\n\n"
+_PDF_PROVENANCE_ERROR = "PDF source provenance could not be established safely"
+_OCR_UNAVAILABLE_ERROR = (
+    "This PDF has pages without a text layer and cannot be read without OCR. "
+    "Run: pip install -r requirements-ocr.txt"
+)
+
+
+class _PdfSourceProvenanceError(RuntimeError):
+    """Raised when extracted text cannot be tied to trustworthy geometry."""
+
+
+def _join_pdf_pages(
+    page_payloads: list[tuple[str, list[WordBbox]]],
+) -> tuple[str, list[WordBbox], list[int]]:
+    """Join page text and shift page-local source spans into document offsets."""
+    page_offsets: list[int] = []
+    shifted_boxes: list[WordBbox] = []
+    offset = 0
+
+    for page_index, (page_text, page_boxes) in enumerate(page_payloads):
+        page_offsets.append(offset)
+        for box in page_boxes:
+            span = box.source_span
+            if not isinstance(span, tuple) or len(span) != 2:
+                raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
+            start, end = span
+            if (
+                type(start) is not int
+                or type(end) is not int
+                or start < 0
+                or end <= start
+                or end > len(page_text)
+                or page_text[start:end] != box.text
+            ):
+                raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
+            shifted_boxes.append(replace(box, source_span=(offset + start, offset + end)))
+        offset += len(page_text)
+        if page_index + 1 < len(page_payloads):
+            offset += len(_PDF_PAGE_SEPARATOR)
+
+    return (
+        _PDF_PAGE_SEPARATOR.join(page_text for page_text, _boxes in page_payloads),
+        shifted_boxes,
+        page_offsets,
+    )
+
+
+def _extract_pdfplumber_page(page, page_num: int) -> tuple[str, list[WordBbox]]:
+    """Build text and boxes from pdfplumber's authoritative character map."""
+    text_map = page.get_textmap()
+    page_text = text_map.as_string
+    tuples = list(text_map.tuples)
+    if any(not isinstance(char, str) or len(char) != 1 for char, _obj in tuples):
+        raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
+    if "".join(char for char, _obj in tuples) != page_text:
+        raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
+
+    word_bboxes: list[WordBbox] = []
+    cur_chars: list[str] = []
+    cur_start: int | None = None
+    cur_box: list[float] | None = None
+
+    def flush(end: int) -> None:
+        if cur_chars and cur_start is not None and cur_box is not None:
+            word_bboxes.append(
+                WordBbox(
+                    text="".join(cur_chars),
+                    page=page_num,
+                    x=cur_box[0],
+                    y=cur_box[1],
+                    width=cur_box[2] - cur_box[0],
+                    height=cur_box[3] - cur_box[1],
+                    source_span=(cur_start, end),
+                )
+            )
+
+    for index, (char, source_char) in enumerate(tuples):
+        if char.isspace():
+            flush(index)
+            cur_chars = []
+            cur_start = None
+            cur_box = None
+            continue
+        if source_char is None:
+            raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
+        try:
+            x0 = float(source_char["x0"])
+            top = float(source_char["top"])
+            x1 = float(source_char["x1"])
+            bottom = float(source_char["bottom"])
+        except Exception as error:
+            discard_exception_graph(error)
+            raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR) from None
+
+        cur_chars.append(char)
+        if cur_start is None:
+            cur_start = index
+        if cur_box is None:
+            cur_box = [x0, top, x1, bottom]
+        else:
+            cur_box[0] = min(cur_box[0], x0)
+            cur_box[1] = min(cur_box[1], top)
+            cur_box[2] = max(cur_box[2], x1)
+            cur_box[3] = max(cur_box[3], bottom)
+
+    flush(len(page_text))
+    return page_text, word_bboxes
 
 
 def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], dict]:
@@ -22,10 +132,8 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
       - Return (decoded_text, [], {})  # no bboxes for plain text
 
     For source_type == "pdf_text":
-      - Use pdfplumber to extract text page by page
-      - For each word: create WordBbox(text, page_num, x0, top, width, height)
-        pdfplumber word dict keys: "text", "page_number" (1-based), "x0", "top", "x1", "bottom"
-        width = x1 - x0; height = bottom - top
+      - Use pdfplumber's character-to-text map to extract text page by page
+      - Every WordBbox carries its exact half-open interval in full_text
       - Join all pages with "\n\n"
       - If pdfplumber extraction fails or returns empty string:
         fallback to pypdfium2:
@@ -50,11 +158,35 @@ def extract(path: str | Path, source_type: str) -> tuple[str, list[WordBbox], di
         return text, [], {}
 
     if source_type == "pdf_text":
-        text, word_bboxes = _extract_pdf_text(path)
+        extraction_failed = False
+        try:
+            text, word_bboxes = _extract_pdf_text(path)
+        except Exception as error:
+            discard_exception_graph(error)
+            extraction_failed = True
+        if extraction_failed:
+            del path
+            raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR) from None
         return text, word_bboxes, {}
 
     if source_type == "pdf_hybrid":
-        return _extract_pdf_hybrid(path)
+        from pii_redactor.ingest.ocr_processor import OCRUnavailableError
+
+        failure_kind: str | None = None
+        try:
+            hybrid_result = _extract_pdf_hybrid(path)
+        except OCRUnavailableError as error:
+            discard_exception_graph(error)
+            failure_kind = "ocr"
+        except Exception as error:
+            discard_exception_graph(error)
+            failure_kind = "provenance"
+        if failure_kind:
+            del path
+            if failure_kind == "ocr":
+                raise OCRUnavailableError(_OCR_UNAVAILABLE_ERROR) from None
+            raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR) from None
+        return hybrid_result
 
     raise ValueError(f"Unknown source_type: {source_type!r}")
 
@@ -64,33 +196,14 @@ def _extract_pdf_text(path: Path) -> tuple[str, list[WordBbox]]:
     try:
         import pdfplumber
 
-        page_texts: list[str] = []
-        word_bboxes: list[WordBbox] = []
+        page_payloads: list[tuple[str, list[WordBbox]]] = []
 
         with pdfplumber.open(str(path)) as pdf:
             for page in pdf.pages:
                 page_num = page.page_number  # 1-based
-                page_text = page.extract_text() or ""
-                page_texts.append(page_text)
+                page_payloads.append(_extract_pdfplumber_page(page, page_num))
 
-                words = page.extract_words()
-                for w in words:
-                    x0 = w["x0"]
-                    top = w["top"]
-                    x1 = w["x1"]
-                    bottom = w["bottom"]
-                    word_bboxes.append(
-                        WordBbox(
-                            text=w["text"],
-                            page=page_num,
-                            x=x0,
-                            y=top,
-                            width=x1 - x0,
-                            height=bottom - top,
-                        )
-                    )
-
-        full_text = "\n\n".join(page_texts)
+        full_text, word_bboxes, _page_offsets = _join_pdf_pages(page_payloads)
         if full_text.strip():
             return full_text, word_bboxes
 
@@ -115,13 +228,17 @@ def _extract_page_text_layer(page, page_num: int) -> tuple[str, list[WordBbox]]:
         raw_text = textpage.get_text_range()
         page_height = page.get_size()[1]
         n_chars = textpage.count_chars()
+        if len(raw_text) != n_chars:
+            raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR)
 
         word_bboxes: list[WordBbox] = []
+        page_chars: list[str] = []
         cur_chars: list[str] = []
+        cur_start: int | None = None
         cur_box: list[float] | None = None  # [left, top, right, bottom]
 
-        def _flush():
-            if cur_chars and cur_box is not None:
+        def _flush(end: int):
+            if cur_chars and cur_start is not None and cur_box is not None:
                 word_bboxes.append(
                     WordBbox(
                         text="".join(cur_chars),
@@ -130,15 +247,28 @@ def _extract_page_text_layer(page, page_num: int) -> tuple[str, list[WordBbox]]:
                         y=cur_box[1],
                         width=cur_box[2] - cur_box[0],
                         height=cur_box[3] - cur_box[1],
+                        source_span=(cur_start, end),
                     )
                 )
 
-        for i in range(n_chars):
+        i = 0
+        while i < n_chars:
             ch = raw_text[i]
-            if ch.isspace():
-                _flush()
+            if ch == "\r" and i + 1 < n_chars and raw_text[i + 1] == "\n":
+                _flush(len(page_chars))
                 cur_chars = []
+                cur_start = None
                 cur_box = None
+                page_chars.append("\n")
+                i += 2
+                continue
+            if ch.isspace():
+                _flush(len(page_chars))
+                cur_chars = []
+                cur_start = None
+                cur_box = None
+                page_chars.append(ch)
+                i += 1
                 continue
 
             left, bottom, right, top = textpage.get_charbox(i)
@@ -146,7 +276,10 @@ def _extract_page_text_layer(page, page_num: int) -> tuple[str, list[WordBbox]]:
             box_top = page_height - top
             box_bottom = page_height - bottom
 
+            if cur_start is None:
+                cur_start = len(page_chars)
             cur_chars.append(ch)
+            page_chars.append(ch)
             if cur_box is None:
                 cur_box = [left, box_top, right, box_bottom]
             else:
@@ -154,9 +287,15 @@ def _extract_page_text_layer(page, page_num: int) -> tuple[str, list[WordBbox]]:
                 cur_box[1] = min(cur_box[1], box_top)
                 cur_box[2] = max(cur_box[2], right)
                 cur_box[3] = max(cur_box[3], box_bottom)
+            i += 1
 
-        _flush()
-        return raw_text.replace("\r\n", "\n"), word_bboxes
+        _flush(len(page_chars))
+        return "".join(page_chars), word_bboxes
+    except _PdfSourceProvenanceError:
+        raise
+    except Exception as error:
+        discard_exception_graph(error)
+        raise _PdfSourceProvenanceError(_PDF_PROVENANCE_ERROR) from None
     finally:
         textpage.close()
 
@@ -166,18 +305,16 @@ def _extract_pdf_pypdfium2(path: Path) -> tuple[str, list[WordBbox]]:
     import pypdfium2 as pdfium
 
     doc = pdfium.PdfDocument(str(path))
-    page_texts: list[str] = []
-    word_bboxes: list[WordBbox] = []
+    page_payloads: list[tuple[str, list[WordBbox]]] = []
 
     try:
         for page_num, page in enumerate(doc, start=1):
             page_text, page_bboxes = _extract_page_text_layer(page, page_num)
-            page_texts.append(page_text)
-            word_bboxes.extend(page_bboxes)
+            page_payloads.append((page_text, page_bboxes))
     finally:
         doc.close()
 
-    full_text = "\n\n".join(page_texts)
+    full_text, word_bboxes, _page_offsets = _join_pdf_pages(page_payloads)
     return full_text, word_bboxes
 
 
@@ -267,8 +404,7 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
     import pypdfium2 as pdfium
 
     doc = pdfium.PdfDocument(str(path))
-    page_payloads: list[tuple[str, list[tuple[int, int]]]] = []
-    word_bboxes: list[WordBbox] = []
+    page_payloads: list[tuple[str, list[WordBbox], list[tuple[int, int]]]] = []
     pages_ocred: list[int] = []
     pages_text_layer: list[int] = []
     warnings: list[str] = []
@@ -284,20 +420,18 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
             has_text_layer = layer_chars >= PAGE_TEXT_LAYER_MIN_CHARS
             needs_ocr = page_needs_ocr(page)
             page_parts: list[str] = []
+            page_bboxes: list[WordBbox] = []
             page_ranges: list[tuple[int, int]] = []
 
             if layer_text.strip():
                 page_parts.append(layer_text)
-                word_bboxes.extend(layer_bboxes)
+                page_bboxes.extend(layer_bboxes)
             if has_text_layer:
                 pages_text_layer.append(page_num)
 
             if needs_ocr and not ocr_available:
                 if not has_text_layer:
-                    raise ocr_processor.OCRUnavailableError(
-                        "This PDF has pages without a text layer and cannot be read "
-                        "without OCR. Run: pip install -r requirements-ocr.txt"
-                    )
+                    raise ocr_processor.OCRUnavailableError(_OCR_UNAVAILABLE_ERROR)
                 needs_ocr = False
                 human_review_any = True
                 human_review_pages.append(page_num)
@@ -322,25 +456,34 @@ def _extract_pdf_hybrid(path: Path) -> tuple[str, list[WordBbox], dict]:
                     start = sum(len(part) for part in page_parts) + len(page_parts)
                     page_parts.append(ocr_text)
                     page_ranges.append((start, start + len(ocr_text)))
-                word_bboxes.extend(result.words)
+                    local_offset = start
+                    for index, word in enumerate(ocr_words):
+                        if index:
+                            local_offset += 1
+                        word_start = local_offset
+                        local_offset += len(word.text)
+                        page_bboxes.append(
+                            replace(
+                                word,
+                                source_span=(word_start, local_offset),
+                            )
+                        )
                 if result.human_review:
                     human_review_any = True
                     human_review_pages.append(page_num)
                     warnings.append(
                         f"page {page_num}: low OCR confidence after {result.attempts} attempt(s)"
                     )
-            page_payloads.append(("\n".join(page_parts), page_ranges))
+            page_payloads.append(("\n".join(page_parts), page_bboxes, page_ranges))
     finally:
         doc.close()
 
-    page_texts: list[str] = []
+    full_text, word_bboxes, page_offsets = _join_pdf_pages(
+        [(text, boxes) for text, boxes, _ranges in page_payloads]
+    )
     ocr_text_ranges: list[tuple[int, int]] = []
-    offset = 0
-    for page_text, local_ranges in page_payloads:
-        page_texts.append(page_text)
+    for offset, (_page_text, _page_boxes, local_ranges) in zip(page_offsets, page_payloads):
         ocr_text_ranges.extend((offset + start, offset + end) for start, end in local_ranges)
-        offset += len(page_text) + 2
-    full_text = "\n\n".join(page_texts)
     meta = {
         "ocr_confidence": (sum(confidences) / len(confidences)) if confidences else None,
         "human_review": human_review_any,

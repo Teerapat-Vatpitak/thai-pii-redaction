@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class WordBbox:
-    """A single word's text and bounding box from PDF extraction."""
+    """A PDF text fragment, its box, and its exact extracted-text interval."""
 
     text: str
     page: int
@@ -15,6 +15,7 @@ class WordBbox:
     y: float
     width: float
     height: float
+    source_span: tuple[int, int] | None = None
 
 
 @dataclass

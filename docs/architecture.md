@@ -341,19 +341,26 @@ response-shape/mapping acceptance remains open. Shared provider orchestration
 likewise has automated source evidence only; current live-provider, packaged,
 real-host, and official-platform acceptance remains open.
 
-PDF extraction preserves geometry, but `WordBbox` does not yet carry canonical
-source intervals. `redact_pdf()` does not consume `Entity.span`; it derives
-normalized `Entity.original_text` fragments and globally substring-matches
-boxes, omitting one-character boxes. Exact half-open source intervals and
-fail-closed missing-box behavior are open gates; the existing coordinate
-system and no-deskew rule remain deliberate. Current fallback/retry paths clear
-traceback frames, exception chaining, arguments, ordinary custom attributes,
-and common built-in payload slots from caught pdfplumber,
-page-object-enumeration, dependency-probe, encoding, and OCR retry errors before
-continuing. Retained-error tests cover the ordinary exception links and payload
-forms used by these paths; the immutable `BaseExceptionGroup` shell limitation
-above still applies. This is privacy containment, not exact-alignment or
-optional-OCR acceptance.
+PDF extraction carries geometry and canonical source provenance together.
+Every returned PDF `WordBbox.source_span` is a half-open Python Unicode
+interval whose slice in the returned extraction text equals the box text.
+pdfplumber builds both from its character-to-text map; pdfium assigns offsets
+while consuming its character stream and explicitly maps CRLF to LF; retained
+OCR fragments receive offsets when they enter page text; and page joining
+shifts every local interval by the exact inserted separator length.
+
+`redact_pdf()` selects boxes only where `Entity.span` intersects those
+intervals. It validates span/text length, length-preserving Thai-digit
+equivalence, page and finite geometry, conflicting-page coverage, and coverage
+of every non-whitespace entity character. Missing, malformed, inconsistent, or
+incomplete provenance raises one fixed value-free error before any output is
+written. There is no document-, page-, normalized-, or fuzzy-value search
+fallback. Flatten-to-image output, opaque padding, lossless palette output,
+the existing coordinate system, and the no-deskew rule remain deliberate.
+Fallback/retry paths and the public provenance boundary clear caught exception
+graphs before fixed translation. This is current-source automated evidence;
+optional live OCR, physical scans, handwriting, hosted resource behavior, and
+real-host acceptance remain separate gates.
 
 Section 26 semantic signals are reported rather than automatically removed.
 The prompt-injection guard is an independent warn-only signal layer, not part of
