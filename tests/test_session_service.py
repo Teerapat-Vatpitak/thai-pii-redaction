@@ -6,6 +6,7 @@ import pytest
 
 import pii_redactor.session_service as svc_mod
 import pii_redactor.stateless as stateless_mod
+from pii_redactor.detectors.ner_failure import NERFailureError
 from pii_redactor.models import Entity
 from pii_redactor.session_service import (
     ModeMismatchError,
@@ -88,6 +89,74 @@ def _product_traceback_locals(error):
             frames.append(dict(traceback.tb_frame.f_locals))
         traceback = traceback.tb_next
     return frames
+
+
+def test_explicit_tner_failure_preserves_existing_session_and_error_secrecy(monkeypatch):
+    svc, _clock = _svc()
+    existing = svc.sanitize("โทร 081-234-5678")
+    before = _service_state(svc)
+    raw_text = "SYNTHETIC-TNER-INPUT-DO-NOT-RETAIN"
+    credential = "synthetic-tner-credential"
+    provider_body = "synthetic-tner-provider-body"
+    retained = NERFailureError("ner_incomplete", category="upstream", count=1)
+    retained.credential = credential
+    retained.provider_body = provider_body
+
+    def fail_detection(_text):
+        raise retained
+
+    monkeypatch.setattr(stateless_mod, "detect_all", fail_detection)
+
+    with pytest.raises(NERFailureError) as excinfo:
+        svc.sanitize(raw_text, session_id=existing.session_id)
+
+    assert _service_state(svc) == before
+    assert excinfo.value.code == "ner_incomplete"
+    assert excinfo.value.category == "upstream"
+    assert excinfo.value.retryable is False
+    assert excinfo.value.count == 1
+    assert retained.__traceback__ is None
+    assert retained.__cause__ is None
+    assert retained.__context__ is None
+    assert retained.args == ()
+    assert retained.__dict__ == {}
+    rendered = repr(_product_traceback_locals(excinfo.value))
+    assert raw_text not in rendered
+    assert credential not in rendered
+    assert provider_body not in rendered
+    assert raw_text not in repr(vars(excinfo.value))
+
+
+def test_explicit_tner_second_scan_failure_discards_populated_staged_session(monkeypatch):
+    svc, _clock = _svc()
+    existing = svc.sanitize("โทร 081-234-5678")
+    before = _service_state(svc)
+    staged_vaults = []
+    retained = NERFailureError("ner_unavailable", category="network", count=1)
+    retained.provider_body = "synthetic-tner-provider-body"
+
+    def fail_after_anonymization(_text, staged_vault):
+        assert staged_vault._table
+        staged_vaults.append(staged_vault)
+        raise retained
+
+    monkeypatch.setattr(svc_mod, "scan_outbound_leaks", fail_after_anonymization)
+
+    with pytest.raises(NERFailureError) as excinfo:
+        svc.sanitize(
+            "อีเมล privacy-boundary.person@example.com",
+            session_id=existing.session_id,
+        )
+
+    assert len(staged_vaults) == 1
+    assert staged_vaults[0] is not svc._sessions[existing.session_id].vault
+    assert staged_vaults[0]._table == {}
+    assert staged_vaults[0]._reverse == {}
+    assert _service_state(svc) == before
+    assert retained.__traceback__ is None
+    assert retained.__dict__ == {}
+    assert excinfo.value.code == "ner_unavailable"
+    assert excinfo.value.category == "network"
 
 
 def test_create_session_defaults_to_token_mode():

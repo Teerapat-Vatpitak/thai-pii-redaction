@@ -26,6 +26,7 @@ from app.http_v2 import (
     SanitizeResponse,
     error_payload,
 )
+from pii_redactor.detectors.ner_failure import NERFailureError
 from pii_redactor.models import Entity
 from pii_redactor.session_service import RestoreOutcome, SessionService
 from pii_redactor.session_vault import SessionVault
@@ -1528,6 +1529,189 @@ def test_outbound_sanitized_text_cannot_be_empty(model, payload):
 def test_fixed_count_errors_are_projected_with_zero_count():
     assert error_payload("internal_error", count=9)["error"]["count"] == 0
     assert error_payload("residual_pii", count=2)["error"]["count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "category", "retryable", "count"),
+    [
+        (
+            NERFailureError("ner_unavailable", category="configuration", count=0),
+            503,
+            "configuration",
+            False,
+            0,
+        ),
+        (
+            NERFailureError("ner_unavailable", category="network", count=2),
+            503,
+            "network",
+            True,
+            2,
+        ),
+        (
+            NERFailureError("ner_incomplete", category="upstream", count=1),
+            502,
+            "upstream",
+            False,
+            1,
+        ),
+    ],
+)
+def test_tner_error_projection_uses_only_locked_metadata(
+    error,
+    status,
+    category,
+    retryable,
+    count,
+):
+    payload = error_payload(
+        error.code,
+        count=error.count,
+        ner_category=error.category,
+    )
+
+    assert payload == {
+        "error": {
+            "code": error.code,
+            "category": category,
+            "count": count,
+            "retryable": retryable,
+            "status": status,
+        }
+    }
+
+
+def test_http_detect_translates_tner_failure_without_exposing_cause(client, monkeypatch):
+    retained = NERFailureError("ner_unavailable", category="network", count=1)
+    retained.provider_body = SYNTHETIC_TEXT
+    monkeypatch.setattr(server, "detect_all", lambda _text: (_ for _ in ()).throw(retained))
+
+    response = client.post(
+        "/api/detect",
+        headers=V2_HEADERS,
+        json={"text": "ข้อความทดสอบ"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "ner_unavailable",
+            "category": "network",
+            "count": 1,
+            "retryable": True,
+            "status": 503,
+        }
+    }
+    assert SYNTHETIC_TEXT not in response.text
+    assert retained.__traceback__ is None
+    assert retained.__cause__ is None
+    assert retained.__context__ is None
+    assert retained.__dict__ == {}
+
+
+def test_http_sanitize_tner_failure_publishes_no_session(client, monkeypatch):
+    failure = NERFailureError("ner_incomplete", category="upstream", count=1)
+    monkeypatch.setattr(
+        stateless_module,
+        "detect_all",
+        lambda _text: (_ for _ in ()).throw(failure),
+    )
+
+    response = client.post(
+        "/api/sanitize",
+        headers=V2_HEADERS,
+        json={"text": "ข้อความทดสอบ", "mode": "token"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == {
+        "code": "ner_incomplete",
+        "category": "upstream",
+        "count": 1,
+        "retryable": False,
+        "status": 502,
+    }
+    assert server.SERVICE.session_count == 0
+
+
+def test_http_roundtrip_tner_failure_never_invokes_provider(client, monkeypatch):
+    calls = []
+
+    class SpyProvider:
+        def complete(self, _system, _user, *, timeout=30.0):
+            calls.append(timeout)
+            return "provider must not run"
+
+    monkeypatch.setitem(server._PROVIDER_FACTORIES, "fake", SpyProvider)
+    monkeypatch.setattr(
+        stateless_module,
+        "detect_all",
+        lambda _text: (_ for _ in ()).throw(
+            NERFailureError("ner_unavailable", category="upstream", count=1)
+        ),
+    )
+
+    response = client.post(
+        "/api/roundtrip",
+        headers=V2_HEADERS,
+        json={"text": "ข้อความทดสอบ", "mode": "token", "provider": "fake"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "ner_unavailable"
+    assert calls == []
+
+
+@pytest.mark.parametrize("path", ["/api/analyze", "/api/analyze-report"])
+def test_http_analysis_paths_translate_tner_failure(client, monkeypatch, path):
+    def fail_analysis(_text):
+        raise NERFailureError("ner_incomplete", category="upstream", count=1)
+
+    monkeypatch.setattr(server, "analyze_text", fail_analysis)
+
+    response = client.post(
+        path,
+        headers=V2_HEADERS,
+        json={"text": "ข้อความทดสอบ"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "ner_incomplete"
+    assert "result" not in response.json()
+
+
+def test_http_pdf_tner_failure_removes_temporary_files(client, monkeypatch, tmp_path):
+    work_dir = tmp_path / "tner-pdf-work"
+
+    def make_work_dir(*_args, **_kwargs):
+        work_dir.mkdir()
+        return str(work_dir)
+
+    monkeypatch.setattr(server.tempfile, "mkdtemp", make_work_dir)
+    monkeypatch.setattr(server, "_check_pdf_work_caps", lambda _path: None)
+    monkeypatch.setattr(server, "detect_source_type", lambda _path: "pdf_text")
+    monkeypatch.setattr(
+        server,
+        "extract",
+        lambda _path, _source_type: ("ข้อความทดสอบ", [], {}),
+    )
+    monkeypatch.setattr(
+        server,
+        "detect_all",
+        lambda _text: (_ for _ in ()).throw(
+            NERFailureError("ner_unavailable", category="network", count=1)
+        ),
+    )
+
+    response = client.post(
+        "/api/redact-pdf",
+        headers=V2_HEADERS,
+        files={"pdf_file": ("synthetic.pdf", b"%PDF-synthetic", "application/pdf")},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "ner_unavailable"
+    assert not work_dir.exists()
 
 
 def test_consistency_replacements_have_authoritative_sanitized_offsets(monkeypatch):

@@ -300,11 +300,24 @@ parity.
 Tokenmind's current internal retry loop still uses one total timeout and honors
 `Retry-After`; the locked shared-orchestration target instead uses up to three
 60-second attempts with fixed 1/2-second backoff.
-Likewise, explicitly selected remote TNER receives raw pre-mask chunks. The
-shared NER chunk guard currently skips runtime tag failures for every engine;
-the locked policy keeps appropriate local/default degradation but requires
-explicit TNER to fail the whole request. Shared protected-roundtrip
-orchestration and typed fail-closed TNER errors remain open gates.
+Likewise, explicitly selected remote TNER receives raw pre-mask chunks. Current
+source makes it the fail-closed exception to the shared NER chunk guard:
+configuration, dependency, network, or upstream unavailability aborts the
+whole operation as `ner_unavailable`, while malformed, unequal, misaligned,
+truncated, illegal-BIO, or unknown-label token streams abort as
+`ner_incomplete`. The client requires ordered tokens to cover every
+non-whitespace source character, and source-position span ends preserve
+internal whitespace that a tokenizer omits. Earlier candidates are discarded,
+later chunks and providers are not called, and no PDF output or session is
+published. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union)
+retain structural skip-and-continue behavior; the separate fine-tuned offset
+engine is outside this change. Core wrappers copy only fixed
+code/category/count metadata before clearing the original exception graph;
+retryability is derived from the locked code/category pair. HTTP v2 derives its
+fixed 502/503 envelope and worker v1 keeps its fixed type/message envelope.
+This is automated source evidence only: fresh live TNER
+response-shape/mapping acceptance remains open. Shared protected-roundtrip
+orchestration remains a separate gate.
 
 PDF extraction preserves geometry, but `WordBbox` does not yet carry canonical
 source intervals. `redact_pdf()` does not consume `Entity.span`; it derives

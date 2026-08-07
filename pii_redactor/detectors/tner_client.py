@@ -9,9 +9,9 @@ decode them unchanged.
 
 Verified against the live service on 2026-07-22. The live BIO vocabulary uses
 compact labels such as PER, LOC, ORG, and DTM; `tb_detector.LABEL_MAP`
-translates those labels into AI Guard's public types. Every payload-shape
-deviation raises `TnerServiceError` rather than
-returning a partial result, because an unrecognised response decoded as "no
+translates those labels into AI Guard's public types. Every failed request or
+incomplete token stream raises a value-free `TnerServiceError` subtype rather
+than returning a partial result, because a truncated response decoded as "no
 entities found" is indistinguishable from a clean document.
 
 This engine sends text to a third party, so it is opt-in only
@@ -23,20 +23,59 @@ from __future__ import annotations
 
 import httpx
 
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
+from pii_redactor.safe_errors import discard_exception_graph
+
 _DEFAULT_URL = "https://api.aiforthai.in.th/tner"
 _DEFAULT_TIMEOUT = 15.0
 # The SDK stamps this so the platform can attribute traffic; harmless, and
 # sending it keeps us indistinguishable from a normal SDK client.
 _CLIENT_LIB = "aiguard-python"
+# TNER uses the Thai LST20 labels. Long-form aliases remain accepted for the
+# older published SDK shape already supported by this adapter. Anything else
+# is a response-contract change and must fail closed.
+_TNER_LABELS = frozenset(
+    {
+        "BRN",
+        "DES",
+        "DTM",
+        "LOC",
+        "MEA",
+        "NUM",
+        "ORG",
+        "PER",
+        "TRM",
+        "TTL",
+        "DATE",
+        "FACILITY",
+        "GPE",
+        "LOCATION",
+        "MONEY",
+        "ORGANIZATION",
+        "PERCENT",
+        "PERSON",
+        "PRODUCT",
+        "TIME",
+    }
+)
 
 
-class TnerServiceError(RuntimeError):
-    """The TNER engine could not produce a usable tagging.
+class TnerServiceError(NERFailureError):
+    """Base class for a value-free TNER tagging failure."""
 
-    Deliberately one type for credentials, transport and payload problems: the
-    caller's decision is the same in all three cases (this engine is unusable
-    right now), and the message carries the distinction for a human.
-    """
+
+class TnerUnavailableError(TnerServiceError):
+    """TNER could not be called because its dependency or service is unavailable."""
+
+    def __init__(self, category: str, *, count: int = 1) -> None:
+        super().__init__("ner_unavailable", category=category, count=count)
+
+
+class TnerIncompleteError(TnerServiceError):
+    """TNER returned a response that cannot cover the requested chunk."""
+
+    def __init__(self, *, count: int = 1) -> None:
+        super().__init__("ner_incomplete", category="upstream", count=count)
 
 
 class TnerEngine:
@@ -50,10 +89,7 @@ class TnerEngine:
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         if not api_key:
-            raise TnerServiceError(
-                "AI for Thai TNER needs an API key; set AIFORTHAI_API_KEY. "
-                "Get one at https://aiforthai.in.th/"
-            )
+            raise TnerUnavailableError("configuration", count=0)
         self._api_key = api_key
         self._url = url
         self._timeout = timeout
@@ -63,6 +99,25 @@ class TnerEngine:
         if not text or not text.strip():
             return []
 
+        failure: tuple[str, str, int] | None = None
+        try:
+            return self._tag_impl(text)
+        except NERFailureError as error:
+            failure = ner_failure_metadata(error)
+            discard_exception_graph(error)
+        except Exception as error:
+            discard_exception_graph(error)
+            failure = ("ner_unavailable", "dependency", 1)
+
+        text = ""
+        code, category, count = failure
+        failure = None
+        self = None
+        if code == "ner_incomplete":
+            raise TnerIncompleteError(count=count) from None
+        raise TnerUnavailableError(category, count=count) from None
+
+    def _tag_impl(self, text: str) -> list[tuple[str, str]]:
         try:
             response = httpx.post(
                 self._url,
@@ -70,52 +125,120 @@ class TnerEngine:
                 data={"text": text},
                 timeout=self._timeout,
             )
+        except httpx.TransportError as error:
+            discard_exception_graph(error)
+            raise TnerUnavailableError("network") from None
+        except Exception as error:
+            discard_exception_graph(error)
+            raise TnerUnavailableError("dependency") from None
+
+        try:
             response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            status = error.response.status_code
+            category = "configuration" if status in {401, 403} else "upstream"
+            discard_exception_graph(error)
+            raise TnerUnavailableError(category) from None
+        except Exception as error:
+            discard_exception_graph(error)
+            raise TnerUnavailableError("dependency") from None
+
+        try:
             payload = response.json()
+        except Exception as error:
+            discard_exception_graph(error)
+            raise TnerIncompleteError() from None
+
+        try:
+            tagged = self._decode(payload)
+            self._validate_alignment(tagged, text)
+            return tagged
         except TnerServiceError:
             raise
-        except Exception as exc:  # transport, HTTP status, malformed JSON
-            raise TnerServiceError(f"TNER request failed: {exc}") from exc
-
-        return self._decode(payload)
+        except Exception as error:
+            discard_exception_graph(error)
+            raise TnerIncompleteError() from None
 
     @staticmethod
     def _decode(payload: object) -> list[tuple[str, str]]:
         if not isinstance(payload, dict) or "POS" not in payload or "tags" not in payload:
-            raise TnerServiceError(
-                f"unexpected TNER payload shape: {sorted(payload)[:5] if isinstance(payload, dict) else type(payload).__name__}"
-            )
+            raise TnerIncompleteError()
 
         pos = payload["POS"]
         tags = payload["tags"]
         if not isinstance(pos, list) or not isinstance(tags, list):
-            raise TnerServiceError("TNER payload fields POS/tags must both be lists")
+            raise TnerIncompleteError()
         if len(pos) != len(tags):
             # Any unequal parallel field indicates a truncated response.
-            raise TnerServiceError(f"TNER returned {len(pos)} POS tags but {len(tags)} BIO tags")
+            raise TnerIncompleteError()
+        if any(not isinstance(tag, str) for tag in tags):
+            raise TnerIncompleteError()
 
         words_field = payload.get("words")
         words: list[str] = []
         if words_field is not None:
             if not isinstance(words_field, list):
-                raise TnerServiceError("TNER payload field words must be a list")
+                raise TnerIncompleteError()
             if len(words_field) != len(tags):
-                raise TnerServiceError(
-                    f"TNER returned {len(words_field)} words but {len(tags)} BIO tags"
-                )
+                raise TnerIncompleteError()
+            if any(not isinstance(item, str) for item in pos):
+                raise TnerIncompleteError()
             for item in words_field:
                 if not isinstance(item, str):
-                    raise TnerServiceError(f"unexpected TNER words entry: {type(item).__name__}")
+                    raise TnerIncompleteError()
                 words.append(item)
         else:
             # Backward compatibility with the published SDK's older POS-pair
             # representation. A bare POS string such as "NR" is never a word.
             for item in pos:
-                if isinstance(item, (list, tuple)) and item:
-                    words.append(str(item[0]))
-                else:
-                    raise TnerServiceError(
-                        "TNER payload has no words list and POS entries are not word/POS pairs"
-                    )
+                if (
+                    not isinstance(item, (list, tuple))
+                    or len(item) < 2
+                    or not isinstance(item[0], str)
+                    or not isinstance(item[1], str)
+                ):
+                    raise TnerIncompleteError()
+                words.append(item[0])
 
-        return [(word, str(tag)) for word, tag in zip(words, tags)]
+        return list(zip(words, tags))
+
+    @staticmethod
+    def _validate_alignment(tagged: list[tuple[str, str]], text: str) -> None:
+        """Require complete source coverage and one legal BIO stream."""
+
+        position = 0
+        active_label: str | None = None
+        for word, tag in tagged:
+            if not word:
+                raise TnerIncompleteError()
+            index = text.find(word, position)
+            if index < 0 or text[position:index].strip():
+                raise TnerIncompleteError()
+            position = index + len(word)
+
+            if not word.strip():
+                if not tag.strip():
+                    continue
+                if tag == "O":
+                    active_label = None
+                    continue
+                raise TnerIncompleteError()
+
+            if tag == "O":
+                active_label = None
+                continue
+            if tag.startswith("B-"):
+                label = tag[2:]
+                if label not in _TNER_LABELS:
+                    raise TnerIncompleteError()
+                active_label = label
+                continue
+            if tag.startswith("I-"):
+                label = tag[2:]
+                if label not in _TNER_LABELS or active_label != label:
+                    raise TnerIncompleteError()
+                continue
+            raise TnerIncompleteError()
+
+        if text[position:].strip():
+            raise TnerIncompleteError()

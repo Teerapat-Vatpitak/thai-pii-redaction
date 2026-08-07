@@ -19,6 +19,7 @@ be able to switch the guard off.
 import pytest
 
 from pii_redactor import stateless as stateless_module
+from pii_redactor.detectors.ner_failure import NERFailureError
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.leak_guard import scan_outbound_leaks, scan_residual_signals
 from pii_redactor.session_vault import SessionVault, VaultTimeoutError
@@ -86,6 +87,74 @@ def _raise_sensitive_failure(text, prior_mapping, vault):
         "vault": vault,
     }
     raise error from cause
+
+
+def test_explicit_tner_failure_clears_throwaway_vault_and_retained_graph(monkeypatch):
+    raw_text = "SYNTHETIC-TNER-INPUT-DO-NOT-RETAIN"
+    credential = "synthetic-tner-credential"
+    provider_body = "synthetic-tner-provider-body"
+    vault = SessionVault()
+    retained = NERFailureError("ner_unavailable", category="network", count=1)
+    retained.credential = credential
+    retained.provider_body = provider_body
+    monkeypatch.setattr(stateless_module, "SessionVault", lambda: vault)
+
+    def fail_detection(_text):
+        raise retained
+
+    monkeypatch.setattr(stateless_module, "detect_all", fail_detection)
+
+    with pytest.raises(NERFailureError) as excinfo:
+        sanitize_stateless(raw_text, mode="token", salt="synthetic-salt")
+
+    assert (
+        excinfo.value.code,
+        excinfo.value.category,
+        excinfo.value.retryable,
+        excinfo.value.count,
+    ) == ("ner_unavailable", "network", True, 1)
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert retained.__traceback__ is None
+    assert retained.__cause__ is None
+    assert retained.__context__ is None
+    assert retained.args == ()
+    assert retained.__dict__ == {}
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, credential, provider_body),
+        forbidden_objects=(vault,),
+    )
+
+
+def test_explicit_tner_second_scan_failure_clears_populated_throwaway_vault(monkeypatch):
+    raw_text = "privacy-boundary.person@example.com"
+    provider_body = "synthetic-tner-provider-body"
+    vault = SessionVault()
+    observed_populated = []
+    retained = NERFailureError("ner_incomplete", category="upstream", count=1)
+    retained.provider_body = provider_body
+    monkeypatch.setattr(stateless_module, "SessionVault", lambda: vault)
+
+    def fail_after_anonymization(_text, current_vault):
+        observed_populated.append(bool(current_vault._table))
+        raise retained
+
+    monkeypatch.setattr(stateless_module, "scan_outbound_leaks", fail_after_anonymization)
+
+    with pytest.raises(NERFailureError) as excinfo:
+        sanitize_stateless(raw_text, mode="token", salt="synthetic-salt")
+
+    assert observed_populated == [True]
+    assert vault._table == {}
+    assert vault._reverse == {}
+    assert retained.__traceback__ is None
+    assert retained.__dict__ == {}
+    _assert_retained_error_is_safe(
+        excinfo.value,
+        forbidden_text=(raw_text, provider_body),
+        forbidden_objects=(vault,),
+    )
 
 
 # A plain Thai government letter. Nothing exotic -- this is the shape of the

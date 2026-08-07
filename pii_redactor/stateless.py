@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from pii_redactor.anonymizer.anonymizer import PIILeakError, anonymize
 from pii_redactor.detectors.aggregate import detect_all
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
 from pii_redactor.leak_guard import (
     OutboundGuardContext,
     OutboundPolicyError,
@@ -167,6 +168,10 @@ def sanitize_into_vault(
     except VaultTimeoutError as error:
         failure_kind = "timeout"
         discard_exception_graph(error)
+    except NERFailureError as error:
+        failure_kind = "ner"
+        failure_metadata = ner_failure_metadata(error)
+        discard_exception_graph(error)
     except Exception as error:
         failure_kind = "failed"
         discard_exception_graph(error)
@@ -186,6 +191,9 @@ def sanitize_into_vault(
         )
     if failure_kind == "timeout":
         raise VaultTimeoutError(_VAULT_TIMEOUT_MESSAGE)
+    if failure_kind == "ner":
+        code, category, count = failure_metadata
+        raise NERFailureError(code, category=category, count=count)
     raise StatelessProcessingError(_SANITIZE_FAILURE_CODE)
 
 
@@ -493,6 +501,10 @@ def sanitize_stateless(
         except VaultTimeoutError as error:
             failure_kind = "timeout"
             discard_exception_graph(error)
+        except NERFailureError as error:
+            failure_kind = "ner"
+            failure_metadata = ner_failure_metadata(error)
+            discard_exception_graph(error)
         except Exception as error:
             failure_kind = "failed"
             discard_exception_graph(error)
@@ -512,6 +524,9 @@ def sanitize_stateless(
         )
     if failure_kind == "timeout":
         raise VaultTimeoutError(_VAULT_TIMEOUT_MESSAGE)
+    if failure_kind == "ner":
+        code, category, count = failure_metadata
+        raise NERFailureError(code, category=category, count=count)
     raise StatelessProcessingError(_SANITIZE_FAILURE_CODE)
 
 

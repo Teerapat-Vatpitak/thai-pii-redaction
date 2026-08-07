@@ -179,24 +179,34 @@ reviewed, independently revertible integration units in this order:
    CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed extension,
    Office, and Desktop disposal remains Phase 8 work, and all eight Office
    real-host/package gates remain open.
-8. **Converge longer-term choke points.** Specify and implement the native
-   localhost broker, fail-closed explicit TNER behavior, shared protected
-   provider orchestration, and authoritative PDF source-to-box intervals in
-   separately reviewable branches. The shared NER catch currently degrades all
-   engines; the locked policy makes TNER fail closed while preserving
-   appropriate local/default resilience. Provider convergence must also replace
-   Tokenmind's current one-total-deadline and `Retry-After` behavior with the
-   locked three-attempt, 60-seconds-per-attempt, fixed 1/2-second policy.
+8. **Converge longer-term choke points — in progress.** The first separately
+   reviewable unit is integrated and implements the locked explicit-TNER
+   policy: a failed request or incomplete ordered token stream aborts the whole
+   operation with bounded `ner_unavailable` or `ner_incomplete` metadata, while
+   the shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain
+   structural skip-and-continue behavior. The separate fine-tuned offset
+   engine is outside this change. Automated coverage spans core, local session,
+   stateless, HTTP v2, hosted, PDF, and worker-v1 call paths. Exact branch head
+   `a7e388257` passed all 11 CI jobs after infrastructure-canceled jobs were
+   rerun; fresh live TNER response/mapping evidence remains open. The native
+   localhost broker and broker-backed client disposal require an owner-approved
+   ADR before implementation because transport, process identity, attestation,
+   installation, and lifecycle ownership are not yet selected. Shared protected
+   provider orchestration and authoritative PDF source-to-box intervals remain
+   separate units. Provider convergence must also replace Tokenmind's current
+   one-total-deadline and `Retry-After` behavior with the locked at-most-three
+   attempts, 60-seconds-per-attempt, fixed 1/2-second policy.
 
 The outbound-policy, HTTP-v2 client, and token-identity source changes plus the
-future broker, lifecycle, explicit-TNER, provider-orchestration, and PDF-offset changes each
-invalidate carry-forward evidence only for their affected paths. Fresh
-automated, packaged, real-host, live-provider, or official-platform evidence
-must match the strength of the changed path. Shared provider orchestration is
-still open even though each current provider path now has an immediate
-pre-call rescan. `VERSION` remains `2.5.0` during development; a release
-containing the breaking HTTP contract is expected to be prepared as `3.0.0`,
-but release work requires separate authorization.
+future broker-backed client lifecycle/disposal, explicit-TNER,
+provider-orchestration, and PDF-offset changes each invalidate carry-forward
+evidence only for their affected paths. Fresh automated, packaged, real-host,
+live-provider, or official-platform evidence must match the strength of the
+changed path. Shared provider orchestration is still open even though each
+current provider path now has an immediate pre-call rescan. `VERSION` remains
+`2.5.0` during development; a release containing the breaking HTTP contract is
+expected to be prepared as `3.0.0`, but release work requires separate
+authorization.
 
 The browser in-page flow cannot guarantee that provider page code did not
 observe raw text typed into its composer before Mask. This campaign can protect

@@ -77,6 +77,7 @@ from pii_redactor.ai_client import (
 )
 from pii_redactor.audit import write_process_log
 from pii_redactor.detectors.aggregate import detect_all
+from pii_redactor.detectors.ner_failure import NERFailureError, ner_failure_metadata
 from pii_redactor.guard.injection import scan_injection
 from pii_redactor.ingest.file_detector import detect_source_type
 from pii_redactor.ingest.ocr_processor import OCRUnavailableError
@@ -107,14 +108,19 @@ def _contain_public_errors(func):
 
     @wraps(func)
     def wrapped(*args, **kwargs):
-        failure: tuple[str, int] = ("internal_error", 0)
+        failure: tuple[str, int, str | None] = ("internal_error", 0, None)
         try:
             return func(*args, **kwargs)
         except ContractError as error:
             code = getattr(error, "code", "internal_error")
             count = getattr(error, "count", 0)
+            ner_category = getattr(error, "ner_category", None)
             if code in ERROR_SPECS and type(count) is int and count >= 0:
-                failure = (code, count)
+                failure = (code, count, ner_category)
+            discard_exception_graph(error)
+        except NERFailureError as error:
+            code, category, count = ner_failure_metadata(error)
+            failure = (code, count, category)
             discard_exception_graph(error)
         except BaseException as error:
             if not isinstance(error, Exception):
@@ -123,9 +129,13 @@ def _contain_public_errors(func):
 
         args = ()
         kwargs = {}
-        code, count = failure
+        code, count, ner_category = failure
         failure = None
-        raise ContractError(code, count=count) from None
+        raise ContractError(
+            code,
+            count=count,
+            ner_category=ner_category,
+        ) from None
 
     return wrapped
 
@@ -175,12 +185,13 @@ async def contract_error_handler(_request: Request, error: ContractError):
     """Render only the closed error row selected by an endpoint."""
     code = getattr(error, "code", "internal_error")
     count = getattr(error, "count", 0)
+    ner_category = getattr(error, "ner_category", None)
     if code not in ERROR_SPECS or type(count) is not int or count < 0:
-        code, count = "internal_error", 0
+        code, count, ner_category = "internal_error", 0, None
     discard_exception_graph(error)
     _request = None
     error = None
-    return error_response(code, count=count)
+    return error_response(code, count=count, ner_category=ner_category)
 
 
 @app.exception_handler(RequestValidationError)
