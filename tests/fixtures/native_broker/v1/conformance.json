@@ -1,0 +1,1178 @@
+{
+  "fixture_schema_version": 1,
+  "hello_vectors": [
+    {
+      "admitted_role": "desktop",
+      "broker_product_version": "8.8.8-test",
+      "expect_response_json": "{\"broker_product_version\":\"8.8.8-test\",\"broker_protocol_version\":1,\"request_id\":\"hello-1\",\"role\":\"desktop\"}",
+      "expect_selected_version": 1,
+      "frame_hex": "000000797b22636c61696d65645f726f6c65223a226465736b746f70222c22636c69656e745f70726f647563745f76657273696f6e223a22392e392e392d74657374222c22726571756573745f6964223a2268656c6c6f2d31222c22737570706f727465645f70726f746f636f6c5f76657273696f6e73223a5b315d7d",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-1\",\"supported_protocol_versions\":[1]}",
+      "name": "valid_hello"
+    },
+    {
+      "admitted_role": "extension",
+      "broker_product_version": "8.8.8-test",
+      "expect_selected_version": 1,
+      "json": "{\"claimed_role\":\"extension\",\"client_product_version\":\"99.0.0-test\",\"request_id\":\"hello-2\",\"supported_protocol_versions\":[1,2]}",
+      "name": "highest_common_supported_version"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "broker_incompatible",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-3\",\"supported_protocol_versions\":[2]}",
+      "name": "unsupported_version"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "broker_unauthorized",
+      "json": "{\"claimed_role\":\"unknown\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-4\",\"supported_protocol_versions\":[1]}",
+      "name": "unknown_role"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "broker_unauthorized",
+      "json": "{\"claimed_role\":\"extension\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-5\",\"supported_protocol_versions\":[1]}",
+      "name": "claimed_role_does_not_match_authenticated_role"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-6\",\"supported_protocol_versions\":[1]}",
+      "name": "missing_claimed_role"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"extra\":true,\"request_id\":\"hello-7\",\"supported_protocol_versions\":[1]}",
+      "name": "unknown_hello_field"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"claimed_role\":\"desktop\",\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-8\",\"supported_protocol_versions\":[1]}",
+      "name": "duplicate_hello_field"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"supported_protocol_versions\":[1],\"request_id\":\"hello-9\",\"client_product_version\":\"9.9.9-test\",\"claimed_role\":\"desktop\"}",
+      "name": "noncanonical_key_order"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-10\",\"supported_protocol_versions\":[1,1]}",
+      "name": "duplicate_supported_version"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-11\",\"supported_protocol_versions\":[2,1]}",
+      "name": "unordered_supported_versions"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "[]",
+      "name": "hello_is_not_object"
+    },
+    {
+      "admitted_role": "desktop",
+      "broker_product_version": "invalid product version",
+      "expect_error": "operation_failed",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"9.9.9-test\",\"request_id\":\"hello-12\",\"supported_protocol_versions\":[1]}",
+      "name": "invalid_broker_product_version_is_internal_failure"
+    },
+    {
+      "admitted_role": "desktop",
+      "expect_error": "request_invalid",
+      "json": "{\"claimed_role\":\"desktop\",\"client_product_version\":\"\\ud800\",\"request_id\":\"hello-13\",\"supported_protocol_versions\":[1]}",
+      "name": "lone_surrogate"
+    }
+  ],
+  "request_vectors": [
+    {
+      "frame_hex": "000000957b2262726f6b65725f70726f746f636f6c5f76657273696f6e223a312c226f7065726174696f6e223a2273616e6974697a65222c227061796c6f6164223a7b226d6f6465223a22746f6b656e222c2274657874223a2273796e7468657469632074657874227d2c22726571756573745f6964223a22726571756573742d31222c2273636f70655f6964223a2273636f70652d31227d",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"mode\":\"token\",\"text\":\"synthetic text\"},\"request_id\":\"request-1\",\"scope_id\":\"scope-1\"}",
+      "name": "valid_request",
+      "operation": "sanitize",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"unknown_operation\",\"payload\":{},\"request_id\":\"request-2\",\"scope_id\":\"scope-1\"}",
+      "name": "unknown_operation",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "broker_unauthorized",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"analyze\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"request-3\",\"scope_id\":\"scope-1\"}",
+      "name": "unauthorized_role_operation_pair",
+      "remote_tner": false,
+      "role": "extension"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"request_id\":\"request-4\",\"scope_id\":\"scope-1\"}",
+      "name": "missing_payload",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"extra\":true,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"request-5\",\"scope_id\":\"scope-1\"}",
+      "name": "unknown_request_field",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"role\":\"maintenance\",\"text\":\"synthetic text\"},\"request_id\":\"request-6\",\"scope_id\":\"scope-1\"}",
+      "name": "payload_role_cannot_escalate",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"request-7\"}",
+      "name": "missing_required_scope",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"broker_health\",\"payload\":{},\"request_id\":\"request-8\",\"scope_id\":\"scope-1\"}",
+      "name": "scope_forbidden",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"deadline_ms\":999999999,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"request-9\",\"scope_id\":\"scope-1\"}",
+      "name": "caller_cannot_choose_deadline",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "broker_incompatible",
+      "json": "{\"broker_protocol_version\":2,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"request-10\",\"scope_id\":\"scope-1\"}",
+      "name": "post_hello_version_mismatch",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "broker_unauthorized",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"scope_open\",\"payload\":{\"scope_kind\":\"desktop_ui\"},\"request_id\":\"request-11\"}",
+      "name": "cross_role_scope_kind",
+      "remote_tner": false,
+      "role": "extension"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{},\"request_id\":\"request-12\",\"scope_id\":\"scope-1\"}",
+      "name": "missing_required_payload_field",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"text\":\"\\u001c\"},\"request_id\":\"request-13\",\"scope_id\":\"scope-1\"}",
+      "name": "information_separator_is_not_protocol_blank_text",
+      "operation": "sanitize",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"text\":\"　\"},\"request_id\":\"request-14\",\"scope_id\":\"scope-1\"}",
+      "name": "unicode_white_space_only_text_is_blank",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"mode\":[],\"text\":\"synthetic text\"},\"request_id\":\"request-15\",\"scope_id\":\"scope-1\"}",
+      "name": "mode_array_is_fixed_request_error",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"mode\":{},\"text\":\"synthetic text\"},\"request_id\":\"request-16\",\"scope_id\":\"scope-1\"}",
+      "name": "mode_object_is_fixed_request_error",
+      "remote_tner": false,
+      "role": "desktop"
+    },
+    {
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"detect\",\"payload\":{\"text\":\"synthetic source\"},\"request_id\":\"request-17\",\"scope_id\":\"scope-1\"}",
+      "name": "remote_tner_source_only_request",
+      "operation": "detect",
+      "remote_tner": true,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "ner_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic source\"},\"request_id\":\"request-18\",\"scope_id\":\"scope-1\"}",
+      "name": "remote_tner_non_source_path_disabled",
+      "remote_tner": true,
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"operation\":\"redact_pdf\",\"payload\":{\"pdf_b64\":\"é\"},\"request_id\":\"request-19\",\"scope_id\":\"scope-1\"}",
+      "name": "pdf_base64_is_ascii_before_size_classification",
+      "remote_tner": false,
+      "role": "desktop"
+    }
+  ],
+  "request_id_sequence_vectors": [
+    {
+      "first_error": "request_invalid",
+      "first_json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{},\"request_id\":\"sequence-request-1\",\"scope_id\":\"scope-1\"}",
+      "name": "rejected_request_consumes_valid_id",
+      "remote_tner": false,
+      "role": "desktop",
+      "second_error": "request_invalid",
+      "second_json": "{\"broker_protocol_version\":1,\"operation\":\"sanitize\",\"payload\":{\"text\":\"synthetic text\"},\"request_id\":\"sequence-request-1\",\"scope_id\":\"scope-1\"}"
+    }
+  ],
+  "response_vectors": [
+    {
+      "frame_hex": "0000004f7b2262726f6b65725f70726f746f636f6c5f76657273696f6e223a312c22726571756573745f6964223a22726571756573742d31222c22726573756c74223a7b22737461747573223a226f6b227d7d",
+      "json": "{\"broker_protocol_version\":1,\"request_id\":\"request-1\",\"result\":{\"status\":\"ok\"}}",
+      "name": "valid_response",
+      "operation": "broker_health",
+      "request_id": "request-1",
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"extra\":true,\"request_id\":\"request-1\",\"result\":{\"status\":\"ok\"}}",
+      "name": "unknown_response_field",
+      "operation": "broker_health",
+      "request_id": "request-1",
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"request_id\":\"request-1\",\"result\":{\"extra\":true,\"status\":\"ok\"}}",
+      "name": "unknown_result_field",
+      "operation": "broker_health",
+      "request_id": "request-1",
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"operation_failed\",\"retry\":\"reconnect_only\"},\"request_id\":\"request-1\"}",
+      "name": "error_retry_class_drift",
+      "operation": "broker_health",
+      "request_id": "request-1",
+      "role": "desktop"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"request_id\":\"request-13\",\"result\":{\"detected_entity_count\":0,\"entity_type_counts\":{},\"guard_findings\":[],\"highlights\":[],\"replacement_count\":0,\"safety\":{\"extra\":true,\"residual_count\":0,\"status\":\"pass\"},\"sanitized_text\":\"synthetic masked output\",\"section26_categories\":[],\"session_id\":\"synthetic-session\",\"warnings\":[]}}",
+      "name": "unknown_nested_result_field",
+      "operation": "sanitize",
+      "request_id": "request-13",
+      "role": "extension"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"request_id\":\"request-14\",\"result\":{\"detected_entity_count\":0,\"entity_type_counts\":{},\"guard_findings\":[],\"highlights\":[],\"replacement_count\":0,\"safety\":{\"residual_count\":1,\"status\":\"unsafe\"},\"sanitized_text\":\"synthetic masked output\",\"section26_categories\":[],\"session_id\":\"synthetic-session\",\"warnings\":[]}}",
+      "name": "invalid_nested_result_values",
+      "operation": "sanitize",
+      "request_id": "request-14",
+      "role": "extension"
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"broker_protocol_version\":true,\"request_id\":\"request-15\",\"result\":{\"status\":\"ok\"}}",
+      "name": "boolean_is_not_protocol_version_one",
+      "operation": "broker_health",
+      "request_id": "request-15",
+      "role": "desktop"
+    }
+  ],
+  "success_builder_vectors": [
+    {
+      "expect_json": "{\"broker_protocol_version\":1,\"request_id\":\"request-1\",\"result\":{\"status\":\"ok\"}}",
+      "operation": "broker_health",
+      "protocol_version": 1,
+      "request_id": "request-1",
+      "result": {
+        "status": "ok"
+      },
+      "role": "desktop"
+    },
+    {
+      "expect_error": "operation_failed",
+      "operation": "broker_health",
+      "protocol_version": 2,
+      "request_id": "request-2",
+      "result": {
+        "status": "ok"
+      },
+      "role": "desktop"
+    }
+  ],
+  "result_schema_vectors": [
+    {
+      "operation": "broker_health",
+      "request_id": "result-health",
+      "result": {
+        "status": "ok"
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "scope_open",
+      "request_id": "result-scope-open",
+      "result": {
+        "scope_id": "synthetic-scope"
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "scope_close",
+      "request_id": "result-scope-close",
+      "result": {
+        "closed": true
+      },
+      "role": "extension"
+    },
+    {
+      "operation": "session_dispose",
+      "request_id": "result-session-dispose",
+      "result": {
+        "disposed": true
+      },
+      "role": "extension"
+    },
+    {
+      "operation": "detect",
+      "request_id": "result-detect",
+      "result": {
+        "detected_entity_count": 1,
+        "entity_type_counts": {
+          "SYNTHETIC_TYPE": 1
+        },
+        "highlights": [
+          {
+            "data_type": "SYNTHETIC_TYPE",
+            "end": 9,
+            "redact_type": "FP",
+            "start": 0
+          }
+        ]
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "analyze",
+      "request_id": "result-analyze",
+      "result": {
+        "breakdown": [
+          {
+            "count": 1,
+            "data_type": "SYNTHETIC_TYPE",
+            "redact_type": "FP"
+          }
+        ],
+        "direct_pii_count": 1,
+        "fp_count": 1,
+        "overall_grade": "A",
+        "overall_score": "10.5",
+        "recommendations": [
+          {
+            "desc": "synthetic recommendation",
+            "level": "info",
+            "title": "Synthetic recommendation"
+          }
+        ],
+        "reidentification": {
+          "grade": "A",
+          "high_risk_combination": false,
+          "quasi_identifier_categories": [
+            "age",
+            "province"
+          ],
+          "score": "5"
+        },
+        "risk_label": "Low Risk",
+        "section26_categories": [],
+        "tb_count": 0
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "guard",
+      "request_id": "result-guard",
+      "result": {
+        "flagged": true,
+        "guard_findings": [
+          {
+            "category": "instruction_override",
+            "severity": "high"
+          }
+        ]
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "sanitize",
+      "request_id": "result-sanitize",
+      "result": {
+        "detected_entity_count": 1,
+        "entity_type_counts": {
+          "SYNTHETIC_TYPE": 1
+        },
+        "guard_findings": [],
+        "highlights": [
+          {
+            "data_type": "SYNTHETIC_TYPE",
+            "end": 9,
+            "redact_type": "FP",
+            "start": 0
+          }
+        ],
+        "replacement_count": 1,
+        "safety": {
+          "residual_count": 0,
+          "status": "pass"
+        },
+        "sanitized_text": "synthetic masked output",
+        "section26_categories": [],
+        "session_id": "synthetic-session",
+        "warnings": []
+      },
+      "role": "extension"
+    },
+    {
+      "operation": "reidentify",
+      "request_id": "result-reidentify",
+      "result": {
+        "leftover_count": 0,
+        "replaced_count": 1,
+        "restored_text": "synthetic restored output",
+        "warnings": [
+          {
+            "code": "generated_pii",
+            "count": 1
+          }
+        ]
+      },
+      "role": "extension"
+    },
+    {
+      "operation": "roundtrip",
+      "request_id": "result-roundtrip",
+      "result": {
+        "ai_response_masked": "synthetic masked response",
+        "detected_entity_count": 0,
+        "entity_type_counts": {},
+        "guard_findings": [],
+        "provider_used": "synthetic_provider",
+        "restoration": {
+          "leftover_count": 0,
+          "replaced_count": 0,
+          "status": "complete"
+        },
+        "restored_text": "synthetic response",
+        "safety": {
+          "residual_count": 0,
+          "status": "pass"
+        },
+        "sanitized_text": "synthetic request",
+        "section26_categories": [],
+        "warnings": []
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "analyze_report",
+      "request_id": "result-report",
+      "result": {
+        "overall_grade": "A",
+        "overall_score": "10.5",
+        "report_pdf_b64": "c3ludGhldGlj"
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "redact_pdf",
+      "request_id": "result-pdf",
+      "result": {
+        "after_png_b64": "c3ludGhldGlj",
+        "detected_entity_count": 1,
+        "entity_type_counts": {
+          "SYNTHETIC_TYPE": 1
+        },
+        "fields": [
+          {
+            "data_type": "SYNTHETIC_TYPE",
+            "redact_type": "FP"
+          }
+        ],
+        "human_review": false,
+        "ocr_confidence": null,
+        "redacted_pdf_b64": "c3ludGhldGlj",
+        "section26_categories": [],
+        "source_type": "pdf_text",
+        "warnings": []
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "audit_log",
+      "request_id": "result-audit",
+      "result": {
+        "limit": 2,
+        "logs": [
+          {
+            "entity_count": 0,
+            "flags": [],
+            "latency_ms": "0.5",
+            "step": "api_sanitize",
+            "timestamp": "1.25",
+            "type": "process",
+            "validation_result": "pass"
+          },
+          {
+            "error_type": null,
+            "layer": "outbound",
+            "pii_scan_result": "clean",
+            "retry_count": 0,
+            "rollback_occurred": false,
+            "timestamp": "2",
+            "type": "security"
+          }
+        ],
+        "offset": 0,
+        "status": "ok",
+        "total_count": 2
+      },
+      "role": "desktop"
+    },
+    {
+      "operation": "maintenance_drain_stop",
+      "request_id": "result-maintenance",
+      "result": {
+        "accepted": true
+      },
+      "role": "maintenance"
+    }
+  ],
+  "result_mutation_vectors": [
+    {
+      "expect_error": "request_invalid",
+      "operation": "analyze",
+      "path": [
+        "overall_score"
+      ],
+      "value": 10
+    },
+    {
+      "expect_error": "request_invalid",
+      "operation": "analyze",
+      "path": [
+        "overall_score"
+      ],
+      "value": "10.0"
+    },
+    {
+      "expect_error": "request_invalid",
+      "operation": "analyze",
+      "path": [
+        "overall_score"
+      ],
+      "value": "100.1"
+    },
+    {
+      "expect_error": "request_invalid",
+      "operation": "analyze",
+      "path": [
+        "section26_categories"
+      ],
+      "value": [
+        "HEALTH",
+        "RELIGION"
+      ]
+    },
+    {
+      "expect_error": "request_invalid",
+      "operation": "detect",
+      "path": [
+        "entity_type_counts",
+        "SYNTHETIC_TYPE"
+      ],
+      "value": 0
+    },
+    {
+      "expect_error": "request_invalid",
+      "operation": "redact_pdf",
+      "path": [
+        "redacted_pdf_b64"
+      ],
+      "value": "not-base64"
+    }
+  ],
+  "error_messages": [
+    {
+      "code": "broker_busy",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"broker_busy\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "broker_incompatible",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"broker_incompatible\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "broker_unauthorized",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"broker_unauthorized\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "broker_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"broker_unavailable\",\"retry\":\"reconnect_only\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "dependency_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"dependency_unavailable\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "document_invalid",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"document_invalid\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "ner_incomplete",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"ner_incomplete\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "ner_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"ner_unavailable\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "ocr_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"ocr_unavailable\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "operation_failed",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"operation_failed\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "operation_timeout",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"operation_timeout\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "payload_too_large",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"payload_too_large\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "provider_configuration",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"provider_configuration\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "provider_rejected",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"provider_rejected\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "provider_response_invalid",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"provider_response_invalid\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "provider_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"provider_unavailable\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"request_invalid\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "residual_pii",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"residual_pii\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "restore_failed",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"restore_failed\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    },
+    {
+      "code": "session_unavailable",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"session_unavailable\",\"retry\":\"never\"},\"request_id\":\"error-1\"}"
+    }
+  ],
+  "uncorrelated_error_vectors": [
+    {
+      "code": "request_invalid",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"request_invalid\",\"retry\":\"never\"},\"request_id\":null}"
+    },
+    {
+      "code": "SYNTHETIC_UNKNOWN_INTERNAL_CODE",
+      "json": "{\"broker_protocol_version\":1,\"error\":{\"code\":\"operation_failed\",\"retry\":\"never\"},\"request_id\":null}"
+    }
+  ],
+  "frame_length_vectors": [
+    {
+      "declared_length": 70953644,
+      "name": "production_boundary",
+      "valid": true
+    },
+    {
+      "declared_length": 70953645,
+      "expect_error": "payload_too_large",
+      "name": "production_oversized",
+      "valid": false
+    },
+    {
+      "declared_length": 0,
+      "expect_error": "request_invalid",
+      "name": "zero_length",
+      "valid": false
+    }
+  ],
+  "hello_frame_vectors": [
+    {
+      "declared_length": 4096,
+      "name": "hello_boundary",
+      "valid": true
+    },
+    {
+      "attached_body_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declared_length": 4097,
+      "expect_error": "payload_too_large",
+      "expect_max_buffer_growth_bytes": 4,
+      "name": "hello_oversized_prefix_rejects_attached_body_before_copy",
+      "valid": false
+    }
+  ],
+  "partial_frame_vectors": [
+    {
+      "expect_error_at_eof": "request_invalid",
+      "hex": "0000",
+      "name": "partial_header"
+    },
+    {
+      "expect_error_at_eof": "request_invalid",
+      "hex": "000000057b7d",
+      "name": "partial_body"
+    },
+    {
+      "expect_error": "payload_too_large",
+      "hex": "00000006",
+      "max_frame_bytes": 5,
+      "name": "oversized_before_body"
+    },
+    {
+      "expect_error": "payload_too_large",
+      "expect_max_buffer_growth_bytes": 4,
+      "hex": "00000006aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "max_frame_bytes": 5,
+      "name": "oversized_prefix_rejects_attached_body_before_copy"
+    }
+  ],
+  "invalid_decoder_limits": [
+    {
+      "expect_error": "request_invalid",
+      "max_frame_bytes": 0,
+      "name": "zero_decoder_limit"
+    }
+  ],
+  "json_depth_vectors": [
+    {
+      "json": "{\"a\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+      "max_container_depth": 32,
+      "name": "container_depth_boundary",
+      "valid": true
+    },
+    {
+      "expect_error": "request_invalid",
+      "json": "{\"a\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+      "max_container_depth": 32,
+      "name": "container_depth_oversized",
+      "valid": false
+    }
+  ],
+  "role_operation_policy": {
+    "allowlists": {
+      "desktop": [
+        "analyze",
+        "analyze_report",
+        "audit_log",
+        "broker_health",
+        "detect",
+        "guard",
+        "redact_pdf",
+        "reidentify",
+        "roundtrip",
+        "sanitize",
+        "scope_close",
+        "scope_open",
+        "session_dispose"
+      ],
+      "extension": [
+        "broker_health",
+        "reidentify",
+        "sanitize",
+        "scope_close",
+        "scope_open",
+        "session_dispose"
+      ],
+      "maintenance": [
+        "broker_health",
+        "maintenance_drain_stop"
+      ]
+    },
+    "operations": [
+      "analyze",
+      "analyze_report",
+      "audit_log",
+      "broker_health",
+      "detect",
+      "guard",
+      "maintenance_drain_stop",
+      "redact_pdf",
+      "reidentify",
+      "roundtrip",
+      "sanitize",
+      "scope_close",
+      "scope_open",
+      "session_dispose"
+    ],
+    "unknown_operations": [
+      "unknown_operation"
+    ],
+    "unknown_roles": [
+      "backend",
+      "unknown"
+    ]
+  },
+  "deadline_vectors": [
+    {
+      "deadline_ms": 725000,
+      "operation": "sanitize",
+      "remote_tner": false
+    },
+    {
+      "deadline_ms": null,
+      "operation": "sanitize",
+      "remote_tner": true
+    },
+    {
+      "deadline_ms": 2348000,
+      "operation": "roundtrip",
+      "remote_tner": false
+    },
+    {
+      "deadline_ms": null,
+      "operation": "roundtrip",
+      "remote_tner": true
+    },
+    {
+      "deadline_ms": 360000,
+      "operation": "analyze_report",
+      "remote_tner": false
+    },
+    {
+      "deadline_ms": 7580000,
+      "operation": "analyze_report",
+      "remote_tner": true
+    },
+    {
+      "deadline_ms": 300000,
+      "operation": "redact_pdf",
+      "remote_tner": false
+    },
+    {
+      "deadline_ms": 420000,
+      "operation": "reidentify",
+      "remote_tner": false
+    },
+    {
+      "deadline_ms": null,
+      "operation": "reidentify",
+      "remote_tner": true
+    },
+    {
+      "deadline_ms": null,
+      "operation": "redact_pdf",
+      "remote_tner": true
+    },
+    {
+      "deadline_ms": 60000,
+      "operation": "guard",
+      "remote_tner": true
+    }
+  ],
+  "remote_tner_budget_vectors": [
+    {
+      "deadline_ms": 7520000,
+      "max_calls": 501,
+      "operation": "analyze",
+      "primary_scans": 1
+    },
+    {
+      "deadline_ms": 7580000,
+      "max_calls": 501,
+      "operation": "analyze_report",
+      "primary_scans": 1
+    },
+    {
+      "deadline_ms": 60000,
+      "max_calls": 0,
+      "operation": "audit_log",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "max_calls": 0,
+      "operation": "broker_health",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": 7520000,
+      "max_calls": 501,
+      "operation": "detect",
+      "primary_scans": 1
+    },
+    {
+      "deadline_ms": 60000,
+      "max_calls": 0,
+      "operation": "guard",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "max_calls": 0,
+      "operation": "maintenance_drain_stop",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": null,
+      "max_calls": null,
+      "operation": "redact_pdf",
+      "primary_scans": null
+    },
+    {
+      "deadline_ms": null,
+      "max_calls": null,
+      "operation": "reidentify",
+      "primary_scans": null
+    },
+    {
+      "deadline_ms": null,
+      "max_calls": null,
+      "operation": "roundtrip",
+      "primary_scans": null
+    },
+    {
+      "deadline_ms": null,
+      "max_calls": null,
+      "operation": "sanitize",
+      "primary_scans": null
+    },
+    {
+      "deadline_ms": 60000,
+      "max_calls": 0,
+      "operation": "scope_close",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "max_calls": 0,
+      "operation": "scope_open",
+      "primary_scans": 0
+    },
+    {
+      "deadline_ms": 60000,
+      "max_calls": 0,
+      "operation": "session_dispose",
+      "primary_scans": 0
+    }
+  ],
+  "local_detection_phase_vectors": [
+    {
+      "deadline_ms": 360000,
+      "operation": "analyze",
+      "phases": 1
+    },
+    {
+      "deadline_ms": 360000,
+      "operation": "analyze_report",
+      "phases": 1
+    },
+    {
+      "deadline_ms": 60000,
+      "operation": "audit_log",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "operation": "broker_health",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 360000,
+      "operation": "detect",
+      "phases": 1
+    },
+    {
+      "deadline_ms": 60000,
+      "operation": "guard",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "operation": "maintenance_drain_stop",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 300000,
+      "operation": "redact_pdf",
+      "phases": null
+    },
+    {
+      "deadline_ms": 420000,
+      "operation": "reidentify",
+      "phases": 1
+    },
+    {
+      "deadline_ms": 2348000,
+      "operation": "roundtrip",
+      "phases": 6
+    },
+    {
+      "deadline_ms": 725000,
+      "operation": "sanitize",
+      "phases": 2
+    },
+    {
+      "deadline_ms": 60000,
+      "operation": "scope_close",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 5000,
+      "operation": "scope_open",
+      "phases": 0
+    },
+    {
+      "deadline_ms": 60000,
+      "operation": "session_dispose",
+      "phases": 0
+    }
+  ],
+  "replay_and_mutation_vectors": [
+    {
+      "operation": "analyze",
+      "replay": "never",
+      "uncertain_completion": "external_tner_possible"
+    },
+    {
+      "operation": "analyze_report",
+      "replay": "never",
+      "uncertain_completion": "external_tner_possible"
+    },
+    {
+      "operation": "audit_log",
+      "replay": "never",
+      "uncertain_completion": "none"
+    },
+    {
+      "operation": "broker_health",
+      "replay": "startup_only",
+      "uncertain_completion": "none"
+    },
+    {
+      "operation": "detect",
+      "replay": "never",
+      "uncertain_completion": "external_tner_possible"
+    },
+    {
+      "operation": "guard",
+      "replay": "never",
+      "uncertain_completion": "none"
+    },
+    {
+      "operation": "maintenance_drain_stop",
+      "replay": "never",
+      "uncertain_completion": "global_drain"
+    },
+    {
+      "operation": "redact_pdf",
+      "replay": "never",
+      "uncertain_completion": "none"
+    },
+    {
+      "operation": "reidentify",
+      "replay": "never",
+      "uncertain_completion": "known_session_mutation"
+    },
+    {
+      "operation": "roundtrip",
+      "replay": "never",
+      "uncertain_completion": "transient_mapping_and_provider"
+    },
+    {
+      "operation": "sanitize",
+      "replay": "never",
+      "uncertain_completion": "possible_session_publication_or_known_session_mutation"
+    },
+    {
+      "operation": "scope_close",
+      "replay": "never",
+      "uncertain_completion": "owned_sessions"
+    },
+    {
+      "operation": "scope_open",
+      "replay": "never",
+      "uncertain_completion": "connection_state"
+    },
+    {
+      "operation": "session_dispose",
+      "replay": "never",
+      "uncertain_completion": "known_session_mutation"
+    }
+  ],
+  "field_boundary_vectors": [
+    {
+      "field": "text",
+      "limit": 200000,
+      "profile": "local"
+    },
+    {
+      "field": "local_intermediate_text_chars",
+      "limit": 200000,
+      "profile": "local"
+    },
+    {
+      "field": "text",
+      "limit": 500,
+      "profile": "remote_tner"
+    },
+    {
+      "field": "remote_tner_calls_per_scan",
+      "limit": 501,
+      "profile": "remote_tner"
+    },
+    {
+      "field": "connection_messages",
+      "limit": 4096,
+      "profile": "connection"
+    },
+    {
+      "field": "request_id",
+      "limit": 128,
+      "profile": "all"
+    },
+    {
+      "field": "pdf_raw_bytes",
+      "limit": 52428800,
+      "profile": "desktop"
+    },
+    {
+      "field": "extension_response_bytes",
+      "limit": 1048576,
+      "profile": "extension"
+    }
+  ]
+}

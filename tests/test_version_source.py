@@ -126,6 +126,8 @@ _TRACKED_FILES = [
     "desktop/src-tauri/tauri.conf.json",
     "desktop/src-tauri/Cargo.toml",
     "desktop/src-tauri/Cargo.lock",
+    "native-broker/Cargo.toml",
+    "native-broker/Cargo.lock",
     "desktop/package.json",
     "desktop/package-lock.json",
 ]
@@ -215,6 +217,19 @@ def test_check_version_detects_drift_via_cargo_toml_regex(tmp_path):
     result = _run_check(repo)
     assert result.returncode == 1
     assert "Cargo.toml" in result.stdout
+
+
+def test_check_version_tracks_native_broker_crate_metadata(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    cargo_toml = repo / "native-broker" / "Cargo.toml"
+    text = cargo_toml.read_text(encoding="utf-8")
+    drifted = text.replace(f'version = "{_version_file_contents()}"', 'version = "1.2.3"', 1)
+    assert drifted != text
+    cargo_toml.write_text(drifted, encoding="utf-8")
+
+    result = _run_check(repo)
+    assert result.returncode == 1
+    assert "native-broker" in result.stdout
 
 
 def test_check_version_fails_when_required_file_is_unparseable(tmp_path):
@@ -314,6 +329,12 @@ def test_bump_version_writes_every_tracked_file(tmp_path):
 
     cargo_lock = (repo / "desktop" / "src-tauri" / "Cargo.lock").read_text(encoding="utf-8")
     assert 'name = "desktop"\nversion = "9.9.9"' in cargo_lock
+
+    broker_cargo_toml = (repo / "native-broker" / "Cargo.toml").read_text(encoding="utf-8")
+    assert 'version = "9.9.9"' in broker_cargo_toml
+
+    broker_cargo_lock = (repo / "native-broker" / "Cargo.lock").read_text(encoding="utf-8")
+    assert 'name = "aiguard-native-broker-protocol"\nversion = "9.9.9"' in broker_cargo_lock
 
     package_json = json.loads((repo / "desktop" / "package.json").read_text(encoding="utf-8"))
     assert package_json["version"] == "9.9.9"

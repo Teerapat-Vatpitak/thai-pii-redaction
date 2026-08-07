@@ -1,10 +1,10 @@
 # Test gate: runs the pytest suite (Windows + Linux), a core-only-install job
 # that keeps the optional-dependency skip tiers honest, the Rust unit tests for
-# the desktop shell, a JS syntax check for the extension + desktop frontend, a
-# version drift check (Horizon-1 #5 -- VERSION is the single source of truth),
-# and a Windows packaged-exe smoke that boots the shipped sidecar end-to-end --
-# the only platform users actually run, which release.yml/smoke-crossplatform.yml
-# never boot.
+# the native-broker protocol crate and desktop shell, a JS syntax check for the
+# extension + desktop frontend, a version drift check (Horizon-1 #5 -- VERSION
+# is the single source of truth), and a Windows packaged-exe smoke that boots
+# the shipped sidecar end-to-end -- the only platform users actually run, which
+# release.yml/smoke-crossplatform.yml never boot.
 #
 # Runs on every push to any branch, not just main and PRs. The maintainer works
 # through short-lived branches and squashes into main without opening a pull
@@ -124,7 +124,7 @@ jobs:
           python scripts/check_release_readiness.py
 
   rust:
-    name: cargo test (desktop shell)
+    name: cargo test (broker protocol + desktop shell)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,12 +137,21 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
         with:
+          components: rustfmt, clippy
           toolchain: "1.97.0"
 
       - name: Cache cargo
         uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          workspaces: desktop/src-tauri
+          workspaces: |
+            native-broker
+            desktop/src-tauri
+
+      - name: Native-broker protocol format, lint, and conformance
+        run: |
+          cargo fmt --manifest-path native-broker/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path native-broker/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path native-broker/Cargo.toml
 
       - name: Stage a placeholder sidecar
         # tauri_build::build() checks the externalBin path EXISTS (the real 50 MB
@@ -155,7 +164,7 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           touch "desktop/src-tauri/binaries/aiguard-$triple"
 
-      - name: cargo test
+      - name: Desktop shell tests
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
 
   js-syntax:

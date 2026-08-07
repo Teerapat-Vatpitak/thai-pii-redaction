@@ -90,8 +90,9 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m benchmark --source gold --com
 # Tests (JS — extension harness, vitest+jsdom; needs `npm install` once)
 npm run test:js
 
-# Tests (Rust — Tauri shell incl. sidecar kill-sequence tests)
-cd desktop/src-tauri; cargo test
+# Tests (Rust — transport-free broker protocol, then Tauri shell)
+cargo test --manifest-path native-broker/Cargo.toml
+cargo test --manifest-path desktop/src-tauri/Cargo.toml
 
 # Tests (Office add-in — its OWN npm project, Node 22; the root `test:js` does
 # not reach it because office-addin/ has its own package.json + vitest.config.ts)
@@ -132,6 +133,12 @@ One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared
 | Queue worker (provisional emulator) | `app/worker/` (`python -m app.worker`; job → stateless core; HTTP-poll transport and job schema are provisional local failure/retry fixtures, not the official AI for Thai delivery path; no PII in logs per VAULT-4; `docker compose --profile worker`) |
 | Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
 | Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
+
+Phase 8 Slice 1 adds no storefront or production path. The single
+machine-readable broker-v1 policy is `native-broker/protocol-v1.json`;
+`native_broker_protocol.py` and the Rust library under `native-broker/`
+implement only transport-free serialization, framing, negotiation, policy, and
+conformance. They open no endpoint, call no backend, and own no session.
 
 The browser extension, desktop shell, and Office add-in use the local
 **FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on

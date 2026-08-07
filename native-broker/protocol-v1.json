@@ -1,0 +1,1192 @@
+{
+  "contract_schema_version": 1,
+  "deadline_profiles_ms": {
+    "control": 5000,
+    "local_document": 300000,
+    "local_non_detection": 60000,
+    "local_provider": 2348000,
+    "local_reidentify": 420000,
+    "local_report": 360000,
+    "local_sanitize": 725000,
+    "local_text": 360000,
+    "remote_tner_report": 7580000,
+    "remote_tner_text": 7520000
+  },
+  "deadline_components_ms": {
+    "adapter": 5000,
+    "local_detection_phase": 360000,
+    "local_restore_and_disposal": 60000,
+    "provider_attempt": 60000,
+    "provider_backoff_total": 3000,
+    "remote_tner_call": 15000
+  },
+  "connection_policy": {
+    "message_limit_error": "broker_busy",
+    "terminal_error": "broker_unavailable"
+  },
+  "errors": {
+    "broker_busy": {
+      "retry": "never"
+    },
+    "broker_incompatible": {
+      "retry": "never"
+    },
+    "broker_unauthorized": {
+      "retry": "never"
+    },
+    "broker_unavailable": {
+      "retry": "reconnect_only"
+    },
+    "dependency_unavailable": {
+      "retry": "never"
+    },
+    "document_invalid": {
+      "retry": "never"
+    },
+    "ner_incomplete": {
+      "retry": "never"
+    },
+    "ner_unavailable": {
+      "retry": "never"
+    },
+    "ocr_unavailable": {
+      "retry": "never"
+    },
+    "operation_failed": {
+      "retry": "never"
+    },
+    "operation_timeout": {
+      "retry": "never"
+    },
+    "payload_too_large": {
+      "retry": "never"
+    },
+    "provider_configuration": {
+      "retry": "never"
+    },
+    "provider_rejected": {
+      "retry": "never"
+    },
+    "provider_response_invalid": {
+      "retry": "never"
+    },
+    "provider_unavailable": {
+      "retry": "never"
+    },
+    "request_invalid": {
+      "retry": "never"
+    },
+    "residual_pii": {
+      "retry": "never"
+    },
+    "restore_failed": {
+      "retry": "never"
+    },
+    "session_unavailable": {
+      "retry": "never"
+    }
+  },
+  "field_limits": {
+    "audit_limit_max": 1000,
+    "audit_limit_min": 1,
+    "audit_offset_max": 2147483647,
+    "connection_messages": 4096,
+    "id_chars": 128,
+    "json_integer_max": 9007199254740991,
+    "local_intermediate_text_chars": 200000,
+    "operation_chars": 64,
+    "product_version_chars": 64,
+    "provider_chars": 64,
+    "remote_tner_calls_per_scan": 501,
+    "remote_tner_text_chars": 500,
+    "supported_versions_count": 8,
+    "text_chars": 200000
+  },
+  "framing": {
+    "byte_order": "big",
+    "default_message_bytes": 1048576,
+    "encoding": "utf-8",
+    "extension_response_bytes": 1048576,
+    "length_prefix_bytes": 4,
+    "max_frame_bytes": 70953644,
+    "max_hello_bytes": 4096,
+    "max_pdf_base64_bytes": 69905068,
+    "max_pdf_raw_bytes": 52428800
+  },
+  "local_detection_policy": {
+    "intermediate_limit_error": "payload_too_large"
+  },
+  "remote_tner_policy": {
+    "disabled_operations": [
+      "redact_pdf",
+      "reidentify",
+      "roundtrip",
+      "sanitize"
+    ],
+    "source_only_operations": [
+      "analyze",
+      "analyze_report",
+      "detect"
+    ],
+    "unsupported_operation_error": "ner_unavailable"
+  },
+  "result_schema_definitions": {
+    "audit_event": {
+      "kind": "one_of",
+      "variants": [
+        {
+          "ref": "process_audit_event"
+        },
+        {
+          "ref": "security_audit_event"
+        }
+      ]
+    },
+    "audit_flag": {
+      "fields": {
+        "code": {
+          "enum": [
+            "provider_call",
+            "leftover_replacement",
+            "residual_block",
+            "ocr_review_required",
+            "source_pdf_text",
+            "source_pdf_hybrid"
+          ],
+          "kind": "string"
+        },
+        "count": {
+          "ref": "nonnegative_integer"
+        }
+      },
+      "kind": "object"
+    },
+    "base64": {
+      "kind": "string",
+      "min_chars": 1,
+      "pattern": "base64"
+    },
+    "breakdown_item": {
+      "fields": {
+        "count": {
+          "ref": "positive_integer"
+        },
+        "data_type": {
+          "ref": "data_type"
+        },
+        "redact_type": {
+          "enum": [
+            "FP",
+            "TB"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "data_type": {
+      "kind": "string",
+      "pattern": "data_type"
+    },
+    "entity_type_counts": {
+      "key_pattern": "data_type",
+      "kind": "map",
+      "values": {
+        "ref": "positive_integer"
+      }
+    },
+    "guard_finding": {
+      "fields": {
+        "category": {
+          "enum": [
+            "instruction_override",
+            "role_hijack",
+            "exfiltration",
+            "hidden_chars",
+            "suspicious_payload"
+          ],
+          "kind": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "highlight": {
+      "fields": {
+        "data_type": {
+          "ref": "data_type"
+        },
+        "end": {
+          "ref": "positive_integer"
+        },
+        "redact_type": {
+          "enum": [
+            "FP",
+            "TB"
+          ],
+          "kind": "string"
+        },
+        "start": {
+          "ref": "nonnegative_integer"
+        }
+      },
+      "kind": "object"
+    },
+    "nonempty_text": {
+      "kind": "string",
+      "min_chars": 1
+    },
+    "nonnegative_decimal": {
+      "kind": "decimal",
+      "minimum": "0"
+    },
+    "nonnegative_integer": {
+      "kind": "integer",
+      "minimum": 0
+    },
+    "opaque_id": {
+      "kind": "string",
+      "pattern": "opaque_id"
+    },
+    "pdf_field": {
+      "fields": {
+        "data_type": {
+          "ref": "data_type"
+        },
+        "redact_type": {
+          "enum": [
+            "FP",
+            "TB"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "pdf_warning": {
+      "fields": {
+        "code": {
+          "enum": [
+            "ocr_low_confidence",
+            "human_review_required"
+          ],
+          "kind": "string"
+        },
+        "count": {
+          "ref": "positive_integer"
+        }
+      },
+      "kind": "object"
+    },
+    "positive_integer": {
+      "kind": "integer",
+      "minimum": 1
+    },
+    "process_audit_event": {
+      "fields": {
+        "entity_count": {
+          "ref": "nonnegative_integer"
+        },
+        "flags": {
+          "items": {
+            "ref": "audit_flag"
+          },
+          "kind": "array"
+        },
+        "latency_ms": {
+          "ref": "nonnegative_decimal"
+        },
+        "step": {
+          "enum": [
+            "api_sanitize",
+            "api_reidentify",
+            "api_analyze",
+            "api_analyze_report",
+            "api_roundtrip",
+            "api_redact_pdf"
+          ],
+          "kind": "string"
+        },
+        "timestamp": {
+          "ref": "nonnegative_decimal"
+        },
+        "type": {
+          "enum": [
+            "process"
+          ],
+          "kind": "string"
+        },
+        "validation_result": {
+          "enum": [
+            "prepared",
+            "blocked",
+            "pass",
+            "warn"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "quasi_identifier_categories": {
+      "items": {
+        "enum": [
+          "gender",
+          "date_of_birth",
+          "age",
+          "district",
+          "province",
+          "occupation",
+          "religion"
+        ],
+        "kind": "string"
+      },
+      "kind": "array",
+      "ordered_values": [
+        "gender",
+        "date_of_birth",
+        "age",
+        "district",
+        "province",
+        "occupation",
+        "religion"
+      ]
+    },
+    "recommendation": {
+      "fields": {
+        "desc": {
+          "kind": "string"
+        },
+        "level": {
+          "enum": [
+            "high",
+            "medium",
+            "info"
+          ],
+          "kind": "string"
+        },
+        "title": {
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "reidentification": {
+      "fields": {
+        "grade": {
+          "ref": "risk_grade"
+        },
+        "high_risk_combination": {
+          "kind": "boolean"
+        },
+        "quasi_identifier_categories": {
+          "ref": "quasi_identifier_categories"
+        },
+        "score": {
+          "ref": "score_decimal"
+        }
+      },
+      "kind": "object"
+    },
+    "restoration": {
+      "fields": {
+        "leftover_count": {
+          "ref": "nonnegative_integer"
+        },
+        "replaced_count": {
+          "ref": "nonnegative_integer"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "incomplete",
+            "unsafe"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "restore_warning": {
+      "fields": {
+        "code": {
+          "enum": [
+            "generated_pii",
+            "foreign_replacement"
+          ],
+          "kind": "string"
+        },
+        "count": {
+          "ref": "positive_integer"
+        }
+      },
+      "kind": "object"
+    },
+    "risk_grade": {
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "F"
+      ],
+      "kind": "string"
+    },
+    "safety": {
+      "fields": {
+        "residual_count": {
+          "enum": [
+            0
+          ],
+          "kind": "integer"
+        },
+        "status": {
+          "enum": [
+            "pass"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "score_decimal": {
+      "kind": "decimal",
+      "maximum": "100",
+      "minimum": "0"
+    },
+    "section26_categories": {
+      "items": {
+        "enum": [
+          "RACE_ETHNICITY",
+          "POLITICAL_OPINION",
+          "RELIGION",
+          "HEALTH",
+          "SEXUAL_BEHAVIOR",
+          "CRIMINAL_RECORD",
+          "DISABILITY",
+          "LABOR_UNION"
+        ],
+        "kind": "string"
+      },
+      "kind": "array",
+      "ordered_values": [
+        "RACE_ETHNICITY",
+        "POLITICAL_OPINION",
+        "RELIGION",
+        "HEALTH",
+        "SEXUAL_BEHAVIOR",
+        "CRIMINAL_RECORD",
+        "DISABILITY",
+        "LABOR_UNION"
+      ]
+    },
+    "security_audit_event": {
+      "fields": {
+        "error_type": {
+          "kind": "nullable",
+          "schema": {
+            "enum": [
+              "contract_version_required",
+              "invalid_request",
+              "request_schema_invalid",
+              "authentication_required",
+              "control_forbidden",
+              "route_not_found",
+              "session_unavailable",
+              "method_not_allowed",
+              "rate_limited",
+              "payload_too_large",
+              "residual_pii",
+              "document_invalid",
+              "provider_unavailable",
+              "provider_rejected",
+              "provider_response_invalid",
+              "ner_incomplete",
+              "provider_configuration",
+              "dependency_unavailable",
+              "ocr_unavailable",
+              "ner_unavailable",
+              "service_unavailable",
+              "restore_failed",
+              "internal_error"
+            ],
+            "kind": "string"
+          }
+        },
+        "layer": {
+          "enum": [
+            "layer1",
+            "layer2",
+            "layer3",
+            "outbound",
+            "provider",
+            "restore"
+          ],
+          "kind": "string"
+        },
+        "pii_scan_result": {
+          "enum": [
+            "clean",
+            "unexpected_pii",
+            "blocked",
+            "error"
+          ],
+          "kind": "string"
+        },
+        "retry_count": {
+          "ref": "nonnegative_integer"
+        },
+        "rollback_occurred": {
+          "kind": "boolean"
+        },
+        "timestamp": {
+          "ref": "nonnegative_decimal"
+        },
+        "type": {
+          "enum": [
+            "security"
+          ],
+          "kind": "string"
+        }
+      },
+      "kind": "object"
+    },
+    "unit_decimal": {
+      "kind": "decimal",
+      "maximum": "1",
+      "minimum": "0"
+    }
+  },
+  "operations": {
+    "analyze": {
+      "deadline_local": "local_text",
+      "deadline_remote_tner": "remote_tner_text",
+      "local_detection_phases": 1,
+      "payload_optional": {},
+      "payload_required": {
+        "text": "text"
+      },
+      "remote_tner_max_calls": 501,
+      "remote_tner_primary_scans": 1,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "breakdown": {
+            "items": {
+              "ref": "breakdown_item"
+            },
+            "kind": "array"
+          },
+          "direct_pii_count": {
+            "ref": "nonnegative_integer"
+          },
+          "fp_count": {
+            "ref": "nonnegative_integer"
+          },
+          "overall_grade": {
+            "ref": "risk_grade"
+          },
+          "overall_score": {
+            "ref": "score_decimal"
+          },
+          "recommendations": {
+            "items": {
+              "ref": "recommendation"
+            },
+            "kind": "array"
+          },
+          "reidentification": {
+            "ref": "reidentification"
+          },
+          "risk_label": {
+            "enum": [
+              "Very Low Risk",
+              "Low Risk",
+              "Medium Risk",
+              "High Risk",
+              "Very High Risk"
+            ],
+            "kind": "string"
+          },
+          "section26_categories": {
+            "ref": "section26_categories"
+          },
+          "tb_count": {
+            "ref": "nonnegative_integer"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "external_tner_possible"
+    },
+    "analyze_report": {
+      "deadline_local": "local_report",
+      "deadline_remote_tner": "remote_tner_report",
+      "local_detection_phases": 1,
+      "payload_optional": {},
+      "payload_required": {
+        "text": "text"
+      },
+      "remote_tner_max_calls": 501,
+      "remote_tner_primary_scans": 1,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "overall_grade": {
+            "ref": "risk_grade"
+          },
+          "overall_score": {
+            "ref": "score_decimal"
+          },
+          "report_pdf_b64": {
+            "ref": "base64"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "external_tner_possible"
+    },
+    "audit_log": {
+      "deadline_local": "local_non_detection",
+      "deadline_remote_tner": "local_non_detection",
+      "local_detection_phases": 0,
+      "payload_optional": {
+        "limit": "audit_limit",
+        "offset": "audit_offset"
+      },
+      "payload_required": {},
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "limit": {
+            "kind": "integer",
+            "maximum": 1000,
+            "minimum": 1
+          },
+          "logs": {
+            "items": {
+              "ref": "audit_event"
+            },
+            "kind": "array"
+          },
+          "offset": {
+            "kind": "integer",
+            "maximum": 2147483647,
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "ok"
+            ],
+            "kind": "string"
+          },
+          "total_count": {
+            "ref": "nonnegative_integer"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "none"
+    },
+    "broker_health": {
+      "deadline_local": "control",
+      "deadline_remote_tner": "control",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {},
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "startup_only",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "status": {
+            "enum": [
+              "ok"
+            ],
+            "kind": "string"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "forbidden",
+      "uncertain_completion": "none"
+    },
+    "detect": {
+      "deadline_local": "local_text",
+      "deadline_remote_tner": "remote_tner_text",
+      "local_detection_phases": 1,
+      "payload_optional": {},
+      "payload_required": {
+        "text": "text"
+      },
+      "remote_tner_max_calls": 501,
+      "remote_tner_primary_scans": 1,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "detected_entity_count": {
+            "ref": "nonnegative_integer"
+          },
+          "entity_type_counts": {
+            "ref": "entity_type_counts"
+          },
+          "highlights": {
+            "items": {
+              "ref": "highlight"
+            },
+            "kind": "array"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "external_tner_possible"
+    },
+    "guard": {
+      "deadline_local": "local_non_detection",
+      "deadline_remote_tner": "local_non_detection",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {
+        "text": "text"
+      },
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "flagged": {
+            "kind": "boolean"
+          },
+          "guard_findings": {
+            "items": {
+              "ref": "guard_finding"
+            },
+            "kind": "array"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "none"
+    },
+    "maintenance_drain_stop": {
+      "deadline_local": "control",
+      "deadline_remote_tner": "control",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {},
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "accepted": {
+            "kind": "boolean"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "forbidden",
+      "uncertain_completion": "global_drain"
+    },
+    "redact_pdf": {
+      "deadline_local": "local_document",
+      "deadline_remote_tner": null,
+      "local_detection_phases": null,
+      "payload_optional": {},
+      "payload_required": {
+        "pdf_b64": "pdf_base64"
+      },
+      "remote_tner_max_calls": null,
+      "remote_tner_primary_scans": null,
+      "replay": "never",
+      "request_limit": "pdf",
+      "response_limit": "pdf",
+      "result_schema": {
+        "fields": {
+          "after_png_b64": {
+            "ref": "base64"
+          },
+          "detected_entity_count": {
+            "ref": "nonnegative_integer"
+          },
+          "entity_type_counts": {
+            "ref": "entity_type_counts"
+          },
+          "fields": {
+            "items": {
+              "ref": "pdf_field"
+            },
+            "kind": "array"
+          },
+          "human_review": {
+            "kind": "boolean"
+          },
+          "ocr_confidence": {
+            "kind": "nullable",
+            "schema": {
+              "ref": "unit_decimal"
+            }
+          },
+          "redacted_pdf_b64": {
+            "ref": "base64"
+          },
+          "section26_categories": {
+            "ref": "section26_categories"
+          },
+          "source_type": {
+            "enum": [
+              "pdf_text",
+              "pdf_hybrid"
+            ],
+            "kind": "string"
+          },
+          "warnings": {
+            "items": {
+              "ref": "pdf_warning"
+            },
+            "kind": "array"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "none"
+    },
+    "reidentify": {
+      "deadline_local": "local_reidentify",
+      "deadline_remote_tner": null,
+      "local_detection_phases": 1,
+      "payload_optional": {},
+      "payload_required": {
+        "session_id": "opaque_id",
+        "text": "text"
+      },
+      "remote_tner_max_calls": null,
+      "remote_tner_primary_scans": null,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "leftover_count": {
+            "ref": "nonnegative_integer"
+          },
+          "replaced_count": {
+            "ref": "nonnegative_integer"
+          },
+          "restored_text": {
+            "kind": "string"
+          },
+          "warnings": {
+            "items": {
+              "ref": "restore_warning"
+            },
+            "kind": "array"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "known_session_mutation"
+    },
+    "roundtrip": {
+      "deadline_local": "local_provider",
+      "deadline_remote_tner": null,
+      "local_detection_phases": 6,
+      "payload_optional": {},
+      "payload_required": {
+        "mode": "mode",
+        "provider": "provider_name",
+        "text": "text"
+      },
+      "remote_tner_max_calls": null,
+      "remote_tner_primary_scans": null,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "ai_response_masked": {
+            "kind": "string"
+          },
+          "detected_entity_count": {
+            "ref": "nonnegative_integer"
+          },
+          "entity_type_counts": {
+            "ref": "entity_type_counts"
+          },
+          "guard_findings": {
+            "items": {
+              "ref": "guard_finding"
+            },
+            "kind": "array"
+          },
+          "provider_used": {
+            "kind": "string",
+            "pattern": "provider"
+          },
+          "restoration": {
+            "ref": "restoration"
+          },
+          "restored_text": {
+            "kind": "string"
+          },
+          "safety": {
+            "ref": "safety"
+          },
+          "sanitized_text": {
+            "ref": "nonempty_text"
+          },
+          "section26_categories": {
+            "ref": "section26_categories"
+          },
+          "warnings": {
+            "items": {
+              "ref": "restore_warning"
+            },
+            "kind": "array"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "transient_mapping_and_provider"
+    },
+    "sanitize": {
+      "deadline_local": "local_sanitize",
+      "deadline_remote_tner": null,
+      "local_detection_phases": 2,
+      "payload_optional": {
+        "mode": "mode",
+        "session_id": "opaque_id"
+      },
+      "payload_required": {
+        "text": "text"
+      },
+      "remote_tner_max_calls": null,
+      "remote_tner_primary_scans": null,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "detected_entity_count": {
+            "ref": "nonnegative_integer"
+          },
+          "entity_type_counts": {
+            "ref": "entity_type_counts"
+          },
+          "guard_findings": {
+            "items": {
+              "ref": "guard_finding"
+            },
+            "kind": "array"
+          },
+          "highlights": {
+            "items": {
+              "ref": "highlight"
+            },
+            "kind": "array"
+          },
+          "replacement_count": {
+            "ref": "nonnegative_integer"
+          },
+          "safety": {
+            "ref": "safety"
+          },
+          "sanitized_text": {
+            "ref": "nonempty_text"
+          },
+          "section26_categories": {
+            "ref": "section26_categories"
+          },
+          "session_id": {
+            "ref": "opaque_id"
+          },
+          "warnings": {
+            "items": {
+              "fields": {},
+              "kind": "object"
+            },
+            "kind": "array",
+            "max_items": 0
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "possible_session_publication_or_known_session_mutation"
+    },
+    "scope_close": {
+      "deadline_local": "local_non_detection",
+      "deadline_remote_tner": "local_non_detection",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {},
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "closed": {
+            "kind": "boolean"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "owned_sessions"
+    },
+    "scope_open": {
+      "deadline_local": "control",
+      "deadline_remote_tner": "control",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {
+        "scope_kind": "role_scope_kind"
+      },
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "scope_id": {
+            "ref": "opaque_id"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "forbidden",
+      "uncertain_completion": "connection_state"
+    },
+    "session_dispose": {
+      "deadline_local": "local_non_detection",
+      "deadline_remote_tner": "local_non_detection",
+      "local_detection_phases": 0,
+      "payload_optional": {},
+      "payload_required": {
+        "session_id": "opaque_id"
+      },
+      "remote_tner_max_calls": 0,
+      "remote_tner_primary_scans": 0,
+      "replay": "never",
+      "request_limit": "default",
+      "response_limit": "default",
+      "result_schema": {
+        "fields": {
+          "disposed": {
+            "kind": "boolean"
+          }
+        },
+        "kind": "object"
+      },
+      "scope": "required",
+      "uncertain_completion": "known_session_mutation"
+    }
+  },
+  "roles": {
+    "desktop": [
+      "analyze",
+      "analyze_report",
+      "audit_log",
+      "broker_health",
+      "detect",
+      "guard",
+      "redact_pdf",
+      "reidentify",
+      "roundtrip",
+      "sanitize",
+      "scope_close",
+      "scope_open",
+      "session_dispose"
+    ],
+    "extension": [
+      "broker_health",
+      "reidentify",
+      "sanitize",
+      "scope_close",
+      "scope_open",
+      "session_dispose"
+    ],
+    "maintenance": [
+      "broker_health",
+      "maintenance_drain_stop"
+    ]
+  },
+  "scope_kinds": {
+    "desktop": [
+      "desktop_hotkey",
+      "desktop_ui"
+    ],
+    "extension": [
+      "extension_panel",
+      "extension_tab"
+    ],
+    "maintenance": []
+  },
+  "serialization": {
+    "blank_text_code_points": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      32,
+      133,
+      160,
+      5760,
+      8192,
+      8193,
+      8194,
+      8195,
+      8196,
+      8197,
+      8198,
+      8199,
+      8200,
+      8201,
+      8202,
+      8232,
+      8233,
+      8239,
+      8287,
+      12288
+    ],
+    "max_container_depth": 32
+  },
+  "supported_protocol_versions": [
+    1
+  ]
+}

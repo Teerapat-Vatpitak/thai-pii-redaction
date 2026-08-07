@@ -1,0 +1,12 @@
+[package]
+name = "aiguard-native-broker-protocol"
+version = "2.5.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1"
+
+[dev-dependencies]
+hex = "0.4"
