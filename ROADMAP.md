@@ -50,14 +50,30 @@ release rules live in [docs/release-process.md](docs/release-process.md).
   gold corpus with a negative (no-PII) slice, scored entity-level,
   character-level, and exact-boundary, with an external LLM baseline. Numbers
   live in generated benchmark reports, not in this file.
-- The AI for Thai participant guide has arrived and fixes the deployment shape
-  (HTTP/FastAPI behind a reverse proxy, Compose from GitLab `main`). The
-  main repository now has a generic strict-v2 `app.hosted` candidate, while the
-  separately versioned sibling remains a distinct v1 port with historical local
-  evidence. Neither route set is the confirmed official contract. Deployment
-  vehicle selection and any GitLab project creation/push are owner-gated. The
-  queue worker is retained only as a local
-  failure/retry emulator, not the official delivery path.
+- The official AI for Thai participant guide fixes the deployment shape for
+  `team08`: frontend/API ports `20070/20071`, `/api` prefix stripping,
+  unprefixed `/health`, template-derived Compose CI from GitLab `main`,
+  loopback publication, per-service limits, bounded logs, masked `APP_*`
+  secrets, and no-SSH operations. The accepted 2026-07-28 decision selects the
+  separate sibling port; main's strict-v2 `app.hosted` remains a generic
+  reference, not a second deployment candidate. The sibling has no independent
+  service-version source: its public unversioned and `/v1` aliases proxy strict
+  contract 2. Business operations
+  are product-owned because the guide does not prescribe them. The accepted
+  [caller-auth decision](docs/decisions/2026-08-07-aift-caller-authentication.md)
+  keeps static/health public and gates every business route with a short-lived
+  signed cookie; proxy-to-core and provider secrets remain separate. The
+  sibling now pins current core `8c6efef`, preserves its public `/v1` aliases
+  while injecting strict contract 2 internally, and returns minimized
+  projections. Immutable port commit `e075ca4` passed exact provider-free local
+  BusyBox check/deploy, and independent security/compatibility review found no
+  remaining static blocker. Live Tokenmind/soak evidence predates that final
+  commit. The exact one-page OCR route passes but reaches the 6 GiB core limit
+  in 221 seconds, so the configured 20-page/300-second surface is not
+  deploy-ready. Credential rotation, the PDF capability decision, the
+  owner-gated first GitLab push, and official platform acceptance remain.
+  The queue worker is retained only as a local failure/retry emulator, not the
+  official delivery path.
 
 The source tree keeps live product code, required synthetic/reproducibility
 inputs, and privacy-reviewed evidence. Local environments, runtime logs,
@@ -215,12 +231,19 @@ does not intercept or attest the provider page's model request or erase that
 earlier DOM boundary. Requiring extension-side-panel entry for all raw text
 would change product direction and requires a separate owner decision.
 
-The separately versioned sibling `aiguard-aift` v1 port is outside this
-campaign and must not be described as migrated. Its deployment shell passed
-historical local checks, but its vendored core predates F09; a separately
-authorized re-vendor plus privacy/soak rerun is required before its first
-push. Official AI for Thai deployment, public routes/auth policy, and live
-platform evidence remain externally gated.
+The separate sibling `aiguard-aift` port is outside this campaign and must not
+be described as a migration or independent release line of the local product
+API. It has no separate service-version source. Its public unversioned and
+`/v1` aliases remain port-owned, while the vendored current core uses strict
+contract 2 and minimized projections behind nginx. The accepted
+2026-08-07 ADR gates business routes with a short-lived signed caller cookie;
+the internal shared-key injection still authenticates nginx to core rather
+than the caller. Immutable commit `e075ca4` passed exact provider-free local
+BusyBox check/deploy and independent review. Dated working-tree evidence covers
+live Tokenmind, fake/live soak, and OCR correctness, while the exact PDF
+resource probe is red at 221 seconds and the 6 GiB limit. Credential rotation,
+the PDF capability decision, official AI for Thai deployment, and
+live-platform acceptance remain open.
 
 ## Outstanding feature acceptance — Microsoft 365 add-in
 
@@ -343,45 +366,66 @@ the remaining assumptions with platform evidence. The first concrete instance
 is AI for Thai; the adapter stays replaceable so a second platform is a
 delta, not a rewrite.
 
-The participant guide fixes the deployment shape: FastAPI behind a same-origin
-reverse proxy whose public `/api/...` path reaches an unprefixed backend
-route, Compose deployed from GitLab `main`, loopback-only host publication, an
-unprefixed `/health`, masked CI variables, bounded log rotation, and CPU-only
-resource limits. GitLab group access (Maintainer) and separate LLM service
-credentials have arrived.
+The official participant guide fixes the deployment shape for `team08`:
+standard frontend `/` on host port `20070`, backend `/api/` on `20071`, prefix
+stripping to an unprefixed backend route, unprefixed `/health`,
+template-derived Compose CI deployed from GitLab `main`, loopback-only host
+publication, masked `APP_*` variables, `50m` times three log rotation,
+per-service CPU/memory limits under an adjustable approximately 13 GiB team
+budget, and no-SSH operations. GitLab group access (Maintainer) and separate
+LLM service credentials have arrived.
 
-Historical deployment preparation uses a **separate port repo**
+The accepted 2026-07-28 deployment decision uses a **separate port repo**
 (`aiguard-aift`), keeping this repo local-first: a vendored core slice + nginx adapter (prefix re-add,
 six-endpoint allowlist, key injection) + OCR-baked image, with a stateless
 roundtrip against thaillm-8b. It passed a full local Docker phase — the ก-ฌ
 checklist, fail-loud/503 failure modes, and a service-level soak — recorded in
 the [tokenmind detector + port ADR](docs/decisions/2026-07-28-tokenmind-detector-and-aift-port.md)
-and the port repo's `docs/evidence/`. That evidence predates F09 and is not
-fail-closed certification for the current core. Pushing to GitLab and the real
-platform run are owner-gated; the exact public operation/authentication
-contract plus LLM operational policy still need confirmation.
+and the port repo's `docs/evidence/`. That historical soak predates F09. The
+new candidate vendors `8c6efef`, injects strict HTTP contract 2 behind its
+existing public aliases, and minimizes roundtrip results. Immutable port commit
+`e075ca4` passed exact local BusyBox `check` in 28.0 seconds and provider-free
+`deploy` in 244.3 seconds; all three services were healthy with matching
+revision labels. Independent review is complete. Exact live `acceptance` was
+not run because the Tokenmind credential exposed during a local Compose probe
+must be rotated first; older live/soak/OCR runs remain dated working-tree
+evidence. Pushing to GitLab and the real platform run are owner-gated. The
+guide does not prescribe business operations or caller auth; both are product
+contracts now recorded by the port ADRs. LLM operational policy and
+real-platform behavior still need confirmation.
 
 Current main also includes `app.hosted`, a generic strict-v2 candidate with
 required API-key/provider configuration and a fixed seven-route allowlist. It
 does not implement or prove the platform prefix/health shape, it includes
-stateful sanitize/reidentify, and it does not migrate or replace the sibling.
-The owner must approve the deployment vehicle after the official public route
-and lifecycle answers are known.
+stateful sanitize/reidentify, and it does not migrate or replace the selected
+sibling.
 
-- Capture the remaining official answers: exact repository/registry/template
-  rules, public operations, caller authentication, payload/timeout/concurrency
-  limits, outbound network policy, LLM quota/logging policy, and acceptance
-  owner/evidence. Record unanswered fields as unknown; never convert
-  assumptions into a contract.
-- Compare the main v2 candidate and sibling v1 shell against the confirmed
-  contract, then adjust only the owner-selected vehicle. The sibling already
-  covers prefix handling and platform-shaped Compose/CI/logging; main provides
-  the current strict-v2 response boundary. Neither combination is accepted
-  until exercised on the official platform.
-- In a separately authorized port change, re-vendor the current main core
-  through the pinned manifest without forking its detection, masking, vault,
-  provider, or restoration logic. Rerun privacy, Docker, and soak evidence.
-- Only after that sync is green, create/push the owner-gated GitLab project,
+- Record the guide-confirmed repository template, topology, ports, resources,
+  health, logs, secret materialization, and build rule as known. Capture only
+  the remaining external answers: outbound network policy, actual proxy Host
+  behavior, stricter infrastructure limits, LLM quota/logging/timeout policy,
+  platform log retention/redaction, and acceptance owner/evidence.
+- The public caller boundary is decided and implemented: static/health remain
+  public, while every business route requires an access-code exchange for a
+  30-minute HMAC-signed `Secure`/`HttpOnly`/`SameSite=Strict` cookie. Unit and
+  container checks cover missing, invalid, tampered, expired, rotated, and
+  cross-site authority. Rate limits remain defense-in-depth.
+- Keep main v2 as a generic reference. Adjust only the selected sibling, which
+  already covers prefix handling, frontend, and platform-shaped
+  Compose/CI/logging. It is not accepted until its current-core composition is
+  exercised on the official platform.
+- The port now adapts current main through its pinned manifest without forking
+  detection, masking, vault, provider, or restoration logic. Nginx keeps the
+  public aliases, injects contract 2 and the internal core key, and the
+  frontend consumes minimized v2 DTOs. Roundtrip no longer exports mapping or
+  token-bearing entity projection. Exact provider-free check/deploy and
+  independent review are complete. Dated live/failure/soak evidence remains
+  useful but does not certify the final commit. The exact one-page PDF probe
+  passes correctness in 221 seconds while nearly saturating two cores and
+  reaching the 6 GiB memory limit; the 20-page/300-second claim remains a red
+  deploy gate.
+- Only after credential rotation and the PDF capability decision, create/push
+  the owner-gated GitLab project,
   boot the exact candidate, and verify Thai UTF-8, secret injection, health,
   responses, and safe failures.
 - Run malformed input, timeout, payload-limit, concurrent request, restart,
@@ -395,10 +439,14 @@ duplicate side effect, mapping export, credential exposure, or PII-bearing
 log.
 
 Creating and pushing the GitLab deployment project is owner-gated. The
-remaining external blockers are the confirmed support channel and unanswered
-contract/acceptance fields. They do not block Track A, Track C, documentation,
-adapter seam tests, the provisional worker emulator, or image/resource
-measurement. Dated commitments for this program live in the
+remaining local product blocker is the PDF boundary: either narrow/disable the
+route or change its execution model, then prove authoritative source-to-box
+coverage and multi-page resource/timeout behavior. The remaining external
+blockers are Tokenmind credential rotation, protected production-runner
+confirmation, a confirmed support channel, outbound/LLM/log policy, first
+push, public HTTPS/proxy evidence, and official acceptance. They do not block
+Track A, Track C, documentation, adapter seam tests, the provisional worker
+emulator, or image/resource measurement. Dated commitments for this program live in the
 [2026-07-24 execution plan](docs/decisions/2026-07-24-post-v2.5-execution-plan.md),
 whose freeze rules apply to that program's release candidate, not to the
 repository as a whole.

@@ -169,12 +169,24 @@ guard, sanitize, reidentify, and roundtrip. Its sanitize/reidentify pair keeps
 session state in process with no hosted disposal route; roundtrip keeps its
 mapping within one request. It rejects sanitizer residuals and repeats the
 fail-closed scan immediately before a direct provider call. Automated tests
-also assert PII-free application errors and logs. This generic candidate is not
-the confirmed official route/lifecycle contract. The separate sibling port
-remains independently versioned v1: its roundtrip consumes its literal mapping
-internally but returns its older reconstructable entity projection, and its
-pre-F09 outbound policy and official platform logs remain unaccepted. The
-intended hosted boundary therefore remains:
+also assert PII-free application errors and logs. This remains a generic hosted
+reference, not the AI for Thai deployment vehicle. The accepted platform
+decision selects a separate sibling repository, not an independently versioned
+service. Its public unversioned and `/v1` aliases proxy strict HTTP contract 2,
+and its inherited product metadata is not hosted-release evidence. The official
+guide confirms its frontend/API proxy, port, health, CI, resource, log, and
+secret shape but does not prescribe business routes or caller auth. The
+[accepted caller-auth ADR](decisions/2026-08-07-aift-caller-authentication.md)
+keeps static/health public and gates every business operation with a
+short-lived signed cookie. Nginx separately injects contract 2 plus the
+proxy-to-core key. The sibling now vendors current core `8c6efef`, consumes its
+literal roundtrip mapping internally, and returns the minimized v2 projection
+without mapping or token-bearing entities. Immutable port commit `e075ca4`
+passes exact provider-free local check/deploy and independent review. Live
+Tokenmind/soak/OCR evidence predates that final commit, and its exact one-page
+PDF resource profile is a red deployment gate. Credential rotation, official
+platform logs, and platform acceptance remain unverified. The intended hosted
+boundary therefore remains:
 
 - no deliberate mapping persistence to disk;
 - no user text or raw PII in application logs or public error messages;

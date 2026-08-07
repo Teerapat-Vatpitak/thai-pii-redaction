@@ -18,10 +18,11 @@ status page and does not silently override a newer current-state document.
 - [Project status](project-status.md) - the feature acceptance matrix and known
   external blockers.
 - [AI for Thai integration](platform/ai-for-thai.md) - hosted service shape,
-  resource profile, unknown platform fields, and acceptance checklist.
+  guide-confirmed deployment contract, remaining operational fields, and
+  acceptance checklist.
 - [AI for Thai specification request](platform/ai-for-thai-spec-request.md) -
-  narrowed HTTP adapter and acceptance questions, ready after the official
-  human recipient/support channel is confirmed.
+  narrowed outbound/LLM/logging and acceptance questions, ready after the
+  official human recipient/support channel is confirmed.
 - [Release process](release-process.md) - version, tag, draft release, and
   hotfix rules.
 - [Functional acceptance](acceptance/README.md) - repeatable Extension, Desktop,

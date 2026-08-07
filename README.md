@@ -46,7 +46,7 @@ described as if they were the same deployment.
 | Context | Privacy boundary |
 |---|---|
 | Local desktop, browser extension, and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. Current backend source rejects outbound residuals before returning masked text or making an AI Guard-controlled provider call. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. Current source uses strict HTTP v2 without mapping DTOs; package acceptance and localhost process identity remain open. |
-| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. The current main-repository candidate is mixed: `/api/sanitize` plus `/api/reidentify` retain an in-process session mapping, while `/api/roundtrip` keeps its mapping within one request. Current HTTP/worker source rejects sanitizer residuals and rescans immediately before a direct provider call, but the official route set, live behavior, and platform acceptance remain open. |
+| Hosted platform service | The raw request reaches the platform-hosted AI Guard container. The selected sibling port is request-stateless, gates business routes with a signed caller cookie, proxies its public aliases to strict contract 2, and returns minimized projections without mapping DTOs. Main's `app.hosted` session routes remain a generic reference, not the selected deployment. The exact sibling commit passes provider-free local check/deploy; exact live-provider, public-proxy, and platform acceptance remain open. |
 
 The hosted statement is intentionally narrower than the local statement. AI
 Guard does not claim that raw PII stays on the user's device when the user calls
@@ -110,10 +110,13 @@ submitting it to an external AI.
   guard, PDF, and demo endpoints.
 - Hosted HTTP adapter: `app.hosted` is a main-repository HTTP-v2 candidate with
   a fixed seven-route allowlist and required API-key/provider configuration.
-  It is not the confirmed official route contract. The separately versioned
-  `aiguard-aift` repository remains an out-of-scope v1 port whose vendored core
-  predates this hardening. Exact public routes/auth, any owner-gated push, and
-  official platform acceptance remain pending.
+  It is not the confirmed official route contract. The separate
+  `aiguard-aift` repository is the selected platform port: its public
+  unversioned and `/v1` aliases proxy current shared core under strict HTTP
+  contract 2 and return minimized DTOs. It has no independent service-version
+  source; its inherited development `2.5.0` metadata is not a hosted release
+  claim. Owner-gated first push and official platform acceptance remain
+  pending.
 - Provisional job worker: stateless operations retained as a local
   failure/retry emulator, not the official platform delivery path.
 - CLI: scripted sanitize/report workflows and an end-to-end demo pipeline.
@@ -314,8 +317,16 @@ This did not execute an Office client or host, install Desktop, sideload or
 activate a unified manifest, call a live provider, release, or deploy anything.
 Real-browser, installed Desktop, storefront, live-provider, and all eight
 Office real-host/package gates remain open. The sibling
-hosted port also carries a pre-F09 v1 core and needs a separately authorized
-re-vendor plus privacy/soak rerun before its first push. The worker envelope
+hosted port now pins current core `8c6efef`, applies its public aliases to
+strict contract 2, and has immutable local commit `e075ca4`. That commit passed
+the BusyBox check and provider-free deploy; independent review found no further
+static blocker. Live-provider/soak evidence predates the final commit. Its
+one-page OCR route passes locally but takes 221 seconds, nearly saturates its
+two-core allowance, and reaches the 6 GiB memory limit, so the advertised
+20-page/300-second PDF ceiling is not deploy-ready. Tokenmind credential
+rotation, public HTTPS/browser routing, authoritative PDF entity-to-box
+coverage, a protected/isolated production runner, first push, and platform
+acceptance remain. The worker envelope
 remains version 1, and shared provider orchestration, broker/auth, lifecycle,
 real-host, and official-platform gates remain open.
 
@@ -330,8 +341,9 @@ cover the current HTTP-v2/PDF composition, physical scans, handwriting, or
 broader real-form annotation; those remain incomplete. Microsoft 365 host and
 packaged-manifest acceptance also remain open. Creating and pushing the GitLab
 deployment project is an owner-gated outward action. Official AI-for-Thai
-deployment remains externally blocked on the public route/auth, support, and
-acceptance contract.
+deployment remains gated on Tokenmind credential rotation, protected-runner
+confirmation, public proxy/HTTPS evidence, the PDF capability decision, the
+owner-authorized first push, and official acceptance.
 
 - [Current feature status](docs/project-status.md)
 - [Roadmap](ROADMAP.md)

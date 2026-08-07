@@ -2,8 +2,8 @@
 # Release, then hash + attest everything.
 #
 # STATUS: the full Windows/macOS/Linux matrix and checksums/attestation path ran
-# successfully for v2.3.0 and v2.4.0. Every new tag still has to pass the same
-# gates; prior success is not permission to publish a partial draft.
+# successfully for v2.3.0, v2.4.0, and v2.5.0. Every new tag still has to pass
+# the same gates; prior success is not permission to publish a partial draft.
 #
 # Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
 # hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
@@ -24,10 +24,11 @@
 #   REL-3  the downloaded asset set must belong to this version, checked before
 #          anything is hashed or attested.
 #
-# Trigger: push an immutable tag like `v2.5.0` after the release preparation PR
-# has merged and main is green. Failed tag runs are re-run from the Actions UI;
-# workflow_dispatch is deliberately disabled because a branch name is not a
-# release identity and used to create unusable draft releases.
+# Trigger: push an immutable tag like `v3.0.0` after the release-preparation
+# branch has been squashed into main and main is green. Failed tag runs are
+# re-run from the Actions UI; workflow_dispatch is deliberately disabled
+# because a branch name is not a release identity and used to create unusable
+# draft releases.
 
 name: Release
 

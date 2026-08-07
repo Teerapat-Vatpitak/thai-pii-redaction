@@ -162,10 +162,11 @@ def test_office_acceptance_separates_local_and_packaged_evidence():
     assert "Local XML runs, schema validation, and acquisition metadata do not close" in text
 
 
-def test_platform_truth_selects_http_and_keeps_worker_provisional():
-    """The official guide supersedes the old queue-delivery assumption."""
+def test_platform_truth_selects_http_shape_and_keeps_worker_provisional():
+    """The guide fixes the HTTP shape without mandating one framework."""
     text = _flat(PLATFORM.read_text(encoding="utf-8"))
-    assert "HTTP/FastAPI application" in text
+    assert "HTTP frontend/API containers" in text
+    assert "guide permits any Docker-capable framework" in text
     assert 'root_path="/api"' in text
     assert "## Official HTTP adapter boundary" in text
     assert "not the official delivery path" in text

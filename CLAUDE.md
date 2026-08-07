@@ -139,10 +139,12 @@ that app. The CLI and provisional worker call shared `pii_redactor/` services
 through their own adapters rather than going through FastAPI. Main now also
 contains `app.hosted`, a strict-v2 generic hosted candidate with required
 API-key/provider configuration and a fixed seven-route allowlist. It is not the
-confirmed official route/lifecycle contract. The separately versioned sibling
-port remains v1 and out of scope; its vendored core predates F09 and needs
-separate authorization before any re-sync or push. Exact official route/auth
-and acceptance remain pending. The extension is the product's front door; the normal local
+confirmed official route/lifecycle contract. The separate `aiguard-aift`
+platform port pins current core `8c6efef`; its public unversioned and `/v1`
+aliases proxy strict contract 2 and return minimized projections. No
+independent hosted service version is implemented. Its first push, public
+HTTPS/browser route, PDF correctness boundary, and official acceptance remain
+pending. The extension is the product's front door; the normal local
 backend is API-only (no web frontend) and runs on localhost. `/` redirects to
 `/docs` (Swagger). The
 extension's service worker calls the backend; CORS allows only extension/Tauri
