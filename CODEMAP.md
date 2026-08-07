@@ -256,7 +256,7 @@ In-memory only (never persisted), keyed by `entity_id`, with a reverse index key
 
 **Step 5 - Send to AI** (`pii_redactor/ai_client.py`, `send_to_ai`)
 
-`AIProvider` implementations: `FakeLLMProvider` (identity, for tests/dry-runs), `OllamaProvider`, `ClaudeProvider` (needs `ANTHROPIC_API_KEY`), `PathummaProvider`, `TokenmindProvider` (LiteLLM gateway ของงาน AIFT; ต้องมี `TOKENMIND_BASE_URL` ลงท้าย `/v1` + `TOKENMIND_API_KEY`). The CLI pipeline uses `send_to_ai()`: immediately before each outer `provider.complete()` invocation, `_validate_pre_send` invokes the shared outbound policy and raises the value-free `PreSendValidationError("outbound residual detected")` for structured FP, text-based TB, or detector-independent contiguous 6+ digit findings. A caller-seeded prior-mapping key is not trusted merely because the caller declared it; reuse requires a nonempty pseudonym that does not contain its original, did not already occur in the current source text, and does not independently trigger the FP/TB/digit policy. Token-mode reuse must also match the product token shape for the detected data type. The same validation also applies the prompt-size and vault-idle checks. The CLI retries up to 3x with exponential backoff on transient provider errors only (timeouts, network errors, HTTP 429/5xx); a guard failure never enters that retry policy. A provider declaring `handles_retries=True` receives one outer validation and one outer call, then may retry the same immutable masked text internally. Tokenmind's current internal loop still uses one total timeout and honors `Retry-After`; convergence to the locked per-attempt 60-second, fixed 1/2-second policy belongs to the open shared-orchestration work. The public `send_to_ai()` wrapper contains ordinary Exception-derived snapshot, capability, validation, provider, response-tail, and rollback failures, scrubs their original graphs, and surfaces only fixed safe categories. `_validate_response` logs a warning via `logging` (does not halt) if an expected pseudonym is missing from the AI's reply. HTTP roundtrip and the worker still call `provider.complete()` directly, but both now repeat the shared outbound policy immediately before that call. They do not yet share the CLI's complete retry/rollback orchestration.
+`AIProvider` implementations: `FakeLLMProvider` (identity, for tests/dry-runs), `OllamaProvider`, `ClaudeProvider` (needs `ANTHROPIC_API_KEY`), `PathummaProvider`, `TokenmindProvider` (LiteLLM gateway ของงาน AIFT; ต้องมี `TOKENMIND_BASE_URL` ลงท้าย `/v1` + `TOKENMIND_API_KEY`). CLI `send_to_ai()`, HTTP/hosted roundtrip, and worker roundtrip all delegate provider attempts to `complete_provider_with_retry_policy()`, which invokes only the selected provider through the one-attempt `complete_provider_call()` primitive. Each caller supplies an outbound-policy callback that runs immediately before every actual attempt. The shared layer uses the same immutable masked text, caps execution at three 60-second attempts, sleeps for fixed 1 then 2 seconds, and retries only timeout, network, HTTP 429, and HTTP 5xx failures. Other 4xx, malformed/non-text responses, validation, restore, and response-tail failures do not retry. Tokenmind `complete()` makes exactly one HTTP request and does not honor `Retry-After`; retry ownership never moves into a provider. A caller-seeded prior-mapping key is not trusted merely because the caller declared it; reuse requires a nonempty pseudonym that does not contain its original, did not already occur in the current source text, and does not independently trigger the FP/TB/digit policy. Token-mode reuse must also match the product token shape for the detected data type. CLI validation additionally applies prompt-size and vault-idle checks, while its wrapper keeps snapshot/rollback and fixed safe failure translation. HTTP and worker keep their stateless mapping and existing v2/v1 wire projections. `_validate_response` logs a warning via `logging` (does not halt) if an expected pseudonym is missing from the AI's reply.
 
 **Step 6 - Reverse mapping** (`pii_redactor/reverse_mapper.py`, `reverse_map`)
 
@@ -343,8 +343,9 @@ reject extra fields.
 - `POST /api/roundtrip {text, mode, provider}` → minimized masked/restored
   text, counts/types, selected provider, safe Section 26/guard/warning
   metadata, `safety`, and count-only `restoration`. The throwaway mapping is
-  consumed inside one request. The adapter rescans immediately before its
-  direct provider call and never falls back to another provider.
+  consumed inside one request. The adapter supplies its per-attempt outbound
+  check to the shared provider orchestrator and never falls back to another
+  provider.
 - `POST /api/analyze-report {text}` → `{report_pdf_b64, overall_score,
   overall_grade}`. It shares `_analyze_text` and the whitelist-only PDF
   renderer.
@@ -365,17 +366,18 @@ envelope from the
 request values, originals, replacements, mappings, provider bodies, guard or
 Section 26 excerpts, credentials, session authority, or exception messages.
 
-Both the web API and CLI use the same core components, but complete provider
-orchestration is not yet unified. `SessionService` owns stateful
+The web API, CLI, hosted adapter, and worker use the same protected-provider
+orchestration core while retaining adapter-specific lifecycle and wire
+translation. `SessionService` owns stateful
 sanitize/restore: cap 200, LRU by `last_access`, idle TTL 1800 seconds checked
 on known-session access, and one coarse `RLock`. `sanitize_transaction()` holds
 that lock while it clones the complete session/vault state, runs core and
 endpoint finalization, and publishes through one dictionary assignment.
 Pre-publication failure preserves the published graph and LRU/capacity state;
 expiry disposal is outside rollback and displaced-vault cleanup after
-publication is best effort. HTTP/worker direct-provider adapters repeat the
-outbound scan immediately before their call but do not yet share CLI
-retry/rollback orchestration.
+publication is best effort. HTTP/hosted and worker roundtrip remain stateless;
+the CLI alone applies its vault snapshot/rollback around the shared provider
+attempt policy.
 
 `AIGUARD_TOKEN` is control-plane authority for shutdown/session disposal and is
 never given to browser or Office JavaScript. The optional, separate
@@ -471,7 +473,7 @@ green" is not a statement about OCR.
 
 - **Recall > Precision**: prefer false positives over missed PII
 - **Intended local mapping boundary**: the canonical pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path), and first-party clients keep only `session_id`. The published 2.5.0/v1 artifact violated the projection half by returning direct or reconstructable mapping fields; current unreleased source implements strict v2 projections and clients, while matching packaged/real-host acceptance remains open.
-- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. The CLI repeats the scan before each outer provider invocation; self-retrying providers receive one outer validation before resending the same immutable masked text. HTTP and worker repeat it immediately before their direct provider call. Complete provider orchestration, packaged/live acceptance, and the native broker remain open.
+- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. CLI, HTTP/hosted, and worker provider attempts use one shared orchestration layer, with a fresh scan immediately before each actual invocation, one immutable masked input, no fallback, at most three 60-second attempts, and fixed 1/2-second delays only for timeout, network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request per invocation. Packaged/live acceptance and the native broker remain open.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
 - **NER span filter**: reject any entity span < 2 characters before it reaches redaction.

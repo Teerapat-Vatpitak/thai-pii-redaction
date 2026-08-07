@@ -82,17 +82,18 @@ The random 64-bit tag plus approximately 94-bit nonce makes accidental identity
 reuse and future-token preplay computationally impractical; this is
 probabilistic separation, not impossibility. Exact unknown current-format
 tokens remain foreign even when the replacement vault uses surrogate mode. The
-CLI repeats the scan immediately before each
-outer `provider.complete()`
-invocation; a self-retrying provider receives one outer validation before
-resending the same immutable masked text. HTTP and worker roundtrip repeat it
-immediately before their direct calls. Current evidence includes source-level
-automation plus an exact-candidate automated local run of the packaged backend
-directly and through the Office HTTPS development proxy. The proxy leg reused
-pre-existing trusted development certificates without changing them; it did
-not exercise an installed client, Office JavaScript or host adapters,
-sideloading, certificate provisioning, or a provider. Fixed-port identity
-remains unauthenticated. CORS and
+CLI, HTTP/hosted roundtrip, and worker roundtrip now reach provider I/O through
+the same orchestration function. It repeats the scan immediately before every
+actual provider invocation, passes the same immutable masked text each time,
+and owns the complete retry policy: at most three 60-second attempts with fixed
+one- and two-second delays. Only timeouts, network failures, HTTP 429, and HTTP
+5xx are retried. Provider validation, malformed/non-text responses, other 4xx
+responses, restore failures, and response-tail defects do not re-enter the
+provider. Tokenmind performs one HTTP request per `complete()` invocation and
+does not interpret `Retry-After`. Current provider-orchestration evidence is
+source-level automation only. The earlier packaged-backend and Office HTTPS
+proxy preflight predates this change and did not exercise a provider. Fixed-port
+identity remains unauthenticated. CORS and
 `TrustedHost` restrict browser request context and host headers; they do not
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
@@ -168,8 +169,9 @@ minimized v2 projections and a fixed allowlist of health, detect, analyze,
 guard, sanitize, reidentify, and roundtrip. Its sanitize/reidentify pair keeps
 session state in process with no hosted disposal route; roundtrip keeps its
 mapping within one request. It rejects sanitizer residuals and repeats the
-fail-closed scan immediately before a direct provider call. Automated tests
-also assert PII-free application errors and logs. This remains a generic hosted
+fail-closed scan immediately before every actual provider invocation through
+the shared orchestration layer. Automated tests also assert PII-free
+application errors and logs. This remains a generic hosted
 reference, not the AI for Thai deployment vehicle. The accepted platform
 decision selects a separate sibling repository, not an independently versioned
 service. Its public unversioned and `/v1` aliases proxy strict HTTP contract 2,
@@ -298,20 +300,27 @@ retention policy; configured stdout mode creates no file. The published 2.5.0
 artifact predates this source change, and official hosted log transport and
 retention acceptance remain pending.
 
-Provider orchestration is not yet one choke point. The CLI pipeline uses
-`send_to_ai()` for retries, validation, and rollback and now repeats the shared
-outbound scan immediately before each outer provider invocation. Providers
-that own their retries receive one outer validation and resend the same
-immutable masked input internally. Its public wrapper also translates snapshot,
-provider-capability, validation, provider, response-tail, and rollback defects
-to fixed safe categories after discarding the original error graph. HTTP
-roundtrip and the worker still invoke `provider.complete()` through their own
-adapters, but each repeats that same scan immediately before the direct call.
-This closes the known residual bypass without claiming retry/error/lifecycle
-parity.
-Tokenmind's current internal retry loop still uses one total timeout and honors
-`Retry-After`; the locked shared-orchestration target instead uses up to three
-60-second attempts with fixed 1/2-second backoff.
+Protected provider orchestration has one core choke point. The CLI pipeline,
+HTTP/hosted roundtrip, and worker roundtrip all call
+`complete_provider_with_retry_policy()`, whose single-attempt primitive is
+`complete_provider_call()`. A caller-specific callback runs the outbound policy
+immediately before each actual invocation. The shared layer caps execution at
+three attempts, passes a fresh 60-second timeout to each, sleeps for fixed
+one- then two-second delays, and retries only timeout, network, HTTP 429, and
+HTTP 5xx failures. It passes the same immutable system and masked-user strings
+on every invocation and never selects a fallback provider. Tokenmind performs
+exactly one HTTP request per `complete()` invocation; it has no internal
+deadline, retry sleep, or `Retry-After` handling.
+
+The adapters retain their different lifecycle and wire duties. The CLI keeps
+its pre-call vault snapshot and rolls back after a provider attempt fails or a
+later pre-attempt check blocks. HTTP and worker keep their transient mappings
+inside one stateless request. HTTP v2 and worker envelope v1 translate the
+shared fixed failure metadata into their existing error shapes. Provider-call
+exceptions are reduced and scrubbed inside the single-attempt primitive; each
+outer adapter discards its caught fixed exception before emitting a fresh
+value-free failure. Response validation, restoration, and other tail work
+remain outside the retry loop.
 Likewise, explicitly selected remote TNER receives raw pre-mask chunks. Current
 source makes it the fail-closed exception to the shared NER chunk guard:
 configuration, dependency, network, or upstream unavailability aborts the
@@ -328,8 +337,9 @@ code/category/count metadata before clearing the original exception graph;
 retryability is derived from the locked code/category pair. HTTP v2 derives its
 fixed 502/503 envelope and worker v1 keeps its fixed type/message envelope.
 This is automated source evidence only: fresh live TNER
-response-shape/mapping acceptance remains open. Shared protected-roundtrip
-orchestration remains a separate gate.
+response-shape/mapping acceptance remains open. Shared provider orchestration
+likewise has automated source evidence only; current live-provider, packaged,
+real-host, and official-platform acceptance remains open.
 
 PDF extraction preserves geometry, but `WordBbox` does not yet carry canonical
 source intervals. `redact_pdf()` does not consume `Entity.span`; it derives

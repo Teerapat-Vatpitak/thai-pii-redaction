@@ -366,7 +366,11 @@ class TestRoundtrip:
         assert calls == [60.0]
         assert backoffs == []
 
-    def test_roundtrip_does_not_stack_outer_retries(self, client, monkeypatch):
+    def test_roundtrip_retry_ownership_does_not_defer_to_provider_flag(
+        self,
+        client,
+        monkeypatch,
+    ):
         import app.server as server
         import pii_redactor.ai_client as client_module
 
@@ -399,8 +403,8 @@ class TestRoundtrip:
 
         assert response.status_code == 502
         assert response.json()["error"]["code"] == "provider_unavailable"
-        assert calls == [60.0]
-        assert backoffs == []
+        assert calls == [60.0, 60.0, 60.0]
+        assert backoffs == [1, 2]
 
     def test_roundtrip_rechecks_outbound_policy_before_each_retry(
         self,
@@ -463,21 +467,21 @@ class TestRoundtrip:
         from pii_redactor.ai_client import ProviderCallError
 
         retained_error = ProviderCallError(
-            category="timeout",
-            error_type="TimeoutException",
+            category="malformed",
+            error_type="ValueError",
         )
 
         def fail_provider(*_args, **_kwargs):
             raise retained_error
 
-        class SelfRetryingProvider:
-            handles_retries = True
+        class InvalidResponseProvider:
+            pass
 
         monkeypatch.setattr(client_module, "complete_provider_call", fail_provider)
         monkeypatch.setitem(
             server._PROVIDER_FACTORIES,
             "retained-error",
-            SelfRetryingProvider,
+            InvalidResponseProvider,
         )
         with pytest.raises(HTTPException) as excinfo:
             server.roundtrip(

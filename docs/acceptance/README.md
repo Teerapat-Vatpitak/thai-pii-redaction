@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-07 Phase 8 shared provider orchestration](2026-08-07-phase-8-provider-orchestration.md)
 - [2026-08-07 Phase 8 explicit-TNER fail-closed source hardening](2026-08-07-phase-8-tner-fail-closed.md)
 - [2026-08-06 F-06 eager session lifecycle and authenticated disposal](2026-08-06-f06-session-lifecycle.md)
 - [2026-08-06 Office v2 packaged-backend and HTTPS proxy preflight](2026-08-06-office-v2-composition.md)
@@ -57,14 +58,18 @@ The open hardening recertification boundaries are:
   disposal;
 - fresh live certification of current-source whole-request failure for any
   failed or incomplete explicitly selected TNER chunk;
-- shared provider guards, retries, rollback, and safe error semantics; and
+- fresh live/package certification of the current shared provider guards,
+  retries, rollback, and safe error semantics; and
 - exact entity-span-to-PDF-box alignment with untouched negative-control
   pixels.
 
 The 2026-08-07 Phase 8 TNER record closes the automated current-source portion
 of its bullet only. It does not mark the fresh live response/mapping gate
-passed. None of the other bullets is marked passed by this index or by the
-2026-08-05 baseline.
+passed. The Phase 8 provider-orchestration record likewise closes only its
+automated current-source portion; live-provider, packaged/installed, real-host,
+release, deployment, and official-platform recertification remain open. None
+of the other bullets is marked passed by this index or by the 2026-08-05
+baseline.
 
 The F-01 record closes current-source automated transaction and API audit-ID
 checks only. Published-package and official-platform recertification remain

@@ -28,7 +28,7 @@ from app.worker.contract import CONTRACT_VERSION, EnvelopeError, validate_envelo
 from pii_redactor.ai_client import (
     DEFAULT_SYSTEM_PROMPT,
     ProviderCallError,
-    complete_provider_call,
+    complete_provider_with_retry_policy,
     get_provider_factories,
 )
 from pii_redactor.detectors.aggregate import detect_all
@@ -139,17 +139,6 @@ def _op_roundtrip(payload: dict) -> dict:
     except (OutboundPolicyError, StatelessLeakError) as error:
         discard_exception_graph(error)
         residual_failure = True
-    if not residual_failure:
-        try:
-            enforce_outbound_policy(
-                masked.sanitized_text,
-                guard_context=masked.guard_context,
-                scan_leaks=scan_outbound_leaks,
-                scan_residual=scan_residual_signals,
-            )
-        except OutboundPolicyError as error:
-            discard_exception_graph(error)
-            residual_failure = True
     if residual_failure:
         payload = None
         text = ""
@@ -160,16 +149,38 @@ def _op_roundtrip(payload: dict) -> dict:
         error = None
         raise _SafeJobError("residual_pii", "outbound residual detected")
 
+    def validate_provider_attempt(_attempt: int) -> None:
+        enforce_outbound_policy(
+            masked.sanitized_text,
+            guard_context=masked.guard_context,
+            scan_leaks=scan_outbound_leaks,
+            scan_residual=scan_residual_signals,
+        )
+
     provider_failed = False
     try:
-        ai_text = complete_provider_call(
+        ai_text, _provider_latency, _provider_attempts = complete_provider_with_retry_policy(
             provider,
             DEFAULT_SYSTEM_PROMPT,
             masked.sanitized_text,
+            before_attempt=validate_provider_attempt,
         )
+    except OutboundPolicyError as error:
+        discard_exception_graph(error)
+        residual_failure = True
     except ProviderCallError as error:
         discard_exception_graph(error)
         provider_failed = True
+    validate_provider_attempt = None
+    if residual_failure:
+        payload = None
+        text = ""
+        provider_name = ""
+        factory = None
+        provider = None
+        masked = None
+        ai_text = ""
+        raise _SafeJobError("residual_pii", "outbound residual detected")
     if provider_failed:
         payload = None
         text = ""
