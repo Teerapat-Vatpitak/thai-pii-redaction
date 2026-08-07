@@ -23,13 +23,14 @@ The product currently has four execution shapes that must not be conflated.
 | Local worker | [`app/worker/`](../../app/worker/) implements the separately versioned worker envelope v1, local failure/retry emulation, transport polling, and an idempotency cache. | It is not a production delivery path and is not a broker protocol. |
 | CLI | [`ai_guard.py`](../../ai_guard.py) and [`pii_redactor/pipeline.py`](../../pii_redactor/pipeline.py) call the shared core directly and create a per-run in-memory vault. | It does not need a broker and must not be routed through one merely for uniformity. |
 
-The canonical pseudonym-to-original mapping lives in the backend
+The canonical stateful pseudonym-to-original mapping lives in the backend
 [`SessionService`](../../pii_redactor/session_service.py). It is memory-only,
 has a 1,800-second TTL and a 200-session cap, and currently indexes sessions by
-opaque UUID rather than by client principal. Browser, Desktop webview, and
-Office JavaScript may retain an opaque `session_id`; they may not receive the
-mapping, a provider credential, the local data-plane key, or the control-plane
-boot token.
+opaque UUID rather than by client principal. The HTTP roundtrip path instead
+keeps a request-transient mapping in Python and clears it before returning.
+Browser, Desktop webview, and Office JavaScript may retain an opaque
+`session_id`; they may not receive either kind of mapping, a provider
+credential, the local data-plane key, or the control-plane boot token.
 
 The current control boundary already separates:
 
@@ -80,13 +81,16 @@ The client paths are different:
   extraction/writeback; they do not own the backend mapping. The
   [`manifest.json`](../../extension/manifest.json) has loopback host permission
   and no `nativeMessaging` permission.
-- Desktop Rust in
-  [`desktop/src-tauri/src/lib.rs`](../../desktop/src-tauri/src/lib.rs) spawns
-  and stops the Python sidecar, keeps the boot token out of the webview, checks
-  a fixed-port owner's image name, and implements the native hotkey/clipboard
-  path. The webview in [`desktop/src/api.js`](../../desktop/src/api.js) and the
-  Rust hotkey path both call HTTP directly. The image-name check is explicitly
-  documented as non-cryptographic.
+- Desktop startup is wired in
+  [`desktop/src-tauri/src/lib.rs`](../../desktop/src-tauri/src/lib.rs).
+  [`sidecar.rs`](../../desktop/src-tauri/src/sidecar.rs) spawns and stops the
+  Python sidecar, keeps the boot token out of the webview, and checks a
+  fixed-port owner's image name;
+  [`hotkey.rs`](../../desktop/src-tauri/src/hotkey.rs) implements the native
+  hotkey/clipboard path. The webview in
+  [`desktop/src/api.js`](../../desktop/src/api.js) and the Rust hotkey path both
+  call HTTP directly. The image-name check is explicitly documented as
+  non-cryptographic.
 - The Office task pane is a web add-in. Its
   [`office-addin/src/api.ts`](../../office-addin/src/api.ts) calls `/api`
   through the Vite HTTPS development proxy, while
@@ -143,11 +147,16 @@ Any accepted design must preserve all of these invariants.
 1. **Authorized flow only.** Raw source or restored PII may cross only the
    admitted first-party client, broker, and broker-owned backend boundary
    required for the requested operation. It must never cross to another client,
-   an unverified listener, logs, errors, or acceptance artifacts.
-2. **Mapping confinement.** The pseudonym-to-original mapping remains only in
-   the Python backend vault. The broker may retain an in-memory association
-   between its opaque session handle and the backend `session_id`; it must
-   never receive, persist, reconstruct, or log mapping pairs.
+   an unverified listener, an external provider, logs, errors, or acceptance
+   artifacts. Masked provider-bound text and the provider response may cross
+   only to or from the explicitly selected provider through the existing shared
+   protected-provider orchestration.
+2. **Mapping confinement.** Stateful pseudonym-to-original mappings remain only
+   in the Python `SessionService` vault. A stateless roundtrip mapping remains
+   request-transient in Python and is explicitly cleared. The broker may retain
+   an in-memory association between its opaque session handle and the backend
+   `session_id`; it must never receive, persist, reconstruct, or log either kind
+   of mapping.
 3. **Fail closed.** Unknown peer context, missing or malformed handshake,
    incompatible protocol, backend-listener mismatch, uncertain mutation,
    timeout, broker/backend crash, unsafe response, or failed disposal produces
@@ -224,9 +233,9 @@ the existing Python HTTP adapter on a private authenticated loopback listener.
 | Lifecycle | Easy health probing, but stale listeners and port ownership remain concerns. | Broker explicitly owns endpoint, child, client connections, sessions, and shutdown. | Lifecycle follows each client channel, which simplifies cleanup but makes MV3 or UI disconnects destroy all state. | Shared broker provides one backend lifecycle while connection-bound scopes preserve deterministic disposal. |
 | Crash recovery | Clients can reconnect, but cannot know whether an in-flight mutation completed without added semantics. | Disconnect invalidates handles; backend restart clears all mappings. No mutation is replayed. | A client restart creates a fresh empty vault and cannot restore prior text. | Same fail-closed model as native IPC; a later new request may start a fresh child, but the failed request is never replayed. |
 | Concurrency | FastAPI already handles concurrent callers, but HTTP alone does not establish ownership. | A bounded broker executor can serialize mutations per session and allow bounded work across principals. | Natural process isolation, at the cost of duplicate backends and provider/model resources. | Shared bounded execution plus explicit principal/scope/session ownership; backend locking remains authoritative. |
-| Session isolation | Must add an admitted and authorized principal above the global `SessionService`; possession of a raw UUID is otherwise sufficient. | Broker-issued handles map to backend IDs and are checked against connection and scope before every use. | Separate processes isolate clients by construction; tab/window isolation still needs scopes. | Same as shared native IPC; the canonical mapping never leaves `SessionService`. |
+| Session isolation | Must add an admitted and authorized principal above the global `SessionService`; possession of a raw UUID is otherwise sufficient. | Broker-issued handles map to backend IDs and are checked against connection and scope before every use. | Separate processes isolate clients by construction; tab/window isolation still needs scopes. | Same as shared native IPC; no stateful or request-transient mapping leaves Python. |
 | Deployment and packaging | Lowest code change, but requires secure local certificate/key provisioning and still leaves browser-facing HTTP. | Adds a native executable, OS endpoint code, installer lifecycle, and component manifests. | Adds a native host/backend per storefront and duplicates packaging/startup. | Adds one broker plus a small Chrome adapter and changes the existing Desktop installer to register/package them. |
-| Extension/Desktop/Office | All can issue HTTP, but Extension/Office/webview cannot safely hold the credential that would make it secure. | Desktop works directly; Extension needs native messaging; current Office cannot connect. | Desktop and Extension fit; current Office cannot spawn or attach. | Desktop and Extension fit their platform-native paths. Office remains explicitly blocked pending a separate native-companion decision. |
+| Extension/Desktop/Office | All can issue HTTP, but Extension/Office/webview cannot safely hold the credential that would make it secure. | Desktop works directly; Extension needs native messaging; current Office cannot connect. | Desktop and Extension fit; current Office cannot spawn or attach. | Desktop and Extension fit their platform-native paths. Office remains outside v1 pending a separate ADR for a concrete supported host/bridge architecture. |
 | Testing | Simple functional tests; difficult negative proof for local process identity and certificate deployment. | Needs OS ACL, peer identity, framing, race, crash, isolation, and packaging tests on three OSes. | Needs lifecycle/resource tests for every client process and MV3 disconnect behavior. | Highest integration matrix, but boundaries can be tested independently and the existing HTTP/core contract remains reusable. |
 | Migration impact | Smallest client diff but leaves the core trust gap or pushes credentials into clients. | Large client/packaging cutover and no Office path. | Large duplicated runtime cutover with user-visible session loss on client suspension. | Largest planned packaging change, but it preserves one core, gives Extension/Desktop a credible identity path, and isolates the unsolved Office decision. |
 
@@ -303,7 +312,9 @@ Broker protocol v1 serves two installed client principals:
 The Desktop process creates separate UI and hotkey scopes internally. The
 Extension adapter creates separate tab and side-panel scopes. CLI, hosted,
 worker, demo/development HTTP, and current Office JavaScript are not broker
-principals.
+data principals. The separately admitted installer/updater `maintenance` role
+has only global drain/stop control and cannot create a scope or invoke a data
+operation.
 
 ## IPC and process ownership
 
@@ -320,7 +331,9 @@ principals.
    a Linux abstract socket because it has no filesystem permission boundary.
 4. The broker owns one Python backend child. It starts the child on a
    broker-selected random `127.0.0.1` port with both data-plane and control-plane
-   protection required. No installed client receives that port or either key.
+   protection required. The two secrets are generated independently for every
+   backend boot so the existing trust domains remain separate. No installed
+   client receives the port or either key.
 5. Bootstrap secrets pass through an inherited anonymous pipe/handle, not
    command-line arguments, a request URL, stdout, or a request-scoped file.
    The broker verifies that the bound listener belongs to its live child before
@@ -344,11 +357,13 @@ reachable through, or selected by, an installed storefront.
 
 | State | Owner and lifetime |
 |---|---|
-| Backend control token and data-plane key | Generated by the broker per backend boot, delivered through the inherited bootstrap channel, held only by broker/backend native memory, and discarded on child shutdown. |
+| Backend control token and data-plane key | Independently generated by the broker per backend boot, delivered through the inherited bootstrap channel, held only by broker/backend native memory, and discarded on child shutdown. |
 | Provider credentials/configuration | Read only from the existing approved local configuration source by the trusted broker/backend boundary and delivered to the child without exposing it to a client. Provider code remains the only consumer; the broker does not log, return, or persist it. This ADR does not select a new credential store. |
-| Canonical mapping and vault salt/state | Python `SessionService` only, for the existing session lifetime. It never enters broker state or IPC. |
+| Stateful mapping and vault salt/state | Python `SessionService` only, for the existing session lifetime. It never enters broker state or IPC. |
+| Stateless roundtrip mapping | Request-transient Python memory only; it is consumed and explicitly cleared before a successful response. It never enters broker state or IPC. |
 | Broker session ownership | In-memory broker handle to backend `session_id`, admitted connection, broker-issued scope, mode, and lifecycle metadata. It is never persisted or logged. |
-| Raw, masked, or restored content | Transient request/response buffers in the admitted client, broker, and backend only. No request cache, crash dump artifact, queue, or diagnostic copy is introduced. |
+| Raw source or restored PII | Transient request/response buffers in the admitted client, broker, and backend only. It never crosses to an external provider. No request cache, crash-dump artifact, queue, or diagnostic copy is introduced. |
+| Masked provider-bound text and provider response | Transient buffers in the client/broker/backend path and, only for the requested provider operation, to or from the explicitly selected provider through shared protected-provider orchestration. The broker does not call the provider, cache the values, persist them, or log them. |
 | Package consistency metadata | Non-secret installed paths, product/build identifiers, and expected component digests in the packaged component manifest. These detect a mismatched component only; they are not publisher or application authentication. Observed values are not logged on mismatch. |
 
 ## Client authentication and authorization
@@ -376,12 +391,22 @@ application authentication:
    common broker protocol and maps the connection to an allowlisted role. A
    role claim inconsistent with the admitted platform channel is rejected.
 
-The initial roles are:
+The initial data-client roles are:
 
-- `desktop`: the complete installed Desktop operation set plus broker lifecycle
-  control; and
-- `extension`: only the operations implemented by the Extension, with no
-  shutdown or policy-expansion authority.
+- `desktop`: the complete installed Desktop operation set and lifecycle control
+  for only that connection's UI and hotkey scopes; and
+- `extension`: only the operations implemented by the Extension and lifecycle
+  control for only that connection's tab and side-panel scopes.
+
+Neither storefront role can drain or stop the shared broker, expand policy, or
+touch the other role's scopes. Idle shutdown belongs to broker self-lifecycle.
+A separate `maintenance` control role is admitted only for the packaged
+installer/updater component. It may request a global drain and stop during
+upgrade, but it has no PII operation, session-handle, restore, or policy
+authority and is never exposed through a Tauri command or the Chrome adapter.
+Its OS context and package-consistency admission has the same explicit unsigned
+v1 limitations as every other native component; it is not publisher
+attestation.
 
 Chrome provides an additional boundary. Its native-host manifest contains one
 or more exact, stable extension origins and no wildcard. The adapter checks the
@@ -461,6 +486,14 @@ Broker protocol versioning is independent of product `VERSION`, HTTP contract
 There is no broker-to-HTTP downgrade or direct-client HTTP fallback. A client
 that cannot complete hello remains unavailable.
 
+Retry classification is not permission to replay a data request. The broker,
+Chrome adapter, Tauri client, and storefronts do not retain a PII-bearing
+request for automatic replay. They may retry only PII-free startup,
+connection, and hello work. Once a data request is dispatched, any failure is
+terminal for that request; a later user action creates a new request only after
+any required session cleanup. The existing shared provider orchestrator remains
+the sole owner of its bounded attempts.
+
 ## Provider access, retries, and timeouts
 
 The broker forwards the explicit provider selection to the local adapter. The
@@ -476,9 +509,18 @@ measured; a timeout table becomes part of protocol conformance tests.
 
 The broker never retries a data operation. In particular, it does not replay a
 sanitize, restore, PDF, or provider-capable request after disconnect, timeout,
-or an unknown child result. Only a later, new request may start a fresh backend
-after a crash. If an in-flight stateful result is uncertain, its whole session
-scope is invalidated.
+or an unknown child result. Only a later, user-initiated request may start a
+fresh backend after a crash.
+
+If an uncertain completion could have published or used a stateful backend
+session and its backend ID is known, the broker invalidates the owning handle
+and must confirm authenticated disposal. If that disposal cannot be confirmed,
+it tears down the child and invalidates every handle. If the backend ID is
+unknown, including when a sanitize response may have been lost after session
+publication, the broker immediately tears down the child and invalidates every
+handle. Scope invalidation alone is not cleanup. An uncertain request-transient
+roundtrip also tears down the child when the broker cannot confirm that Python
+cleared its mapping.
 
 ## Lifecycle and concurrency
 
@@ -492,6 +534,10 @@ scope is invalidated.
   no admitted connections, live handles, or in-flight operations
   remain, the on-demand broker stops its backend and exits; no always-on service
   is required.
+- Desktop or Extension exit closes and disposes only that connection's scopes;
+  it does not stop the broker while another admitted connection, live handle,
+  or in-flight operation remains. Global drain/stop is broker self-lifecycle or
+  the separately admitted package-maintenance path, never a storefront command.
 - A client disconnect, broker crash, backend crash, or OS shutdown projects a
   fixed unavailable error and causes no DOM, clipboard, file, or Office write.
 - A later start creates a new broker instance, new boot/data keys, a new child,
@@ -512,10 +558,12 @@ explicit protocol, but compatibility exists only when tested and listed. With
 no intersection, the client shows a fixed upgrade-required state and sends no
 PII.
 
-An installer upgrade drains/stops the broker. It does not migrate or serialize
-sessions. Any old masked text must be sanitized again from its original source;
-it is not restored through a new vault. Product version remains `2.5.0` during
-development. Version bump, tag, and release remain separate release work.
+An installer/updater admitted under the maintenance-only role drains/stops the
+broker. The Desktop GUI cannot invoke that role, and closing the GUI is not an
+upgrade signal. Upgrade does not migrate or serialize sessions. Any old masked
+text must be sanitized again from its original source; it is not restored
+through a new vault. Product version remains `2.5.0` during development.
+Version bump, tag, and release remain separate release work.
 
 ## Error projection and observability
 
@@ -592,7 +640,8 @@ Eventually move every webview operation behind allowlisted Tauri commands and
 move the Rust hotkey path to the same broker client. Remove direct loopback
 fetch and the HTTP CSP allowance from production. Rust becomes the sole native
 client, while the broker—not the Tauri window—owns backend identity, secrets,
-session disposal, and child lifecycle.
+and child lifecycle. Desktop owns disposal only for its own UI/hotkey scopes;
+Desktop exit must not stop the broker or invalidate Extension scopes.
 
 ### Office
 
@@ -706,8 +755,9 @@ here.
 - Concurrent cross-principal/tab/window/hotkey session isolation, expiry,
   eviction, disconnect, disposal, failed-disposal backend teardown, and
   restart/upgrade invalidation tests.
-- No-fallback/no-replay call-count tests and shared outbound scan/provider retry
-  tests.
+- No-fallback/no-replay call-count tests across broker, adapters, Tauri, and
+  storefronts, plus shared outbound scan/provider retry tests.
+- Desktop-exit/Extension-survival and maintenance-role least-authority tests.
 - Sentinel-based stdout/stderr/error/privacy tests using synthetic PII.
 - Windows named-pipe, macOS UDS, Linux UDS, Chrome native-host, installed
   Desktop, and eventually separately approved Office real-host acceptance.
@@ -730,8 +780,9 @@ not enable a production client until its negative security tests pass.
 ## Slice 1 — protocol and conformance fixtures
 
 - **Scope:** Define broker hello, framing, strict request/response schemas,
-  fixed errors, role/operation matrix, size/deadline table, and synthetic
-  conformance vectors. No listener or client cutover.
+  fixed errors, data-client and maintenance role/operation matrix,
+  no-data-replay semantics, size/deadline table, and synthetic conformance
+  vectors. No listener or client cutover.
 - **Dependencies:** Approved ADR and confirmed operation inventory.
 - **Acceptance criteria:** Unknown fields/versions/roles/operations and
   malformed/oversized frames fail with exact value-free errors; HTTP v2,
@@ -740,8 +791,9 @@ not enable a production client until its negative security tests pass.
   shared synthetic fixtures under `tests/`, architecture/code-map updates only
   where the new code actually lands.
 - **Tests:** Rust/Python cross-language vectors, Unicode boundaries, partial
-  frames, duplicate request IDs, extension 1 MiB response boundary, log
-  sentinel scan.
+  frames, duplicate request IDs, forbidden cross-role operations,
+  reconnect-only versus terminal data failures, Extension 1 MiB response
+  boundary, log sentinel scan.
 - **Rollback conditions:** schema requires a mapping/credential in a client,
   overloads HTTP v2 or worker v1, permits unknown fields, or lacks a fixed
   failure for incompatibility.
@@ -751,19 +803,22 @@ not enable a production client until its negative security tests pass.
 - **Scope:** Build the on-demand single-instance broker, Windows pipe and
   macOS/Linux UDS adapters, OS peer-context and package-consistency admission,
   private random-port backend startup, inherited secret bootstrap, child
-  supervision, and broker hello/health. Enable no PII operation.
+  supervision, broker hello/health, broker self-lifecycle, and the
+  maintenance-only drain/stop path. Enable no PII operation.
 - **Dependencies:** Slice 1; platform APIs available on all three CI/release
   targets.
 - **Acceptance criteria:** only allowlisted installed native fixtures complete
   hello; arbitrary/other-user/wrong-build peers and direct private-port calls
-  cannot reach data routes; broker death terminates the child; no secret or
-  endpoint value appears in output.
+  cannot reach data routes; storefront roles cannot request global shutdown;
+  the maintenance role cannot request data or session operations; broker death
+  terminates the child; no secret or endpoint value appears in output.
 - **Likely components:** new native broker crate, `launcher.py`,
   `app/server.py` private-mode startup, Desktop build/sidecar staging scripts,
   CI placeholders and platform tests.
 - **Tests:** ACL/mode assertions, peer PID/UID race cases, stale endpoint,
-  port-owner substitution, child mismatch/crash, secret-channel closure,
-  cross-platform build/smoke, captured-log sentinel scan.
+  port-owner substitution, cross-role lifecycle denial, idle self-exit, child
+  mismatch/crash, secret-channel closure, cross-platform build/smoke, captured
+  log sentinel scan.
 - **Rollback conditions:** any anonymous data access, permissive endpoint,
   unverified child, orphan listener, secret-bearing argv/file/log, or
   cross-platform build failure.
@@ -778,17 +833,23 @@ not enable a production client until its negative security tests pass.
   orchestration.
 - **Acceptance criteria:** cross-principal/scope handles never restore; mapping
   remains backend-only; every external attempt still passes the shared outbound
-  check; broker call counts show no provider fallback or data replay; uncertain
-  disposal clears the child and all handles.
+  check; broker call counts show no provider fallback or data replay; a known
+  uncertain stateful completion ends in confirmed authenticated disposal or
+  backend teardown; an unknown published-session target and an unconfirmed
+  request-transient mapping cleanup tear down the backend and invalidate every
+  handle.
 - **Likely components:** broker routing/session modules, `app/server.py`,
   `app/session_control_auth.py` test vectors, strict adapter tests, no worker or
   hosted behavior change.
 - **Tests:** concurrent session isolation, expiry/eviction, replay, disconnect,
-  child/broker crash, timeout after unknown completion, provider retry matrix,
-  unsafe response, PDF/document size/deadline tests, privacy scan.
+  child/broker crash, timeout after known-session unknown completion, lost
+  sanitize response after session publication, unconfirmed stateless cleanup,
+  provider retry matrix, unsafe response, PDF/document size/deadline tests,
+  privacy scan.
 - **Rollback conditions:** raw backend IDs cross to clients, mapping reaches
   broker/client, a handle is usable outside its owner, disposal is unconfirmed
-  without teardown, or any broker retry/fallback bypasses shared policy.
+  without teardown, an unknown published session can survive until TTL, or any
+  broker/adapter/storefront retry or fallback bypasses shared policy.
 
 ## Slice 4 — Desktop migration
 
@@ -804,11 +865,13 @@ not enable a production client until its negative security tests pass.
   `desktop/src/api.js`, Tauri capabilities/config/Cargo files, Desktop tests,
   staging and release workflows.
 - **Tests:** Tauri command authorization, malformed broker response, hotkey/UI
-  isolation, broker offline/crash/upgrade, clipboard negative controls,
-  packaged installed-artifact tests on each built OS.
+  isolation, Desktop exit while an admitted Extension fixture retains a live
+  scope, broker offline/crash/upgrade, clipboard negative controls, packaged
+  installed-artifact tests on each built OS.
 - **Rollback conditions:** any direct HTTP fallback, credential in webview,
-  unsafe write after broker uncertainty, regression beyond the performance
-  budget without owner explanation, or incomplete package teardown.
+  Desktop exit stops the broker or invalidates an Extension scope, unsafe write
+  after broker uncertainty, regression beyond the performance budget without
+  owner explanation, or incomplete package teardown.
 
 ## Slice 5 — Chrome Extension native-messaging migration
 
@@ -846,8 +909,9 @@ not enable a production client until its negative security tests pass.
 - **Likely components:** CI/release workflows, package metadata, acceptance
   scripts/records, current-state docs.
 - **Tests:** exact installed binaries, component digest mismatch, upgrade with
-  live scopes, uninstall, crash recovery, private-port denial, structural log
-  capture, official Chrome and Desktop paths.
+  live scopes, maintenance-role data-operation denial, Desktop GUI independence,
+  uninstall, crash recovery, private-port denial, structural log capture,
+  official Chrome and Desktop paths.
 - **Rollback conditions:** a platform needs a weaker auth boundary, upgrade
   retains/restores a mapping, any job is red, or evidence comes only from mocks
   when the gate is installed/official-platform.
