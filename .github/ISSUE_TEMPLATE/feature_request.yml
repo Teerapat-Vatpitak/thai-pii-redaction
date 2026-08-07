@@ -37,7 +37,7 @@ body:
     attributes:
       label: Effect on the design invariants
       description: |
-        The invariants in CLAUDE.md are recall over precision, the vault never
+        The invariants in CODEMAP.md are recall over precision, the vault never
         leaving the device, the pre-send leak guard, Section 26 categories being
         flagged rather than auto-redacted, non-generative sensitive detection, and
         the sub-2-character span filter. Say which ones this touches and why the

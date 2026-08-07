@@ -13,6 +13,8 @@ status page and does not silently override a newer current-state document.
 
 ## Current-state documents
 
+- [Repository code map](../CODEMAP.md) - source ownership, entry points, and
+  implementation invariants.
 - [Architecture and trust boundaries](architecture.md) - the core, storefronts,
   deployment contexts, and source layout.
 - [Project status](project-status.md) - the feature acceptance matrix and known

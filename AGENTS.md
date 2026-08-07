@@ -139,7 +139,7 @@ gate on, and a gate that fires at random is a gate everyone learns to ignore.
   contract, or destroyed data. A decision that reverses by deleting a file
   belongs in a commit message, not a new document.
 - Update a document when the thing it describes changes, not when work happens
-  near it. `CLAUDE.md` changes when the code map does, `docs/project-status.md`
+  near it. `CODEMAP.md` changes when the code map does, `docs/project-status.md`
   when an acceptance state crosses a line, `ROADMAP.md` when a track changes
   state.
 - Documentation ships in the same commit as the change that made it true. A

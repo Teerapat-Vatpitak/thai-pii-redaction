@@ -28,7 +28,7 @@ def test_detect_text_file():
 
 
 def test_detect_non_pdf_md():
-    result = detect_source_type("CLAUDE.md")
+    result = detect_source_type("CODEMAP.md")
     assert result == "text"
 
 

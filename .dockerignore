@@ -28,7 +28,6 @@ office-addin
 # Development and release material
 .git
 .github
-.claude
 .superpowers
 docs
 scripts

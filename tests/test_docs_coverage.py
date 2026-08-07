@@ -1,6 +1,6 @@
 """Guard the three-document split.
 
-`CLAUDE.md` is the code map, `ROADMAP.md` is the order of work, and
+`CODEMAP.md` is the code map, `ROADMAP.md` is the order of work, and
 `docs/project-status.md` is the evidence ledger. Each answers exactly one
 question, and each states so at the top.
 
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-CODE_MAP = ROOT / "CLAUDE.md"
+CODE_MAP = ROOT / "CODEMAP.md"
 ROADMAP = ROOT / "ROADMAP.md"
 STATUS = ROOT / "docs" / "project-status.md"
 ACCEPTANCE = ROOT / "docs" / "acceptance" / "README.md"
@@ -67,7 +67,7 @@ def _storefront_names() -> list[str]:
     """
     text = CODE_MAP.read_text(encoding="utf-8")
     heading = re.search(r"^## Architecture.*$", text, re.MULTILINE)
-    assert heading, "CLAUDE.md lost its Architecture section heading"
+    assert heading, "CODEMAP.md lost its Architecture section heading"
 
     names: list[str] = []
     started = False
@@ -97,7 +97,7 @@ def test_every_tracked_top_level_dir_is_in_the_code_map():
         d for d in _tracked_top_level_dirs() if d not in NOT_IN_CODE_MAP and d not in text
     )
     assert not missing, (
-        f"CLAUDE.md never mentions {missing}. Either describe the directory there, "
+        f"CODEMAP.md never mentions {missing}. Either describe the directory there, "
         f"or add it to NOT_IN_CODE_MAP in this file with the reason it needs no entry."
     )
 
@@ -129,8 +129,8 @@ def test_the_three_documents_point_at_each_other():
     """Each document must name the other two, so any entry point leads to all three."""
     expected = {
         CODE_MAP: ("ROADMAP.md", "project-status.md"),
-        ROADMAP: ("CLAUDE.md", "project-status.md"),
-        STATUS: ("CLAUDE.md", "ROADMAP.md"),
+        ROADMAP: ("CODEMAP.md", "project-status.md"),
+        STATUS: ("CODEMAP.md", "ROADMAP.md"),
     }
     for path, references in expected.items():
         text = path.read_text(encoding="utf-8")

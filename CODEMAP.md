@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Code map
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file maps the repository for maintainers and contributors.
 
 ## Project
 

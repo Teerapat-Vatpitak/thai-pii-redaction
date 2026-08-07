@@ -214,7 +214,7 @@ def test_different_bank_account_does_not_match_subject_phone(tmp_path):
 
 def test_match_ignores_detectors_label_organization_on_a_name(tmp_path, monkeypatch):
     """F1 repro (reviewer's second scenario): a name the detector labels
-    ORGANIZATION (e.g. folded into a company-name phrase -- CLAUDE.md
+    ORGANIZATION (e.g. folded into a company-name phrase -- CODEMAP.md
     documents this as a real NER behavior) must still match on value. The
     detector call is monkeypatched here to a fixed single-entity result so
     this test pins the matching logic itself rather than depending on the

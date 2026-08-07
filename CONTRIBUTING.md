@@ -152,7 +152,7 @@ it destroys the only property that makes it worth having.
   hardcoding them in docs.
 - **Recall over precision** for anything touching PII detection — when in
   doubt, a false positive (extra pseudonym) is much cheaper than a missed
-  real PII leak. See "Design Invariants" in `CLAUDE.md`.
+  real PII leak. See "Design Invariants" in `CODEMAP.md`.
 - Keep PRs scoped to one logical change; large refactors should be discussed
   first (open an issue, or check `ROADMAP.md` / `docs/decisions/` for
   an existing design doc covering the area).

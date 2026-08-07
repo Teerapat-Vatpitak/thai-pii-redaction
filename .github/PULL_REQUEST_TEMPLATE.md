@@ -27,7 +27,7 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m pytest
 
 If this PR touches detection, masking, the vault, or the leak guard:
 
-- [ ] The design invariants in CLAUDE.md still hold, or the PR says which one it changes and why
+- [ ] The design invariants in CODEMAP.md still hold, or the PR says which one it changes and why
 - [ ] Recall-over-precision is respected: a new false negative needs a much stronger argument than a new false positive
 
 If this PR touches the benchmark:
