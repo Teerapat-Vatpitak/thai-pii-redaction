@@ -396,6 +396,7 @@ def test_http_mapping_failure_keeps_the_existing_fixed_v2_error(
 
 @pytest.fixture
 def client():
+    pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
     from app.server import app
