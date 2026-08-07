@@ -51,7 +51,8 @@ The open hardening recertification boundaries are:
   mismatch;
 - no composer, clipboard, document, or provider write after any residual-PII
   signal;
-- authenticated local backend identity before a PII-bearing request;
+- a broker-admitted local backend boundary before a PII-bearing broker-v1
+  installed-client request, within the accepted unsigned-distribution limits;
 - no live restoration session ID or other bearer authority in audit filenames,
   entries, stdout, public audit/log projections, or retained evidence; local
   operation responses may return the opaque `session_id` needed for restoration;
@@ -96,9 +97,10 @@ session-isolated cleanup. Final branch head `2e147481` passed 11/11 jobs, two
 read-only reviewers found no blocker on that exact head, and main integrated it
 through history-preserving merge `eb0c45c`. Post-merge CI passed 11/11 and
 cross-platform smoke passed 2/2. This source integration does not provide a
-native broker, browser/Office/extension disposal, authenticated localhost
-process identity, packaged/installed evidence, or any real-host Office
-acceptance.
+native broker, browser/Extension disposal, a broker-admitted local process
+boundary, or packaged/installed evidence. Office remains outside broker v1;
+its disposal and real-host acceptance remain open under the unchanged
+web-add-in architecture.
 
 ## Automated HTTP and live-provider run
 
