@@ -98,6 +98,42 @@ identity remains unauthenticated. CORS and
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
 
+### Native broker protocol boundary
+
+Phase 8 Slice 1 defines the future local broker's protocol without creating a
+runtime path. Broker protocol v1 is independently versioned from product
+`VERSION`, HTTP v2, and worker v1. Its canonical JSON framing, mandatory hello,
+closed role/operation table, safe errors, size/deadline table, and non-replay
+semantics are fixed in
+[`docs/native-broker-protocol-v1.md`](native-broker-protocol-v1.md) and the
+single machine-readable policy at
+[`native-broker/protocol-v1.json`](../native-broker/protocol-v1.json).
+
+The shared policy also defines closed nested success schemas for every v1
+operation. Unknown fields fail at every depth; decimal-valued HTTP results
+cross the broker wire only as canonical decimal strings after the future data
+plane has validated the complete HTTP-v2 projection.
+
+The pre-hello decoder accepts one frame under a 4 KiB allocation cap; a fresh
+post-hello decoder is required after negotiation. Connection validation is
+bounded to 4,096 complete messages. Remote TNER is source-only for broker
+`detect`, `analyze`, and `analyze_report`; it is disabled without fallback for
+sanitize, reidentify, roundtrip, and PDF because the current paths can scan
+non-source or unbounded intermediate text. Local multiphase operations carry a
+200,000-code-point intermediate-detector cap and terminal phase/operation
+budgets for Slice 3 to enforce.
+
+The hello `claimed_role` is never identity. A future transport admission layer
+must establish an authenticated peer and role from OS process/user context plus
+the accepted package/platform checks before the claim can match. Slice 1
+requires that authenticated role as external state but implements no named
+pipe, UDS, Chrome adapter, Tauri command, peer inspection, backend bootstrap,
+credential, session ownership, forwarding, retry, or lifecycle behavior.
+There is no broker `backend` role: the future broker/backend seam remains the
+private authenticated HTTP-v2 adapter selected by the ADR. Mappings remain
+Python-owned, and Office, CLI, hosted HTTP, worker v1, and the demo remain
+outside broker protocol v1.
+
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
 earliest-deadline timer and expires every due session at the exact half-open TTL
 boundary (`age >= TTL`) without waiting for a client request; managed
@@ -378,6 +414,8 @@ signals into automatic blocking or redaction.
 | `app/http_v2.py` | Strict HTTP-v2 response and error DTOs shared by the main adapters. |
 | `app/hosted.py` | Generic main-repository hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not an official-platform acceptance claim. |
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
+| `native-broker/` | Transport-free broker-v1 Rust codec/conformance crate plus the authoritative machine-readable protocol policy; no executable, listener, backend, session store, or storefront bridge exists in Slice 1. |
+| `native_broker_protocol.py` | Transport-free Python reference implementation of the same broker-v1 policy and shared fixture behavior; not a server or packaged runtime path. |
 | `extension/` | MV3 browser extension and supported-site adapters. |
 | `desktop/` | Tauri shell, static UI, updater, and sidecar lifecycle. |
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Automated packaged-backend/HTTPS-development-proxy transport composition is verified locally; all eight real-host/package gates remain open. |
@@ -410,6 +448,8 @@ is deferred unless a concrete dependency or ownership problem appears.
 
 - `VERSION` is the product-version source of truth.
 - `contract_version` is the independently versioned public API contract.
+- Broker protocol version `1` is independently negotiated and is not inferred
+  from product `VERSION`, HTTP contract version, or worker envelope version.
 - Current HTTP v2 uses `X-AIGuard-Contract-Version: 2` as a required assertion
   on every API operation except health; clients also validate the fixed
   response header before using a result.

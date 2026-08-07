@@ -98,10 +98,12 @@ def _cargo_toml_set(path: Path, new_version: str) -> None:
         path.write_text(new_text, encoding="utf-8")
 
 
-# Cargo.lock entry for the `desktop` package specifically -- Cargo.lock lists
-# dozens of `[[package]]` blocks (one per crate dependency); only the
-# `name = "desktop"` block's version tracks the product version.
+# Cargo.lock entries for the two in-repo product packages. Each lock lists
+# dependency blocks whose published crate versions must not be rewritten.
 _CARGO_LOCK_DESKTOP_RE = re.compile(r'(\[\[package\]\]\nname = "desktop"\nversion = ")([^"]+)(")')
+_CARGO_LOCK_BROKER_RE = re.compile(
+    r'(\[\[package\]\]\nname = "aiguard-native-broker-protocol"\nversion = ")([^"]+)(")'
+)
 
 
 def _cargo_lock_get(path: Path) -> str | None:
@@ -112,6 +114,22 @@ def _cargo_lock_get(path: Path) -> str | None:
 def _cargo_lock_set(path: Path, new_version: str) -> None:
     text = path.read_text(encoding="utf-8")
     new_text, n = _CARGO_LOCK_DESKTOP_RE.subn(rf"\g<1>{new_version}\g<3>", text, count=1)
+    if n:
+        path.write_text(new_text, encoding="utf-8")
+
+
+def _broker_cargo_lock_get(path: Path) -> str | None:
+    match = _CARGO_LOCK_BROKER_RE.search(path.read_text(encoding="utf-8"))
+    return match.group(2) if match else None
+
+
+def _broker_cargo_lock_set(path: Path, new_version: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    new_text, n = _CARGO_LOCK_BROKER_RE.subn(
+        rf"\g<1>{new_version}\g<3>",
+        text,
+        count=1,
+    )
     if n:
         path.write_text(new_text, encoding="utf-8")
 
@@ -142,6 +160,13 @@ def targets(root: Path) -> list[tuple[Path, Getter, Setter, bool]]:
         (Path("desktop/src-tauri/tauri.conf.json"), _json_get, _json_set, False),
         (Path("desktop/src-tauri/Cargo.toml"), _cargo_toml_get, _cargo_toml_set, False),
         (Path("desktop/src-tauri/Cargo.lock"), _cargo_lock_get, _cargo_lock_set, False),
+        (Path("native-broker/Cargo.toml"), _cargo_toml_get, _cargo_toml_set, False),
+        (
+            Path("native-broker/Cargo.lock"),
+            _broker_cargo_lock_get,
+            _broker_cargo_lock_set,
+            False,
+        ),
         # desktop/package.json's `version` field is optional per the design
         # spec -- some Tauri scaffolds omit it. _json_get/_json_set already
         # no-op cleanly when the key is absent.

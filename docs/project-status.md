@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -166,10 +166,10 @@ integration contains that candidate; the record does not claim post-merge CI.
 The accepted
 [native-broker ADR](decisions/2026-08-07-native-broker.md) now specifies the
 owner-approved transport, admission, process, session, lifecycle, packaging,
-and failure boundaries. No production broker code exists; the next
-implementation unit is Slice 1 protocol definition and cross-language
-conformance fixtures only. Authoritative PDF source-to-box intervals are
-tracked as the separate third Phase 8 unit below.
+and failure boundaries. No production broker code exists. Slice 1 protocol
+definition and cross-language conformance is the current source candidate;
+transport and authenticated peer admission remain Slice 2. Authoritative PDF
+source-to-box intervals are tracked as the separate third Phase 8 unit below.
 
 Phase 8 second-unit status:
 **shared provider orchestration integrated; branch CI green; external
@@ -234,7 +234,8 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR accepted; implementation and installed acceptance open**. The owner
+**ADR accepted; Slice 1 protocol/conformance complete; production
+implementation and installed acceptance open**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -242,8 +243,21 @@ distribution, and Office exclusion from v1. Independent read-only review
 passed exact architecture commit
 `e8d62b3c4ce8c24bfc554149e1cb375e4db813a5`; its
 [branch CI passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31197090383).
-No listener, bootstrap, data plane, storefront migration, or packaging code is
-implemented. The next branch is Slice 1 protocol/conformance only.
+The Slice 1 candidate adds one machine-readable policy plus transport-free
+Python/Rust implementations and shared exact-byte fixtures for canonical
+framing, mandatory highest-common-version hello, immutable negotiated role
+state, closed operation authorization and nested result schemas, fixed errors,
+measured limits/deadlines, and no-data-replay semantics. Focused protocol gates
+pass `146` Python tests and `20` Rust conformance groups plus two decoder
+allocation regressions; the full Python suite passes `2,478` with five optional
+OpenCV skips. Root JavaScript passes `123`, Desktop Rust `31`,
+and Office passes schema/package/type/`129`-test/build gates. Independent
+exact-index review passes with no unresolved finding, and reviewed
+implementation commit `4ada40d203f98039c93b78d6fb0ab2a14df91f2d`
+[passes all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119).
+No listener, bootstrap, OS peer identity, backend/data plane, session
+ownership, storefront migration, or packaging code is implemented; Slice 2
+has not started.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx

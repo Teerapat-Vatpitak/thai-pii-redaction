@@ -221,9 +221,17 @@ reviewed, independently revertible integration units in this order:
    shared per-user named-pipe/filesystem-UDS broker, Chrome native-messaging
    adapter, allowlisted Tauri bridge, broker-prebound authenticated loopback
    backend, explicit unsigned-distribution limits, and maintenance-only global
-   lifecycle. No broker production code or installed acceptance exists. The
-   next implementation unit is Slice 1 protocol definition and cross-language
-   conformance fixtures only; Office remains outside broker v1. The third
+   lifecycle. Slice 1 protocol definition and cross-language conformance are
+   complete in source: one machine policy drives strict
+   Python/Rust framing, mandatory hello, immutable negotiated authority,
+   closed roles/operations and nested result schemas, safe errors, measured
+   limits/deadlines, and non-replay semantics. Independent exact-index review
+   passed with no unresolved finding, and reviewed implementation commit
+   `4ada40d203f98039c93b78d6fb0ab2a14df91f2d`
+   [passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119).
+   No listener, bootstrap, backend/data plane, storefront cutover, packaging,
+   or installed acceptance exists, and Slice 2 has not started. Office remains
+   outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
    the page-joined extraction text, and redaction selects boxes only by
