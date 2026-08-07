@@ -194,9 +194,10 @@ reviewed, independently revertible integration units in this order:
    11/11 jobs, and the two read-only lifecycle/concurrency and
    authentication/secrecy reviewers found no blocker on that exact head. Main
    integrated the branch with history-preserving merge `eb0c45c`; post-merge
-   CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed extension,
-   Office, and Desktop disposal remains Phase 8 work, and all eight Office
-   real-host/package gates remain open.
+   CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed Extension
+   and Desktop disposal remains Phase 8 work. Office is outside broker v1 under
+   the accepted native-broker ADR, and all eight Office real-host/package gates
+   remain open under the unchanged web-add-in architecture.
 8. **Converge longer-term choke points — in progress.** The first separately
    reviewable unit is integrated and implements the locked explicit-TNER
    policy: a failed request or incomplete ordered token stream aborts the whole
@@ -214,10 +215,15 @@ reviewed, independently revertible integration units in this order:
    covers attempt limits, per-attempt timeouts, retry classification, immutable
    masked input, rollback/stateless boundaries, safe errors, v2/v1 wire
    compatibility, and unchanged hosted allowlisting. Fresh live-provider,
-   packaged, real-host, and official-platform acceptance remains open. The native
-   localhost broker and broker-backed client disposal require an owner-approved
-   ADR before implementation because transport, process identity, attestation,
-   installation, and lifecycle ownership are not yet selected. The third
+   packaged, real-host, and official-platform acceptance remains open. The
+   accepted
+   [native-broker ADR](docs/decisions/2026-08-07-native-broker.md) selects a
+   shared per-user named-pipe/filesystem-UDS broker, Chrome native-messaging
+   adapter, allowlisted Tauri bridge, broker-prebound authenticated loopback
+   backend, explicit unsigned-distribution limits, and maintenance-only global
+   lifecycle. No broker production code or installed acceptance exists. The
+   next implementation unit is Slice 1 protocol definition and cross-language
+   conformance fixtures only; Office remains outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
    the page-joined extraction text, and redaction selects boxes only by

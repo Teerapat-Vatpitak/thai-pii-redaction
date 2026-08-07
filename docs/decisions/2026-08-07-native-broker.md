@@ -1,14 +1,17 @@
 # Phase 8 native broker
 
 - Date: 2026-08-07
-- Status: **PROPOSED — owner approved; independent review pending**
+- Status: accepted; implementation pending
 - Scope: local installed clients only
 - Non-goals: implementation, release, deployment, hosted-service changes, worker
   changes, and product-version changes
 
 The owner approved the four decisions recorded at the end of this document on
-2026-08-07. The ADR is not accepted and does not authorize broker production
-code until the required independent review passes.
+2026-08-07. Independent read-only review passed exact architecture commit
+`e8d62b3c4ce8c24bfc554149e1cb375e4db813a5`, whose
+[branch CI passed 11/11](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31197090383).
+This ADR is accepted. It authorizes only the separately reviewed implementation
+slices below; no broker production code exists in this decision change.
 
 # Context
 
@@ -1050,5 +1053,6 @@ Recorded 2026-08-07:
    integration requires a separate ADR with a concrete supported host/bridge
    architecture and its own security, packaging, and acceptance criteria.
 
-These owner decisions remove the product-direction block. ADR acceptance and
-integration still require the independent review and green repository gates.
+These owner decisions and the passing independent review remove the
+architecture-decision block. Production behavior, packaging, and acceptance
+remain unimplemented and must be established by the separate slices above.
