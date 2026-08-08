@@ -229,8 +229,19 @@ reviewed, independently revertible integration units in this order:
    passed with no unresolved finding, and reviewed implementation commit
    `4ada40d203f98039c93b78d6fb0ab2a14df91f2d`
    [passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119).
-   No listener, bootstrap, backend/data plane, storefront cutover, packaging,
-   or installed acceptance exists, and Slice 2 has not started. Office remains
+   Slice 2 is now implemented as a local source candidate: a single on-demand
+   broker owns a protected Windows named pipe or filesystem UDS, binds OS peer
+   identity and strict package-consistency evidence to the claimed role,
+   prebinds and supervises one private authenticated Python backend, and serves
+   only broker health plus maintenance-only drain/stop. Windows uses an
+   explicit current-logon-SID DACL, kernel PID/token inspection, a named mutex,
+   and an atomic kill-on-close Job assignment. macOS/Linux use `0700`/`0600`
+   filesystem protections, a held lock, peer credentials, stable process
+   identity, and substitution-safe cleanup. Local Windows and real WSL2 Linux
+   runtime gates, macOS runtime CI, all 14 implementation branch CI jobs, and
+   independent security review pass at this checkpoint. No broker data plane,
+   session ownership/disposal, storefront cutover, Chrome/Tauri/Office change,
+   packaging migration, or installed acceptance exists. Office remains
    outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
