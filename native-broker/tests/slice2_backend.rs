@@ -567,26 +567,37 @@ try:
 except BaseException:
     try:
         address = listener.getsockname()
+    except BaseException:
+        mark("validate-name-inspection-failed")
+        time.sleep(30)
+        raise
+    try:
         accepting = listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+    except BaseException:
+        mark("validate-listening-inspection-failed")
+        time.sleep(30)
+        raise
+    try:
         listener.set_inheritable(False)
         inheritable = listener.get_inheritable()
     except BaseException:
-        mark("validate-inspection-failed")
+        mark("validate-inheritance-inspection-failed")
+        time.sleep(30)
+        raise
+    if listener.family != socket.AF_INET:
+        mark("validate-family-failed")
+    elif listener.type & socket.SOCK_STREAM != socket.SOCK_STREAM:
+        mark("validate-type-failed")
+    elif not isinstance(address, tuple) or len(address) < 2 or address[0] != "127.0.0.1":
+        mark("validate-address-failed")
+    elif type(address[1]) is not int or not 1 <= address[1] <= 65535:
+        mark("validate-port-failed")
+    elif accepting != 1:
+        mark("validate-listening-failed")
+    elif inheritable:
+        mark("validate-inheritance-failed")
     else:
-        if listener.family != socket.AF_INET:
-            mark("validate-family-failed")
-        elif listener.type & socket.SOCK_STREAM != socket.SOCK_STREAM:
-            mark("validate-type-failed")
-        elif not isinstance(address, tuple) or len(address) < 2 or address[0] != "127.0.0.1":
-            mark("validate-address-failed")
-        elif type(address[1]) is not int or not 1 <= address[1] <= 65535:
-            mark("validate-port-failed")
-        elif accepting != 1:
-            mark("validate-listening-failed")
-        elif inheritable:
-            mark("validate-inheritance-failed")
-        else:
-            mark("validate-unknown-failed")
+        mark("validate-unknown-failed")
     time.sleep(30)
     raise
 
