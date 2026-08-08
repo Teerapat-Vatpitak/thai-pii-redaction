@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import array
 import http.client
 import os
 import secrets
+import select
 import socket
 import struct
 import subprocess
@@ -22,6 +24,7 @@ from native_broker_backend import (
     BOOTSTRAP_MAX_BYTES,
     BOOTSTRAP_VERSION,
     BootstrapError,
+    _parse_unix_descriptors,
     _validate_listener,
     decode_bootstrap_packet,
 )
@@ -186,6 +189,99 @@ def test_prebound_listener_is_validated_and_sealed_before_backend_prepare():
         assert listener.get_inheritable() is False
     finally:
         listener.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SCM_RIGHTS is Unix-only")
+def test_unix_bootstrap_control_rejects_ambiguous_rights_and_closes_descriptors():
+    with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
+        _parse_unix_descriptors([], 0)
+    with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
+        _parse_unix_descriptors([(socket.SOL_SOCKET, -1, b"")], 0)
+
+    reader, writer = os.pipe()
+    duplicated: list[int] = []
+    truncated: int | None = None
+    try:
+        duplicated = [os.dup(writer), os.dup(writer)]
+        encoded = array.array("i", duplicated).tobytes()
+        with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
+            _parse_unix_descriptors([(socket.SOL_SOCKET, socket.SCM_RIGHTS, encoded)], 0)
+        for descriptor in duplicated:
+            with pytest.raises(OSError):
+                os.fstat(descriptor)
+
+        truncated = os.dup(writer)
+        encoded = array.array("i", [truncated]).tobytes()
+        with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
+            _parse_unix_descriptors(
+                [(socket.SOL_SOCKET, socket.SCM_RIGHTS, encoded)],
+                getattr(socket, "MSG_CTRUNC", 1),
+            )
+        with pytest.raises(OSError):
+            os.fstat(truncated)
+    finally:
+        for descriptor in duplicated:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if truncated is not None:
+            try:
+                os.close(truncated)
+            except OSError:
+                pass
+        os.close(reader)
+        os.close(writer)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SCM_RIGHTS is Unix-only")
+def test_unix_malformed_packet_closes_received_descriptor_before_process_exit():
+    parent_channel, child_channel = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    reader, writer = os.pipe()
+    source = """
+import time
+from native_broker_backend import BootstrapError, _read_unix_bootstrap
+
+try:
+    _read_unix_bootstrap()
+except BootstrapError:
+    print("rejected", flush=True)
+    time.sleep(30)
+"""
+    process = None
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-c", source],
+            cwd=ROOT,
+            stdin=child_channel.fileno(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            pass_fds=(child_channel.fileno(),),
+        )
+        child_channel.close()
+        socket.send_fds(parent_channel, [b"\x00\x00\x00\x01x"], [writer])
+        os.close(writer)
+        writer = -1
+
+        assert process.stdout is not None
+        ready, _, _ = select.select([process.stdout], [], [], 2)
+        assert ready
+        assert process.stdout.readline() == b"rejected\n"
+        readable, _, _ = select.select([reader], [], [], 2)
+        assert readable
+        assert os.read(reader, 1) == b""
+        assert process.poll() is None
+    finally:
+        parent_channel.close()
+        child_channel.close()
+        os.close(reader)
+        if writer >= 0:
+            os.close(writer)
+        if process is not None:
+            if process.poll() is None:
+                process.terminate()
+            stdout, stderr = process.communicate(timeout=5)
+            assert b"Traceback" not in stdout + stderr
 
 
 def test_private_backend_credentials_install_once_without_environment(monkeypatch):

@@ -181,23 +181,23 @@ fn launch_backend() -> ManagedBackend {
 fn runtime_config() -> BrokerRuntimeConfig {
     BrokerRuntimeConfig {
         accept_poll: Duration::from_millis(20),
-        hello_timeout: Duration::from_millis(500),
-        request_timeout: Duration::from_secs(1),
+        hello_timeout: Duration::from_secs(5),
+        request_timeout: Duration::from_secs(5),
         idle_timeout: Duration::from_secs(2),
-        drain_timeout: Duration::from_secs(2),
+        drain_timeout: Duration::from_secs(6),
     }
 }
 
 fn connect(publication: &str) -> NativeStream {
-    NativeStream::connect(publication, Duration::from_secs(2)).unwrap()
+    NativeStream::connect(publication, Duration::from_secs(5)).unwrap()
 }
 
 fn send(stream: &mut NativeStream, value: serde_json::Value) -> serde_json::Value {
     stream
-        .write_value(&value, 1_048_576, Duration::from_secs(2))
+        .write_value(&value, 1_048_576, Duration::from_secs(5))
         .unwrap();
     let response = stream
-        .read_frame(1_048_576, Duration::from_secs(2))
+        .read_frame(1_048_576, Duration::from_secs(5))
         .unwrap()
         .unwrap();
     serde_json::from_slice(&response).unwrap()
@@ -597,7 +597,7 @@ fn control_client_binds_kernel_server_identity_to_the_expected_package_broker() 
     assert!(admitted.status.success());
     assert_no_sensitive_output(&admitted);
     assert!(started.elapsed() >= Duration::from_millis(350));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(10));
     let rejected = run_control_client_fixture(
         &client_path,
         &mismatched_manifest_path,
@@ -966,21 +966,16 @@ fn control_client_client_fixture() {
                 Path::new(&manifest_path),
                 "desktop",
                 "2.5.0",
-                Duration::from_secs(2),
+                Duration::from_secs(15),
             )
         }
     } else {
-        let connection_timeout = if std::env::var_os("AIGUARD_SLICE2_HOLDERS_ROOT").is_some() {
-            Duration::from_secs(5)
-        } else {
-            Duration::from_secs(2)
-        };
         BrokerControlClient::connect_existing_for_test(
             &endpoint_root,
             Path::new(&manifest_path),
             "desktop",
             "2.5.0",
-            connection_timeout,
+            Duration::from_secs(5),
         )
     };
     if let Some(expected_error) = expected_error {

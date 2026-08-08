@@ -8,6 +8,7 @@ environment.
 
 from __future__ import annotations
 
+import array
 import os
 import re
 import socket
@@ -116,6 +117,33 @@ def _read_windows_bootstrap() -> tuple[PrivateBackendCredentials, socket.socket]
     return credentials, listener
 
 
+def _parse_unix_descriptors(ancillary: list[tuple[int, int, bytes]], flags: int) -> list[int]:
+    descriptor_values = array.array("i")
+    descriptors: list[int] = []
+    valid_control = len(ancillary) == 1
+    try:
+        for level, control_type, control_data in ancillary:
+            if level != socket.SOL_SOCKET or control_type != socket.SCM_RIGHTS:
+                valid_control = False
+                continue
+            complete = len(control_data) - (len(control_data) % descriptor_values.itemsize)
+            received = array.array("i")
+            received.frombytes(control_data[:complete])
+            descriptors.extend(received)
+            if len(control_data) != descriptor_values.itemsize:
+                valid_control = False
+        if flags or not valid_control or len(descriptors) != 1:
+            _fail()
+        return descriptors
+    except (BootstrapError, OSError, ValueError):
+        for descriptor in descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        _fail()
+
+
 def _read_unix_bootstrap() -> tuple[
     PrivateBackendCredentials,
     socket.socket,
@@ -125,13 +153,12 @@ def _read_unix_bootstrap() -> tuple[
     descriptors: list[int] = []
     try:
         channel.settimeout(5.0)
-        packet, descriptors, flags, _address = socket.recv_fds(
-            channel,
+        descriptor_size = array.array("i").itemsize
+        packet, ancillary, flags, _address = channel.recvmsg(
             BOOTSTRAP_MAX_BYTES + 4,
-            1,
+            socket.CMSG_SPACE(descriptor_size),
         )
-        if flags or len(descriptors) != 1:
-            _fail()
+        descriptors = _parse_unix_descriptors(ancillary, flags)
         while len(packet) < 4:
             chunk = channel.recv(4 - len(packet))
             if not chunk:
