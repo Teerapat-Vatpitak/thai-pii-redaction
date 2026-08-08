@@ -126,6 +126,7 @@ def test_expanded_restored_text_is_rejected_before_detector_and_keeps_prior_sess
 
 
 def test_oversized_provider_output_is_rejected_before_restore_scan(monkeypatch):
+    pytest.importorskip("fastapi")
     from fastapi import HTTPException
 
     import app.server as server
@@ -153,6 +154,7 @@ def test_oversized_provider_output_is_rejected_before_restore_scan(monkeypatch):
 
 
 def test_private_http_context_reaches_sync_detector_thread(monkeypatch):
+    pytest.importorskip("fastapi")
     from contextlib import contextmanager
 
     from fastapi.testclient import TestClient
