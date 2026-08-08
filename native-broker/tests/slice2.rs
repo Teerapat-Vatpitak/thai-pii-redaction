@@ -475,6 +475,253 @@ fn platform_transport_authenticates_kernel_peer_and_roundtrips_strict_frames() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn platform_transport_forwards_the_exact_pdf_response_frame_boundary() {
+    let root = unique_test_root("pdf-response-boundary");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let payload_len = usize::try_from(aiguard_native_broker_protocol::max_frame_bytes()).unwrap();
+    let client = thread::spawn(move || {
+        let mut stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        let payload = stream
+            .read_frame(
+                aiguard_native_broker_protocol::max_frame_bytes(),
+                Duration::from_secs(60),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload.len(), payload_len);
+        assert_eq!(payload.first(), Some(&b'x'));
+        assert_eq!(payload.last(), Some(&b'x'));
+    });
+    let mut accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    let mut frame = Vec::with_capacity(payload_len + 4);
+    frame.extend_from_slice(&u32::try_from(payload_len).unwrap().to_be_bytes());
+    frame.resize(payload_len + 4, b'x');
+    let started = std::time::Instant::now();
+    accepted
+        .stream_mut()
+        .write_raw_for_test(&frame, Duration::from_secs(60))
+        .unwrap();
+    client.join().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(60));
+    eprintln!(
+        "native-pdf-boundary bytes={} forwarding_ms={}",
+        payload_len,
+        started.elapsed().as_millis()
+    );
+    drop(accepted);
+    drop(endpoint);
+    #[cfg(unix)]
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_response_waits_for_a_slow_reader_without_truncation() {
+    let root = unique_test_root("large-slow-reader");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let expected = "x".repeat(256 * 1024);
+    let expected_for_client = expected.clone();
+    let client = thread::spawn(move || {
+        let mut stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(150));
+        let frame = stream
+            .read_frame(512 * 1024, Duration::from_secs(3))
+            .unwrap()
+            .unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+        assert_eq!(
+            response["synthetic"].as_str(),
+            Some(expected_for_client.as_str())
+        );
+    });
+    let mut accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    accepted
+        .stream_mut()
+        .write_value(
+            &serde_json::json!({"synthetic": expected}),
+            512 * 1024,
+            Duration::from_secs(3),
+        )
+        .unwrap();
+    client.join().unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_response_to_a_never_reader_expires_as_operation_timeout() {
+    let root = unique_test_root("large-never-reader");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let client = thread::spawn(move || {
+        let _stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(500));
+    });
+    let mut accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    let error = accepted
+        .stream_mut()
+        .write_value(
+            &serde_json::json!({"synthetic": "x".repeat(256 * 1024)}),
+            512 * 1024,
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "operation_timeout");
+    client.join().unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_response_to_a_disconnected_client_fails_promptly() {
+    let root = unique_test_root("large-disconnected-client");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let connected = Arc::new(Barrier::new(2));
+    let client_connected = Arc::clone(&connected);
+    let client = thread::spawn(move || {
+        let stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        client_connected.wait();
+        drop(stream);
+    });
+    let mut accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    connected.wait();
+    client.join().unwrap();
+
+    let started = std::time::Instant::now();
+    let error = accepted
+        .stream_mut()
+        .write_value(
+            &serde_json::json!({"synthetic": "x".repeat(256 * 1024)}),
+            512 * 1024,
+            Duration::from_secs(3),
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "broker_unavailable");
+    assert!(started.elapsed() < Duration::from_millis(500));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_client_request_waits_for_a_slow_broker_reader_without_truncation() {
+    let root = unique_test_root("large-client-slow-reader");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let expected = "x".repeat(256 * 1024);
+    let client = thread::spawn(move || {
+        let mut stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        stream
+            .write_value(
+                &serde_json::json!({"synthetic": expected}),
+                512 * 1024,
+                Duration::from_secs(3),
+            )
+            .unwrap();
+    });
+    let mut accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    thread::sleep(Duration::from_millis(150));
+    let frame = accepted
+        .stream_mut()
+        .read_frame(512 * 1024, Duration::from_secs(3))
+        .unwrap()
+        .unwrap();
+    let request: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+    assert_eq!(
+        request["synthetic"].as_str().map(str::len),
+        Some(256 * 1024)
+    );
+    client.join().unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_client_request_to_a_never_reader_honors_its_wait_deadline() {
+    let root = unique_test_root("large-client-never-reader");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let client = thread::spawn(move || {
+        let mut stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let error = stream
+            .write_value(
+                &serde_json::json!({"synthetic": "x".repeat(256 * 1024)}),
+                512 * 1024,
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        (error.code().to_owned(), started.elapsed())
+    });
+    let accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    drop(accepted);
+    let (code, elapsed) = client.join().unwrap();
+    assert_eq!(code, "operation_timeout");
+    assert!(elapsed < Duration::from_millis(300));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_large_client_request_to_a_disconnected_server_fails_promptly() {
+    let root = unique_test_root("large-client-disconnected-server");
+    let mut endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
+    let publication = endpoint.publication();
+    let connected = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let client_connected = Arc::clone(&connected);
+    let client_release = Arc::clone(&release);
+    let client = thread::spawn(move || {
+        let mut stream = aiguard_native_broker_protocol::transport::NativeStream::connect(
+            &publication,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        client_connected.wait();
+        client_release.wait();
+        let started = std::time::Instant::now();
+        let error = stream
+            .write_value(
+                &serde_json::json!({"synthetic": "x".repeat(256 * 1024)}),
+                512 * 1024,
+                Duration::from_secs(3),
+            )
+            .unwrap_err();
+        (error.code().to_owned(), started.elapsed())
+    });
+    let accepted = endpoint.accept(Duration::from_secs(2)).unwrap().unwrap();
+    connected.wait();
+    drop(accepted);
+    release.wait();
+
+    let (code, elapsed) = client.join().unwrap();
+    assert_eq!(code, "broker_unavailable");
+    assert!(elapsed < Duration::from_millis(500));
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_preaccept_disconnect_resets_the_named_pipe_instance() {

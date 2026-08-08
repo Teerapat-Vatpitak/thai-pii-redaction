@@ -140,18 +140,25 @@ library under `native-broker/` share its serialization, framing, negotiation,
 policy, and conformance. Phase 8 Slice 2 adds the Rust broker executable,
 control-only client, strict component manifest, Windows named pipe,
 macOS/Linux filesystem UDS, OS peer/process inspection, atomic per-user/logon
-ownership, and broker-owned private-backend bootstrap. The private Python mode
-is `native_broker_backend.py` plus `app/private_backend_bootstrap.py`; it starts
-the existing FastAPI app only from a broker-prebound listener and inherited
-one-use credentials.
+ownership, and broker-owned private-backend bootstrap. Slice 3 adds
+`src/data_plane.rs` and the private HTTP-v2 executor in `src/backend.rs`:
+connection-owned scopes, broker session handles, strict response projection,
+confirmed disposal, non-replayable uncertain-completion handling, bounded
+concurrency through final native publication, deadline-bounded transport
+backpressure, and backend-generation invalidation. Mapping and all product
+logic remain in the existing Python core. Broker-only detector budgets are
+installed by `pii_redactor/native_broker_context.py` at the existing Python
+detector boundaries. The private Python mode is
+`native_broker_backend.py` plus `app/private_backend_bootstrap.py`; it starts the
+existing FastAPI app only from a broker-prebound listener and inherited one-use
+credentials.
 
-This Slice 2 path exposes only hello, broker health, and maintenance-only
-drain/stop. It owns no data session, mapping, document/provider operation, or
-storefront bridge. The Extension, Desktop/Tauri, and Office source paths below
-remain unchanged and do not yet call the broker; those migrations are later
-accepted slices. The pipe/UDS plus path/build/digest checks establish OS peer
-context and package consistency only, not publisher attestation or protection
-from arbitrary malicious code already running as the same OS user.
+The broker now exposes every protocol-v1 data operation to an authenticated,
+role-admitted native connection, but no storefront calls it yet. The Extension,
+Desktop/Tauri, and Office source paths below remain unchanged; those migrations
+are later accepted slices. The pipe/UDS plus path/build/digest checks establish
+OS peer context and package consistency only, not publisher attestation or
+protection from arbitrary malicious code already running as the same OS user.
 
 The browser extension, desktop shell, and Office add-in use the local
 **FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
@@ -331,6 +338,7 @@ All 8 steps are wired together by `pii_redactor/pipeline.py`'s `run_pipeline()` 
 | `pii_redactor/models.py` | Shared dataclasses (`Entity`, `EntityRegistry`, `WordBbox`, `VaultRecord`, `AIResponse`, `ReverseResult`, ...) |
 | `pii_redactor/ingest/ocr_processor.py` | Step 1 (hybrid/scanned PDFs): per-page PaddleOCR extraction, denoise/sharpen preprocessing (no deskew, no orientation/unwarping — bbox coordinate integrity, DET-3), 2-3 attempts merged rather than picked (a replacement must preserve the structured values it evicts) → lowest contributing confidence + `human_review` flag. Optional (`requirements-ocr.txt`); raises `OCRUnavailableError` only for a raster page with no usable text layer; swallowed dependency/OCR-retry errors are graph-cleared before fallback |
 | `pii_redactor/session_service.py` | Single brain behind the web API: session lifecycle + sanitize/restore over core components; `sanitize_transaction()` stages a detached graph through endpoint finalization and publishes it with one session-dictionary assignment; unexpected sanitize/restore failures translate only after sensitive frames are cleared |
+| `pii_redactor/native_broker_context.py` | Private broker-only operation context: validates authenticated outer/phase budgets and intermediate-text caps, exposes no request values, installs cooperative cancellation, and terminates the managed backend value-free if a detector phase or operation will not stop |
 | `pii_redactor/leak_guard.py` | Shared fail-closed outbound policy: FP/TB rescans, a detector-independent contiguous 6+ digit signal, trusted-current-replacement rules, and bounded value-free failure labels |
 | `pii_redactor/safe_errors.py` | Clears completed traceback frames/chaining plus ordinary mutable exception payloads before a boundary translates or swallows a failure; nested group members are scrubbed recursively, while the read-only `BaseExceptionGroup` shell is preserved and dropped to avoid Python 3.13 `repr()` corruption; built-in attribute access resists hostile overrides |
 | `scripts/http_v2_client.py` | Strict contract-v2 smoke client used by container and packaged-runtime checks |

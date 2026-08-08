@@ -98,7 +98,7 @@ identity remains unauthenticated. CORS and
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
 
-### Native broker control-plane boundary
+### Native broker boundary
 
 Phase 8 Slice 1 defines broker protocol v1 independently from product
 `VERSION`, HTTP v2, and worker v1. Its canonical JSON framing, mandatory hello,
@@ -110,8 +110,8 @@ single machine-readable policy at
 
 The shared policy also defines closed nested success schemas for every v1
 operation. Unknown fields fail at every depth; decimal-valued HTTP results
-cross the broker wire only as canonical decimal strings after the future data
-plane has validated the complete HTTP-v2 projection.
+cross the broker wire only as canonical decimal strings after the Slice 3 data
+plane validates the complete HTTP-v2 projection.
 
 The pre-hello decoder accepts one frame under a 4 KiB allocation cap; a fresh
 post-hello decoder is required after negotiation. Connection validation is
@@ -120,10 +120,10 @@ bounded to 4,096 complete messages. Remote TNER is source-only for broker
 sanitize, reidentify, roundtrip, and PDF because the current paths can scan
 non-source or unbounded intermediate text. Local multiphase operations carry a
 200,000-code-point intermediate-detector cap and terminal phase/operation
-budgets for Slice 3 to enforce.
+budgets enforced by Slice 3.
 
-Slice 2 implements the native control plane without enabling a broker data
-operation. Windows uses one shared named pipe for the current logon session
+Slice 2 establishes the authenticated native control plane. Windows uses one
+shared named pipe for the current logon session
 across accepted installations, with an explicit protected DACL containing only
 the current logon SID,
 remote-client rejection, and kernel client/server PID plus token inspection
@@ -156,15 +156,66 @@ existing strict HTTP-v2 app only on the transferred listener. Native
 publication contains only the pipe name or UDS path; it never contains the
 backend address, listener, or either credential.
 
-Slice 2 exposes protocol-v1 hello, `broker_health`, and maintenance-only
-`maintenance_drain_stop`. Health verifies the managed backend's exact product,
-HTTP contract, and authentication capabilities but is not an HTTP passthrough.
-Every data/session/document/provider operation remains disabled. There is no
-Chrome adapter, Extension change, Tauri command, Desktop migration, Office
-change, session ownership/disposal, or broker forwarding. Existing storefronts
-therefore still use their prior paths until later accepted slices. There is no
-broker `backend` role; mappings remain Python-owned, and Office, CLI, hosted
-HTTP, worker v1, and the demo remain outside broker protocol v1.
+Slice 3 adds the data plane without changing that process boundary. After
+strict protocol-v1 validation and role admission, each authenticated connection
+owns its broker-issued scopes. Stateful operations use broker session handles
+bound to that connection, scope, role, and one random backend generation; the
+corresponding Python session identifier is retained only as zeroizing lifecycle
+metadata and is never returned to the client. Mapping content stays exclusively
+inside Python `SessionService` memory.
+
+The broker forwards exactly one authenticated HTTP-v2 request per data
+operation. It exposes neither the private endpoint nor boot credentials, has no
+localhost/provider fallback, and adds no retry or replay layer. It validates
+the HTTP status, single contract/content headers, bounded body, duplicate-free
+JSON, exact v2 cross-field invariants, and the complete final v1 response
+envelope before committing or publishing success. An oversized valid `200`
+response projects the fixed `payload_too_large` error with cleanup selected by
+operation state; an oversized non-success body is an integrity failure because
+its fixed error envelope could not be validated. The existing Python core
+remains authoritative for detection, sanitization, providers, outbound policy,
+restoration, audit projection, TNER, and PDF processing.
+
+The private request also carries authenticated broker-only execution context:
+the remaining outer deadline, local detector-phase count, fixed intermediate
+text cap, and local phase budget. Middleware installs this in a private Python
+context variable. The authoritative `detect_all` and outbound leak-scan entry
+points enforce the 200,000-code-point cap before every masked, restored, or
+provider-output detector phase. Phase and outer watchdogs cancel cooperatively
+and terminate the managed backend without diagnostic payloads if work fails to
+stop, so a disconnected or timed-out request cannot keep consuming unaccounted
+detector/TNER/PDF capacity. These controls do not create a second detector or
+remote-TNER policy.
+
+Scopes and session authority are removed before explicit disposal, scope close,
+connection cleanup, or shutdown cleanup. A definitely unsubmitted request is
+not confused with a confirmed backend failure or a confirmed success. If a
+submitted request has unknown completion, the broker never retries it: unknown
+new-session publication, request-transient mapping state, and stateless work
+tear down the backend; an unknown known-session mutation first invalidates the
+handle and requires one confirmed authenticated disposal, otherwise it also
+tears down the backend. Concurrent generation invalidation is never interpreted
+as confirmed session absence, and terminal disposal/scope cleanup retains
+deadline or cancellation precedence after teardown. Teardown invalidates the
+complete generation, and a future backend gets new credentials and a new
+generation identity.
+
+The data plane is bounded to 32 scopes and 32 sessions per connection, 64
+sessions per admitted role, eight concurrent operations globally, and four per
+role. A bounded publication lease is held through the final native write, so a
+slow reader cannot free admission while a large validated response is still in
+flight. Windows configures both named-pipe ends for nonblocking byte mode and
+writes at most 64 KiB per attempt; zero progress is retried only to the existing
+absolute deadline, while a dead peer fails promptly so connection cleanup can
+release session authority and admission. Protocol deadlines remain operation-specific;
+backend/provider attempt timeouts stay owned by their existing layers.
+Observable disconnect or process loss cancels in-flight transport, and
+post-submission cancellation uses the same uncertain-completion policy. There
+is still no Chrome adapter, Extension change, Tauri command, Desktop migration,
+Office change, or storefront bridge. Existing storefronts therefore retain
+their prior paths until later accepted slices. There is no broker `backend`
+role; Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
+protocol v1.
 
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
 earliest-deadline timer and expires every due session at the exact half-open TTL
@@ -446,7 +497,7 @@ signals into automatic blocking or redaction.
 | `app/http_v2.py` | Strict HTTP-v2 response and error DTOs shared by the main adapters. |
 | `app/hosted.py` | Generic main-repository hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not an official-platform acceptance claim. |
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
-| `native-broker/` | Broker-v1 Rust codec plus the Slice 2 broker executable, central admission, strict component manifest, Windows named-pipe and macOS/Linux filesystem-UDS transports, control-only client, single-instance ownership, backend bootstrap/supervision, and health/lifecycle tests. It has no data plane, session store, or storefront bridge. |
+| `native-broker/` | Broker-v1 Rust codec plus the Slice 2 transport/bootstrap and Slice 3 connection-owned data plane: central admission, Windows named pipe and macOS/Linux filesystem UDS, private authenticated HTTP-v2 forwarding, broker scope/session-handle metadata, deterministic disposal, deadline/cancellation handling, and backend-generation invalidation. It contains no mapping or duplicate PII/provider/PDF logic and has no storefront bridge. |
 | `native_broker_protocol.py` | Transport-free Python reference implementation of the same broker-v1 policy and shared fixture behavior; not a server or packaged runtime path. |
 | `native_broker_backend.py`, `app/private_backend_bootstrap.py` | Broker-private Python bootstrap: receives a prebound listener and one-use in-memory data/control credentials through inherited OS state, then starts the existing HTTP-v2 app. It is not a storefront endpoint or native protocol adapter. |
 | `extension/` | MV3 browser extension and supported-site adapters. |

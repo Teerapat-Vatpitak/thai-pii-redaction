@@ -26,8 +26,8 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
-    GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW, PIPE_NOWAIT, PIPE_READMODE_BYTE,
-    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
+    GetNamedPipeServerProcessId, PeekNamedPipe, SetNamedPipeHandleState, WaitNamedPipeW,
+    PIPE_NOWAIT, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateMutexW, GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW,
@@ -43,6 +43,7 @@ const SYNCHRONIZE_ACCESS: u32 = 0x0010_0000;
 const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 const MUTEX_LOGON_ACCESS: u32 = 0x0002_0001;
 const PIPE_LOGON_ACCESS: u32 = 0x0012_019f;
+const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
 // Keep bounded kernel room for one rejected client and the next listener.
 const MAX_PIPE_INSTANCES: u32 = (MAX_ACTIVE_CONNECTIONS + 2) as u32;
 
@@ -306,6 +307,12 @@ impl WindowsNativeStream {
                 )
             };
             if handle != INVALID_HANDLE_VALUE {
+                let mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
+                // SAFETY: the handle is a connected named pipe and mode remains live for the call.
+                if unsafe { SetNamedPipeHandleState(handle, &mode, null_mut(), null_mut()) } == 0 {
+                    unsafe { CloseHandle(handle) };
+                    return Err(ProtocolError::new("broker_unavailable", None));
+                }
                 return Ok(Self {
                     handle,
                     server_side: false,
@@ -386,7 +393,7 @@ impl WindowsNativeStream {
         let deadline = Instant::now() + timeout;
         let mut offset = 0;
         while offset < bytes.len() {
-            let request = (bytes.len() - offset).min(u32::MAX as usize);
+            let request = (bytes.len() - offset).min(PIPE_BUFFER_BYTES as usize);
             let mut written = 0_u32;
             // SAFETY: the source sub-slice is readable for request bytes.
             let result = unsafe {
@@ -398,12 +405,28 @@ impl WindowsNativeStream {
                     null_mut(),
                 )
             };
-            if result != 0 && written > 0 {
-                offset += written as usize;
+            if result != 0 {
+                if written > 0 {
+                    offset += written as usize;
+                    continue;
+                }
+                if !self.peer_connected()? {
+                    return Err(ProtocolError::new("broker_unavailable", None));
+                }
+                if Instant::now() >= deadline {
+                    return Err(ProtocolError::new("operation_timeout", None));
+                }
+                std::thread::sleep(Duration::from_millis(5));
                 continue;
             }
             let error = unsafe { GetLastError() };
-            if error == ERROR_NO_DATA && Instant::now() < deadline {
+            if error == ERROR_NO_DATA {
+                if !self.peer_connected()? {
+                    return Err(ProtocolError::new("broker_unavailable", None));
+                }
+                if Instant::now() >= deadline {
+                    return Err(ProtocolError::new("operation_timeout", None));
+                }
                 std::thread::sleep(Duration::from_millis(5));
                 continue;
             }
@@ -433,6 +456,29 @@ impl WindowsNativeStream {
             return Err(ProtocolError::new("request_invalid", None));
         }
         Ok(available > 0)
+    }
+
+    pub(crate) fn peer_connected(&self) -> Result<bool, ProtocolError> {
+        let mut available = 0_u32;
+        // SAFETY: available is a valid output and the pipe handle remains live.
+        if unsafe {
+            PeekNamedPipe(
+                self.handle,
+                null_mut(),
+                0,
+                null_mut(),
+                &mut available,
+                null_mut(),
+            )
+        } != 0
+        {
+            return Ok(true);
+        }
+        let error = unsafe { GetLastError() };
+        if error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA {
+            return Ok(false);
+        }
+        Err(ProtocolError::new("broker_unavailable", None))
     }
 
     pub(crate) fn shutdown(&mut self) {
@@ -678,8 +724,8 @@ fn create_pipe(name: &str, logon_sid: &str, first: bool) -> Result<HANDLE, Proto
             PIPE_ACCESS_DUPLEX | first_flag,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT | PIPE_REJECT_REMOTE_CLIENTS,
             MAX_PIPE_INSTANCES,
-            64 * 1024,
-            64 * 1024,
+            PIPE_BUFFER_BYTES,
+            PIPE_BUFFER_BYTES,
             5000,
             descriptor.attributes(),
         )

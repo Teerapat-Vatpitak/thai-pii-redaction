@@ -229,7 +229,7 @@ reviewed, independently revertible integration units in this order:
    passed with no unresolved finding, and reviewed implementation commit
    `4ada40d203f98039c93b78d6fb0ab2a14df91f2d`
    [passed all 11 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31216048119).
-   Slice 2 is now implemented as a local source candidate: a single on-demand
+   Slice 2 is integrated: a single on-demand
    broker owns a protected Windows named pipe or filesystem UDS, binds OS peer
    identity and strict package-consistency evidence to the claimed role,
    prebinds and supervises one private authenticated Python backend, and serves
@@ -239,10 +239,22 @@ reviewed, independently revertible integration units in this order:
    filesystem protections, a held lock, peer credentials, stable process
    identity, and substitution-safe cleanup. Local Windows and real WSL2 Linux
    runtime gates, macOS runtime CI, all 14 implementation branch CI jobs, and
-   independent security review pass at this checkpoint. No broker data plane,
-   session ownership/disposal, storefront cutover, Chrome/Tauri/Office change,
-   packaging migration, or installed acceptance exists. Office remains
-   outside broker v1. The third
+   independent security review passed that checkpoint. Slice 3 now has a
+   source candidate for strict private HTTP-v2 forwarding,
+   connection/scope/session ownership, confirmed disposal, non-replayable
+   uncertain-completion handling, authenticated Python detector budgets,
+   protocol deadlines, disconnect cleanup, bounded concurrency held through
+   native publication, prompt dead-peer cleanup plus deadline-bounded Windows
+   pipe backpressure, and
+   backend-generation invalidation. Submitted-unknown work is never replayed
+   or left running outside admission, and Python remains authoritative for
+   mappings and every product operation. The
+   [Slice 3 record](docs/acceptance/2026-08-08-phase-8-native-broker-data-plane.md)
+   records local Windows/WSL2 runtime and a clear independent security review;
+   exact-head CI and integration evidence remain provisional until those gates
+   finish. No storefront cutover, Chrome/Tauri/Office change,
+   packaging migration, or installed acceptance exists; Slice 4 remains the
+   Desktop migration. Office remains outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
    the page-joined extraction text, and redaction selects boxes only by

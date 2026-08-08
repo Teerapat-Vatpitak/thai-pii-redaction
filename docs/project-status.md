@@ -110,11 +110,12 @@ authorization-replay fingerprints, and hashed lifecycle tombstones; provider
 clients, child processes, ports/listeners, and temporary paths are not owned by
 a `SessionService` session in the current architecture. Client-driven disposal
 remains unimplemented for Browser, Office, and Extension because those clients
-cannot receive the control credential. Phase 8 Slice 2 now implements the
-generic native admission/bootstrap/health boundary, but no storefront uses it
-and no data session or disposal operation exists yet. The accepted native-broker
-ADR addresses Extension/Desktop data admission and disposal in later slices;
-Office remains unchanged and outside broker v1.
+cannot receive the control credential. Phase 8 Slice 2 implements the generic
+native admission/bootstrap/health boundary, and the Slice 3 source candidate
+adds broker data forwarding, connection/scope/session ownership, disposal, and
+uncertain-completion handling. No storefront uses the broker yet; Desktop and
+Extension migration remain later slices. Office remains unchanged and outside
+broker v1.
 
 Phase 7 integration status: **merged; main CI green; Phase 8 deferred**. The
 first independent merge review rejected original commit `f968833` with six
@@ -169,9 +170,9 @@ The accepted
 [native-broker ADR](decisions/2026-08-07-native-broker.md) now specifies the
 owner-approved transport, admission, process, session, lifecycle, packaging,
 and failure boundaries. Slice 1 protocol definition/conformance is integrated,
-and Slice 2 now has a source candidate for authenticated transport,
-bootstrap/lifecycle, and health only. Data/session behavior and every
-storefront migration remain later slices. Authoritative PDF source-to-box
+Slice 2 authenticated transport/bootstrap/lifecycle is integrated, and Slice 3
+now has a source candidate for the data/session boundary. Every storefront
+migration remains later. Authoritative PDF source-to-box
 intervals are tracked as the separate third Phase 8 unit below.
 
 Phase 8 second-unit status:
@@ -237,8 +238,8 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR and Slice 1 integrated; Slice 2 implementation checkpoint locally and
-branch-CI green; installed acceptance remains open**. The owner
+**ADR, Slice 1, and Slice 2 integrated; Slice 3 source candidate under final
+verification; installed acceptance remains open**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -273,12 +274,24 @@ compromise, or replacement of unsigned binaries.
 The broker prebinds one random loopback listener, passes a duplicate and two
 independent per-boot credentials to the Python child only through inherited OS
 state, and retains the listener/process-tree guard. Native publication exposes
-only the pipe name or UDS path. Protocol v1 enables hello, broker/backend
-health, and maintenance-only drain/stop; every data, document, provider,
-session, and disposal operation remains disabled. No Chrome Native Messaging,
-Extension, Tauri/Desktop, Office, installer, or update integration changed.
+only the pipe name or UDS path. Slice 2 enables hello, broker/backend health,
+and maintenance-only drain/stop. The Slice 3 source candidate adds all existing
+protocol-v1 data operations through the broker-private authenticated HTTP-v2
+child. It issues connection-owned scopes and broker session handles, binds
+state to connection/scope/role/backend generation, disposes authority on scope
+or connection teardown, never stores mappings, and never retries a data
+operation. Unknown submitted work never escapes accounting: state-changing and
+stateless uncertainty invalidate the affected authority and either confirm the
+required authenticated disposal or terminate the backend and its complete
+generation. Strict HTTP-v2 projection, operation-specific oversized-response
+cleanup, fixed errors, authenticated Python detector budgets/watchdogs,
+observable disconnect cancellation, and fixed global/per-role/per-connection
+bounds are enforced through the final native response write. Windows pipe
+backpressure is nonblocking and deadline-bounded in both directions. No Chrome
+Native Messaging, Extension, Tauri/Desktop, Office, installer, or update
+integration changed.
 
-Local evidence currently passes `154` focused Python protocol/bootstrap tests
+The integrated Slice 2 evidence passed `154` focused Python protocol/bootstrap tests
 with two expected Unix-only skips and the full Python suite (`2,486` passed,
 five optional OpenCV plus two Unix-only backend-bootstrap skips). The
 Windows native matrix passes two decoder tests, 20 Slice 1 conformance groups,
@@ -300,6 +313,29 @@ independent security review passes with no unresolved finding. All 14 jobs in
 [implementation branch CI](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31251561221)
 pass, including Windows, Ubuntu, and macOS native runtime jobs plus Windows
 packaged-backend smoke.
+
+Slice 3 local evidence passes 17 focused Python data-plane/context tests and
+163 combined protocol/backend/data-plane tests with two expected Unix-only
+skips, `2,495` full Python tests, and complete native
+suites on Windows (`111` passed, five ignored fixtures) and real WSL2 Linux
+(`110` passed, five ignored fixtures). The data-plane target adds 33
+deterministic ownership/fault/race groups, eight private-backend executor unit
+groups, and three real-backend lifecycle/cancellation/resource tests. Root
+JavaScript `123`, Desktop Rust `31`, Office manifest/type/`129`-test/build,
+Ruff over 229 files, rustfmt, warning-as-error Clippy, dependency/static,
+synchronized-version, release, and documentation gates pass. Three alternating
+exact-base performance pairs put candidate/base medians at detect `5.80/5.77
+ms`, sanitize `15.63/15.61 ms`, restore `0.23/0.22 ms`, PDF `72.92/71.96 ms`,
+and resident memory `154.8/153.9 MiB`; every branch-relative result is within
+policy despite the pre-existing stale formal sanitize anchor. The expanded
+real Windows forwarding loop (24 detect, 24 session lifecycles, eight
+roundtrips, three PDFs) adds no handle and 12,288 bytes RSS after warmup; WSL2
+adds no descriptor or RSS. The exact 70,953,644-byte frame passes on both
+platforms, while repeated graceful and forced backend cycles stay bounded and
+rotate generation. Slice 3 evidence is tracked in the
+[current acceptance record](acceptance/2026-08-08-phase-8-native-broker-data-plane.md)
+with a separate-context security review clear on the complete current diff. It
+remains provisional until exact-head CI and post-main gates finish.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx
@@ -436,7 +472,7 @@ applicable trade. The baseline was not moved.
 | Thai PDPA PDF report | Verified | Whitelisted PII-free renderer and end-to-end tests. A second Windows font defect was found and fixed on 2026-07-29: `FONT_CANDIDATES` carried exactly one Windows entry, a Sarabun path no Windows edition ships, so every Windows machine except the developer's fell through to Helvetica and rendered Thai as black boxes — the packaged exe bundles no font at all, so that was every packaged user. Leelawadee UI (shipped with every Windows edition) is now a second candidate, which in turn exposed a reportlab defect: `PDFTextObject.setRise`'s "optimize out r0 Ts r1 Ts" branch rewrites the emitted operator without storing the new rise, stranding runs of text above the baseline for any font that positions marks by offset rather than glyph substitution. Repaired in `thai_pdf_text._install_rise_fix()`, applied conditionally via a behavioural probe so an upstream fix stops the patch cleanly. Measured on "รายงานความเสี่ยงข้อมูลส่วนบุคคล" at 26pt: 15 distinct glyph baselines before, 11 after, and the visible span "ยงข้อมูลส" returns to the baseline. The underlying exposure — that the product shipped no font and depended on whatever the machine had — is closed: `pii_redactor/fonts/IBMPlexSansThaiLooped-Regular.ttf` (OFL-1.1, converted from the WOFF2 already vendored for the UI, container change only) is now the first candidate and ships in both the wheel and the exe, so a report renders identically wherever it was produced. Thai text shaping had been broken from the renderer's introduction until earlier the same day: reportlab draws glyphs in code-point order unless HarfBuzz shaping is enabled, so every tone mark stacking on an upper vowel was dropped or misplaced — 23 literals in this report, including its own title and the `ADDRESS` label. Fixed by enabling reportlab's built-in shaping (`uharfbuzz`, now a core dependency) and drawing through `pii_redactor/thai_pdf_text.draw_text`, which pairs an invisible real-character layer with the visible shaped glyphs so the page stays searchable. Verified against headless Chrome as a reference renderer: mark positions match on every test word. Two accepted limitations: copying a whole page repeats each shaped line, and `pdfminer`/`pdfplumber` cannot reconstruct stacked Thai marks from any producer (measured — headless Chrome output fails the same way), so extraction-based tooling should use the `.txt` export instead. |
 | PDF redaction and preview | Hardening open; authoritative mapping verified locally | Every returned PDF `WordBbox` now carries an exact half-open source interval assigned by the pdfplumber character map, pdfium character stream, or hybrid/OCR assembly and shifted with page separators. Redaction consumes `Entity.span`, selects only intersecting boxes, checks length-preserving Thai-digit equivalence plus non-whitespace coverage/page/geometry consistency, and fails before output on missing or unsafe provenance. Adversarial tests cover same-value and cross-page isolation, independent/overlapping/adjacent/multi-box entities, Thai combining characters, whitespace/CRLF/page joins, malformed/uncovered intervals, fixed safe errors, negative pixels, and existing flattening/padding. No value-search fallback or one-character exclusion remains. Current-source regressions also clear swallowed and translated extraction/mapping exception graphs. Historical optional OCR evidence predates this composition; physical scans, handwriting, broader real-form accuracy, browser/installed-host evidence, and hosted PDF resource/timeouts remain open. |
 | Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
-| Local HTTP authentication | Hardening open | Current v2 separates the optional data-plane API key from control-plane authority. Shutdown retains its existing boot-token behavior. Session disposal has no unset-token grace: the existing internal route requires one short-lived HMAC authorization derived from the configured boot secret, bound to the exact target and expiry, and consumed once. Verification accepts only canonical unpadded base64url and fingerprints canonical authenticated content. Missing, malformed, noncanonical, invalid, expired, duplicate, cross-session, and replayed authority fails with the same bounded control error. Final expiry validation, replay insertion, and disposal serialize inside the lifecycle lock, so authority that expires while waiting is rejected without consumption or disposal; concurrent use succeeds at most once. A fresh authority makes repeated disposal idempotent. Neither the boot secret nor derived authority is returned to browser, Office, or extension code. When the local API key is unset, PII-bearing fixed-port endpoints still do not authenticate the process owning localhost port 8000; CORS and host validation are not server identity. Slice 2 now implements the broker's authenticated native control plane and broker-private authenticated backend bootstrap, but it forwards no data, owns no sessions, and is not used by a storefront. Broker-backed data admission and disposal therefore remain open. OS peer credentials establish OS-user/process context and installed path/build/digest establishes package consistency, not publisher attestation or strong application authentication. Hosted caller authentication remains a separate platform gate. |
+| Local HTTP authentication | Hardening open | Current v2 separates the optional data-plane API key from control-plane authority. Shutdown retains its existing boot-token behavior. Session disposal has no unset-token grace: the existing internal route requires one short-lived HMAC authorization derived from the configured boot secret, bound to the exact target and expiry, and consumed once. Verification accepts only canonical unpadded base64url and fingerprints canonical authenticated content. Missing, malformed, noncanonical, invalid, expired, duplicate, cross-session, and replayed authority fails with the same bounded control error. Final expiry validation, replay insertion, and disposal serialize inside the lifecycle lock, so authority that expires while waiting is rejected without consumption or disposal; concurrent use succeeds at most once. A fresh authority makes repeated disposal idempotent. Neither the boot secret nor derived authority is returned to browser, Office, or extension code. When the local API key is unset, PII-bearing fixed-port endpoints still do not authenticate the process owning localhost port 8000; CORS and host validation are not server identity. Slice 2 implements the broker's authenticated native control plane and broker-private authenticated backend bootstrap. The Slice 3 source candidate forwards strict protocol-v1 data operations through that private boundary, binds session handles to connection/scope/role/generation, and requires confirmed authenticated disposal or whole-generation teardown. No storefront uses it yet. OS peer credentials establish OS-user/process context and installed path/build/digest establishes package consistency, not publisher attestation or strong application authentication. Hosted caller authentication remains a separate platform gate. |
 | Public errors and audit logs | Hardening open | Current-source API process-audit callers use fresh non-authorizing operation UUIDs for sanitize, reidentify, and roundtrip; local disk/stdout regressions reject live session IDs, originals, and pseudonyms. Bounded real-Uvicorn regressions send actual successful and rejected disposal requests through both launcher-configured and default CLI logging. They prove session IDs, derived authorization, control secret, request PII, and query authority are absent from captured stdout/stderr while a health access row and fixed `/api/session/[redacted]` row remain useful. Recognized access records discard queries; unknown record shapes are suppressed fail-closed. Desktop forwarding preserves backend redaction without reconstructing removed values. Successful sanitize records `prepared` before publication, while a safe blocked-attempt record may remain after rejection. HTTP endpoint and pre-response-start JSON-render containment, fixed request-validation responses, direct stateless/local-session sanitize and restore translation, provider translation, PDF/OCR swallowed-error disposal, and worker handler/runner barriers sever retained ordinary exception graphs and common mutable payload fields before emitting fixed failures or continuing a fallback. Ordinary `ExceptionGroup` members are recursively scrubbed, while the read-only group shell is dropped without logging/export rather than corrupted; direct or grouped process signals may propagate. Otherwise-unhandled downstream HTTP exceptions that reach the endpoint decorator become a fixed 500 rather than exporting their detail; provider and PDF boundaries retain their explicit safe 5xx/422 translations. Internal seed audit rows use opaque `seed:<uuid4>` entity IDs, exact replay adds no row, and conflict errors carry no values; retained rows remain structural after `clear()`. Current HTTP v2 uses exact stable-code envelopes without exception messages, provider bodies, excerpts, mappings, or credentials. Protected worker provider failures use fixed v1 errors after discarding the shared-call graph; some generic worker poison-envelope/log paths still expose reduced exception type names, so their cleanup remains separate hardening work. The process-audit schema retains the legacy `session_id` field name, operation-specific files still have no timed retention policy, and published 2.5.0 predates these current hardening changes. Official platform-visible logging remains open. |
 
 ## Compliance documents
@@ -451,8 +487,8 @@ applicable trade. The baseline was not moved.
 |---|---|---|
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
 | AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain skip-and-continue behavior; the separate fine-tuned offset engine is outside this change. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
-| Browser extension | Hardening open | The exact 2026-07 unpacked candidate passed the recorded live Mask, backend-offline, closed-shadow Restore, consistency, and side-panel checks. That evidence remains historical and predates the current backend residual/v2/token-identity changes. Current source validates exact v2 health and operation schemas, rejects malformed/unsafe responses before a composer or copy write, and treats a stale namespaced token as unsafe. Slice 2 implements the shared broker control plane, but no Chrome Native Messaging adapter, Extension permission/code change, data operation, or lifecycle disposal exists; fresh browser/package evidence remains open. OS peer context and package consistency are explicitly not publisher attestation. Separately, raw text typed into an AI site's provider-controlled DOM can be observed before in-page Mask acts; the side panel is the stronger raw-entry boundary, and making it mandatory would require an owner product decision. |
-| Desktop app | Hardening open | The published Windows `2.5.0` installer passed its exact installed-artifact checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid for that artifact. It predates the current transaction/audit, outbound-policy, v2, and token-identity source changes. Current web and Rust hotkey paths validate strict v2 responses, reuse the prior session, retry fresh only for exact expiry/mode errors, and block unsafe clipboard writes. Slice 2 implements the shared broker control plane, but no Tauri command, Desktop client migration, data/session operation, disposal, or new packaged/installed-artifact evidence exists; those gates remain open. |
+| Browser extension | Hardening open | The exact 2026-07 unpacked candidate passed the recorded live Mask, backend-offline, closed-shadow Restore, consistency, and side-panel checks. That evidence remains historical and predates the current backend residual/v2/token-identity changes. Current source validates exact v2 health and operation schemas, rejects malformed/unsafe responses before a composer or copy write, and treats a stale namespaced token as unsafe. Slice 3 adds the shared broker data plane, but no Chrome Native Messaging adapter or Extension permission/code/lifecycle migration exists; Slice 5 and fresh browser/package evidence remain open. OS peer context and package consistency are explicitly not publisher attestation. Separately, raw text typed into an AI site's provider-controlled DOM can be observed before in-page Mask acts; the side panel is the stronger raw-entry boundary, and making it mandatory would require an owner product decision. |
+| Desktop app | Hardening open | The published Windows `2.5.0` installer passed its exact installed-artifact checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid for that artifact. It predates the current transaction/audit, outbound-policy, v2, and token-identity source changes. Current web and Rust hotkey paths validate strict v2 responses, reuse the prior session, retry fresh only for exact expiry/mode errors, and block unsafe clipboard writes. Slice 3 adds the shared broker data plane, but no Tauri command, Desktop client migration, or new packaged/installed-artifact evidence exists; Slice 4 and those gates remain open. |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. Office is outside broker v1; its web-add-in architecture is unchanged, and any future native host/bridge requires a separate ADR. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |
 | CLI | Verified | Sanitize/report/receipt and end-to-end pipeline tests pass. Current source uses the shared protected-provider policy, rescans before every actual attempt, caps retries at three, and preserves its stateful snapshot/rollback semantics. This has automated evidence, while the changed provider path still needs the fresh live run tracked under Protected provider roundtrip. |
 | Demo playground | Hardening open | The exact 2026-07-23 browser candidate passed token/surrogate roundtrip, protected Pathumma, guard warning, responsive layouts, report download/open, and positive PDF preview/download checks; that dated evidence remains historical and predates the current backend residual/v2/token changes. Current source validates strict v2 health/operation responses, fails residual or malformed results closed, reaches providers through the shared orchestration layer, and uses authoritative PDF source intervals behind the redaction route. Fresh browser/live PDF evidence remains open. |

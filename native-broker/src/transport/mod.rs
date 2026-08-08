@@ -97,6 +97,10 @@ impl AcceptedConnection {
     pub fn stream_mut(&mut self) -> &mut NativeStream {
         &mut self.stream
     }
+
+    pub fn stream(&self) -> &NativeStream {
+        &self.stream
+    }
 }
 
 impl fmt::Debug for AcceptedConnection {
@@ -239,6 +243,10 @@ impl NativeStream {
 
     pub(crate) fn has_pending_input(&self) -> Result<bool, ProtocolError> {
         self.inner.has_pending_input()
+    }
+
+    pub fn peer_connected(&self) -> Result<bool, ProtocolError> {
+        self.inner.peer_connected()
     }
 
     pub fn write_value(

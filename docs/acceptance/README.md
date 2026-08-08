@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-08 Phase 8 native-broker data plane, ownership, and disposal](2026-08-08-phase-8-native-broker-data-plane.md)
 - [2026-08-08 Phase 8 authenticated native-broker bootstrap and health](2026-08-08-phase-8-native-broker-bootstrap.md)
 - [2026-08-08 Phase 8 native-broker protocol and cross-language conformance](2026-08-08-phase-8-native-broker-protocol.md)
 - [2026-08-07 Phase 8 authoritative PDF source intervals](2026-08-07-phase-8-pdf-source-intervals.md)
@@ -96,6 +97,13 @@ health, and deterministic process teardown only. It does not establish the
 broker data plane, session ownership/disposal, Chrome Native Messaging,
 Extension or Desktop migration, Office support, installer/update migration, or
 installed-artifact acceptance.
+
+The 2026-08-08 Slice 3 native-broker record covers the source/runtime data
+plane: strict private HTTP-v2 forwarding, connection/scope/session ownership,
+confirmed disposal, non-replayable uncertain completion, protocol deadlines,
+and backend-generation invalidation. It does not establish Chrome Native
+Messaging, Extension or Desktop migration, Office support, installer/update
+migration, installed-artifact acceptance, or a release.
 
 The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
 first merge review rejected `f968833` with six lifecycle, authorization,

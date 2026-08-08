@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -13,6 +14,7 @@ use aiguard_native_broker_protocol::transport::{
     NativeStream, PlatformEndpoint, MAX_ACTIVE_CONNECTIONS,
 };
 use aiguard_native_broker_protocol::ProtocolError;
+use base64::Engine;
 use sha2::{Digest, Sha256};
 
 fn repository_root() -> PathBuf {
@@ -193,11 +195,20 @@ fn connect(publication: &str) -> NativeStream {
 }
 
 fn send(stream: &mut NativeStream, value: serde_json::Value) -> serde_json::Value {
+    send_with_limit(stream, value, 1_048_576, Duration::from_secs(5))
+}
+
+fn send_with_limit(
+    stream: &mut NativeStream,
+    value: serde_json::Value,
+    max_frame_bytes: u64,
+    timeout: Duration,
+) -> serde_json::Value {
     stream
-        .write_value(&value, 1_048_576, Duration::from_secs(5))
+        .write_value(&value, max_frame_bytes, timeout)
         .unwrap();
     let response = stream
-        .read_frame(1_048_576, Duration::from_secs(5))
+        .read_frame(max_frame_bytes, timeout)
         .unwrap()
         .unwrap();
     serde_json::from_slice(&response).unwrap()
@@ -215,8 +226,105 @@ fn hello(stream: &mut NativeStream, role: &str, versions: serde_json::Value) -> 
     )
 }
 
+fn create_live_session(stream: &mut NativeStream, label: &str) -> (String, String) {
+    assert_eq!(
+        hello(stream, "desktop", serde_json::json!([1]))["role"],
+        "desktop"
+    );
+    let opened = send(
+        stream,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "scope_open",
+            "payload": {"scope_kind": "desktop_ui"},
+            "request_id": format!("{label}-scope"),
+        }),
+    );
+    let scope = opened["result"]["scope_id"].as_str().unwrap().to_owned();
+    let sanitized = send(
+        stream,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "sanitize",
+            "payload": {"mode": "token", "text": "synthetic runtime cleanup"},
+            "request_id": format!("{label}-sanitize"),
+            "scope_id": scope,
+        }),
+    );
+    let session = sanitized["result"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    (scope, session)
+}
+
+fn wait_for_desktop_sessions(
+    plane: &aiguard_native_broker_protocol::data_plane::DataPlane,
+    expected: usize,
+) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(6);
+    while plane.stats().desktop_sessions != expected && std::time::Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(plane.stats().desktop_sessions, expected);
+}
+
 #[test]
-fn authenticated_desktop_health_is_live_while_data_and_global_stop_stay_disabled() {
+fn live_sessions_are_cleaned_on_eof_malformed_frame_and_broker_shutdown() {
+    let _guard = broker_test_guard();
+    let mut fixture = ManifestFixture::create("desktop");
+    let endpoint_root = test_temp_root("stateful-runtime-cleanup");
+    let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
+    let publication = endpoint.publication();
+    let runtime = BrokerRuntime::from_parts_for_test(
+        endpoint,
+        fixture.manifest.take().unwrap(),
+        launch_backend(),
+        "2.5.0",
+        runtime_config(),
+    )
+    .unwrap();
+    let plane = runtime.data_plane_for_test();
+    let stop = runtime.stop_signal_for_test();
+    let server = thread::spawn(move || runtime.run().unwrap());
+
+    let mut eof = connect(&publication);
+    let _ = create_live_session(&mut eof, "eof");
+    wait_for_desktop_sessions(&plane, 1);
+    drop(eof);
+    wait_for_desktop_sessions(&plane, 0);
+    assert!(!plane.stats().backend_invalidated);
+
+    let mut malformed = connect(&publication);
+    let _ = create_live_session(&mut malformed, "malformed");
+    wait_for_desktop_sessions(&plane, 1);
+    malformed
+        .write_raw_for_test(&[0, 0, 0, 1, b'{'], Duration::from_secs(2))
+        .unwrap();
+    let failure = malformed
+        .read_frame(1_048_576, Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    let failure: serde_json::Value = serde_json::from_slice(&failure).unwrap();
+    assert_eq!(failure["error"]["code"], "request_invalid");
+    drop(malformed);
+    wait_for_desktop_sessions(&plane, 0);
+    assert!(!plane.stats().backend_invalidated);
+
+    let mut shutdown = connect(&publication);
+    let _ = create_live_session(&mut shutdown, "shutdown");
+    wait_for_desktop_sessions(&plane, 1);
+    stop.store(true, Ordering::Release);
+    assert_eq!(server.join().unwrap(), BrokerExit::Idle);
+    wait_for_desktop_sessions(&plane, 0);
+    assert!(!plane.stats().backend_invalidated);
+    drop(shutdown);
+    #[cfg(unix)]
+    std::fs::remove_dir_all(endpoint_root).unwrap();
+}
+
+#[test]
+fn authenticated_desktop_health_and_slice3_data_are_live_while_global_stop_stays_disabled() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("desktop");
     let endpoint_root = test_temp_root("desktop-runtime");
@@ -297,17 +405,107 @@ fn authenticated_desktop_health_is_live_while_data_and_global_stop_stay_disabled
     );
     assert_eq!(health["result"], serde_json::json!({"status": "ok"}));
 
+    let opened = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "scope_open",
+            "payload": {"scope_kind": "desktop_ui"},
+            "request_id": "desktop-scope-open",
+        }),
+    );
+    let scope = opened["result"]["scope_id"].as_str().unwrap();
     let data = send(
         &mut client,
         serde_json::json!({
             "broker_protocol_version": 1,
             "operation": "detect",
             "payload": {"text": "synthetic transport fixture"},
-            "request_id": "desktop-data-denied",
-            "scope_id": "synthetic-scope",
+            "request_id": "desktop-data",
+            "scope_id": scope,
         }),
     );
-    assert_eq!(data["error"]["code"], "operation_failed");
+    assert_eq!(data["result"]["detected_entity_count"], 0);
+
+    let sanitized = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "sanitize",
+            "payload": {"mode": "token", "text": "synthetic transport fixture"},
+            "request_id": "desktop-sanitize",
+            "scope_id": scope,
+        }),
+    );
+    let session = sanitized["result"]["session_id"].as_str().unwrap();
+    assert!(session.starts_with("session-"));
+    let reidentified = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "reidentify",
+            "payload": {
+                "session_id": session,
+                "text": sanitized["result"]["sanitized_text"],
+            },
+            "request_id": "desktop-reidentify",
+            "scope_id": scope,
+        }),
+    );
+    assert_eq!(reidentified["result"]["leftover_count"], 0);
+
+    let roundtrip = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "roundtrip",
+            "payload": {
+                "mode": "token",
+                "provider": "fake",
+                "text": "synthetic transport fixture",
+            },
+            "request_id": "desktop-roundtrip",
+            "scope_id": scope,
+        }),
+    );
+    assert_eq!(roundtrip["result"]["provider_used"], "fake");
+
+    let sample_pdf = std::fs::read(repository_root().join("examples/sample_document.pdf")).unwrap();
+    let pdf_started = std::time::Instant::now();
+    let redacted = send_with_limit(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "redact_pdf",
+            "payload": {
+                "pdf_b64": base64::engine::general_purpose::STANDARD.encode(sample_pdf),
+            },
+            "request_id": "desktop-redact-pdf",
+            "scope_id": scope,
+        }),
+        aiguard_native_broker_protocol::max_frame_bytes(),
+        Duration::from_secs(60),
+    );
+    assert!(matches!(
+        redacted["result"]["source_type"].as_str(),
+        Some("pdf_text") | Some("pdf_hybrid")
+    ));
+    eprintln!(
+        "native-runtime-pdf response_bytes={} roundtrip_ms={}",
+        serde_json::to_vec(&redacted).unwrap().len(),
+        pdf_started.elapsed().as_millis()
+    );
+    let disposed = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "session_dispose",
+            "payload": {"session_id": session},
+            "request_id": "desktop-session-dispose",
+            "scope_id": scope,
+        }),
+    );
+    assert_eq!(disposed["result"], serde_json::json!({"disposed": true}));
 
     let global_stop = send(
         &mut client,
@@ -388,22 +586,21 @@ fn maintenance_can_health_and_stop_but_cannot_request_data() {
 }
 
 #[test]
-fn crashed_backend_closes_broker_endpoint_and_returns_fixed_exit() {
+fn backend_crash_after_runtime_construction_closes_endpoint_and_returns_fixed_exit() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("desktop");
     let endpoint_root = test_temp_root("crashed-runtime");
     let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
     let publication = endpoint.publication();
-    let mut backend = launch_backend();
-    backend.force_terminate();
     let runtime = BrokerRuntime::from_parts_for_test(
         endpoint,
         fixture.manifest.take().unwrap(),
-        backend,
+        launch_backend(),
         "2.5.0",
         runtime_config(),
     )
     .unwrap();
+    runtime.force_backend_terminate_for_test();
     assert_eq!(runtime.run().unwrap(), BrokerExit::BackendFailed);
     assert!(NativeStream::connect(&publication, Duration::from_millis(50)).is_err());
     #[cfg(unix)]
