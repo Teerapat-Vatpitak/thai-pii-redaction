@@ -484,11 +484,11 @@ fn broker_death_during_bootstrap_preparation_reaps_the_backend() {
         let _ = fixture.wait();
         panic!("backend preparation fixture did not publish its process id");
     }
-    let process_id: u32 = std::fs::read_to_string(&pid_file)
-        .unwrap()
+    let published = std::fs::read_to_string(&pid_file).unwrap();
+    let process_id: u32 = published
         .trim()
         .parse()
-        .unwrap();
+        .unwrap_or_else(|_| panic!("fixed bootstrap stage: {published}"));
     fixture.kill().unwrap();
     fixture.wait().unwrap();
 
@@ -519,6 +519,7 @@ fn broker_early_parent_death_fixture() {
         return;
     };
     let root = repository_root();
+    #[cfg(not(target_os = "macos"))]
     let source = r#"
 import os
 import time
@@ -530,6 +531,45 @@ def prepare():
     time.sleep(30)
 
 raise SystemExit(main(prepare))
+"#;
+    #[cfg(target_os = "macos")]
+    let source = r#"
+import os
+import sys
+import threading
+import time
+from native_broker_backend import (
+    _read_unix_bootstrap,
+    _validate_listener,
+    _watch_broker_channel_and_exit,
+)
+
+def mark(stage):
+    with open(os.environ["AIGUARD_SLICE2_EARLY_PID_FILE"], "w", encoding="ascii") as handle:
+        handle.write(stage)
+
+try:
+    credentials, listener, broker_channel = _read_unix_bootstrap()
+except BaseException:
+    mark("read-failed")
+    time.sleep(30)
+    raise
+
+sys.stdin.close()
+threading.Thread(
+    target=_watch_broker_channel_and_exit,
+    args=(broker_channel,),
+    daemon=True,
+).start()
+try:
+    _validate_listener(listener)
+except BaseException:
+    mark("validate-failed")
+    time.sleep(30)
+    raise
+
+mark(str(os.getpid()))
+time.sleep(30)
 "#;
     let requested = vec!["-c".to_owned(), source.to_owned()];
     let (python, arguments) = python_command(&root, &requested);
