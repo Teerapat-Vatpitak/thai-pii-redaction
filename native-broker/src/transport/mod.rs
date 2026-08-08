@@ -271,6 +271,11 @@ impl NativeStream {
         self.inner.shutdown();
     }
 
+    pub(crate) fn finish_response_until(&mut self, deadline: Instant) {
+        let grace = deadline.saturating_duration_since(Instant::now());
+        self.inner.finish_response(grace);
+    }
+
     #[doc(hidden)]
     pub fn write_raw_for_test(
         &mut self,

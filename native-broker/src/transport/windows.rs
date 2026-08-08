@@ -441,6 +441,11 @@ impl WindowsNativeStream {
         }
     }
 
+    pub(crate) fn finish_response(&mut self, _timeout: Duration) {
+        // Closing the server handle preserves buffered pipe bytes. A forced
+        // disconnect would discard the terminal response before the client reads it.
+    }
+
     pub(crate) fn inspect_server(
         &self,
     ) -> Result<(OsPeerContext, PathBuf, WindowsPeerGuard), ProtocolError> {

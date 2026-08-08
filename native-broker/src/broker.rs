@@ -164,7 +164,7 @@ impl BrokerRuntime {
                     let permit = match limiter.try_acquire() {
                         Ok(permit) => permit,
                         Err(_) => {
-                            send_fixed_error(
+                            send_terminal_fixed_error(
                                 connection.stream_mut(),
                                 "broker_busy",
                                 None,
@@ -265,7 +265,7 @@ fn handle_connection(
         Ok(Some(frame)) => frame,
         Ok(None) => return,
         Err(error) => {
-            send_fixed_error_until(
+            send_terminal_fixed_error_until(
                 connection.stream_mut(),
                 error.code(),
                 error.request_id(),
@@ -278,7 +278,7 @@ fn handle_connection(
     let negotiation = match negotiate_hello(&hello_raw, &package.allowed_role, product_version) {
         Ok(negotiation) => negotiation,
         Err(error) => {
-            send_fixed_error_until(
+            send_terminal_fixed_error_until(
                 connection.stream_mut(),
                 error.code(),
                 error.request_id(),
@@ -296,7 +296,7 @@ fn handle_connection(
     ) {
         Ok(admission) => admission,
         Err(error) => {
-            send_fixed_error_until(
+            send_terminal_fixed_error_until(
                 connection.stream_mut(),
                 error.code(),
                 error.request_id(),
@@ -310,7 +310,7 @@ fn handle_connection(
         return;
     }
     if let Err(error) = connection.stream_mut().ensure_no_pending_input() {
-        send_fixed_error_until(
+        send_terminal_fixed_error_until(
             connection.stream_mut(),
             error.code(),
             error.request_id(),
@@ -354,7 +354,7 @@ fn handle_connection(
             Ok(Some(frame)) => Zeroizing::new(frame),
             Ok(None) => return,
             Err(error) => {
-                send_fixed_error_until(
+                send_terminal_fixed_error_until(
                     connection.stream_mut(),
                     error.code(),
                     error.request_id(),
@@ -367,7 +367,7 @@ fn handle_connection(
         let request = match validate_request(&raw, &mut state, false) {
             Ok(request) => request,
             Err(error) => {
-                send_fixed_error_until(
+                send_terminal_fixed_error_until(
                     connection.stream_mut(),
                     error.code(),
                     error.request_id(),
@@ -380,6 +380,16 @@ fn handle_connection(
         let action = match control.authorize(&admission, &request.operation) {
             Ok(action) => action,
             Err(error) => {
+                if error.code() == "broker_unauthorized" {
+                    send_terminal_fixed_error_until(
+                        connection.stream_mut(),
+                        error.code(),
+                        Some(&request.request_id),
+                        state.protocol_version(),
+                        request_deadline,
+                    );
+                    return;
+                }
                 send_fixed_error_until(
                     connection.stream_mut(),
                     error.code(),
@@ -387,9 +397,6 @@ fn handle_connection(
                     state.protocol_version(),
                     request_deadline,
                 );
-                if error.code() == "broker_unauthorized" {
-                    return;
-                }
                 continue;
             }
         };
@@ -403,7 +410,7 @@ fn handle_connection(
                         backend.health_until(request_deadline).is_ok()
                     }
                     Err(TryLockError::WouldBlock) => {
-                        send_fixed_error_until(
+                        send_terminal_fixed_error_until(
                             connection.stream_mut(),
                             "broker_busy",
                             Some(&request.request_id),
@@ -417,7 +424,7 @@ fn handle_connection(
                 if !healthy {
                     backend_failed.store(true, Ordering::Release);
                     stop.store(true, Ordering::Release);
-                    send_fixed_error_until(
+                    send_terminal_fixed_error_until(
                         connection.stream_mut(),
                         "broker_unavailable",
                         Some(&request.request_id),
@@ -449,13 +456,16 @@ fn handle_connection(
                         default_message_bytes(),
                         request_deadline,
                     );
+                    connection
+                        .stream_mut()
+                        .finish_response_until(request_deadline);
                 }
                 stop.store(true, Ordering::Release);
                 return;
             }
         };
         let Ok(response) = response else {
-            send_fixed_error_until(
+            send_terminal_fixed_error_until(
                 connection.stream_mut(),
                 "operation_failed",
                 Some(&request.request_id),
@@ -474,15 +484,29 @@ fn handle_connection(
     }
 }
 
-fn send_fixed_error(
+fn send_terminal_fixed_error(
     stream: &mut crate::transport::NativeStream,
     code: &str,
     request_id: Option<&str>,
     protocol_version: u64,
     timeout: Duration,
 ) {
+    let Some(deadline) = Instant::now().checked_add(timeout) else {
+        return;
+    };
+    send_terminal_fixed_error_until(stream, code, request_id, protocol_version, deadline);
+}
+
+fn send_terminal_fixed_error_until(
+    stream: &mut crate::transport::NativeStream,
+    code: &str,
+    request_id: Option<&str>,
+    protocol_version: u64,
+    deadline: Instant,
+) {
     if let Ok(response) = error_message(code, request_id, protocol_version) {
-        let _ = stream.write_value(&response, default_message_bytes(), timeout);
+        let _ = stream.write_value_until(&response, default_message_bytes(), deadline);
+        stream.finish_response_until(deadline);
     }
 }
 

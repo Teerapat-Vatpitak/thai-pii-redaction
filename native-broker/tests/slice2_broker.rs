@@ -261,6 +261,9 @@ fn authenticated_desktop_health_is_live_while_data_and_global_stop_stay_disabled
         .unwrap();
     let server = thread::spawn(move || runtime.run().unwrap());
 
+    // Keep the server end live long enough to prove a terminal response is
+    // retained until a delayed authenticated peer can consume it.
+    thread::sleep(Duration::from_millis(500));
     let rejected = pipelined
         .read_frame(1_048_576, Duration::from_secs(2))
         .unwrap()

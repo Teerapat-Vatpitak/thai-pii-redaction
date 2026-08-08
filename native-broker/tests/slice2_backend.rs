@@ -525,8 +525,11 @@ import time
 from native_broker_backend import main
 
 def prepare():
-    with open(os.environ["AIGUARD_SLICE2_EARLY_PID_FILE"], "w", encoding="ascii") as handle:
+    target = os.environ["AIGUARD_SLICE2_EARLY_PID_FILE"]
+    staging = f"{target}.{os.getpid()}.tmp"
+    with open(staging, "w", encoding="ascii") as handle:
         handle.write(str(os.getpid()))
+    os.replace(staging, target)
     time.sleep(30)
 
 raise SystemExit(main(prepare))

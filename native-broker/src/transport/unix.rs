@@ -7,6 +7,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use zeroize::{Zeroize, Zeroizing};
+
 use crate::admission::{BrokerOsContext, OsPeerContext};
 use crate::transport::{checked_mode, current_uid, EndpointSecurityReport, ReadOutcome};
 use crate::ProtocolError;
@@ -307,6 +309,42 @@ impl UnixNativeStream {
 
     pub(crate) fn shutdown(&mut self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
+    pub(crate) fn finish_response(&mut self, timeout: Duration) {
+        const MAX_DISCARD_BYTES: usize = 64 * 1024;
+
+        let _ = self.stream.shutdown(std::net::Shutdown::Write);
+        if timeout.is_zero() {
+            return;
+        }
+        let deadline = Instant::now() + timeout;
+        let mut discarded = 0_usize;
+        let mut buffer = Zeroizing::new([0_u8; 4096]);
+        while discarded < MAX_DISCARD_BYTES {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() || self.stream.set_read_timeout(Some(remaining)).is_err() {
+                break;
+            }
+            let limit = buffer.len().min(MAX_DISCARD_BYTES - discarded);
+            match self.stream.read(&mut buffer[..limit]) {
+                Ok(0) => break,
+                Ok(read) => {
+                    buffer[..read].zeroize();
+                    discarded += read;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
     }
 
     pub(crate) fn inspect_server(
