@@ -200,12 +200,34 @@ def _read_unix_bootstrap() -> tuple[
     return credentials, listener, channel
 
 
+def _listener_is_accepting(listener: socket.socket) -> bool:
+    if sys.platform != "darwin":
+        return listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) == 1
+
+    # Darwin rejects SO_ACCEPTCONN queries. A nonblocking accept proves the
+    # state without calling listen; close one queued broker health probe.
+    accepted: socket.socket | None = None
+    try:
+        listener.setblocking(False)
+        try:
+            accepted, _peer = listener.accept()
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+        return True
+    finally:
+        if accepted is not None:
+            accepted.close()
+        listener.setblocking(True)
+
+
 def _validate_listener(listener: socket.socket) -> None:
     try:
         address = listener.getsockname()
-        accepting = listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
         listener.set_inheritable(False)
         inheritable = listener.get_inheritable()
+        accepting = _listener_is_accepting(listener)
     except OSError:
         _fail()
     if (
@@ -216,7 +238,7 @@ def _validate_listener(listener: socket.socket) -> None:
         or address[0] != "127.0.0.1"
         or type(address[1]) is not int
         or not 1 <= address[1] <= 65535
-        or accepting != 1
+        or not accepting
         or inheritable
     ):
         _fail()

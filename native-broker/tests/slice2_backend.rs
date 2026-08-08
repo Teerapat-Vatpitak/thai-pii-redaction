@@ -484,11 +484,11 @@ fn broker_death_during_bootstrap_preparation_reaps_the_backend() {
         let _ = fixture.wait();
         panic!("backend preparation fixture did not publish its process id");
     }
-    let published = std::fs::read_to_string(&pid_file).unwrap();
-    let process_id: u32 = published
+    let process_id: u32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
         .trim()
         .parse()
-        .unwrap_or_else(|_| panic!("fixed bootstrap stage: {published}"));
+        .unwrap();
     fixture.kill().unwrap();
     fixture.wait().unwrap();
 
@@ -519,7 +519,6 @@ fn broker_early_parent_death_fixture() {
         return;
     };
     let root = repository_root();
-    #[cfg(not(target_os = "macos"))]
     let source = r#"
 import os
 import time
@@ -531,78 +530,6 @@ def prepare():
     time.sleep(30)
 
 raise SystemExit(main(prepare))
-"#;
-    #[cfg(target_os = "macos")]
-    let source = r#"
-import os
-import socket
-import sys
-import threading
-import time
-from native_broker_backend import (
-    _read_unix_bootstrap,
-    _validate_listener,
-    _watch_broker_channel_and_exit,
-)
-
-def mark(stage):
-    with open(os.environ["AIGUARD_SLICE2_EARLY_PID_FILE"], "w", encoding="ascii") as handle:
-        handle.write(stage)
-
-try:
-    credentials, listener, broker_channel = _read_unix_bootstrap()
-except BaseException:
-    mark("read-failed")
-    time.sleep(30)
-    raise
-
-sys.stdin.close()
-threading.Thread(
-    target=_watch_broker_channel_and_exit,
-    args=(broker_channel,),
-    daemon=True,
-).start()
-try:
-    _validate_listener(listener)
-except BaseException:
-    try:
-        address = listener.getsockname()
-    except BaseException:
-        mark("validate-name-inspection-failed")
-        time.sleep(30)
-        raise
-    try:
-        accepting = listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
-    except BaseException:
-        mark("validate-listening-inspection-failed")
-        time.sleep(30)
-        raise
-    try:
-        listener.set_inheritable(False)
-        inheritable = listener.get_inheritable()
-    except BaseException:
-        mark("validate-inheritance-inspection-failed")
-        time.sleep(30)
-        raise
-    if listener.family != socket.AF_INET:
-        mark("validate-family-failed")
-    elif listener.type & socket.SOCK_STREAM != socket.SOCK_STREAM:
-        mark("validate-type-failed")
-    elif not isinstance(address, tuple) or len(address) < 2 or address[0] != "127.0.0.1":
-        mark("validate-address-failed")
-    elif type(address[1]) is not int or not 1 <= address[1] <= 65535:
-        mark("validate-port-failed")
-    elif accepting != 1:
-        mark("validate-listening-failed")
-    elif inheritable:
-        mark("validate-inheritance-failed")
-    else:
-        mark("validate-unknown-failed")
-    time.sleep(30)
-    raise
-
-mark(str(os.getpid()))
-time.sleep(30)
 "#;
     let requested = vec!["-c".to_owned(), source.to_owned()];
     let (python, arguments) = python_command(&root, &requested);

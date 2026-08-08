@@ -191,6 +191,28 @@ def test_prebound_listener_is_validated_and_sealed_before_backend_prepare():
         listener.close()
 
 
+def test_darwin_listener_probe_accepts_only_a_live_prebound_listener(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    not_listening = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        _validate_listener(listener)
+
+        client.connect(listener.getsockname())
+        _validate_listener(listener)
+
+        not_listening.bind(("127.0.0.1", 0))
+        with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
+            _validate_listener(not_listening)
+    finally:
+        not_listening.close()
+        client.close()
+        listener.close()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="SCM_RIGHTS is Unix-only")
 def test_unix_bootstrap_control_rejects_ambiguous_rights_and_closes_descriptors():
     with pytest.raises(BootstrapError, match="backend_bootstrap_failed"):
