@@ -18,6 +18,7 @@ from pii_redactor.detectors.fp_detector import _iban_check, detect_fp
 from pii_redactor.detectors.name_context import detect_name_context
 from pii_redactor.detectors.tb_detector import detect_tb
 from pii_redactor.models import Entity
+from pii_redactor.native_broker_context import native_broker_detector_phase
 
 
 class _GuardContext(Protocol):
@@ -370,6 +371,7 @@ def scan_residual_signals(text: str, guard_context: _GuardContext) -> list[str]:
     return signals
 
 
+@native_broker_detector_phase
 def scan_outbound_leaks(text: str, guard_context: _GuardContext) -> list[Entity]:
     """Return real leaks in pseudonymized text (empty list = safe to send)."""
     # Caller-seeded mappings are declarations, not proof. Only replacements

@@ -14,6 +14,7 @@ from pii_redactor.detectors.fp_detector import detect_fp
 from pii_redactor.detectors.name_context import detect_parallel_record_names
 from pii_redactor.detectors.tb_detector import NERChunkDiagnostics, detect_tb
 from pii_redactor.models import Entity
+from pii_redactor.native_broker_context import native_broker_detector_phase
 
 
 def dedupe_spans(entities: list[Entity]) -> list[Entity]:
@@ -321,6 +322,7 @@ def _relabel_student_ids(tb: list[Entity], kept: list[Entity]) -> list[Entity]:
     return out
 
 
+@native_broker_detector_phase
 def detect_all(
     text: str,
     *,

@@ -1,4 +1,4 @@
-//! Slice 2 broker runtime: authenticated hello, health, and maintenance stop.
+//! Authenticated native broker runtime and private HTTP-v2 data forwarding.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,13 +8,14 @@ use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 use crate::admission::{decide_admission, BrokerOsContext};
-use crate::backend::{BackendTimeouts, ManagedBackend};
+use crate::backend::{managed_backend_executor, BackendTimeouts, ManagedBackend};
 use crate::control::{ControlAction, Slice2ControlPlane};
+use crate::data_plane::DataPlane;
 use crate::manifest::ComponentManifest;
 use crate::transport::{AcceptedConnection, ConnectionLimiter, PlatformEndpoint};
 use crate::{
-    deadline_ms, default_message_bytes, error_message, max_frame_bytes, max_hello_bytes,
-    negotiate_hello, success_message, validate_request, ProtocolError,
+    default_message_bytes, error_message, max_frame_bytes, max_hello_bytes, negotiate_hello,
+    response_message_bytes, success_message, validate_request, ProtocolError,
 };
 
 #[derive(Clone, Copy)]
@@ -50,8 +51,11 @@ pub struct BrokerRuntime {
     endpoint: PlatformEndpoint,
     manifest: Arc<ComponentManifest>,
     backend: Arc<Mutex<ManagedBackend>>,
+    data_plane: DataPlane,
+    remote_tner_enabled: bool,
     product_version: String,
     config: BrokerRuntimeConfig,
+    stop: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for BrokerRuntime {
@@ -78,15 +82,22 @@ impl BrokerRuntime {
         manifest.verify_broker_executable(&current_executable)?;
         let endpoint_reservation = PlatformEndpoint::reserve(endpoint_root)?;
         let verified_backend = manifest.verify_backend()?;
-        let backend =
-            ManagedBackend::spawn_verified(&verified_backend, product_version, backend_timeouts)?;
+        let backend = Arc::new(Mutex::new(ManagedBackend::spawn_verified(
+            &verified_backend,
+            product_version,
+            backend_timeouts,
+        )?));
+        let data_plane = DataPlane::new(managed_backend_executor(&backend)?)?;
         let endpoint = endpoint_reservation.publish()?;
         Ok(Self {
             endpoint,
             manifest,
-            backend: Arc::new(Mutex::new(backend)),
+            backend,
+            data_plane,
+            remote_tner_enabled: remote_tner_enabled(),
             product_version: product_version.to_owned(),
             config,
+            stop: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -102,12 +113,17 @@ impl BrokerRuntime {
         if manifest.product_version() != product_version {
             return Err(ProtocolError::new("broker_incompatible", None));
         }
+        let backend = Arc::new(Mutex::new(backend));
+        let data_plane = DataPlane::new(managed_backend_executor(&backend)?)?;
         Ok(Self {
             endpoint,
             manifest: Arc::new(manifest),
-            backend: Arc::new(Mutex::new(backend)),
+            backend,
+            data_plane,
+            remote_tner_enabled: remote_tner_enabled(),
             product_version: product_version.to_owned(),
             config,
+            stop: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -115,10 +131,28 @@ impl BrokerRuntime {
         self.endpoint.publication()
     }
 
+    #[doc(hidden)]
+    pub fn force_backend_terminate_for_test(&self) {
+        match self.backend.lock() {
+            Ok(mut backend) => backend.force_terminate(),
+            Err(poisoned) => poisoned.into_inner().force_terminate(),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn data_plane_for_test(&self) -> DataPlane {
+        self.data_plane.clone()
+    }
+
+    #[doc(hidden)]
+    pub fn stop_signal_for_test(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.stop)
+    }
+
     pub fn run(mut self) -> Result<BrokerExit, ProtocolError> {
         let broker_context = Arc::new(self.endpoint.broker_context()?);
         let limiter = ConnectionLimiter::new(crate::transport::MAX_ACTIVE_CONNECTIONS);
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&self.stop);
         let backend_failed = Arc::new(AtomicBool::new(false));
         let maintenance_stop = Arc::new(AtomicBool::new(false));
         let mut workers: Vec<JoinHandle<()>> = Vec::new();
@@ -176,11 +210,13 @@ impl BrokerRuntime {
                     };
                     let manifest = Arc::clone(&self.manifest);
                     let backend = Arc::clone(&self.backend);
+                    let data_plane = self.data_plane.clone();
                     let broker_context = Arc::clone(&broker_context);
                     let stop = Arc::clone(&stop);
                     let backend_failed = Arc::clone(&backend_failed);
                     let maintenance_stop = Arc::clone(&maintenance_stop);
                     let product_version = self.product_version.clone();
+                    let remote_tner_enabled = self.remote_tner_enabled;
                     let config = self.config;
                     workers.push(std::thread::spawn(move || {
                         let _permit = permit;
@@ -189,10 +225,12 @@ impl BrokerRuntime {
                             &manifest,
                             &broker_context,
                             &backend,
+                            &data_plane,
                             &stop,
                             &backend_failed,
                             &maintenance_stop,
                             &product_version,
+                            remote_tner_enabled,
                             config,
                         );
                     }));
@@ -242,10 +280,12 @@ fn handle_connection(
     manifest: &ComponentManifest,
     broker_context: &BrokerOsContext,
     backend: &Mutex<ManagedBackend>,
+    data_plane: &DataPlane,
     stop: &AtomicBool,
     backend_failed: &AtomicBool,
     maintenance_stop: &AtomicBool,
     product_version: &str,
+    remote_tner_enabled: bool,
     config: BrokerRuntimeConfig,
 ) {
     let Some(hello_deadline) = Instant::now().checked_add(config.hello_timeout) else {
@@ -336,20 +376,33 @@ fn handle_connection(
     } else {
         default_message_bytes()
     };
+    let mut data_connection = match admission.admitted_role() {
+        "desktop" | "extension" => match data_plane.open_connection(admission.admitted_role()) {
+            Ok(connection) => Some(connection),
+            Err(error) => {
+                send_terminal_fixed_error(
+                    connection.stream_mut(),
+                    error.code(),
+                    error.request_id(),
+                    state.protocol_version(),
+                    config.request_timeout,
+                );
+                return;
+            }
+        },
+        _ => None,
+    };
     let control = Slice2ControlPlane::new();
     loop {
         if stop.load(Ordering::Acquire) {
             return;
         }
-        let control_budget =
-            Duration::from_millis(deadline_ms("broker_health", false).unwrap_or(5000))
-                .min(config.request_timeout);
-        let Some(request_deadline) = Instant::now().checked_add(control_budget) else {
+        let Some(read_deadline) = Instant::now().checked_add(config.request_timeout) else {
             return;
         };
         let raw = match connection
             .stream_mut()
-            .read_frame_until(request_frame_limit, request_deadline)
+            .read_frame_until(request_frame_limit, read_deadline)
         {
             Ok(Some(frame)) => Zeroizing::new(frame),
             Ok(None) => return,
@@ -359,12 +412,12 @@ fn handle_connection(
                     error.code(),
                     error.request_id(),
                     state.protocol_version(),
-                    request_deadline,
+                    read_deadline,
                 );
                 return;
             }
         };
-        let request = match validate_request(&raw, &mut state, false) {
+        let request = match validate_request(&raw, &mut state, remote_tner_enabled) {
             Ok(request) => request,
             Err(error) => {
                 send_terminal_fixed_error_until(
@@ -372,96 +425,169 @@ fn handle_connection(
                     error.code(),
                     error.request_id(),
                     state.protocol_version(),
-                    request_deadline,
+                    read_deadline,
                 );
                 return;
             }
         };
-        let action = match control.authorize(&admission, &request.operation) {
-            Ok(action) => action,
-            Err(error) => {
-                if error.code() == "broker_unauthorized" {
+        let Some(operation_deadline) = request.deadline_ms.and_then(|milliseconds| {
+            Instant::now().checked_add(Duration::from_millis(milliseconds))
+        }) else {
+            send_terminal_fixed_error_until(
+                connection.stream_mut(),
+                "operation_failed",
+                Some(&request.request_id),
+                state.protocol_version(),
+                read_deadline,
+            );
+            return;
+        };
+
+        let mut publication_lease = None;
+        let response = if request.operation == "broker_health" {
+            match control.authorize(&admission, &request.operation) {
+                Ok(ControlAction::Health) => {}
+                _ => {
                     send_terminal_fixed_error_until(
+                        connection.stream_mut(),
+                        "broker_unauthorized",
+                        Some(&request.request_id),
+                        state.protocol_version(),
+                        operation_deadline,
+                    );
+                    return;
+                }
+            }
+            let healthy = match backend.try_lock() {
+                Ok(mut backend) => {
+                    if stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                    backend.health_until(operation_deadline).is_ok()
+                }
+                Err(TryLockError::WouldBlock) => {
+                    send_terminal_fixed_error_until(
+                        connection.stream_mut(),
+                        "broker_busy",
+                        Some(&request.request_id),
+                        state.protocol_version(),
+                        operation_deadline,
+                    );
+                    return;
+                }
+                Err(TryLockError::Poisoned(_)) => false,
+            };
+            if !healthy {
+                backend_failed.store(true, Ordering::Release);
+                stop.store(true, Ordering::Release);
+                send_terminal_fixed_error_until(
+                    connection.stream_mut(),
+                    "broker_unavailable",
+                    Some(&request.request_id),
+                    state.protocol_version(),
+                    operation_deadline,
+                );
+                return;
+            }
+            success_message(
+                "broker_health",
+                &request.request_id,
+                serde_json::json!({"status": "ok"}),
+                admission.admitted_role(),
+                state.protocol_version(),
+            )
+        } else if request.operation == "maintenance_drain_stop" {
+            match control.authorize(&admission, &request.operation) {
+                Ok(ControlAction::DrainStop) => {}
+                _ => {
+                    send_terminal_fixed_error_until(
+                        connection.stream_mut(),
+                        "broker_unauthorized",
+                        Some(&request.request_id),
+                        state.protocol_version(),
+                        operation_deadline,
+                    );
+                    return;
+                }
+            }
+            maintenance_stop.store(true, Ordering::Release);
+            let response = success_message(
+                "maintenance_drain_stop",
+                &request.request_id,
+                serde_json::json!({"accepted": true}),
+                admission.admitted_role(),
+                state.protocol_version(),
+            );
+            if let Ok(response) = &response {
+                let _ = connection.stream_mut().write_value_until(
+                    response,
+                    default_message_bytes(),
+                    operation_deadline,
+                );
+                connection
+                    .stream_mut()
+                    .finish_response_until(operation_deadline);
+            }
+            stop.store(true, Ordering::Release);
+            return;
+        } else {
+            let Some(data_connection) = data_connection.as_mut() else {
+                send_terminal_fixed_error_until(
+                    connection.stream_mut(),
+                    "broker_unauthorized",
+                    Some(&request.request_id),
+                    state.protocol_version(),
+                    operation_deadline,
+                );
+                return;
+            };
+            let cancelled = || {
+                stop.load(Ordering::Acquire)
+                    || connection.ensure_peer_stable().is_err()
+                    || !connection.stream().peer_connected().unwrap_or(false)
+            };
+            match data_connection.dispatch_for_publication_until(
+                &request,
+                operation_deadline,
+                &cancelled,
+            ) {
+                Ok(publication) => {
+                    let (response, lease) = publication.into_parts();
+                    publication_lease = Some(lease);
+                    Ok(response)
+                }
+                Err(error) => {
+                    let invalidated = data_plane.stats().backend_invalidated;
+                    if invalidated {
+                        backend_failed.store(true, Ordering::Release);
+                        stop.store(true, Ordering::Release);
+                    }
+                    let terminal = invalidated
+                        || matches!(
+                            error.code(),
+                            "broker_unauthorized" | "broker_unavailable" | "operation_timeout"
+                        );
+                    if terminal {
+                        send_terminal_fixed_error_until(
+                            connection.stream_mut(),
+                            error.code(),
+                            Some(&request.request_id),
+                            state.protocol_version(),
+                            operation_deadline,
+                        );
+                        return;
+                    }
+                    if !send_fixed_error_until(
                         connection.stream_mut(),
                         error.code(),
                         Some(&request.request_id),
                         state.protocol_version(),
-                        request_deadline,
-                    );
-                    return;
-                }
-                send_fixed_error_until(
-                    connection.stream_mut(),
-                    error.code(),
-                    Some(&request.request_id),
-                    state.protocol_version(),
-                    request_deadline,
-                );
-                continue;
-            }
-        };
-        let response = match action {
-            ControlAction::Health => {
-                let healthy = match backend.try_lock() {
-                    Ok(mut backend) => {
-                        if stop.load(Ordering::Acquire) {
-                            return;
-                        }
-                        backend.health_until(request_deadline).is_ok()
-                    }
-                    Err(TryLockError::WouldBlock) => {
-                        send_terminal_fixed_error_until(
-                            connection.stream_mut(),
-                            "broker_busy",
-                            Some(&request.request_id),
-                            state.protocol_version(),
-                            request_deadline,
-                        );
+                        operation_deadline,
+                    ) {
                         return;
                     }
-                    Err(TryLockError::Poisoned(_)) => false,
-                };
-                if !healthy {
-                    backend_failed.store(true, Ordering::Release);
-                    stop.store(true, Ordering::Release);
-                    send_terminal_fixed_error_until(
-                        connection.stream_mut(),
-                        "broker_unavailable",
-                        Some(&request.request_id),
-                        state.protocol_version(),
-                        request_deadline,
-                    );
-                    return;
+                    continue;
                 }
-                success_message(
-                    "broker_health",
-                    &request.request_id,
-                    serde_json::json!({"status": "ok"}),
-                    admission.admitted_role(),
-                    state.protocol_version(),
-                )
-            }
-            ControlAction::DrainStop => {
-                maintenance_stop.store(true, Ordering::Release);
-                let response = success_message(
-                    "maintenance_drain_stop",
-                    &request.request_id,
-                    serde_json::json!({"accepted": true}),
-                    admission.admitted_role(),
-                    state.protocol_version(),
-                );
-                if let Ok(response) = &response {
-                    let _ = connection.stream_mut().write_value_until(
-                        response,
-                        default_message_bytes(),
-                        request_deadline,
-                    );
-                    connection
-                        .stream_mut()
-                        .finish_response_until(request_deadline);
-                }
-                stop.store(true, Ordering::Release);
-                return;
             }
         };
         let Ok(response) = response else {
@@ -470,17 +596,20 @@ fn handle_connection(
                 "operation_failed",
                 Some(&request.request_id),
                 state.protocol_version(),
-                request_deadline,
+                operation_deadline,
             );
             return;
         };
+        let response_limit = response_message_bytes(admission.admitted_role(), &request.operation)
+            .unwrap_or(default_message_bytes());
         if connection
             .stream_mut()
-            .write_value_until(&response, default_message_bytes(), request_deadline)
+            .write_value_until(&response, response_limit, operation_deadline)
             .is_err()
         {
             return;
         }
+        drop(publication_lease);
     }
 }
 
@@ -516,10 +645,17 @@ fn send_fixed_error_until(
     request_id: Option<&str>,
     protocol_version: u64,
     deadline: Instant,
-) {
+) -> bool {
     if let Ok(response) = error_message(code, request_id, protocol_version) {
-        let _ = stream.write_value_until(&response, default_message_bytes(), deadline);
+        return stream
+            .write_value_until(&response, default_message_bytes(), deadline)
+            .is_ok();
     }
+    false
+}
+
+fn remote_tner_enabled() -> bool {
+    std::env::var_os("AIGUARD_NER_ENGINE").is_some_and(|value| value == "tner")
 }
 
 fn reap_finished_workers(workers: &mut Vec<JoinHandle<()>>) -> bool {

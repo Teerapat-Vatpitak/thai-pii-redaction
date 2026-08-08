@@ -93,6 +93,12 @@ from pii_redactor.leak_guard import (
     scan_residual_signals,
 )
 from pii_redactor.models import EntityRegistry
+from pii_redactor.native_broker_context import (
+    BrokerOperationContext,
+    NativeBrokerOperationError,
+    NativeBrokerPayloadTooLarge,
+    activate_broker_operation,
+)
 from pii_redactor.redactor import redact_pdf as redact_pdf_file
 from pii_redactor.report import analyze_text, scan_section26
 from pii_redactor.report_pdf import render_pdpa_report
@@ -118,6 +124,11 @@ def _contain_public_errors(func):
             ner_category = getattr(error, "ner_category", None)
             if code in ERROR_SPECS and type(count) is int and count >= 0:
                 failure = (code, count, ner_category)
+            discard_exception_graph(error)
+        except NativeBrokerPayloadTooLarge as error:
+            failure = ("payload_too_large", 0, None)
+            discard_exception_graph(error)
+        except NativeBrokerOperationError as error:
             discard_exception_graph(error)
         except NERFailureError as error:
             code, category, count = ner_failure_metadata(error)
@@ -345,6 +356,89 @@ app.add_middleware(
     allowed_hosts=_parse_csv_env(os.environ.get("AIGUARD_ALLOWED_HOSTS")) or _DEFAULT_ALLOWED_HOSTS,
 )
 
+_BROKER_DEADLINE_HEADER = "X-AIGuard-Broker-Deadline-Ms"
+_BROKER_PHASES_HEADER = "X-AIGuard-Broker-Local-Detection-Phases"
+_BROKER_INTERMEDIATE_HEADER = "X-AIGuard-Broker-Intermediate-Text-Chars"
+_BROKER_PHASE_DEADLINE_HEADER = "X-AIGuard-Broker-Local-Phase-Deadline-Ms"
+_BROKER_MAX_DEADLINE_MS = 7_580_000
+_BROKER_LOCAL_PHASE_DEADLINE_MS = 360_000
+_BROKER_INTERMEDIATE_TEXT_CHARS = 200_000
+
+
+def _broker_header(request: Request, name: str) -> str | None:
+    values = request.headers.getlist(name)
+    return values[0] if len(values) == 1 else None
+
+
+def _broker_decimal(value: str | None, *, maximum: int, allow_zero: bool) -> int | None:
+    pattern = r"(?:0|[1-9][0-9]*)" if allow_zero else r"[1-9][0-9]*"
+    if value is None or re.fullmatch(pattern, value) is None:
+        return None
+    parsed = int(value)
+    return parsed if parsed <= maximum else None
+
+
+def _broker_optional_decimal(
+    value: str | None,
+    *,
+    maximum: int,
+    allow_zero: bool,
+) -> tuple[bool, int | None]:
+    if value == "none":
+        return True, None
+    parsed = _broker_decimal(value, maximum=maximum, allow_zero=allow_zero)
+    return parsed is not None, parsed
+
+
+def _broker_operation_context(request: Request) -> BrokerOperationContext | None:
+    outer = _broker_decimal(
+        _broker_header(request, _BROKER_DEADLINE_HEADER),
+        maximum=_BROKER_MAX_DEADLINE_MS,
+        allow_zero=False,
+    )
+    phases_ok, phases = _broker_optional_decimal(
+        _broker_header(request, _BROKER_PHASES_HEADER),
+        maximum=6,
+        allow_zero=True,
+    )
+    intermediate_ok, intermediate = _broker_optional_decimal(
+        _broker_header(request, _BROKER_INTERMEDIATE_HEADER),
+        maximum=_BROKER_INTERMEDIATE_TEXT_CHARS,
+        allow_zero=False,
+    )
+    phase_deadline_ok, phase_deadline = _broker_optional_decimal(
+        _broker_header(request, _BROKER_PHASE_DEADLINE_HEADER),
+        maximum=_BROKER_LOCAL_PHASE_DEADLINE_MS,
+        allow_zero=False,
+    )
+    valid_detection = (
+        (phases is None and intermediate is None and phase_deadline is None)
+        or (phases == 0 and intermediate is None and phase_deadline is None)
+        or (
+            phases is not None
+            and phases > 0
+            and intermediate == _BROKER_INTERMEDIATE_TEXT_CHARS
+            and phase_deadline == _BROKER_LOCAL_PHASE_DEADLINE_MS
+        )
+    )
+    if (
+        outer is None
+        or not phases_ok
+        or not intermediate_ok
+        or not phase_deadline_ok
+        or not valid_detection
+    ):
+        return None
+    try:
+        return BrokerOperationContext(
+            outer_deadline_ms=outer,
+            local_detection_phases=phases,
+            intermediate_text_chars=intermediate,
+            local_phase_deadline_ms=phase_deadline,
+        )
+    except ValueError:
+        return None
+
 
 @app.middleware("http")
 async def enforce_http_v2(request: Request, call_next):
@@ -398,6 +492,14 @@ async def enforce_http_v2(request: Request, call_next):
     elif path == "/api/shutdown" and not _boot_token_ok(request.headers.get("X-AIGuard-Token")):
         return error_response("control_forbidden")
 
+    broker_context = None
+    if app.state.private_backend and (path in data_paths or is_session_control):
+        broker_context = _broker_operation_context(request)
+        if broker_context is None:
+            return error_response(
+                "control_forbidden" if is_session_control else "authentication_required"
+            )
+
     query_items = list(request.query_params.multi_items())
     if path == "/api/audit-log":
         seen_query_keys: set[str] = set()
@@ -429,7 +531,17 @@ async def enforce_http_v2(request: Request, call_next):
             return error_response("invalid_request")
 
     try:
-        response = await call_next(request)
+        if broker_context is None:
+            response = await call_next(request)
+        else:
+            with activate_broker_operation(broker_context):
+                response = await call_next(request)
+    except NativeBrokerPayloadTooLarge as error:
+        discard_exception_graph(error)
+        return error_response("payload_too_large")
+    except NativeBrokerOperationError as error:
+        discard_exception_graph(error)
+        return error_response("internal_error")
     except BaseException as error:
         if not isinstance(error, Exception):
             raise
@@ -1073,6 +1185,8 @@ def reidentify(request: ReidentifyRequest):
         out = SERVICE.restore(request.session_id, request.text)
     except SessionExpiredError:
         raise ContractError("session_unavailable") from None
+    except NativeBrokerOperationError:
+        raise
     except Exception as error:
         restore_failed = True
         discard_exception_graph(error)
@@ -1381,6 +1495,8 @@ def roundtrip(request: RoundtripRequest):
             mapping=masked.mapping,
             mode=request.mode,
         )
+    except NativeBrokerOperationError:
+        raise
     except Exception as error:
         restore_failed = True
         discard_exception_graph(error)

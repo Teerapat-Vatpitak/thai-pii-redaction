@@ -147,11 +147,11 @@ jobs:
             native-broker
             desktop/src-tauri
 
-      - name: Native-broker protocol format, lint, and conformance
+      - name: Native-broker protocol, data-plane format, lint, and conformance
         run: |
           cargo fmt --manifest-path native-broker/Cargo.toml -- --check
           cargo clippy --locked --manifest-path native-broker/Cargo.toml --all-targets -- -D warnings
-          cargo test --locked --manifest-path native-broker/Cargo.toml --lib --test conformance --test slice2 --test slice2_binary
+          cargo test --locked --manifest-path native-broker/Cargo.toml --lib --test conformance --test slice2 --test slice2_binary --test slice3
 
       - name: Stage a placeholder sidecar
         # tauri_build::build() checks the externalBin path EXISTS (the real 50 MB
@@ -206,7 +206,7 @@ jobs:
         with:
           workspaces: native-broker
 
-      - name: Run platform transport, admission, bootstrap, health, and lifecycle tests
+      - name: Run platform transport, bootstrap, data-plane, and lifecycle tests
         env:
           PYTHONUTF8: "1"
         run: cargo test --locked --manifest-path native-broker/Cargo.toml

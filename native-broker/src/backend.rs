@@ -4,19 +4,33 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use hmac::{Hmac, Mac};
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
+use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::bootstrap::BootstrapSecrets;
+use crate::data_plane::{
+    BackendCall, BackendCompletion, BackendExecutor, BackendFailure, BackendGeneration,
+    BackendReply,
+};
 use crate::manifest::VerifiedBackend;
-use crate::ProtocolError;
+use crate::{canonical_json_bytes, default_message_bytes, max_frame_bytes, ProtocolError};
 
 const BOOTSTRAP_MAGIC: &[u8; 8] = b"AIGB2IPC";
 const BOOTSTRAP_VERSION: u16 = 1;
 const BOOTSTRAP_MAX_BYTES: usize = 4096;
 const HTTP_MAX_BYTES: usize = 16 * 1024;
+const HTTP_HEADER_MAX_BYTES: usize = 16 * 1024;
+const HTTP_IO_POLL: Duration = Duration::from_millis(100);
+const DISPOSAL_AUTH_LIFETIME: Duration = Duration::from_secs(30);
 const FORCED_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy)]
@@ -131,6 +145,8 @@ pub struct ManagedBackend {
     process_tree: ProcessTree,
     product_version: String,
     timeouts: BackendTimeouts,
+    generation: BackendGeneration,
+    liveness: Arc<AtomicBool>,
     healthy: bool,
     shutdown_complete: bool,
     security: BackendSecurityReport,
@@ -190,6 +206,8 @@ impl ManagedBackend {
             return unavailable();
         }
         let secrets = BootstrapSecrets::generate()?;
+        let generation = BackendGeneration::generate()?;
+        let liveness = Arc::new(AtomicBool::new(true));
         let (child, process_tree, bootstrap_guard) =
             spawn_and_transfer(&spec, &listener, &secrets)?;
         let mut backend = Self {
@@ -201,6 +219,8 @@ impl ManagedBackend {
             process_tree,
             product_version: spec.product_version,
             timeouts,
+            generation,
+            liveness,
             healthy: false,
             shutdown_complete: false,
             security: BackendSecurityReport {
@@ -237,6 +257,7 @@ impl ManagedBackend {
                 .is_some()
         {
             self.healthy = false;
+            self.liveness.store(false, Ordering::Release);
             return unavailable();
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -251,6 +272,7 @@ impl ManagedBackend {
             Ok(health) => Ok(health),
             Err(_) => {
                 self.healthy = false;
+                self.liveness.store(false, Ordering::Release);
                 Err(unavailable_error())
             }
         }
@@ -261,7 +283,11 @@ impl ManagedBackend {
     }
 
     pub fn is_alive(&mut self) -> bool {
-        self.child.try_wait().is_ok_and(|status| status.is_none())
+        let alive = self.child.try_wait().is_ok_and(|status| status.is_none());
+        if !alive {
+            self.liveness.store(false, Ordering::Release);
+        }
+        alive
     }
 
     #[doc(hidden)]
@@ -281,6 +307,7 @@ impl ManagedBackend {
         match self.child.try_wait() {
             Ok(Some(_)) => {
                 self.healthy = false;
+                self.liveness.store(false, Ordering::Release);
                 self.shutdown_complete = true;
                 return Ok(());
             }
@@ -304,6 +331,7 @@ impl ManagedBackend {
             match self.child.try_wait() {
                 Ok(Some(_)) => {
                     self.healthy = false;
+                    self.liveness.store(false, Ordering::Release);
                     self.shutdown_complete = true;
                     return Ok(());
                 }
@@ -325,6 +353,7 @@ impl ManagedBackend {
         self.process_tree.terminate();
         kill_and_reap_bounded(&mut self.child);
         self.healthy = false;
+        self.liveness.store(false, Ordering::Release);
         self.shutdown_complete = true;
     }
 
@@ -373,6 +402,661 @@ impl Drop for ManagedBackend {
         if !self.shutdown_complete && self.shutdown().is_err() {
             self.force_terminate();
         }
+    }
+}
+
+pub struct ManagedBackendExecutor {
+    address: SocketAddr,
+    api_key: Zeroizing<String>,
+    control_token: Zeroizing<String>,
+    generation: BackendGeneration,
+    liveness: Arc<AtomicBool>,
+    owner: Weak<Mutex<ManagedBackend>>,
+}
+
+impl fmt::Debug for ManagedBackendExecutor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedBackendExecutor")
+            .field("generation", &self.generation)
+            .field("live", &self.liveness.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
+}
+
+pub fn managed_backend_executor(
+    owner: &Arc<Mutex<ManagedBackend>>,
+) -> Result<Arc<dyn BackendExecutor>, ProtocolError> {
+    let backend = owner
+        .lock()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if !backend.healthy || !backend.liveness.load(Ordering::Acquire) {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    let executor = ManagedBackendExecutor {
+        address: backend.address,
+        api_key: Zeroizing::new(backend.secrets.api_key().to_owned()),
+        control_token: Zeroizing::new(backend.secrets.control_token().to_owned()),
+        generation: backend.generation,
+        liveness: Arc::clone(&backend.liveness),
+        owner: Arc::downgrade(owner),
+    };
+    drop(backend);
+    Ok(Arc::new(executor))
+}
+
+impl BackendExecutor for ManagedBackendExecutor {
+    fn generation(&self) -> BackendGeneration {
+        self.generation
+    }
+
+    fn execute(
+        &self,
+        call: &BackendCall,
+        deadline: Instant,
+        cancelled: &dyn Fn() -> bool,
+    ) -> BackendCompletion {
+        if cancelled() {
+            return BackendCompletion::NotSubmitted(BackendFailure::Cancelled);
+        }
+        if !self.liveness.load(Ordering::Acquire) {
+            return BackendCompletion::NotSubmitted(BackendFailure::BackendDied);
+        }
+        if deadline <= Instant::now() {
+            return BackendCompletion::NotSubmitted(BackendFailure::Timeout);
+        }
+        let prepared =
+            match prepare_data_request(call, &self.api_key, &self.control_token, deadline) {
+                Ok(prepared) => prepared,
+                Err(reason) => return BackendCompletion::NotSubmitted(reason),
+            };
+        execute_data_request(
+            self.address,
+            &prepared,
+            call.operation(),
+            deadline,
+            cancelled,
+            &self.liveness,
+        )
+    }
+
+    fn teardown(&self) {
+        self.liveness.store(false, Ordering::Release);
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        match owner.lock() {
+            Ok(mut backend) => backend.force_terminate(),
+            Err(poisoned) => poisoned.into_inner().force_terminate(),
+        };
+    }
+}
+
+struct PreparedDataRequest<'a> {
+    head: Zeroizing<Vec<u8>>,
+    first_body: Zeroizing<Vec<u8>>,
+    borrowed_body: Option<&'a [u8]>,
+    final_body: Zeroizing<Vec<u8>>,
+}
+
+fn prepare_data_request<'a>(
+    call: &'a BackendCall,
+    api_key: &str,
+    control_token: &str,
+    deadline: Instant,
+) -> Result<PreparedDataRequest<'a>, BackendFailure> {
+    let mut method = "POST";
+    let path = match call.operation() {
+        "detect" => "/api/detect".to_owned(),
+        "sanitize" => "/api/sanitize".to_owned(),
+        "reidentify" => "/api/reidentify".to_owned(),
+        "guard" => "/api/guard".to_owned(),
+        "roundtrip" => "/api/roundtrip".to_owned(),
+        "analyze" => "/api/analyze".to_owned(),
+        "analyze_report" => "/api/analyze-report".to_owned(),
+        "redact_pdf" => "/api/redact-pdf".to_owned(),
+        "audit_log" => {
+            method = "GET";
+            let payload = call
+                .payload()
+                .as_object()
+                .ok_or(BackendFailure::Transport)?;
+            let limit = payload.get("limit").and_then(Value::as_u64).unwrap_or(100);
+            let offset = payload.get("offset").and_then(Value::as_u64).unwrap_or(0);
+            format!("/api/audit-log?limit={limit}&offset={offset}")
+        }
+        "session_dispose" => {
+            method = "DELETE";
+            let session_id = call.backend_session_id().ok_or(BackendFailure::Transport)?;
+            format!("/api/session/{session_id}")
+        }
+        _ => return Err(BackendFailure::Transport),
+    };
+    let path = Zeroizing::new(path);
+    if !path.is_ascii() || path.contains(['\r', '\n', ' ']) {
+        return Err(BackendFailure::Transport);
+    }
+
+    let mut content_type = None;
+    let mut first_body = Zeroizing::new(Vec::new());
+    let mut borrowed_body = None;
+    let mut final_body = Zeroizing::new(Vec::new());
+    if call.operation() == "redact_pdf" {
+        let document = call.document().ok_or(BackendFailure::Transport)?;
+        let mut nonce = Zeroizing::new([0_u8; 16]);
+        getrandom::fill(nonce.as_mut()).map_err(|_| BackendFailure::Transport)?;
+        let boundary = format!("aiguard-{}", URL_SAFE_NO_PAD.encode(nonce.as_ref()));
+        first_body.extend_from_slice(format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"pdf_file\"; filename=\"document.pdf\"\r\nContent-Type: application/pdf\r\n\r\n"
+        ).as_bytes());
+        final_body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        borrowed_body = Some(document);
+        content_type = Some(format!("multipart/form-data; boundary={boundary}"));
+    } else if method != "GET" && method != "DELETE" {
+        first_body = Zeroizing::new(
+            canonical_json_bytes(call.payload()).map_err(|_| BackendFailure::Transport)?,
+        );
+        content_type = Some("application/json".to_owned());
+    }
+    let content_length = first_body
+        .len()
+        .checked_add(borrowed_body.map_or(0, <[u8]>::len))
+        .and_then(|value| value.checked_add(final_body.len()))
+        .ok_or(BackendFailure::Transport)?;
+
+    let authority = if call.operation() == "session_dispose" {
+        let session_id = call.backend_session_id().ok_or(BackendFailure::Transport)?;
+        let token = disposal_authorization(control_token, session_id)?;
+        Zeroizing::new(format!("X-AIGuard-Token: {}\r\n", token.as_str()))
+    } else {
+        Zeroizing::new(format!("X-AIGuard-Key: {api_key}\r\n"))
+    };
+    let broker_context = broker_context_headers(call, deadline)?;
+    let mut head = Zeroizing::new(format!(
+        "{method} {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nX-AIGuard-Contract-Version: 2\r\n{}{}Content-Length: {content_length}\r\n",
+        path.as_str(),
+        authority.as_str(),
+        broker_context.as_str(),
+    ));
+    if let Some(content_type) = content_type {
+        head.push_str(&format!("Content-Type: {content_type}\r\n"));
+    }
+    head.push_str("\r\n");
+    Ok(PreparedDataRequest {
+        head: Zeroizing::new(head.as_bytes().to_vec()),
+        first_body,
+        borrowed_body,
+        final_body,
+    })
+}
+
+fn broker_context_headers(
+    call: &BackendCall,
+    deadline: Instant,
+) -> Result<Zeroizing<String>, BackendFailure> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(BackendFailure::Timeout);
+    }
+    let remaining_ms =
+        u64::try_from(remaining.as_millis().max(1)).map_err(|_| BackendFailure::Transport)?;
+    let (phases, intermediate, phase_deadline) = match (
+        call.local_detection_phases(),
+        call.local_intermediate_text_chars(),
+    ) {
+        (None, None) => ("none".to_owned(), "none".to_owned(), "none".to_owned()),
+        (Some(0), None) => ("0".to_owned(), "none".to_owned(), "none".to_owned()),
+        (Some(phases), Some(intermediate)) if phases > 0 && intermediate > 0 => (
+            phases.to_string(),
+            intermediate.to_string(),
+            crate::local_detection_phase_ms()
+                .filter(|value| *value > 0)
+                .ok_or(BackendFailure::Transport)?
+                .to_string(),
+        ),
+        _ => return Err(BackendFailure::Transport),
+    };
+    Ok(Zeroizing::new(format!(
+        "X-AIGuard-Broker-Deadline-Ms: {remaining_ms}\r\nX-AIGuard-Broker-Local-Detection-Phases: {phases}\r\nX-AIGuard-Broker-Intermediate-Text-Chars: {intermediate}\r\nX-AIGuard-Broker-Local-Phase-Deadline-Ms: {phase_deadline}\r\n"
+    )))
+}
+
+fn disposal_authorization(
+    control_token: &str,
+    session_id: &str,
+) -> Result<Zeroizing<String>, BackendFailure> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| BackendFailure::Transport)?;
+    let lifetime_ms = DISPOSAL_AUTH_LIFETIME.as_millis();
+    let expires_at_ms = now
+        .as_millis()
+        .checked_add(lifetime_ms)
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or(BackendFailure::Transport)?;
+    let mut nonce = Zeroizing::new([0_u8; 16]);
+    getrandom::fill(nonce.as_mut()).map_err(|_| BackendFailure::Transport)?;
+    let mut signed = Zeroizing::new(Vec::new());
+    signed.extend_from_slice(b"aiguard-session-disposal:v1\0");
+    signed.extend_from_slice(session_id.as_bytes());
+    signed.push(0);
+    signed.extend_from_slice(expires_at_ms.to_string().as_bytes());
+    signed.push(0);
+    signed.extend_from_slice(nonce.as_ref());
+    let mut mac = Hmac::<Sha256>::new_from_slice(control_token.as_bytes())
+        .map_err(|_| BackendFailure::Transport)?;
+    mac.update(&signed);
+    let signature = Zeroizing::new(mac.finalize().into_bytes().to_vec());
+    Ok(Zeroizing::new(format!(
+        "v1.{expires_at_ms}.{}.{}",
+        URL_SAFE_NO_PAD.encode(nonce.as_ref()),
+        URL_SAFE_NO_PAD.encode(signature.as_slice()),
+    )))
+}
+
+fn execute_data_request(
+    address: SocketAddr,
+    request: &PreparedDataRequest<'_>,
+    operation: &str,
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+    liveness: &AtomicBool,
+) -> BackendCompletion {
+    let mut stream = match TcpStream::connect_timeout(
+        &address,
+        deadline.saturating_duration_since(Instant::now()),
+    ) {
+        Ok(stream) => stream,
+        Err(error) => {
+            let reason = transport_reason(error.kind(), deadline, cancelled, liveness);
+            return BackendCompletion::NotSubmitted(reason);
+        }
+    };
+    let mut submitted = false;
+    for part in [
+        request.head.as_slice(),
+        request.first_body.as_slice(),
+        request.borrowed_body.unwrap_or_default(),
+        request.final_body.as_slice(),
+    ] {
+        if part.is_empty() {
+            continue;
+        }
+        if let Err(reason) = write_data_part(
+            &mut stream,
+            part,
+            deadline,
+            cancelled,
+            liveness,
+            &mut submitted,
+        ) {
+            return incomplete_completion(submitted, reason);
+        }
+    }
+    let body_limit = if operation == "redact_pdf" {
+        max_frame_bytes()
+    } else {
+        default_message_bytes()
+    };
+    let response = match read_data_response(&mut stream, body_limit, deadline, cancelled, liveness)
+    {
+        Ok(response) => response,
+        Err(DataResponseError::Incomplete(reason)) => {
+            return BackendCompletion::Unknown(reason);
+        }
+        Err(DataResponseError::Malformed) => {
+            return BackendCompletion::Confirmed(BackendReply::new(200, None, None, Value::Null));
+        }
+        Err(DataResponseError::Oversized) => return BackendCompletion::ConfirmedTooLarge,
+    };
+    let body = strict_json_value(&response.body).unwrap_or(Value::Null);
+    BackendCompletion::Confirmed(BackendReply::new(
+        response.status,
+        response.contract_version,
+        response.content_type,
+        body,
+    ))
+}
+
+fn write_data_part(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+    liveness: &AtomicBool,
+    submitted: &mut bool,
+) -> Result<(), BackendFailure> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if cancelled() {
+            return Err(BackendFailure::Cancelled);
+        }
+        if !liveness.load(Ordering::Acquire) {
+            return Err(BackendFailure::BackendDied);
+        }
+        let timeout = poll_timeout(deadline)?;
+        stream
+            .set_write_timeout(Some(timeout))
+            .map_err(|_| BackendFailure::Transport)?;
+        match stream.write(&bytes[offset..]) {
+            Ok(0) => return Err(BackendFailure::Transport),
+            Ok(written) => {
+                *submitted = true;
+                offset += written;
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) => {}
+            Err(_) => return Err(BackendFailure::Transport),
+        }
+    }
+    Ok(())
+}
+
+struct DataHttpResponse {
+    status: u16,
+    contract_version: Option<String>,
+    content_type: Option<String>,
+    body: Zeroizing<Vec<u8>>,
+}
+
+enum DataResponseError {
+    Incomplete(BackendFailure),
+    Malformed,
+    Oversized,
+}
+
+enum DataHeadError {
+    Malformed,
+    Oversized,
+}
+
+fn read_data_response(
+    stream: &mut TcpStream,
+    body_limit: u64,
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+    liveness: &AtomicBool,
+) -> Result<DataHttpResponse, DataResponseError> {
+    let body_limit = usize::try_from(body_limit).map_err(|_| DataResponseError::Malformed)?;
+    let mut response = Zeroizing::new(Vec::new());
+    let mut parsed_head = None;
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        if cancelled() {
+            return Err(DataResponseError::Incomplete(BackendFailure::Cancelled));
+        }
+        if !liveness.load(Ordering::Acquire) {
+            return Err(DataResponseError::Incomplete(BackendFailure::BackendDied));
+        }
+        let timeout = poll_timeout(deadline).map_err(DataResponseError::Incomplete)?;
+        stream
+            .set_read_timeout(Some(timeout))
+            .map_err(|_| DataResponseError::Incomplete(BackendFailure::Transport))?;
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                return Err(DataResponseError::Incomplete(BackendFailure::Transport));
+            }
+            Ok(read) => response.extend_from_slice(&buffer[..read]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue;
+            }
+            Err(_) => {
+                return Err(DataResponseError::Incomplete(BackendFailure::Transport));
+            }
+        }
+        if parsed_head.is_none() {
+            if let Some(separator) = response.windows(4).position(|part| part == b"\r\n\r\n") {
+                if separator > HTTP_HEADER_MAX_BYTES {
+                    return Err(DataResponseError::Malformed);
+                }
+                parsed_head = Some(
+                    match parse_data_response_head(&response[..separator], body_limit) {
+                        Ok(head) => head,
+                        Err(DataHeadError::Malformed) => return Err(DataResponseError::Malformed),
+                        Err(DataHeadError::Oversized) => return Err(DataResponseError::Oversized),
+                    },
+                );
+            } else if response.len() > HTTP_HEADER_MAX_BYTES {
+                return Err(DataResponseError::Malformed);
+            }
+        }
+        if let Some((separator, status, contract_version, content_type, content_length)) =
+            parsed_head.as_ref()
+        {
+            let expected = separator
+                .checked_add(4)
+                .and_then(|value| value.checked_add(*content_length))
+                .ok_or(DataResponseError::Malformed)?;
+            if response.len() > expected {
+                return Err(DataResponseError::Malformed);
+            }
+            if response.len() == expected {
+                let body = Zeroizing::new(response[*separator + 4..].to_vec());
+                return Ok(DataHttpResponse {
+                    status: *status,
+                    contract_version: contract_version.clone(),
+                    content_type: content_type.clone(),
+                    body,
+                });
+            }
+        }
+    }
+}
+
+type ParsedDataHead = (usize, u16, Option<String>, Option<String>, usize);
+
+fn parse_data_response_head(
+    head: &[u8],
+    body_limit: usize,
+) -> Result<ParsedDataHead, DataHeadError> {
+    let head_text = std::str::from_utf8(head).map_err(|_| DataHeadError::Malformed)?;
+    let mut lines = head_text.split("\r\n");
+    let status_line = lines.next().ok_or(DataHeadError::Malformed)?;
+    let mut status_fields = status_line.split_ascii_whitespace();
+    if status_fields.next() != Some("HTTP/1.1") {
+        return Err(DataHeadError::Malformed);
+    }
+    let status = status_fields
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|value| (100..=599).contains(value))
+        .ok_or(DataHeadError::Malformed)?;
+    let mut content_length = None;
+    let mut content_length_seen = false;
+    let mut contract_version = None;
+    let mut content_type = None;
+    for line in lines {
+        if line.is_empty() || line.starts_with([' ', '\t']) {
+            return Err(DataHeadError::Malformed);
+        }
+        let (name, value) = line.split_once(':').ok_or(DataHeadError::Malformed)?;
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err(DataHeadError::Malformed);
+        }
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("content-length") {
+            if content_length_seen {
+                return Err(DataHeadError::Malformed);
+            }
+            content_length_seen = true;
+            content_length = value.parse::<usize>().ok();
+        } else if name.eq_ignore_ascii_case("x-aiguard-contract-version") {
+            if contract_version.is_some() || value.contains(',') {
+                return Err(DataHeadError::Malformed);
+            }
+            contract_version = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("content-type") {
+            if content_type.is_some() || value.contains(',') {
+                return Err(DataHeadError::Malformed);
+            }
+            content_type = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("content-encoding")
+        {
+            return Err(DataHeadError::Malformed);
+        }
+    }
+    let content_length = content_length.ok_or(DataHeadError::Malformed)?;
+    if content_length > body_limit {
+        if status == 200
+            && contract_version.as_deref() == Some("2")
+            && content_type.as_deref() == Some("application/json")
+        {
+            return Err(DataHeadError::Oversized);
+        }
+        return Err(DataHeadError::Malformed);
+    }
+    Ok((
+        head.len(),
+        status,
+        contract_version,
+        content_type,
+        content_length,
+    ))
+}
+
+fn poll_timeout(deadline: Instant) -> Result<Duration, BackendFailure> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(BackendFailure::Timeout);
+    }
+    Ok(remaining.min(HTTP_IO_POLL))
+}
+
+fn transport_reason(
+    kind: std::io::ErrorKind,
+    deadline: Instant,
+    cancelled: &dyn Fn() -> bool,
+    liveness: &AtomicBool,
+) -> BackendFailure {
+    if cancelled() {
+        BackendFailure::Cancelled
+    } else if !liveness.load(Ordering::Acquire) {
+        BackendFailure::BackendDied
+    } else if Instant::now() >= deadline
+        || matches!(
+            kind,
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        )
+    {
+        BackendFailure::Timeout
+    } else {
+        BackendFailure::Transport
+    }
+}
+
+fn incomplete_completion(submitted: bool, reason: BackendFailure) -> BackendCompletion {
+    if submitted {
+        BackendCompletion::Unknown(reason)
+    } else {
+        BackendCompletion::NotSubmitted(reason)
+    }
+}
+
+fn strict_json_value(bytes: &[u8]) -> Result<Value, ()> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let value = StrictJsonValue::deserialize(&mut deserializer).map_err(|_| ())?;
+    deserializer.end().map_err(|_| ())?;
+    Ok(value.0)
+}
+
+struct StrictJsonValue(Value);
+
+impl<'de> Deserialize<'de> for StrictJsonValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StrictJsonVisitor)
+    }
+}
+
+struct StrictJsonVisitor;
+
+impl<'de> Visitor<'de> for StrictJsonVisitor {
+    type Value = StrictJsonValue;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("one JSON value without duplicate object keys")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::Bool(value)))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::Number(value.into())))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::Number(value.into())))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .map(StrictJsonValue)
+            .ok_or_else(|| E::custom("non-finite JSON number"))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(StrictJsonValue(Value::String(value.to_owned())))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::String(value)))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::Null))
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(StrictJsonValue(Value::Null))
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut values = Vec::new();
+        while let Some(value) = sequence.next_element::<StrictJsonValue>()? {
+            values.push(value.0);
+        }
+        Ok(StrictJsonValue(Value::Array(values)))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut values = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if values.contains_key(&key) {
+                return Err(serde::de::Error::custom("duplicate JSON object key"));
+            }
+            let value = map.next_value::<StrictJsonValue>()?;
+            values.insert(key, value.0);
+        }
+        Ok(StrictJsonValue(Value::Object(values)))
     }
 }
 
@@ -1348,6 +2032,121 @@ fn unavailable_error() -> ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    use crate::data_plane::DataPlane;
+    use crate::BrokerRequest;
+
+    fn test_executor(address: SocketAddr) -> Arc<dyn BackendExecutor> {
+        Arc::new(ManagedBackendExecutor {
+            address,
+            api_key: Zeroizing::new("synthetic-data-authority".to_owned()),
+            control_token: Zeroizing::new("synthetic-control-authority".to_owned()),
+            generation: BackendGeneration::for_test(91),
+            liveness: Arc::new(AtomicBool::new(true)),
+            owner: Weak::new(),
+        })
+    }
+
+    fn request(
+        operation: &str,
+        scope_id: Option<&str>,
+        payload: Value,
+        uncertain_completion: &str,
+    ) -> BrokerRequest {
+        BrokerRequest {
+            protocol_version: 1,
+            request_id: format!("backend-{operation}"),
+            operation: operation.to_owned(),
+            scope_id: scope_id.map(str::to_owned),
+            payload,
+            deadline_ms: Some(5_000),
+            local_detection_phases: Some(1),
+            local_intermediate_text_chars: Some(200_000),
+            remote_tner_max_calls: 0,
+            remote_tner_text_chars: None,
+            replay: "never".to_owned(),
+            uncertain_completion: uncertain_completion.to_owned(),
+        }
+    }
+
+    fn open_scope(connection: &mut crate::data_plane::DataConnection) -> String {
+        connection
+            .dispatch(
+                &request(
+                    "scope_open",
+                    None,
+                    serde_json::json!({"scope_kind": "desktop_ui"}),
+                    "connection_state",
+                ),
+                &|| false,
+            )
+            .unwrap()["scope_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    fn receive_http_request(stream: &mut TcpStream) -> Zeroizing<Vec<u8>> {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Zeroizing::new(Vec::new());
+        let mut buffer = [0_u8; 4096];
+        let mut expected = None;
+        loop {
+            let read = stream.read(&mut buffer).unwrap();
+            assert!(read > 0);
+            request.extend_from_slice(&buffer[..read]);
+            if expected.is_none() {
+                if let Some(separator) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let head = std::str::from_utf8(&request[..separator]).unwrap();
+                    let length = head
+                        .split("\r\n")
+                        .find_map(|line| {
+                            line.strip_prefix("Content-Length: ")
+                                .and_then(|value| value.parse::<usize>().ok())
+                        })
+                        .unwrap();
+                    expected = Some(separator + 4 + length);
+                }
+            }
+            if expected.is_some_and(|expected| request.len() == expected) {
+                return request;
+            }
+        }
+    }
+
+    fn write_json_response(stream: &mut TcpStream, status: u16, body: &[u8]) {
+        let reason = if status == 200 {
+            "OK"
+        } else {
+            "Unprocessable Entity"
+        };
+        let head = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nX-AIGuard-Contract-Version: 2\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(body).unwrap();
+    }
+
+    fn write_oversized_response_head_with_status(stream: &mut TcpStream, status: u16) {
+        let reason = if status == 200 {
+            "OK"
+        } else {
+            "Internal Server Error"
+        };
+        let head = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nX-AIGuard-Contract-Version: 2\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            default_message_bytes() + 1
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+    }
+
+    fn write_oversized_response_head(stream: &mut TcpStream) {
+        write_oversized_response_head_with_status(stream, 200);
+    }
 
     #[test]
     fn prebound_listener_is_loopback_exclusive_and_non_inheritable() {
@@ -1357,5 +2156,303 @@ mod tests {
         let address = listener.local_addr().unwrap();
         assert_eq!(address.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
         assert_ne!(address.port(), 0);
+    }
+
+    #[test]
+    fn cancellation_before_submission_never_connects_or_invalidates_state() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let plane = DataPlane::new(test_executor(listener.local_addr().unwrap())).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "detect",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic"}),
+                    "external_tner_possible",
+                ),
+                &|| true,
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "operation_timeout");
+        assert!(!plane.stats().backend_invalidated);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn submitted_sanitize_with_lost_response_is_not_replayed_and_invalidates_generation() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let server_accepted = Arc::clone(&accepted);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            server_accepted.fetch_add(1, Ordering::AcqRel);
+            let request = receive_http_request(&mut stream);
+            assert!(request.starts_with(b"POST /api/sanitize HTTP/1.1\r\n"));
+            assert!(request
+                .windows(b"X-AIGuard-Key: synthetic-data-authority".len())
+                .any(|part| part == b"X-AIGuard-Key: synthetic-data-authority"));
+            assert!(request
+                .windows(b"X-AIGuard-Broker-Deadline-Ms: ".len())
+                .any(|part| part == b"X-AIGuard-Broker-Deadline-Ms: "));
+            assert!(request
+                .windows(b"X-AIGuard-Broker-Local-Detection-Phases: 1".len())
+                .any(|part| { part == b"X-AIGuard-Broker-Local-Detection-Phases: 1" }));
+            assert!(request
+                .windows(b"X-AIGuard-Broker-Intermediate-Text-Chars: 200000".len())
+                .any(|part| { part == b"X-AIGuard-Broker-Intermediate-Text-Chars: 200000" }));
+            assert!(request
+                .windows(b"X-AIGuard-Broker-Local-Phase-Deadline-Ms: 360000".len())
+                .any(|part| { part == b"X-AIGuard-Broker-Local-Phase-Deadline-Ms: 360000" }));
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "sanitize",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic", "mode": "token"}),
+                    "possible_session_publication_or_known_session_mutation",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "operation_failed");
+        assert_eq!(accepted.load(Ordering::Acquire), 1);
+        assert!(plane.stats().backend_invalidated);
+    }
+
+    #[test]
+    fn confirmed_pre_mutation_failure_keeps_generation_live() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _request = receive_http_request(&mut stream);
+            write_json_response(
+                &mut stream,
+                422,
+                br#"{"error":{"category":"request","code":"request_schema_invalid","count":1,"retryable":false,"status":422}}"#,
+            );
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "sanitize",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic", "mode": "token"}),
+                    "possible_session_publication_or_known_session_mutation",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "request_invalid");
+        assert!(!plane.stats().backend_invalidated);
+    }
+
+    #[test]
+    fn oversized_confirmed_stateless_response_is_fixed_and_keeps_generation_live() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _request = receive_http_request(&mut stream);
+            write_oversized_response_head(&mut stream);
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "guard",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic"}),
+                    "none",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "payload_too_large");
+        assert!(!plane.stats().backend_invalidated);
+    }
+
+    #[test]
+    fn oversized_non_success_response_is_an_integrity_failure() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _request = receive_http_request(&mut stream);
+            write_oversized_response_head_with_status(&mut stream, 500);
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "guard",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic"}),
+                    "none",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "operation_failed");
+        assert!(plane.stats().backend_invalidated);
+    }
+
+    #[test]
+    fn oversized_confirmed_new_session_response_is_fixed_and_invalidates_generation() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _request = receive_http_request(&mut stream);
+            write_oversized_response_head(&mut stream);
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "sanitize",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic", "mode": "token"}),
+                    "possible_session_publication_or_known_session_mutation",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "payload_too_large");
+        assert!(plane.stats().backend_invalidated);
+        assert_eq!(plane.stats().desktop_sessions, 0);
+    }
+
+    #[test]
+    fn oversized_confirmed_session_mutation_disposes_the_known_session() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let server_accepted = Arc::clone(&accepted);
+        let server = std::thread::spawn(move || {
+            let (mut create, _) = listener.accept().unwrap();
+            server_accepted.fetch_add(1, Ordering::AcqRel);
+            let _request = receive_http_request(&mut create);
+            write_json_response(
+                &mut create,
+                200,
+                br#"{"detected_entity_count":0,"entity_type_counts":{},"guard_findings":[],"highlights":[],"replacement_count":0,"safety":{"residual_count":0,"status":"pass"},"sanitized_text":"synthetic-safe-output","section26_categories":[],"session_id":"00000000-0000-4000-8000-000000000091","warnings":[]}"#,
+            );
+
+            let (mut mutate, _) = listener.accept().unwrap();
+            server_accepted.fetch_add(1, Ordering::AcqRel);
+            let _request = receive_http_request(&mut mutate);
+            write_oversized_response_head(&mut mutate);
+
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut dispose, _)) => {
+                        server_accepted.fetch_add(1, Ordering::AcqRel);
+                        let request = receive_http_request(&mut dispose);
+                        assert!(request.starts_with(
+                            b"DELETE /api/session/00000000-0000-4000-8000-000000000091 HTTP/1.1\r\n"
+                        ));
+                        write_json_response(&mut dispose, 200, br#"{"deleted":true}"#);
+                        return;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("unexpected accept error: {error:?}"),
+                }
+            }
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let created = connection
+            .dispatch(
+                &request(
+                    "sanitize",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic", "mode": "token"}),
+                    "possible_session_publication_or_known_session_mutation",
+                ),
+                &|| false,
+            )
+            .unwrap();
+        let handle = created["session_id"].as_str().unwrap();
+        let error = connection
+            .dispatch(
+                &request(
+                    "sanitize",
+                    Some(&scope),
+                    serde_json::json!({
+                        "session_id": handle,
+                        "text": "synthetic",
+                        "mode": "token"
+                    }),
+                    "possible_session_publication_or_known_session_mutation",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "payload_too_large");
+        assert_eq!(accepted.load(Ordering::Acquire), 3);
+        assert!(!plane.stats().backend_invalidated);
+        assert_eq!(plane.stats().desktop_sessions, 0);
+    }
+
+    #[test]
+    fn malformed_http_response_is_an_integrity_failure_and_invalidates_generation() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _request = receive_http_request(&mut stream);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: bad\r\nContent-Length: 2\r\nX-AIGuard-Contract-Version: 2\r\nContent-Type: application/json\r\n\r\n{}")
+                .unwrap();
+        });
+        let plane = DataPlane::new(test_executor(address)).unwrap();
+        let mut connection = plane.open_connection("desktop").unwrap();
+        let scope = open_scope(&mut connection);
+        let error = connection
+            .dispatch(
+                &request(
+                    "guard",
+                    Some(&scope),
+                    serde_json::json!({"text": "synthetic"}),
+                    "none",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error.code(), "operation_failed");
+        assert!(plane.stats().backend_invalidated);
     }
 }

@@ -307,6 +307,35 @@ impl UnixNativeStream {
         }
     }
 
+    pub(crate) fn peer_connected(&self) -> Result<bool, ProtocolError> {
+        let mut byte = 0_u8;
+        loop {
+            // SAFETY: byte is a valid one-byte output and the stream remains live.
+            let received = unsafe {
+                libc::recv(
+                    self.stream.as_raw_fd(),
+                    (&mut byte as *mut u8).cast(),
+                    1,
+                    libc::MSG_PEEK | libc::MSG_DONTWAIT,
+                )
+            };
+            if received > 0 {
+                return Ok(true);
+            }
+            if received == 0 {
+                return Ok(false);
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            if error.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(true);
+            }
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
+    }
+
     pub(crate) fn shutdown(&mut self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }

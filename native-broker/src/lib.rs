@@ -1,7 +1,7 @@
 //! Transport-free native-broker protocol v1 codec and policy.
 //!
-//! Slice 2 adds authenticated native transport and broker-owned bootstrap. Data
-//! operations remain disabled until Slice 3.
+//! Slice 2 adds authenticated native transport and broker-owned bootstrap.
+//! Slice 3 adds connection-owned data forwarding to the private HTTP-v2 child.
 
 #[used]
 static NATIVE_COMPONENT_BUILD_MARKER: &str = concat!(
@@ -21,6 +21,7 @@ pub mod bootstrap;
 pub mod broker;
 pub mod control;
 pub mod control_client;
+pub mod data_plane;
 pub mod manifest;
 mod process;
 pub mod transport;
@@ -880,6 +881,14 @@ fn message_limit(role: &str, operation: &str, response: bool) -> Option<u64> {
     Some(limit)
 }
 
+pub fn local_detection_phase_ms() -> Option<u64> {
+    contract()["deadline_components_ms"]["local_detection_phase"].as_u64()
+}
+
+pub fn response_message_bytes(role: &str, operation: &str) -> Option<u64> {
+    message_limit(role, operation, true)
+}
+
 fn uses_remote_tner_limit(spec: &Value, remote_tner: bool) -> bool {
     remote_tner
         && spec["remote_tner_primary_scans"]
@@ -1545,11 +1554,17 @@ pub fn success_message(
     {
         return Err(ProtocolError::new("operation_failed", Some(request_id)));
     }
-    let message = serde_json::json!({
-        "broker_protocol_version": protocol_version,
-        "request_id": request_id,
-        "result": result,
-    });
+    let mut message = Map::new();
+    message.insert(
+        "broker_protocol_version".to_owned(),
+        Value::from(protocol_version),
+    );
+    message.insert(
+        "request_id".to_owned(),
+        Value::String(request_id.to_owned()),
+    );
+    message.insert("result".to_owned(), result);
+    let message = Value::Object(message);
     let encoded = canonical_json_bytes(&message)?;
     let limit = message_limit(role, operation, true)
         .ok_or_else(|| ProtocolError::new("operation_failed", Some(request_id)))?;
@@ -1557,7 +1572,7 @@ pub fn success_message(
         return Err(ProtocolError::new("payload_too_large", Some(request_id)));
     }
     validate_result_schema(
-        &result,
+        &message["result"],
         &contract()["operations"][operation]["result_schema"],
         request_id,
     )?;

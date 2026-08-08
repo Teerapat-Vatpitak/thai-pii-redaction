@@ -364,6 +364,27 @@ def test_prebound_private_backend_health_and_direct_data_denial():
         assert api_key.encode("ascii") not in body
         assert control_token.encode("ascii") not in body
 
+        connection = http.client.HTTPConnection(*address, timeout=2)
+        try:
+            connection.request(
+                "POST",
+                "/api/detect",
+                body=b'{"text":"synthetic transport fixture"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "X-AIGuard-Contract-Version": "2",
+                    "X-AIGuard-Key": api_key,
+                },
+            )
+            response = connection.getresponse()
+            body = response.read()
+        finally:
+            connection.close()
+        assert response.status == 401
+        assert b"authentication_required" in body
+        assert api_key.encode("ascii") not in body
+        assert control_token.encode("ascii") not in body
+
         stdout, stderr = _shutdown_private_backend(process, address, control_token)
         assert api_key.encode("ascii") not in stdout + stderr
         assert control_token.encode("ascii") not in stdout + stderr
