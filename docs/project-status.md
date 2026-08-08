@@ -238,8 +238,8 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR, Slice 1, and Slice 2 integrated; Slice 3 source candidate under final
-verification; installed acceptance remains open**. The owner
+**ADR, Slice 1, and Slice 2 integrated; Slice 3 source checkpoint branch-CI
+green; installed acceptance remains open**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -334,8 +334,12 @@ adds no descriptor or RSS. The exact 70,953,644-byte frame passes on both
 platforms, while repeated graceful and forced backend cycles stay bounded and
 rotate generation. Slice 3 evidence is tracked in the
 [current acceptance record](acceptance/2026-08-08-phase-8-native-broker-data-plane.md)
-with a separate-context security review clear on the complete current diff. It
-remains provisional until exact-head CI and post-main gates finish.
+with a separate-context security review clear on the complete current diff.
+Reviewed implementation commit `19b38392541bdb1c713a037799190409e71e61c1`
+[passes all 14 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31262151884),
+including Windows, Ubuntu, and macOS native runtime, Windows packaged-backend
+smoke, and the core-only Python environment. Main integration and post-main
+delivery-loop evidence remain outside this source checkpoint.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx

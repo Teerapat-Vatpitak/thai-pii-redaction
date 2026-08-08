@@ -250,9 +250,12 @@ reviewed, independently revertible integration units in this order:
    or left running outside admission, and Python remains authoritative for
    mappings and every product operation. The
    [Slice 3 record](docs/acceptance/2026-08-08-phase-8-native-broker-data-plane.md)
-   records local Windows/WSL2 runtime and a clear independent security review;
-   exact-head CI and integration evidence remain provisional until those gates
-   finish. No storefront cutover, Chrome/Tauri/Office change,
+   records local Windows/WSL2 runtime and a clear independent security review.
+   Reviewed implementation commit
+   `19b38392541bdb1c713a037799190409e71e61c1`
+   [passed all 14 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31262151884),
+   including Windows, Ubuntu, and macOS native runtime; main integration remains
+   the final Slice 3 delivery-loop gate. No storefront cutover, Chrome/Tauri/Office change,
    packaging migration, or installed acceptance exists; Slice 4 remains the
    Desktop migration. Office remains outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:

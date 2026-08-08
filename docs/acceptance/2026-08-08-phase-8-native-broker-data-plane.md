@@ -4,8 +4,8 @@
 - Clean base commit: `df5e0f3cd41574b4434752618ba548ffe23c6058`
 - Candidate branch: `codex/phase-8-native-broker-data-plane`
 - Product version: `2.5.0` (unchanged)
-- Status: **local Windows/WSL2 verification and independent security review
-  passed; exact-head CI pending**
+- Status: **Slice 3 implementation checkpoint locally and branch-CI green;
+  independently reviewed**
 
 This record covers Slice 3 only: strict forwarding from an authenticated
 protocol-v1 connection to the broker-private HTTP-v2 backend, connection and
@@ -204,7 +204,7 @@ cancellation; both now fail closed with the fixed terminal error.
 | Slice 2 bootstrap/runtime regression | PASS — complete Windows and real WSL2 native suites, including transport, admission, bootstrap, broker runtime, backend ownership, and resource gates |
 | Windows native runtime | PASS — 111 tests/groups passed and five subprocess fixtures were intentionally ignored; authenticated native IPC performed detect/sanitize/reidentify/roundtrip/PDF/dispose, both named-pipe directions passed slow/never/dead-reader tests, and the exact maximum frame passed |
 | Linux/WSL2 native runtime | PASS — 110 tests/groups passed and five subprocess fixtures were intentionally ignored on Linux 6.18; UDS/peer/descriptor/process paths plus the real data plane ran from an isolated Linux target against an explicit fresh Python environment |
-| macOS native runtime | PENDING |
+| macOS native runtime | PASS in implementation branch CI — the platform transport, bootstrap, data-plane, and lifecycle target passed on `macos-latest` |
 | Full Python suite | PASS — 2,495 passed, seven expected optional/platform skips, and one existing Starlette/httpx deprecation warning |
 | Root JavaScript suite | PASS — 123 tests across 16 files plus Desktop JavaScript syntax checks |
 | Desktop Rust suite | PASS — 31 tests; no Desktop source changed |
@@ -215,8 +215,8 @@ cancellation; both now fail closed with the fixed terminal error.
 | Performance/resource matrix | PASS against the exact integrated base; the pre-existing stale formal anchor remains red as explained below |
 | `git diff --check` and final privacy/scope audit | PASS locally — no storefront dependency, protocol/`VERSION` drift, mapping copy, retry/replay layer, HTTP/provider fallback, payload-derived diagnostic, or exposed endpoint/credential was found |
 | Independent security review | PASS — separate-context review of the complete current diff has no unresolved security or correctness finding; reviewer reruns passed 33/33 Rust and 17 Python tests with two expected skips |
-| Exact-head branch CI | PENDING |
-| Main integration and post-main CI | PENDING |
+| Implementation branch CI | PASS — reviewed implementation commit `19b38392541bdb1c713a037799190409e71e61c1` [passed all 14 jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31262151884), including Windows, Ubuntu, and macOS native runtime plus Windows packaged-backend smoke and the core-only Python environment |
+| Main integration and post-main CI | PENDING — main integration has not occurred; verify post-main CI separately after integration |
 
 ## Performance and resources
 
@@ -292,8 +292,8 @@ large-write cases, and `git diff --check`, then reported no unresolved finding.
 
 ## Acceptance boundary
 
-A future green record establishes the Slice 3 source/runtime data plane and its
-fault semantics only. It cannot establish Desktop or Extension migration,
+This green source checkpoint establishes the Slice 3 source/runtime data plane
+and its fault semantics only. It cannot establish Desktop or Extension migration,
 Chrome native-host behavior, installed packaging, Office support, live-provider
 behavior, deployment, release, or upgrade recertification. Those remain Slice 4
 or later work.
