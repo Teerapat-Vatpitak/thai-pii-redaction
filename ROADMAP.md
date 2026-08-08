@@ -238,7 +238,7 @@ reviewed, independently revertible integration units in this order:
    and an atomic kill-on-close Job assignment. macOS/Linux use `0700`/`0600`
    filesystem protections, a held lock, peer credentials, stable process
    identity, and substitution-safe cleanup. Local Windows and real WSL2 Linux
-   runtime gates, macOS runtime CI, all 14 exact-head branch CI jobs, and
+   runtime gates, macOS runtime CI, all 14 implementation branch CI jobs, and
    independent security review pass at this checkpoint. No broker data plane,
    session ownership/disposal, storefront cutover, Chrome/Tauri/Office change,
    packaging migration, or installed acceptance exists. Office remains

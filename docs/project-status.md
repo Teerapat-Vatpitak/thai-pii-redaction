@@ -297,7 +297,7 @@ branch-relative result is within the 20% time and 15%
 memory budgets. A separate four-cycle backend test accumulates no broker
 handles/file descriptors beyond its one-resource scheduling allowance. Exact
 independent security review passes with no unresolved finding. All 14 jobs in
-[exact-head branch CI](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31251561221)
+[implementation branch CI](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31251561221)
 pass, including Windows, Ubuntu, and macOS native runtime jobs plus Windows
 packaged-backend smoke.
 

@@ -1094,19 +1094,42 @@ fn control_client_client_fixture() {
                         }
                     }
                 }
-                let code = match BrokerControlClient::connect_existing_for_test(
-                    &endpoint_root,
-                    Path::new(&manifest_path),
-                    "desktop",
-                    "2.5.0",
-                    Duration::from_secs(5),
-                ) {
-                    Err(error) => error.code().to_owned(),
-                    Ok(extra) => {
-                        drop(extra);
-                        "unexpected-admission".to_owned()
+                let capacity_root = endpoint_root.clone();
+                let capacity_manifest = PathBuf::from(&manifest_path);
+                let capacity = thread::spawn(move || {
+                    match BrokerControlClient::connect_existing_for_test(
+                        &capacity_root,
+                        &capacity_manifest,
+                        "desktop",
+                        "2.5.0",
+                        Duration::from_secs(5),
+                    ) {
+                        Err(error) => error.code().to_owned(),
+                        Ok(extra) => {
+                            drop(extra);
+                            "unexpected-admission".to_owned()
+                        }
                     }
-                };
+                });
+                let mut keepalive_error = None;
+                while !capacity.is_finished() {
+                    if let Err(error) = client.health() {
+                        keepalive_error = Some(error.code().to_owned());
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                let code = capacity
+                    .join()
+                    .unwrap_or_else(|_| "capacity-worker-failed".to_owned());
+                if let Some(code) = keepalive_error {
+                    std::fs::write(
+                        PathBuf::from(std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap()),
+                        format!("capacity-keepalive-{code}"),
+                    )
+                    .unwrap();
+                    return;
+                }
                 if let Err(error) = client.health() {
                     std::fs::write(
                         PathBuf::from(std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap()),
