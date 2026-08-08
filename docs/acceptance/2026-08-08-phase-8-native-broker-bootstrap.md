@@ -4,7 +4,8 @@
 - Clean base commit: `74bbfaee298b2aba777b0a7037579f5dad0bfd16`
 - Candidate branch: `codex/phase-8-native-broker-bootstrap`
 - Product version: `2.5.0` (unchanged)
-- Status: **Slice 2 source candidate locally green and independently reviewed; branch CI pending**
+- Status: **Slice 2 implementation checkpoint locally and branch-CI green;
+  independently reviewed**
 
 This record covers Slice 2 only: authenticated native IPC admission, the
 Windows named-pipe and macOS/Linux filesystem-UDS endpoints, atomic
@@ -123,13 +124,13 @@ record and adversarial tests therefore preceded production implementation.
 |---|---|
 | Tests-first Python collection | EXPECTED FAIL — missing `app.private_backend_bootstrap` during collection |
 | Tests-first Rust compile | EXPECTED FAIL — unresolved imports for all five declared Slice 2 modules |
-| Focused Python Slice 2 tests | PASS — 7 private-bootstrap/prebound-backend tests; 153 when run with the 146 Slice 1 protocol regressions |
+| Focused Python Slice 2 tests | PASS — 8 private-bootstrap/prebound-backend tests; 154 when run with the 146 Slice 1 protocol regressions, plus two expected Unix-only skips on Windows |
 | Focused Rust Slice 2 tests | PASS — Windows 33 runtime/resource tests; real WSL2 Linux 38, including Unix endpoint substitution, peer-credential, process-inheritance, prebind, and lifecycle cases |
 | Protocol/conformance regression | PASS — 146 Python protocol tests, 20 Rust conformance groups, and two allocation-before-copy decoder regressions |
 | Windows named-pipe construction/security | PASS locally — explicit protected current-logon-SID DACL readback, remote rejection, kernel PID/token/path inspection, held process handles, exact-one-owner race, partial frames, disconnects, cleanup, and restart |
-| macOS filesystem-UDS construction/security | PARTIAL locally — complete target construction cross-compiles; real audit-token, `getpeereid`, `libproc`, UDS-mode, process-group, and retained bootstrap-channel lifeline execution remains the macOS CI runner's gate |
+| macOS filesystem-UDS construction/security | PASS in exact-head CI — 37 Slice 2 runtime/resource tests exercise audit-token, `getpeereid`, `libproc`, UDS mode/path hardening, retained terminal responses, process groups, the bootstrap lifeline, lifecycle, and cleanup on the macOS runner |
 | Linux filesystem-UDS construction/security | PASS on a real WSL2 Linux 6.18 kernel — `0700`/`0600`, held lock, stale/symlink substitution controls, `SO_PEERCRED`, stable `pidfd`, bounded connect, parent death, descriptor sealing, cleanup, and restart |
-| Full Python suite | PASS — 2,485 passed, five expected optional OpenCV skips, and the existing Starlette/httpx deprecation warning |
+| Full Python suite | PASS — 2,486 passed, five expected optional OpenCV skips, two expected Unix-only backend-bootstrap skips on Windows, and the existing Starlette/httpx deprecation warning |
 | Root JavaScript tests | PASS — 123 |
 | Desktop Rust tests | PASS — 31; no Desktop source changed |
 | Office gates | PASS — unified/local manifests, TypeScript, 129 tests, and production build; no Office source changed |
@@ -139,8 +140,8 @@ record and adversarial tests therefore preceded production implementation.
 | Performance/resource evidence | PASS with stale-anchor explanation — the formal harness remains red only against its old sanitize anchor; three alternating candidate/base medians are detect 5.72/5.83 ms, sanitize 15.53/15.89 ms, restore 0.24/0.25 ms, PDF 73.48/71.69 ms (+2.5%), and RSS 151.8/151.9 MiB, within branch budgets. Four repeated backend cycles pass on Windows and Linux without accumulating beyond the one-handle/FD allowance. |
 | `git diff --check` and final privacy/scope audit | PASS locally — no protocol/`VERSION` drift, storefront adapter, data operation, HTTP fallback, secret-bearing publication, or payload-derived diagnostic found |
 | Independent security review | PASS — the complete security-sensitive diff was rechecked independently after fixes; no unresolved finding remains. Windows ACL/admission, Unix ownership/peer credentials/stale paths, startup races, backend/process ownership, inherited resources, role binding, shutdown bounds, secret handling, and absence of storefront fallback/data plane all passed review. |
-| Exact-head branch CI | PENDING |
-| Main integration and post-main CI | PENDING |
+| Exact-head branch CI | PASS — all 14 jobs, including Windows, Ubuntu, and macOS native-broker runtime plus Windows packaged-backend smoke, passed at [`b1da3bee96af060681ba7ad06765daa717f2d706`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31251561221) |
+| Main integration and post-main CI | Delivery-loop evidence verified separately after this source checkpoint |
 
 ## Acceptance boundary
 

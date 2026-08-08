@@ -237,9 +237,8 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR and Slice 1 integrated; Slice 2 source candidate locally green;
-independent review, macOS runtime CI, branch CI, and installed acceptance
-open**. The owner
+**ADR and Slice 1 integrated; Slice 2 implementation checkpoint locally and
+branch-CI green; installed acceptance remains open**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -279,14 +278,16 @@ health, and maintenance-only drain/stop; every data, document, provider,
 session, and disposal operation remains disabled. No Chrome Native Messaging,
 Extension, Tauri/Desktop, Office, installer, or update integration changed.
 
-Local evidence currently passes `153` focused Python protocol/bootstrap tests
-and the full Python suite (`2,485` passed, five optional OpenCV skips). The
+Local evidence currently passes `154` focused Python protocol/bootstrap tests
+with two expected Unix-only skips and the full Python suite (`2,486` passed,
+five optional OpenCV plus two Unix-only backend-bootstrap skips). The
 Windows native matrix passes two decoder tests, 20 Slice 1 conformance groups,
 33 Slice 2 runtime/resource tests, and five ignored subprocess fixtures. A
 real WSL2 Linux run passes the Unix-specific permission, stale-path,
 `SO_PEERCRED`/`pidfd`, descriptor inheritance, parent-death, control-client,
-and lifecycle paths; macOS construction cross-compiles, while its audit-token
-runtime proof remains CI-only. Root JavaScript passes `123`, Desktop Rust
+and lifecycle paths. Exact-head macOS CI passes 37 Slice 2 runtime/resource
+tests, including audit-token identity, terminal-response retention, backend
+lifeline, lifecycle, and cleanup. Root JavaScript passes `123`, Desktop Rust
 passes `31`, and Office passes manifest/type/`129`-test/build gates. The formal
 performance command remains red only against its stale sanitize anchor, but
 three alternating exact-base pairs put candidate/base medians at detect
@@ -295,8 +296,10 @@ three alternating exact-base pairs put candidate/base medians at detect
 branch-relative result is within the 20% time and 15%
 memory budgets. A separate four-cycle backend test accumulates no broker
 handles/file descriptors beyond its one-resource scheduling allowance. Exact
-independent security review passes with no unresolved finding; branch and
-post-main CI evidence are not yet claimed here.
+independent security review passes with no unresolved finding. All 14 jobs in
+[exact-head branch CI](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31251561221)
+pass, including Windows, Ubuntu, and macOS native runtime jobs plus Windows
+packaged-backend smoke.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx
