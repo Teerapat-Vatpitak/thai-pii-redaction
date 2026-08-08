@@ -65,6 +65,7 @@ from app.http_v2 import (
     finite_nonnegative,
     validated_payload,
 )
+from app.private_backend_bootstrap import consume_private_backend_credentials
 from app.session_control_auth import (
     make_session_disposal_authorization,
     verify_session_disposal_authorization,
@@ -463,17 +464,36 @@ app.add_middleware(_StrictCORSMiddleware)
 
 
 # ── boot token (Horizon-1 #2) ──────────────────────────────────────────
-# Random shared secret read once at import from the AIGUARD_TOKEN env var.
+# Random shared secret read once at import. Broker-private mode supplies both
+# credentials through its inherited channel; source/development mode retains
+# the existing environment configuration.
 # Shutdown accepts the secret directly when configured. Session disposal always
 # requires a short-lived target-bound authorization derived from it; an unset
 # secret therefore leaves no disposal grace path. Packaged launchers keep the
 # secret in the native/backend trust domain. The value is never logged. Tests
 # monkeypatch this module global directly, so checks read it dynamically.
-_BOOT_TOKEN: str | None = os.environ.get("AIGUARD_TOKEN") or None
+_PRIVATE_BACKEND_CREDENTIALS = consume_private_backend_credentials()
+if (
+    _PRIVATE_BACKEND_CREDENTIALS is not None
+    and _PRIVATE_BACKEND_CREDENTIALS.product_version != __version__
+):
+    _PRIVATE_BACKEND_CREDENTIALS = None
+    raise RuntimeError("private_backend_bootstrap_failed") from None
+_BOOT_TOKEN: str | None = (
+    _PRIVATE_BACKEND_CREDENTIALS.control_token
+    if _PRIVATE_BACKEND_CREDENTIALS is not None
+    else os.environ.get("AIGUARD_TOKEN") or None
+)
 
 # Optional v2 data-plane authentication. It is distinct from the control token,
 # read once at process start, and never logged or reflected.
-_API_KEY: str | None = os.environ.get("AIGUARD_API_KEY") or None
+_API_KEY: str | None = (
+    _PRIVATE_BACKEND_CREDENTIALS.api_key
+    if _PRIVATE_BACKEND_CREDENTIALS is not None
+    else os.environ.get("AIGUARD_API_KEY") or None
+)
+app.state.private_backend = _PRIVATE_BACKEND_CREDENTIALS is not None
+_PRIVATE_BACKEND_CREDENTIALS = None
 _LOGGER = logging.getLogger(__name__)
 
 

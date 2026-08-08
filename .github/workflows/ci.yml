@@ -151,7 +151,7 @@ jobs:
         run: |
           cargo fmt --manifest-path native-broker/Cargo.toml -- --check
           cargo clippy --locked --manifest-path native-broker/Cargo.toml --all-targets -- -D warnings
-          cargo test --locked --manifest-path native-broker/Cargo.toml
+          cargo test --locked --manifest-path native-broker/Cargo.toml --lib --test conformance --test slice2 --test slice2_binary
 
       - name: Stage a placeholder sidecar
         # tauri_build::build() checks the externalBin path EXISTS (the real 50 MB
@@ -166,6 +166,50 @@ jobs:
 
       - name: Desktop shell tests
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+  native-broker-runtime:
+    # Security-critical transport and child ownership must execute on each OS;
+    # a generic compile-only adapter would not exercise ACLs, peer credentials,
+    # inherited listeners, parent-death behavior, or endpoint cleanup.
+    name: native broker runtime (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - name: Install locked backend dependencies
+        run: |
+          python -m pip install pip==26.1.2
+          python -m pip install --require-hashes -r requirements.lock
+
+      - name: Record the exact Python child executable
+        shell: bash
+        run: python -c "import sys; print('AIGUARD_TEST_PYTHON=' + sys.executable)" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
+        with:
+          toolchain: "1.97.0"
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: native-broker
+
+      - name: Run platform transport, admission, bootstrap, health, and lifecycle tests
+        env:
+          PYTHONUTF8: "1"
+        run: cargo test --locked --manifest-path native-broker/Cargo.toml
 
   js-syntax:
     name: js syntax (extension + desktop)

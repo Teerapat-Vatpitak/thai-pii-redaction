@@ -1,6 +1,29 @@
 //! Transport-free native-broker protocol v1 codec and policy.
 //!
-//! This crate opens no endpoint and performs no backend or storefront work.
+//! Slice 2 adds authenticated native transport and broker-owned bootstrap. Data
+//! operations remain disabled until Slice 3.
+
+#[used]
+static NATIVE_COMPONENT_BUILD_MARKER: &str = concat!(
+    "AIGUARD_NATIVE_COMPONENT_BUILD_ID=",
+    env!("CARGO_PKG_VERSION"),
+    "\0"
+);
+
+pub fn native_component_build_id() -> &'static str {
+    let _ = NATIVE_COMPONENT_BUILD_MARKER;
+    env!("CARGO_PKG_VERSION")
+}
+
+pub mod admission;
+pub mod backend;
+pub mod bootstrap;
+pub mod broker;
+pub mod control;
+pub mod control_client;
+pub mod manifest;
+mod process;
+pub mod transport;
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
@@ -490,6 +513,22 @@ fn production_frame_limit() -> u64 {
     contract()["framing"]["max_frame_bytes"]
         .as_u64()
         .expect("validated frame limit")
+}
+
+pub fn max_frame_bytes() -> u64 {
+    production_frame_limit()
+}
+
+pub fn max_hello_bytes() -> u64 {
+    contract()["framing"]["max_hello_bytes"]
+        .as_u64()
+        .expect("validated hello limit")
+}
+
+pub fn default_message_bytes() -> u64 {
+    contract()["framing"]["default_message_bytes"]
+        .as_u64()
+        .expect("validated message limit")
 }
 
 fn effective_frame_limit(max_frame_bytes: Option<u64>) -> Result<u64, ProtocolError> {

@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-08 Phase 8 authenticated native-broker bootstrap and health](2026-08-08-phase-8-native-broker-bootstrap.md)
 - [2026-08-08 Phase 8 native-broker protocol and cross-language conformance](2026-08-08-phase-8-native-broker-protocol.md)
 - [2026-08-07 Phase 8 authoritative PDF source intervals](2026-08-07-phase-8-pdf-source-intervals.md)
 - [2026-08-07 Phase 8 shared provider orchestration](2026-08-07-phase-8-provider-orchestration.md)
@@ -88,6 +89,13 @@ generic sidecar smoke checks only. Current unreleased source now implements
 HTTP v2 response minimization and strict first-party client schemas; matching
 packaged/installed, real-host, live-provider, authenticated local-process,
 broker-backed client lifecycle, and official-platform evidence remains open.
+
+The 2026-08-08 Slice 2 native-broker record covers authenticated platform IPC,
+single-instance bootstrap, broker-owned private-backend startup, protocol-v1
+health, and deterministic process teardown only. It does not establish the
+broker data plane, session ownership/disposal, Chrome Native Messaging,
+Extension or Desktop migration, Office support, installer/update migration, or
+installed-artifact acceptance.
 
 The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
 first merge review rejected `f968833` with six lifecycle, authorization,

@@ -98,10 +98,9 @@ identity remains unauthenticated. CORS and
 establish server identity. Fresh client/package acceptance and the native
 broker remain open hardening gates.
 
-### Native broker protocol boundary
+### Native broker control-plane boundary
 
-Phase 8 Slice 1 defines the future local broker's protocol without creating a
-runtime path. Broker protocol v1 is independently versioned from product
+Phase 8 Slice 1 defines broker protocol v1 independently from product
 `VERSION`, HTTP v2, and worker v1. Its canonical JSON framing, mandatory hello,
 closed role/operation table, safe errors, size/deadline table, and non-replay
 semantics are fixed in
@@ -123,16 +122,49 @@ non-source or unbounded intermediate text. Local multiphase operations carry a
 200,000-code-point intermediate-detector cap and terminal phase/operation
 budgets for Slice 3 to enforce.
 
-The hello `claimed_role` is never identity. A future transport admission layer
-must establish an authenticated peer and role from OS process/user context plus
-the accepted package/platform checks before the claim can match. Slice 1
-requires that authenticated role as external state but implements no named
-pipe, UDS, Chrome adapter, Tauri command, peer inspection, backend bootstrap,
-credential, session ownership, forwarding, retry, or lifecycle behavior.
-There is no broker `backend` role: the future broker/backend seam remains the
-private authenticated HTTP-v2 adapter selected by the ADR. Mappings remain
-Python-owned, and Office, CLI, hosted HTTP, worker v1, and the demo remain
-outside broker protocol v1.
+Slice 2 implements the native control plane without enabling a broker data
+operation. Windows uses one shared named pipe for the current logon session
+across accepted installations, with an explicit protected DACL containing only
+the current logon SID,
+remote-client rejection, and kernel client/server PID plus token inspection
+while a stable process handle is held. An install-independent named kernel
+mutex and first-pipe ownership close simultaneous-start races. macOS and Linux
+use one canonical per-UID filesystem UDS namespace under a verified private
+`/tmp` child directory, with a `0600` lock and socket and `0700` directory,
+non-following lock creation, inode-checked cleanup, and a held advisory lock. Linux
+requires `SO_PEERCRED`, a stable `pidfd`, and `/proc` executable identity;
+macOS requires `getpeereid`, a stable audit token/PID version, and `libproc`
+executable identity. Missing platform evidence or an insecure/substituted path
+fails closed; there is no abstract socket or localhost client fallback.
+
+The hello `claimed_role` is never identity. Central admission keeps the
+transport-authenticated OS context, manifest path/build/digest evidence,
+claimed role, and manifest-admitted role separate. The exact package role must
+match before negotiated state exists. These are package-consistency checks,
+not publisher attestation or cryptographic application authentication; the
+boundary does not claim protection from arbitrary malicious code already
+running as the same OS user, a compromised OS account, or replacement of an
+unsigned installation.
+
+The broker owns one backend process and binds its random `127.0.0.1` listener
+before starting it. It transfers a duplicate listener plus independent
+per-boot data/control credentials through an inherited channel, retains the
+listener guard, and supervises the child with a Windows kill-on-close Job
+Object or a Unix process group plus parent-death enforcement. The Python
+private entry point consumes those values once in memory and serves the
+existing strict HTTP-v2 app only on the transferred listener. Native
+publication contains only the pipe name or UDS path; it never contains the
+backend address, listener, or either credential.
+
+Slice 2 exposes protocol-v1 hello, `broker_health`, and maintenance-only
+`maintenance_drain_stop`. Health verifies the managed backend's exact product,
+HTTP contract, and authentication capabilities but is not an HTTP passthrough.
+Every data/session/document/provider operation remains disabled. There is no
+Chrome adapter, Extension change, Tauri command, Desktop migration, Office
+change, session ownership/disposal, or broker forwarding. Existing storefronts
+therefore still use their prior paths until later accepted slices. There is no
+broker `backend` role; mappings remain Python-owned, and Office, CLI, hosted
+HTTP, worker v1, and the demo remain outside broker protocol v1.
 
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
 earliest-deadline timer and expires every due session at the exact half-open TTL
@@ -414,8 +446,9 @@ signals into automatic blocking or redaction.
 | `app/http_v2.py` | Strict HTTP-v2 response and error DTOs shared by the main adapters. |
 | `app/hosted.py` | Generic main-repository hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not an official-platform acceptance claim. |
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
-| `native-broker/` | Transport-free broker-v1 Rust codec/conformance crate plus the authoritative machine-readable protocol policy; no executable, listener, backend, session store, or storefront bridge exists in Slice 1. |
+| `native-broker/` | Broker-v1 Rust codec plus the Slice 2 broker executable, central admission, strict component manifest, Windows named-pipe and macOS/Linux filesystem-UDS transports, control-only client, single-instance ownership, backend bootstrap/supervision, and health/lifecycle tests. It has no data plane, session store, or storefront bridge. |
 | `native_broker_protocol.py` | Transport-free Python reference implementation of the same broker-v1 policy and shared fixture behavior; not a server or packaged runtime path. |
+| `native_broker_backend.py`, `app/private_backend_bootstrap.py` | Broker-private Python bootstrap: receives a prebound listener and one-use in-memory data/control credentials through inherited OS state, then starts the existing HTTP-v2 app. It is not a storefront endpoint or native protocol adapter. |
 | `extension/` | MV3 browser extension and supported-site adapters. |
 | `desktop/` | Tauri shell, static UI, updater, and sidecar lifecycle. |
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Automated packaged-backend/HTTPS-development-proxy transport composition is verified locally; all eight real-host/package gates remain open. |

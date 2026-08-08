@@ -1,4 +1,4 @@
-"""Double-click entry point for the AI Guard backend (PyInstaller target).
+"""Double-click and broker-private entry point for the AI Guard backend.
 
 Starts the local API on http://127.0.0.1:8000 and opens the docs page. Closing
 the console window stops the server. This is the base product (regex + Thai
@@ -91,6 +91,13 @@ def _ensure_boot_token():
 
 
 def main():
+    private_backend = sys.argv[1:] == ["--native-broker-backend"]
+    if private_backend:
+        if getattr(sys, "frozen", False):
+            os.environ.setdefault("PYTHAINLP_OFFLINE", "1")
+        from native_broker_backend import main as private_backend_main
+
+        return private_backend_main(prepare=_ensure_pythainlp_data)
     _ensure_pythainlp_data()
     _ensure_boot_token()
     if getattr(sys, "frozen", False):
@@ -122,4 +129,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

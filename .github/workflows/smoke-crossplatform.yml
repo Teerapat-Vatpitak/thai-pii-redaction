@@ -39,6 +39,14 @@ jobs:
         with:
           toolchain: "1.97.0"
 
+      - name: Record the exact Python child executable
+        run: python -c "import sys; print('AIGUARD_TEST_PYTHON=' + sys.executable)" >> "$GITHUB_ENV"
+
+      - name: Run native broker transport, backend, and lifecycle smoke
+        env:
+          PYTHONUTF8: "1"
+        run: cargo test --locked --manifest-path native-broker/Cargo.toml
+
       - name: Build + stage the sidecar
         run: python scripts/build_sidecar.py
 

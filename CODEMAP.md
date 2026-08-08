@@ -90,7 +90,7 @@ $env:PYTHONUTF8='1'; .\.venv\Scripts\python.exe -m benchmark --source gold --com
 # Tests (JS — extension harness, vitest+jsdom; needs `npm install` once)
 npm run test:js
 
-# Tests (Rust — transport-free broker protocol, then Tauri shell)
+# Tests (Rust — broker protocol/runtime, then Tauri shell)
 cargo test --manifest-path native-broker/Cargo.toml
 cargo test --manifest-path desktop/src-tauri/Cargo.toml
 
@@ -134,11 +134,24 @@ One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared
 | Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
 | Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
 
-Phase 8 Slice 1 adds no storefront or production path. The single
-machine-readable broker-v1 policy is `native-broker/protocol-v1.json`;
-`native_broker_protocol.py` and the Rust library under `native-broker/`
-implement only transport-free serialization, framing, negotiation, policy, and
-conformance. They open no endpoint, call no backend, and own no session.
+The single machine-readable broker-v1 policy is
+`native-broker/protocol-v1.json`; `native_broker_protocol.py` and the Rust
+library under `native-broker/` share its serialization, framing, negotiation,
+policy, and conformance. Phase 8 Slice 2 adds the Rust broker executable,
+control-only client, strict component manifest, Windows named pipe,
+macOS/Linux filesystem UDS, OS peer/process inspection, atomic per-user/logon
+ownership, and broker-owned private-backend bootstrap. The private Python mode
+is `native_broker_backend.py` plus `app/private_backend_bootstrap.py`; it starts
+the existing FastAPI app only from a broker-prebound listener and inherited
+one-use credentials.
+
+This Slice 2 path exposes only hello, broker health, and maintenance-only
+drain/stop. It owns no data session, mapping, document/provider operation, or
+storefront bridge. The Extension, Desktop/Tauri, and Office source paths below
+remain unchanged and do not yet call the broker; those migrations are later
+accepted slices. The pipe/UDS plus path/build/digest checks establish OS peer
+context and package consistency only, not publisher attestation or protection
+from arbitrary malicious code already running as the same OS user.
 
 The browser extension, desktop shell, and Office add-in use the local
 **FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
