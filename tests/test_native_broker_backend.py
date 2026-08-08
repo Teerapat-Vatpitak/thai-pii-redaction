@@ -207,6 +207,8 @@ def test_private_backend_credentials_install_once_without_environment(monkeypatc
 
 
 def test_prebound_private_backend_health_and_direct_data_denial():
+    pytest.importorskip("fastapi")
+    pytest.importorskip("uvicorn")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen(16)

@@ -19,7 +19,11 @@ fn unique_test_root(label: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!(
+    #[cfg(unix)]
+    let base = Path::new("/tmp").to_path_buf();
+    #[cfg(windows)]
+    let base = std::env::temp_dir();
+    base.join(format!(
         "aiguard-slice2-{label}-{}-{nonce}",
         std::process::id()
     ))
@@ -328,11 +332,7 @@ fn connection_limit_is_bounded_and_releases_capacity() {
 
 #[test]
 fn platform_endpoint_uses_explicit_security_and_cleans_up() {
-    let root = std::env::temp_dir().join(format!(
-        "aiguard-slice2-{}-{}",
-        std::process::id(),
-        std::thread::current().name().unwrap_or("endpoint")
-    ));
+    let root = unique_test_root("endpoint-security");
     let endpoint = PlatformEndpoint::create_for_test(&root).unwrap();
     let security = endpoint.security_report().unwrap();
     assert!(security.os_user_isolated);

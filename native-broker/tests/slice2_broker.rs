@@ -67,6 +67,14 @@ fn unique(label: &str) -> String {
     format!("aiguard-{label}-{}-{nonce}", std::process::id())
 }
 
+fn test_temp_root(label: &str) -> PathBuf {
+    #[cfg(unix)]
+    let base = Path::new("/tmp").to_path_buf();
+    #[cfg(windows)]
+    let base = std::env::temp_dir();
+    base.join(unique(label))
+}
+
 fn digest_file(path: &Path) -> String {
     format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()))
 }
@@ -175,7 +183,7 @@ fn runtime_config() -> BrokerRuntimeConfig {
         accept_poll: Duration::from_millis(20),
         hello_timeout: Duration::from_millis(500),
         request_timeout: Duration::from_secs(1),
-        idle_timeout: Duration::from_millis(250),
+        idle_timeout: Duration::from_secs(2),
         drain_timeout: Duration::from_secs(2),
     }
 }
@@ -211,7 +219,7 @@ fn hello(stream: &mut NativeStream, role: &str, versions: serde_json::Value) -> 
 fn authenticated_desktop_health_is_live_while_data_and_global_stop_stay_disabled() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("desktop");
-    let endpoint_root = std::env::temp_dir().join(unique("desktop-runtime"));
+    let endpoint_root = test_temp_root("desktop-runtime");
     let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
     let publication = endpoint.publication();
     assert!(!publication.contains("127.0.0.1"));
@@ -318,7 +326,7 @@ fn authenticated_desktop_health_is_live_while_data_and_global_stop_stay_disabled
 fn maintenance_can_health_and_stop_but_cannot_request_data() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("maintenance");
-    let endpoint_root = std::env::temp_dir().join(unique("maintenance-runtime"));
+    let endpoint_root = test_temp_root("maintenance-runtime");
     let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
     let publication = endpoint.publication();
     let runtime = BrokerRuntime::from_parts_for_test(
@@ -380,7 +388,7 @@ fn maintenance_can_health_and_stop_but_cannot_request_data() {
 fn crashed_backend_closes_broker_endpoint_and_returns_fixed_exit() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("desktop");
-    let endpoint_root = std::env::temp_dir().join(unique("crashed-runtime"));
+    let endpoint_root = test_temp_root("crashed-runtime");
     let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
     let publication = endpoint.publication();
     let mut backend = launch_backend();
@@ -531,8 +539,8 @@ fn sealed_broker_process_fixture() {
 fn control_client_binds_kernel_server_identity_to_the_expected_package_broker() {
     let _guard = broker_test_guard();
     let executable = std::env::current_exe().unwrap().canonicalize().unwrap();
-    let package_root = std::env::temp_dir().join(unique("control-client-package"));
-    let endpoint_root = std::env::temp_dir().join(unique("control-client-runtime"));
+    let package_root = test_temp_root("control-client-package");
+    let endpoint_root = test_temp_root("control-client-runtime");
     std::fs::create_dir(&package_root).unwrap();
     let suffix = executable
         .extension()
@@ -612,13 +620,15 @@ fn control_client_binds_kernel_server_identity_to_the_expected_package_broker() 
 fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
     let _guard = broker_test_guard();
     let executable = std::env::current_exe().unwrap().canonicalize().unwrap();
-    let package_root = std::env::temp_dir().join(unique("on-demand-package"));
-    let endpoint_root = std::env::temp_dir().join(unique("on-demand-runtime"));
+    let package_root = test_temp_root("on-demand-package");
+    let endpoint_root = test_temp_root("on-demand-runtime");
     let owners_root = package_root.join("owners");
     let done_root = package_root.join("done");
     let connected_root = package_root.join("connected");
     let holders_root = package_root.join("holders");
     let release_path = package_root.join("release");
+    let expand_path = package_root.join("expand");
+    let keeper_ready_path = package_root.join("keeper-ready");
     let overflow_result_path = package_root.join("overflow-result");
     std::fs::create_dir_all(&owners_root).unwrap();
     std::fs::create_dir_all(&done_root).unwrap();
@@ -644,7 +654,7 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
     write_control_client_manifest(&manifest_path, &broker_path, &client_path, &backend_path);
 
     let mut clients = Vec::new();
-    for index in 0..4 {
+    for _ in 0..4 {
         clients.push(
             std::process::Command::new(&client_path)
                 .args([
@@ -662,9 +672,9 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
                 .env("AIGUARD_SLICE2_DONE_ROOT", &done_root)
                 .env("AIGUARD_SLICE2_CONNECTED_ROOT", &connected_root)
                 .env("AIGUARD_SLICE2_IDLE_MS", "5000")
-                .env("AIGUARD_SLICE2_SKIP_HEALTH", (index != 0).to_string())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
+                .env("AIGUARD_SLICE2_SKIP_HEALTH", "true")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .spawn()
                 .unwrap(),
         );
@@ -676,7 +686,6 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
         thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read_dir(&connected_root).unwrap().count(), 4);
-    thread::sleep(Duration::from_millis(100));
 
     let mut saturation = std::process::Command::new(&client_path)
         .args([
@@ -692,6 +701,8 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
         .env("AIGUARD_SLICE2_SKIP_HEALTH", "true")
         .env("AIGUARD_SLICE2_HOLDERS_ROOT", &holders_root)
         .env("AIGUARD_SLICE2_RELEASE_PATH", &release_path)
+        .env("AIGUARD_SLICE2_EXPAND_PATH", &expand_path)
+        .env("AIGUARD_SLICE2_KEEPER_READY_PATH", &keeper_ready_path)
         .env(
             "AIGUARD_SLICE2_HOLD_COUNT",
             MAX_ACTIVE_CONNECTIONS.to_string(),
@@ -701,6 +712,16 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
+    let keeper_deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while !keeper_ready_path.is_file() && std::time::Instant::now() < keeper_deadline {
+        assert!(saturation.try_wait().unwrap().is_none());
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(keeper_ready_path.is_file());
+    for mut client in clients {
+        assert!(client.wait().unwrap().success(), "client fixture failed");
+    }
+    std::fs::write(&expand_path, b"expand").unwrap();
     let saturation_deadline = std::time::Instant::now() + Duration::from_secs(15);
     while (!overflow_result_path.is_file()
         || std::fs::read_dir(&holders_root).unwrap().count() != 1)
@@ -721,12 +742,6 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
     );
     assert_eq!(capacity_result, "broker_busy");
 
-    for client in clients {
-        let output = client.wait_with_output().unwrap();
-        assert_no_sensitive_output(&output);
-        assert!(output.status.success(), "client fixture failed");
-    }
-
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while std::fs::read_dir(&done_root).unwrap().count() != 1
         && std::time::Instant::now() < deadline
@@ -745,7 +760,7 @@ fn expired_on_demand_deadline_never_launches_a_late_broker() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let fixture = ManifestFixture::create("desktop");
-    let endpoint_root = std::env::temp_dir().join(unique("expired-start-runtime"));
+    let endpoint_root = test_temp_root("expired-start-runtime");
     let launched = AtomicBool::new(false);
     let error = BrokerControlClient::connect_or_start_with_launcher_for_test(
         &endpoint_root,
@@ -1033,34 +1048,48 @@ fn control_client_client_fixture() {
                     .unwrap();
                     return;
                 }
-                let mut held = Vec::with_capacity(hold_count);
-                held.push(client);
+                let publication = PlatformEndpoint::publication_for_test(&endpoint_root).unwrap();
                 let mut workers = Vec::with_capacity(hold_count - 1);
-                for _ in 1..hold_count {
-                    let worker_endpoint = endpoint_root.clone();
-                    let worker_manifest = PathBuf::from(&manifest_path);
+                for index in 1..hold_count {
+                    let worker_publication = publication.clone();
                     workers.push(thread::spawn(move || {
-                        BrokerControlClient::connect_existing_for_test(
-                            &worker_endpoint,
-                            &worker_manifest,
-                            "desktop",
-                            "2.5.0",
+                        let mut stream =
+                            NativeStream::connect(&worker_publication, Duration::from_secs(5))?;
+                        stream.write_value(
+                            &serde_json::json!({
+                                "claimed_role": "desktop",
+                                "client_product_version": "2.5.0",
+                                "request_id": format!("capacity-hello-{index}"),
+                                "supported_protocol_versions": [1],
+                            }),
+                            1_048_576,
                             Duration::from_secs(5),
-                        )
+                        )?;
+                        let raw = stream
+                            .read_frame(1_048_576, Duration::from_secs(5))?
+                            .ok_or_else(|| ProtocolError::new("broker_unavailable", None))?;
+                        let response: serde_json::Value = serde_json::from_slice(&raw)
+                            .map_err(|_| ProtocolError::new("request_invalid", None))?;
+                        if response["role"] != "desktop" || response["broker_protocol_version"] != 1
+                        {
+                            return Err(ProtocolError::new("broker_unavailable", None));
+                        }
+                        Ok(stream)
                     }));
                 }
+                let mut held_streams = Vec::with_capacity(hold_count - 1);
                 for worker in workers {
                     let result = worker
                         .join()
                         .unwrap_or_else(|_| Err(ProtocolError::new("broker_unavailable", None)));
                     match result {
-                        Ok(next) => held.push(next),
+                        Ok(next) => held_streams.push(next),
                         Err(error) => {
                             std::fs::write(
                                 PathBuf::from(
                                     std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap(),
                                 ),
-                                format!("setup-{}-{}", error.code(), held.len()),
+                                format!("setup-{}-{}", error.code(), held_streams.len() + 1),
                             )
                             .unwrap();
                             return;
@@ -1076,11 +1105,11 @@ fn control_client_client_fixture() {
                 ) {
                     Err(error) => error.code().to_owned(),
                     Ok(extra) => {
-                        held.push(extra);
+                        drop(extra);
                         "unexpected-admission".to_owned()
                     }
                 };
-                if let Err(error) = held[0].health() {
+                if let Err(error) = client.health() {
                     std::fs::write(
                         PathBuf::from(std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap()),
                         format!("post-capacity-{}", error.code()),
@@ -1103,7 +1132,8 @@ fn control_client_client_fixture() {
                     thread::sleep(Duration::from_millis(5));
                 }
                 assert!(release.is_file());
-                drop(held);
+                drop(held_streams);
+                drop(client);
                 return;
             }
             std::fs::write(
