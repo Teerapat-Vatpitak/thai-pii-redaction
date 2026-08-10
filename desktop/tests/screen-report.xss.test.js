@@ -3,7 +3,7 @@
 // expected; `${b.count}` / `${r.direct_pii_count}` then inject markup into a
 // webview that holds IPC grants (DESK-3) — count fields must be coerced or
 // escaped like every other field on this screen already is.
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/api.js", () => ({ analyze: vi.fn(), analyzeReport: vi.fn() }));
 
@@ -36,17 +36,40 @@ async function renderWithMaliciousBackend() {
   document.body.innerHTML = "<div id='root'></div>";
   const root = document.getElementById("root");
   renderReport(root);
-  analyze.mockResolvedValue(maliciousReport());
+  analyze.mockResolvedValueOnce(maliciousReport());
   root.querySelector("#a-input").value = "ข้อความทดสอบ";
   root.querySelector("#a-go").click();
   await new Promise((r) => setTimeout(r, 0));
   return root;
 }
 
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("screen-report count fields (DESK-4)", () => {
   it("does not let a string count from the backend become markup", async () => {
     const root = await renderWithMaliciousBackend();
     expect(root.querySelector("#a-out img")).toBeNull();
     expect(root.querySelector("#a-out").innerHTML).not.toContain("<img");
+  });
+
+  it("clears a prior report before a later analysis and keeps it cleared on failure", async () => {
+    const root = await renderWithMaliciousBackend();
+    expect(root.querySelector("#a-out .stat-band")).not.toBeNull();
+
+    let rejectRequest;
+    analyze.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectRequest = reject;
+      })
+    );
+    root.querySelector("#a-go").click();
+    expect(root.querySelector("#a-out").textContent).toBe("");
+
+    rejectRequest(new Error("synthetic failure"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(root.querySelector("#a-out").textContent).toBe("");
+    expect(root.querySelector("#a-err").classList).not.toContain("hidden");
   });
 });

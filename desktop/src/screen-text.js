@@ -1,4 +1,5 @@
-import { sanitize, reidentify } from "./api.js";
+import { copyMasked, disposeSession, sanitize, reidentify } from "./api.js";
+import { safeErrorMessage } from "./errors.js";
 import {
   renderHighlightedText,
   restorationIsComplete,
@@ -38,6 +39,7 @@ export function renderText(root) {
   let sessionId = null;
   let maskedText = "";
   let copyAllowed = false;
+  let screenActive = true;
   const $ = (id) => root.querySelector(id);
 
   function showError(message, retryFn) {
@@ -62,25 +64,27 @@ export function renderText(root) {
   $("#t-mode-token").addEventListener("click", () => setMode("token"));
   $("#t-mode-surrogate").addEventListener("click", () => setMode("surrogate"));
 
-  async function sanitizeInCurrentSession(text) {
-    try {
-      return sessionId
-        ? await sanitize(text, mode, sessionId)
-        : await sanitize(text, mode);
-    } catch (error) {
-      const retryFresh =
-        sessionId &&
-        error &&
-        error.name === "ApiError" &&
-        ((error.status === 404 && error.code === "session_unavailable") ||
-          (error.status === 400 && error.code === "invalid_request"));
-      if (!retryFresh) throw error;
-      sessionId = null;
-      return sanitize(text, mode);
-    }
+  function invalidateSession() {
+    sessionId = null;
+    copyAllowed = false;
+    maskedText = "";
+    $("#t-out").classList.add("hidden");
+  }
+
+  function invalidatePublication() {
+    if (!screenActive) return;
+    screenActive = false;
+    invalidateSession();
+    $("#t-input").value = "";
+    $("#t-reply").value = "";
+    $("#t-masked").textContent = "";
+    $("#t-count").textContent = "";
+    $("#t-restored").textContent = "";
+    $("#t-leftover").textContent = "";
   }
 
   async function doMask() {
+    if (!screenActive) return;
     $("#t-mask").disabled = true;
     const text = $("#t-input").value;
     if (!text.trim()) {
@@ -94,7 +98,10 @@ export function renderText(root) {
     $("#t-restored").classList.add("hidden");
     $("#t-leftover").classList.add("hidden");
     try {
-      const res = await sanitizeInCurrentSession(text);
+      const res = sessionId
+        ? await sanitize(text, mode, sessionId)
+        : await sanitize(text, mode);
+      if (!screenActive) return;
       if (
         !res ||
         typeof res.sanitized_text !== "string" ||
@@ -117,35 +124,41 @@ export function renderText(root) {
       $("#t-count").textContent = `ปกปิด ${res.replacement_count} รายการ`;
       $("#t-out").classList.remove("hidden");
     } catch (e) {
-      showError("ปกปิดไม่สำเร็จ: " + e.message, doMask);
+      if (!screenActive) return;
+      if (e && e.sessionInvalidated === true) invalidateSession();
+      showError("ปกปิดไม่สำเร็จ: " + safeErrorMessage(e), doMask);
     } finally {
-      $("#t-mask").disabled = false;
+      if (screenActive) $("#t-mask").disabled = false;
     }
   }
 
   $("#t-mask").addEventListener("click", doMask);
 
   $("#t-copy").addEventListener("click", async () => {
+    if (!screenActive) return;
     const btn = $("#t-copy");
-    if (!copyAllowed || !maskedText) {
+    if (!copyAllowed || !maskedText || !sessionId) {
       showError("ยังไม่มีผลลัพธ์ที่ผ่านการตรวจความปลอดภัย", doMask);
       return;
     }
     try {
-      await navigator.clipboard.writeText(maskedText);
+      await copyMasked(sessionId, maskedText);
+      if (!screenActive) return;
       const prev = btn.textContent;
       btn.textContent = "คัดลอกแล้ว";
       setTimeout(() => { btn.textContent = prev; }, 1200);
     } catch (e) {
-      showError("คัดลอกไม่สำเร็จ: " + e.message, () => $("#t-copy").click());
+      if (e && e.sessionInvalidated === true) invalidateSession();
+      showError("คัดลอกไม่สำเร็จ: " + safeErrorMessage(e), () => $("#t-copy").click());
     }
   });
 
   async function doRestore() {
-    if (!sessionId) return;
+    if (!screenActive || !sessionId) return;
     const reply = $("#t-reply").value;
     try {
       const res = await reidentify(sessionId, reply);
+      if (!screenActive) return;
       if (!restorationIsComplete(res)) {
         $("#t-restored").textContent = "";
         $("#t-restored").classList.add("hidden");
@@ -163,9 +176,25 @@ export function renderText(root) {
       $("#t-restored").classList.remove("hidden");
       $("#t-leftover").classList.add("hidden");
     } catch (e) {
-      showError("คืนค่าไม่สำเร็จ: " + e.message, doRestore);
+      if (!screenActive) return;
+      if (e && e.sessionInvalidated === true) invalidateSession();
+      showError("คืนค่าไม่สำเร็จ: " + safeErrorMessage(e), doRestore);
     }
   }
 
   $("#t-restore").addEventListener("click", doRestore);
+
+  const cleanup = async () => {
+    const ownedSession = sessionId;
+    invalidatePublication();
+    if (!ownedSession) return;
+    try {
+      await disposeSession(ownedSession);
+    } catch {
+      // Never claim disposal. Scope close or connection teardown owns the
+      // fail-closed fallback.
+    }
+  };
+  cleanup.invalidatePublication = invalidatePublication;
+  return cleanup;
 }

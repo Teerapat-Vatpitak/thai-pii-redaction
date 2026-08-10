@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-08
+Updated: 2026-08-10
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -110,12 +110,12 @@ authorization-replay fingerprints, and hashed lifecycle tombstones; provider
 clients, child processes, ports/listeners, and temporary paths are not owned by
 a `SessionService` session in the current architecture. Client-driven disposal
 remains unimplemented for Browser, Office, and Extension because those clients
-cannot receive the control credential. Phase 8 Slice 2 implements the generic
-native admission/bootstrap/health boundary, and the Slice 3 source candidate
-adds broker data forwarding, connection/scope/session ownership, disposal, and
-uncertain-completion handling. No storefront uses the broker yet; Desktop and
-Extension migration remain later slices. Office remains unchanged and outside
-broker v1.
+cannot receive the control credential. Phase 8 Slices 1--3 implement the
+generic native protocol, authenticated admission/bootstrap, private backend,
+and connection/scope/session-owned data plane. Slice 4 routes current Desktop
+source through that boundary with broker-backed disposal and no direct
+backend/data-plane HTTP or Python lifecycle authority. Extension migration
+remains Slice 5; Office remains unchanged and outside broker v1.
 
 Phase 7 integration status: **merged; main CI green; Phase 8 deferred**. The
 first independent merge review rejected original commit `f968833` with six
@@ -167,12 +167,16 @@ Exact branch head `a7e388257190527c3fc6ff29100e2f17af9abf94`
 after the jobs canceled by the GitHub Actions incident were rerun. This main
 integration contains that candidate; the record does not claim post-merge CI.
 The accepted
-[native-broker ADR](decisions/2026-08-07-native-broker.md) now specifies the
+[native-broker ADR](decisions/2026-08-07-native-broker.md) specifies the
 owner-approved transport, admission, process, session, lifecycle, packaging,
-and failure boundaries. Slice 1 protocol definition/conformance is integrated,
-Slice 2 authenticated transport/bootstrap/lifecycle is integrated, and Slice 3
-now has a source candidate for the data/session boundary. Every storefront
-migration remains later. Authoritative PDF source-to-box
+and failure boundaries. Slice 1 protocol definition/conformance, Slice 2
+authenticated transport/bootstrap/lifecycle, Slice 3 data/session boundary, and
+Slice 4 Desktop migration are integrated. Branch checkpoint
+`dc4aff6705e296890424b3fa4e88a8689300c7ed` fixed the installed profile to local
+`thainer`/`fake`, closed the configuration P1, and passed CI 31393684276 (14/14),
+cross-platform smoke 31393684282 (2/2), and independent review before squash
+integration. Extension Slice 5 and packaging/lifecycle Slice 6 have not started.
+Authoritative PDF source-to-box
 intervals are tracked as the separate third Phase 8 unit below.
 
 Phase 8 second-unit status:
@@ -238,8 +242,9 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR, Slice 1, and Slice 2 integrated; Slice 3 source checkpoint branch-CI
-green; installed acceptance remains open**. The owner
+**ADR and Slices 1--3 integrated; Slice 4 local-only installed configuration
+implemented in the current working candidate; exact-head gates and integration
+pending**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -275,7 +280,7 @@ The broker prebinds one random loopback listener, passes a duplicate and two
 independent per-boot credentials to the Python child only through inherited OS
 state, and retains the listener/process-tree guard. Native publication exposes
 only the pipe name or UDS path. Slice 2 enables hello, broker/backend health,
-and maintenance-only drain/stop. The Slice 3 source candidate adds all existing
+and maintenance-only drain/stop. Slice 3 adds all existing
 protocol-v1 data operations through the broker-private authenticated HTTP-v2
 child. It issues connection-owned scopes and broker session handles, binds
 state to connection/scope/role/backend generation, disposes authority on scope
@@ -287,9 +292,10 @@ generation. Strict HTTP-v2 projection, operation-specific oversized-response
 cleanup, fixed errors, authenticated Python detector budgets/watchdogs,
 observable disconnect cancellation, and fixed global/per-role/per-connection
 bounds are enforced through the final native response write. Windows pipe
-backpressure is nonblocking and deadline-bounded in both directions. No Chrome
-Native Messaging, Extension, Tauri/Desktop, Office, installer, or update
-integration changed.
+backpressure is nonblocking and deadline-bounded in both directions. Slice 4
+consumes these guarantees for Desktop without changing them. No Chrome Native
+Messaging, Extension, Office, updater, upgrade, or uninstall architecture
+changed; Slice 4 adds the native manifest to ordinary bundle layouts.
 
 The integrated Slice 2 evidence passed `154` focused Python protocol/bootstrap tests
 with two expected Unix-only skips and the full Python suite (`2,486` passed,
@@ -335,11 +341,229 @@ platforms, while repeated graceful and forced backend cycles stay bounded and
 rotate generation. Slice 3 evidence is tracked in the
 [current acceptance record](acceptance/2026-08-08-phase-8-native-broker-data-plane.md)
 with a separate-context security review clear on the complete current diff.
-Reviewed implementation commit `19b38392541bdb1c713a037799190409e71e61c1`
+Reviewed Slice 3 implementation commit `19b38392541bdb1c713a037799190409e71e61c1`
 [passes all 14 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31262151884),
 including Windows, Ubuntu, and macOS native runtime, Windows packaged-backend
-smoke, and the core-only Python environment. Main integration and post-main
-delivery-loop evidence remain outside this source checkpoint.
+smoke, and the core-only Python environment. Slices 1--3 are present in exact
+integrated baseline `33989cac356330ff4efdb080c470b8bb63561c6a`.
+
+Slice 4 Desktop local checkpoint: production webview requests now cross an
+exact operation-specific Tauri allowlist into one typed Rust client admitted
+under the existing protocol-v1 `desktop` role; hotkeys call that typed Rust
+client directly. Each window owns a `desktop_ui` scope and hotkeys own a
+separate `desktop_hotkey` scope. The webview retains only broker session
+handles. Backend endpoints, ports, data/control credentials, native endpoint
+details, mappings, provider/TNER credentials, and Python session identifiers
+do not enter webview state. Production Desktop contains no direct backend/data-
+plane HTTP client, port scan, Python launch, backend health/key storage,
+provider implementation, or legacy localhost fallback. The updater remains a
+separate Rust-side client for its fixed HTTPS release host. CSP contains no
+backend origin, and the minimal webview capability grants only the event
+listener needed for global authority invalidation.
+
+The owner selected the credential-free installed-product option. The working
+Slice 4 correction supports local `thainer` only, keeps `fake` solely as the
+managed backend's internal conformance allowlist, and exposes no provider
+command to the webview. Unsupported explicit engine/provider selectors fail
+before broker connection or launch. Both native child seams construct their
+environment by querying only a fixed allowlist of ordinary runtime-variable
+names, never provider/TNER credential values, and pin `thainer`/`fake`.
+Desktop and broker no longer snapshot remote configuration independently, and
+non-`fake` Desktop roundtrip requests fail before backend submission. This
+closes the identified configuration-ownership P1 in source without adding a
+credential store or changing broader core, CLI, HTTP/hosted, or worker
+capabilities. Exact branch full/package gates and independent review passed
+before Slice 4 integration; Slices 5--6 have not started.
+
+Every Desktop product operation, including PDF, still runs through the Slice 3
+private HTTP-v2 executor and shared Python core. Submitted requests are never
+replayed. Bounded admission, renderer generations, out-of-band cancellation,
+terminal restart-required state, and fail-closed connection teardown prevent
+stale or unconfirmed work from publishing after close, reload, invalidation,
+or cleanup failure. Clipboard, UI, and file publication occurs only after exact
+result and safety validation; masked copy is reidentified and checked in native
+code before the validated masked value reaches the clipboard.
+
+The prior local implementation checkpoint passed 56
+Desktop/native-package/backend Python
+tests with two expected Unix-only skips on Windows, including 32 package-only
+tests, and 145 root JavaScript tests across 20 files. The full Python suite
+passed 2,544 tests with seven optional-platform skips. Desktop Rust all-feature
+tests passed 23/23; native-broker library tests passed 13/13 on Windows and
+14/14 on WSL2 Linux. The full Windows native-broker matrix passed 120 active tests with
+eight intentional fixture ignores. The Slice 4
+integration target passed the same nine active tests on both Windows and real
+WSL2 Linux, with three subprocess fixtures ignored because the active tests
+invoke them. Desktop/native Rust format and strict all-target/all-feature
+Clippy gates were green. The Slice 4 live-test target covers
+cold/existing/simultaneous broker
+start, role/version admission, the complete native Desktop operation matrix,
+UI/hotkey and cross-connection scope ownership, continuation/reidentify/
+disposal, PDF, no replay, disconnect/timeout/uncertainty, malformed/oversized
+responses, request-ID uniqueness, terminal limits, restart/stale generation,
+and 24 repeated connect/scope/quit cycles without resource growth.
+
+Historical dirty-tree evidence also installed an ordinary Windows NSIS
+candidate with the component manifest beside the Desktop, broker, and backend.
+That provisional installer's SHA-256 is
+`7277341A62CEF70C8431BE4AEA51E9C0CA916E8C01ABDC8D0267C087869AE681`.
+After installation into `artifacts/slice4-nsis-installed`, twelve total
+launches exercised production package JavaScript through actual typed Tauri
+commands: health, analyze, fresh/continuation sanitize,
+native validated masked copy, reidentify, report, PDF, audit, and dispose/reset.
+The harness did not exercise detect, guard, roundtrip, a fake-provider
+roundtrip, a live provider, or live TNER. Five-run cold process time was
+5,058.208 ms and warm median was 994.843 ms; cold Desktop ready was 4,121.709
+ms and warm readiness ranged from 631.752 to 669.630 ms. Broker and backend
+process deltas were zero. Peak resources were Desktop 34.812 MiB/538 handles,
+broker 7.469 MiB/108, and backend 195.898 MiB/317.
+
+This is exact dirty-tree installed-Windows evidence, not evidence for any clean
+executable checkpoint. Clean predecessor
+`c6dcad168395e44cc52a72674f0ff9d72483cbcf`
+[passed all 14 CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31325662048),
+including two launches from a fresh isolated NSIS installation. Later
+predecessor `0424716aabe5dcdbe07e79c9cd070879e6c7a44a` had a green macOS job in
+[cross-platform run 31326610316](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31326610316):
+it built and twice smoked an exact app copied to a new path. The overall run
+failed on Linux, and that macOS job is relocated-app evidence, not installer,
+DMG, notarization, or `/Applications` evidence.
+
+Earlier predecessor `8be9523` passed all 14 jobs in
+[CI run 31327288545](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288545)
+including two launches from the exact isolated Windows NSIS installation. The
+tested installer SHA-256 was
+`dfa777757ec9961679dcd5074fa48cffb446166fb2b229d418e1f5eb816ebc6c`.
+Its macOS job built, relocated, and twice smoked the app successfully in
+[cross-platform package run 31327288595](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288595).
+Its tested-app archive SHA-256 is
+`5ec08f3d0d2ab051fa4f1b43d33fc31bd1770b86d33d06a402993c689335b96b`;
+the two runs left zero broker/backend process delta. Cross-platform run
+31327288595 is nevertheless red: Linux job `93279571732` failed before Desktop
+launch because process inspection treated an unrelated protected same-UID
+process as fatal. That is a diagnostic harness failure and supplies no Linux
+DEB/AppImage result. Installed Windows NSIS, relocated macOS app, extracted
+DEB, and finalized outer-AppImage plus verified warm-`AppRun` smoke are separate
+evidence classes. Relocation and extraction are not installation evidence, and
+the AppImage path is not normal FUSE/double-click or installation evidence.
+
+Predecessor `6ad3422` repairs that Linux harness with
+a process-name prefilter followed by exact `/proc` path and fail-closed
+inspection for actual component candidates. Independent review found no new
+blocker; 56 focused
+package/workflow tests, Ruff, format, diff-check, and a real WSL clean-parser
+probe pass locally. Checkpoint
+[CI run 31328047804](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047804)
+passes all 14 jobs, including the two-run installed Windows NSIS smoke.
+[Cross-platform package run 31328047802](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047802)
+is red. Its relocated macOS job passes with tested-app
+archive SHA-256
+`8d22957bba783737df954dee5c2a76a012ebeb1bb6f4c1f04886e93916245939`;
+the extracted DEB also completes both runs, but AppImage component digest
+verification fails before AppImage Desktop launch because packaging mutates the
+component bytes after the pre-bundle hashes. No AppImage or full Linux pass is
+claimed from that predecessor.
+
+Predecessor `3836024` leaves the AppImage pre-manifest invalid until it can hash
+the actual post-linuxdeploy AppDir components and repack with a checksum-pinned
+plugin.
+[CI run 31329794579](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794579)
+passed all 14 jobs, but
+[cross-platform package run 31329794568](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794568)
+is red: macOS passed and Linux failed finalization before package smoke because
+the first prefix guard did not allow appimagetool's defined `.digest_md5`
+rewrite.
+
+Predecessor executable checkpoint `73dcca4` copies the trusted original runtime
+prefix before repacking. For the pinned, scrubbed no-sign/no-update invocation,
+it parses both little-endian x86-64 ELF64 prefixes, permits mutation only in the
+single non-executable, non-overlapping 16-byte `.digest_md5` section, rejects
+executable load-segment overlap, and requires every other prefix byte to match.
+Its 76 focused package/workflow tests and exact-delta independent review passed
+with no P0/P1/P2.
+[CI run 31345691672](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691672)
+passed 14/14 including installed Windows NSIS. Its
+[cross-platform package run 31345691667](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691667)
+is red: relocated macOS and extracted DEB passed, but the AppImage harness
+bypassed the outer runtime/`AppRun` and produced no marker.
+
+Predecessor `8194c23` adds a separate precreated canonical private evidence
+directory for AppImage native-start and every fixed marker, rejects an invalid
+supplied root without a package-directory fallback, and creates marker files
+without overwrite. An independent extraction attests finalized bytes;
+repetition one executes the exact outer AppImage with
+`--appimage-extract-and-run`, and the warm repetition re-attests the retained
+live root before launching its `AppRun`.
+[CI run 31348501253](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501253)
+is red, 10/14, only because the new canonical-root test used non-portable path
+spellings. Its installed-NSIS job nevertheless passed two launches and uploaded
+artifact `9048319122`; the published
+`545833b2d71d0cd8d77036e62da7a310a7e4cbc0dd272c6a6f3bbc10fbac71f6`
+digest belongs to the GitHub artifact ZIP, not the installer payload. Separate
+[cross-platform package run 31348501256](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501256)
+passed 2/2. Its relocated macOS tested archive SHA-256 is
+`48881bf929258fe980ff43b2dc4fa948b0a122e55cbb1508bdf9e817a533a624`;
+the Linux artifact contains a directly smoked DEB with SHA-256
+`5f6dde7aed7335ccb6944560fc4aecc993c09a6c6f5cbd18964b0ae2074ca127`
+and finalized AppImage with SHA-256
+`0b139d9f03d88d1a2984445de8d2e08d29fe42ce6120072524dd9ed5ed8cc17d`.
+The latter passed with
+`execution_mode=outer_appimage_extract_and_run_then_verified_apprun`.
+
+Current exact checkpoint `492dad34361b09d7ffa58fa192a2447de7414418`
+retains that production contract and repairs only portable canonical-path test
+construction. Focused package/workflow Python tests pass 100 with one expected
+Windows Unix-mode skip. Full local Rust runs of 19 default and 26 all-feature
+tests preceded the final portability-only edit; afterward the exact private-root
+test passed on Windows and real WSL, and exact CI confirms all 26 Desktop tests
+on Ubuntu, Windows, and macOS. Affected Ruff, Python format, rustfmt, strict
+Clippy, and diff checks pass. Exact CI source matrices recorded Ubuntu Python
+2,574 passed, 32 skipped,
+and one warning; Windows Python 2,571 passed, 35 skipped, and one warning; and
+core-only 2,200 passed and 289 skipped. Root JavaScript passed 148 in 20 files,
+Office passed 129 in 12 files, and combined Cargo source jobs passed 90
+native-broker plus 26 Desktop tests with no failures or ignored tests.
+[CI run 31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519)
+and
+[cross-platform package run 31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518)
+passed 14/14 and 2/2 respectively. CI includes two launches from the exact
+isolated Windows NSIS installation and artifact `9048710352`; its published
+installer payload is 70,500,529 bytes with SHA-256
+`6ca6f5dc3fcdfc3dfc51c210ace1734bcede7f77298d1e3ea7019d9d8b5a425c`.
+The separately published 70,501,963-byte size and
+`961f9e8e25e150e0e5ad7e7124d56569b100e4fb671adfa7f5c51b3f4f8ab4ee`
+SHA-256 describe the GitHub artifact ZIP.
+The package run's relocated macOS artifact `9048609980` has internal tested
+archive SHA-256
+`15a64e25af00f30e288f62c837725cccb9e9588fc0f90d668a57d6d1164f0de8`.
+Linux artifact `9048696066` contains the directly smoked DEB with SHA-256
+`7411b1c976d66a7e4e4a48f757ad751eb69ac0a8a4105d318559ab64fc30bfb7`
+and finalized AppImage with SHA-256
+`915d4ebb139ee69a1d9514d6fdb306ab7e2bbd02e12a858bb4deaedcf5a1f5f7`.
+The AppImage passed exact outer `--appimage-extract-and-run` plus verified warm
+`AppRun`; every current package path left zero broker/backend process delta.
+
+The package harness pins the offline `thainer` engine and fake provider and
+does not exercise live provider or live TNER because the installed product
+supports neither. It also does not establish manual
+visual behavior, updater check/install, supported-path relocation, upgrade or
+drain, interrupted-upgrade recovery, stale cleanup, or uninstall. Those remain
+Slice 6. Release publication remains blocked until Slice 4 is fully gated and
+integrated and Slices 5--6 package and certify native messaging plus the
+complete lifecycle. The detailed fault and evidence map is in the
+[Slice 4 record](acceptance/2026-08-09-phase-8-native-broker-desktop.md).
+
+Final separate-context review of executable checkpoint `6ad3422` found no
+additional P0/P1 in the complete Slice 4 diff or Linux candidate-filter repair.
+Independent review of the `3836024` finalizer delta found no P0/P1/P2; exact
+`73dcca4` review found and then closed executable-`PT_LOAD` overlap before
+reporting no remaining P0/P1/P2. Review of the `8194c23` marker-root/AppImage
+boundary and final `492dad3` portability re-review found no additional
+P0/P1/P2. At those historical checkpoints the provider/TNER ownership decision
+remained the sole confirmed P1. The owner subsequently selected the
+credential-free installed profile, and branch checkpoint `dc4aff6` passed its
+exact CI/package gates and independent review before integration. Separate
+manual/lifecycle evidence classes remain open.
 
 Provider-orchestration local checkpoint: the final Python suite passed 2,314
 tests with five optional OpenCV skips and the existing Starlette/httpx
@@ -397,8 +621,9 @@ blocker, and the branch and post-merge workflows above are green. This closes
 Phase 7 source integration only; it does not close any installed, real-host,
 live-provider, official-platform, or Phase 8 trust-boundary gate.
 
-The fixed localhost data plane still does not authenticate the process that
-owns the port. Explicit TNER whole-operation failure has automated source
+The fixed localhost data plane used by Extension and Office still does not
+authenticate the process that owns the port; current Desktop source no longer
+uses that path. Explicit TNER whole-operation failure has automated source
 coverage but no fresh live response/mapping evidence, and shared provider
 orchestration has no fresh live or packaged/real-host evidence. PDF boxes now
 carry authoritative source intervals and are selected only by interval
@@ -476,7 +701,7 @@ applicable trade. The baseline was not moved.
 | Thai PDPA PDF report | Verified | Whitelisted PII-free renderer and end-to-end tests. A second Windows font defect was found and fixed on 2026-07-29: `FONT_CANDIDATES` carried exactly one Windows entry, a Sarabun path no Windows edition ships, so every Windows machine except the developer's fell through to Helvetica and rendered Thai as black boxes — the packaged exe bundles no font at all, so that was every packaged user. Leelawadee UI (shipped with every Windows edition) is now a second candidate, which in turn exposed a reportlab defect: `PDFTextObject.setRise`'s "optimize out r0 Ts r1 Ts" branch rewrites the emitted operator without storing the new rise, stranding runs of text above the baseline for any font that positions marks by offset rather than glyph substitution. Repaired in `thai_pdf_text._install_rise_fix()`, applied conditionally via a behavioural probe so an upstream fix stops the patch cleanly. Measured on "รายงานความเสี่ยงข้อมูลส่วนบุคคล" at 26pt: 15 distinct glyph baselines before, 11 after, and the visible span "ยงข้อมูลส" returns to the baseline. The underlying exposure — that the product shipped no font and depended on whatever the machine had — is closed: `pii_redactor/fonts/IBMPlexSansThaiLooped-Regular.ttf` (OFL-1.1, converted from the WOFF2 already vendored for the UI, container change only) is now the first candidate and ships in both the wheel and the exe, so a report renders identically wherever it was produced. Thai text shaping had been broken from the renderer's introduction until earlier the same day: reportlab draws glyphs in code-point order unless HarfBuzz shaping is enabled, so every tone mark stacking on an upper vowel was dropped or misplaced — 23 literals in this report, including its own title and the `ADDRESS` label. Fixed by enabling reportlab's built-in shaping (`uharfbuzz`, now a core dependency) and drawing through `pii_redactor/thai_pdf_text.draw_text`, which pairs an invisible real-character layer with the visible shaped glyphs so the page stays searchable. Verified against headless Chrome as a reference renderer: mark positions match on every test word. Two accepted limitations: copying a whole page repeats each shaped line, and `pdfminer`/`pdfplumber` cannot reconstruct stacked Thai marks from any producer (measured — headless Chrome output fails the same way), so extraction-based tooling should use the `.txt` export instead. |
 | PDF redaction and preview | Hardening open; authoritative mapping verified locally | Every returned PDF `WordBbox` now carries an exact half-open source interval assigned by the pdfplumber character map, pdfium character stream, or hybrid/OCR assembly and shifted with page separators. Redaction consumes `Entity.span`, selects only intersecting boxes, checks length-preserving Thai-digit equivalence plus non-whitespace coverage/page/geometry consistency, and fails before output on missing or unsafe provenance. Adversarial tests cover same-value and cross-page isolation, independent/overlapping/adjacent/multi-box entities, Thai combining characters, whitespace/CRLF/page joins, malformed/uncovered intervals, fixed safe errors, negative pixels, and existing flattening/padding. No value-search fallback or one-character exclusion remains. Current-source regressions also clear swallowed and translated extraction/mapping exception graphs. Historical optional OCR evidence predates this composition; physical scans, handwriting, broader real-form accuracy, browser/installed-host evidence, and hosted PDF resource/timeouts remain open. |
 | Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
-| Local HTTP authentication | Hardening open | Current v2 separates the optional data-plane API key from control-plane authority. Shutdown retains its existing boot-token behavior. Session disposal has no unset-token grace: the existing internal route requires one short-lived HMAC authorization derived from the configured boot secret, bound to the exact target and expiry, and consumed once. Verification accepts only canonical unpadded base64url and fingerprints canonical authenticated content. Missing, malformed, noncanonical, invalid, expired, duplicate, cross-session, and replayed authority fails with the same bounded control error. Final expiry validation, replay insertion, and disposal serialize inside the lifecycle lock, so authority that expires while waiting is rejected without consumption or disposal; concurrent use succeeds at most once. A fresh authority makes repeated disposal idempotent. Neither the boot secret nor derived authority is returned to browser, Office, or extension code. When the local API key is unset, PII-bearing fixed-port endpoints still do not authenticate the process owning localhost port 8000; CORS and host validation are not server identity. Slice 2 implements the broker's authenticated native control plane and broker-private authenticated backend bootstrap. The Slice 3 source candidate forwards strict protocol-v1 data operations through that private boundary, binds session handles to connection/scope/role/generation, and requires confirmed authenticated disposal or whole-generation teardown. No storefront uses it yet. OS peer credentials establish OS-user/process context and installed path/build/digest establishes package consistency, not publisher attestation or strong application authentication. Hosted caller authentication remains a separate platform gate. |
+| Local HTTP authentication | Desktop Slice 4 integrated; Extension/Office hardening open | Current v2 separates the optional data-plane API key from control-plane authority. Shutdown retains its existing boot-token behavior. Session disposal has no unset-token grace: the existing internal route requires one short-lived HMAC authorization derived from the configured boot secret, bound to the exact target and expiry, and consumed once. Verification accepts only canonical unpadded base64url and fingerprints canonical authenticated content. Missing, malformed, noncanonical, invalid, expired, duplicate, cross-session, and replayed authority fails with the same bounded control error. Final expiry validation, replay insertion, and disposal serialize inside the lifecycle lock, so authority that expires while waiting is rejected without consumption or disposal; concurrent use succeeds at most once. A fresh authority makes repeated disposal idempotent. Neither the boot secret nor derived authority is returned to storefront webview code. When the local API key is unset, PII-bearing fixed-port endpoints used by Extension/Office still do not authenticate the process owning localhost port 8000; CORS and host validation are not server identity. Slices 1--3 implement the broker's authenticated native control/data plane and broker-private backend. Slice 4 binds broker handles to connection/scope/role/generation and requires confirmed authenticated disposal or connection/generation teardown. Its owner-selected local-only profile builds both child environments from safe runtime-variable names without querying provider/TNER credential values and pins `thainer`/`fake`; exact branch CI, package smoke, and independent review passed before integration. OS peer credentials establish OS-user/process context and installed path/build/digest establishes package consistency, not publisher attestation or strong application authentication. Hosted caller authentication remains a separate platform gate. |
 | Public errors and audit logs | Hardening open | Current-source API process-audit callers use fresh non-authorizing operation UUIDs for sanitize, reidentify, and roundtrip; local disk/stdout regressions reject live session IDs, originals, and pseudonyms. Bounded real-Uvicorn regressions send actual successful and rejected disposal requests through both launcher-configured and default CLI logging. They prove session IDs, derived authorization, control secret, request PII, and query authority are absent from captured stdout/stderr while a health access row and fixed `/api/session/[redacted]` row remain useful. Recognized access records discard queries; unknown record shapes are suppressed fail-closed. Desktop forwarding preserves backend redaction without reconstructing removed values. Successful sanitize records `prepared` before publication, while a safe blocked-attempt record may remain after rejection. HTTP endpoint and pre-response-start JSON-render containment, fixed request-validation responses, direct stateless/local-session sanitize and restore translation, provider translation, PDF/OCR swallowed-error disposal, and worker handler/runner barriers sever retained ordinary exception graphs and common mutable payload fields before emitting fixed failures or continuing a fallback. Ordinary `ExceptionGroup` members are recursively scrubbed, while the read-only group shell is dropped without logging/export rather than corrupted; direct or grouped process signals may propagate. Otherwise-unhandled downstream HTTP exceptions that reach the endpoint decorator become a fixed 500 rather than exporting their detail; provider and PDF boundaries retain their explicit safe 5xx/422 translations. Internal seed audit rows use opaque `seed:<uuid4>` entity IDs, exact replay adds no row, and conflict errors carry no values; retained rows remain structural after `clear()`. Current HTTP v2 uses exact stable-code envelopes without exception messages, provider bodies, excerpts, mappings, or credentials. Protected worker provider failures use fixed v1 errors after discarding the shared-call graph; some generic worker poison-envelope/log paths still expose reduced exception type names, so their cleanup remains separate hardening work. The process-audit schema retains the legacy `session_id` field name, operation-specific files still have no timed retention policy, and published 2.5.0 predates these current hardening changes. Official platform-visible logging remains open. |
 
 ## Compliance documents
@@ -492,7 +717,7 @@ applicable trade. The baseline was not moved.
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
 | AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain skip-and-continue behavior; the separate fine-tuned offset engine is outside this change. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
 | Browser extension | Hardening open | The exact 2026-07 unpacked candidate passed the recorded live Mask, backend-offline, closed-shadow Restore, consistency, and side-panel checks. That evidence remains historical and predates the current backend residual/v2/token-identity changes. Current source validates exact v2 health and operation schemas, rejects malformed/unsafe responses before a composer or copy write, and treats a stale namespaced token as unsafe. Slice 3 adds the shared broker data plane, but no Chrome Native Messaging adapter or Extension permission/code/lifecycle migration exists; Slice 5 and fresh browser/package evidence remain open. OS peer context and package consistency are explicitly not publisher attestation. Separately, raw text typed into an AI site's provider-controlled DOM can be observed before in-page Mask acts; the side panel is the stronger raw-entry boundary, and making it mandatory would require an owner product decision. |
-| Desktop app | Hardening open | The published Windows `2.5.0` installer passed its exact installed-artifact checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid for that artifact. It predates the current transaction/audit, outbound-policy, v2, and token-identity source changes. Current web and Rust hotkey paths validate strict v2 responses, reuse the prior session, retry fresh only for exact expiry/mode errors, and block unsafe clipboard writes. Slice 3 adds the shared broker data plane, but no Tauri command, Desktop client migration, or new packaged/installed-artifact evidence exists; Slice 4 and those gates remain open. |
+| Desktop app | Slice 4 integrated | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Slice 4 routes webview operations through typed Tauri commands and hotkeys through the typed Rust client under the authenticated `desktop` role, with per-window/hotkey scopes, broker handles, fixed uncertainty/no-replay behavior, fail-closed cleanup, and no direct backend/data-plane HTTP, Python lifecycle, or provider implementation. The owner-selected installed boundary supports only local `thainer`, uses `fake` solely for backend conformance, rejects unsupported selectors before broker use, builds both child environments from a safe runtime-name allowlist without querying provider/TNER credential values, removes independent remote-config snapshots, and rejects Desktop non-`fake` roundtrip before backend submission. Branch checkpoint `dc4aff6705e296890424b3fa4e88a8689300c7ed` passed CI 31393684276 (14/14), package smoke 31393684282 (2/2), and independent review before integration. Historical dirty-tree and predecessor results remain exact only for their recorded bytes. Installed Windows NSIS, relocated macOS app, extracted DEB, and outer-AppImage/warm-`AppRun` evidence remain distinct; the AppImage mode is not normal FUSE/double-click or installation evidence. Credential-requiring providers and remote TNER are explicitly unsupported for installed Desktop and require a future owner-approved ADR. Slice 5 and Slice 6 have not started. Manual visual, updater, relocation-install, upgrade, interrupted-upgrade, stale-cleanup, uninstall, signing/notarization, release, and deployment evidence remains open. |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. Office is outside broker v1; its web-add-in architecture is unchanged, and any future native host/bridge requires a separate ADR. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |
 | CLI | Verified | Sanitize/report/receipt and end-to-end pipeline tests pass. Current source uses the shared protected-provider policy, rescans before every actual attempt, caps retries at three, and preserves its stateful snapshot/rollback semantics. This has automated evidence, while the changed provider path still needs the fresh live run tracked under Protected provider roundtrip. |
 | Demo playground | Hardening open | The exact 2026-07-23 browser candidate passed token/surrogate roundtrip, protected Pathumma, guard warning, responsive layouts, report download/open, and positive PDF preview/download checks; that dated evidence remains historical and predates the current backend residual/v2/token changes. Current source validates strict v2 health/operation responses, fails residual or malformed results closed, reaches providers through the shared orchestration layer, and uses authoritative PDF source intervals behind the redaction route. Fresh browser/live PDF evidence remains open. |
@@ -513,7 +738,7 @@ applicable trade. The baseline was not moved.
 | Platform LLM endpoint | Acceptance pending | The platform issued an endpoint, model identifier, and secret out of band. No secret or account identifier is stored here. A dated pre-final sibling protected roundtrip passed and a two-worker 60-second live soak recorded 50 successes and no failures. The credential was later exposed in agent transcript output by a read-only Compose expansion and must be rotated/reissued before any further use; the residual ignored `.env` file was removed without reading it. Exact final-candidate live acceptance and a roundtrip originating from platform infrastructure remain open, together with quota, acceptable-use, logging policy, and timeout ownership. The model was separately scored as a detector on gold v4 ([ADR](decisions/2026-07-28-tokenmind-detector-and-aift-port.md)). |
 | Retry/failure emulator | Verified locally | The repeatable local runner passes duplicate/conflict, failed submit, same-process provider idempotency, malformed/version/size, provider-timeout, handler-crash, concurrency, and honeytoken cases. It does not claim cross-process exactly-once or official ack/nack semantics. |
 | Load/soak and official failure acceptance | Hardening open; official acceptance externally gated | Dated local current-core fake-provider and live-provider soaks are green, including restart recovery and zero observed failures in the recorded runs. Independent review, final local image identification, and exact provider-free check/deploy are complete. Exact live acceptance waits for credential rotation. Core PDF source-to-box correctness now has local automated evidence; public HTTPS/browser behavior, proxy-aware login limiting, sibling composition, and the red PDF resource/capability decision remain pre-push gates. Cold-build timing, outbound connectivity, platform-visible logs/resources, real proxy behavior, and sign-off require the owner-gated GitLab project creation/push and platform evidence. |
-| Version/tag/release pipeline | Verified | v2.5.0 is published as Latest from exact merge commit `24914ab`. PR, main CI, cross-platform smoke, release metadata preflight, Windows/macOS/Linux builds, checksums, and provenance all passed. All 10 files listed in `SHA256SUMS` matched locally and verified against GitHub build provenance. The exact Windows installer upgraded the registered app to 2.5.0; binary/API versions agreed; token, surrogate, and fake-provider roundtrips passed; and closing Desktop released its sidecar and port. The unpublished v2.4.1 draft/tag remains superseded and is not moved or reused. Distribution is the release asset itself; the package-manager manifests were removed on 2026-07-29 ([record](decisions/2026-07-29-store-distribution-and-signing.md)). |
+| Version/tag/release pipeline | Historical v2.5.0 verified; current publishing blocked | v2.5.0 is published as Latest from exact merge commit `24914ab`. Its PR, main CI, cross-platform smoke, metadata preflight, Windows/macOS/Linux builds, checksums, provenance, and exact Windows upgrade/runtime checks passed for that pre-broker artifact. Slice 4 now maps `native-components-v1.json` beside the native executables in ordinary Tauri bundle layouts. Its dirty-tree and predecessor evidence remains exact only for each recorded candidate. Branch checkpoint `dc4aff6` closed the installed configuration P1 and passed CI 31393684276 (14/14) plus package smoke 31393684282 (2/2) before integration. These evidence classes are not interchangeable: relocated macOS and extracted DEB are layouts, and explicit AppImage `--appimage-extract-and-run` plus warm `AppRun` is neither normal FUSE/double-click nor installation/signing evidence. No new tag is created: Slice 5 native-messaging distribution/registration and Slice 6 manual visual/updater/relocation/upgrade/interruption/stale-cleanup/uninstall recertification have not started. The unpublished v2.4.1 draft/tag remains superseded and is not moved or reused. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md)). |
 
 ## Internal-plan differences resolved here
 

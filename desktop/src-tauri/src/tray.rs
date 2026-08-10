@@ -2,8 +2,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
-/// Build the system tray. Quit routes through sidecar::kill so the backend
-/// process tree is reaped (never std::process::exit, which orphans it).
+/// Build the system tray. Quit closes Desktop scopes before disconnecting.
 pub fn setup(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
@@ -27,7 +26,7 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                crate::sidecar::kill(app);
+                crate::broker::shutdown(app);
                 app.exit(0);
             }
             _ => {}

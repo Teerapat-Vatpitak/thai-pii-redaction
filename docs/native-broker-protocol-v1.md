@@ -1,6 +1,7 @@
 # Native broker protocol v1
 
-- Status: Slice 1 contract
+- Status: normative Slice 1 contract; runtime Slices 2--3 integrated; Slice 4
+  installed-product profile implemented in source and pending exact-head gates
 - Protocol version: `1`
 - Product version: independent (`VERSION` remains `2.5.0`)
 - HTTP contract: independent (HTTP v2 remains unchanged)
@@ -17,7 +18,11 @@ The shared byte fixtures are under
 Slice 1 defines serialization, negotiation, authorization policy, limits,
 deadlines, errors, and replay behavior. It does not create a listener, native
 host, Tauri command, backend connection, process lifecycle, session store, or
-data-plane forwarder.
+data-plane forwarder. That is the historical Slice 1 boundary: integrated
+Slice 2 supplies native transport, authenticated admission, and broker-owned
+backend lifecycle, while integrated Slice 3 supplies the data plane, deadline
+enforcement, cancellation, disposal, uncertain-completion handling, and
+teardown.
 
 The unpublished Rust crate's Cargo package metadata follows product `VERSION`
 and is covered by the repository version-drift gate. That build/package value
@@ -26,7 +31,7 @@ is informational in hello and never selects wire protocol compatibility.
 ## Identity boundary
 
 The hello field `claimed_role` is a claim, not authentication. A hello is
-accepted only when a future admission layer supplies an `authenticated_role`
+accepted only when the Slice 2 admission layer supplies an `authenticated_role`
 derived from OS peer/process context and package/platform checks and it exactly
 matches the claim. The Slice 1 harness requires that value explicitly so there
 is no API that authorizes a caller from its JSON role alone. Negotiated
@@ -39,6 +44,32 @@ The protocol roles are `desktop`, `extension`, and `maintenance`. There is no
 authenticated HTTP v2 under the accepted ADR; it does not negotiate or accept
 broker messages. Office, CLI, hosted HTTP, worker v1, and the demo are not
 broker peers.
+
+### Current installed-product profile
+
+This is a runtime/product restriction, not a protocol-v1 wire change. Installed
+Desktop and its shared broker accept only local `thainer`; the managed backend's
+provider allowlist is `fake` solely for internal conformance. The Desktop
+webview has no provider command. An explicit unsupported engine or provider
+selector fails before broker connection or launch as the stable,
+non-secret `ner_unavailable` or `provider_configuration` error. A Desktop
+`roundtrip` conformance request naming a non-`fake` provider fails before
+backend submission.
+
+The Desktop-to-broker and broker-to-backend child seams construct their child
+environment from a fixed allowlist of ordinary runtime-variable names without
+querying provider/TNER credential values, then pin `AIGUARD_NER_ENGINE=thainer`
+and `AIGUARD_PROVIDERS=fake`. Desktop and broker do
+not snapshot remote configuration independently, so an attaching process cannot
+silently reinterpret a warm broker. Protocol-v1 remote-TNER limits and deadlines
+remain reserved contract policy, but the current installed runtime never selects
+those profiles. Core, CLI, HTTP/hosted, and worker provider/TNER capabilities
+remain outside this restriction.
+
+Credential-requiring providers or remote TNER for installed Desktop require a
+future owner-approved ADR covering credential ownership, provisioning,
+permissions, storage, rotation, configuration identity/epoch, broker restart or
+reconfiguration, upgrade, uninstall, attestation, and cross-platform behavior.
 
 ## Canonical serialization
 
@@ -93,10 +124,11 @@ cap. No bytes buffered or attached under the hello decoder carry across that
 switch. Post-hello stream decoders may accumulate partial input and may return
 multiple complete frames in order.
 
-This is the broker framing used over the future named-pipe/UDS stream. Chrome
+This is the broker framing used over the Slice 2 named-pipe/UDS stream. Chrome
 Native Messaging keeps its platform-defined outer stdio framing; the future
 adapter validates that message and creates a broker frame rather than tunneling
-an untrusted length prefix. Slice 1 opens neither transport.
+an untrusted length prefix. Slice 1 itself opens neither transport, and Native
+Messaging remains future Slice 5 work.
 
 ## Mandatory hello
 
@@ -176,12 +208,12 @@ A connection admits at most 4,096 complete messages including hello. Every
 post-hello validation attempt counts before JSON parsing, including malformed
 messages and duplicate IDs. Once the count is full, the next attempt returns
 `broker_busy` without parsing its body and makes the protocol state terminal;
-later attempts return `broker_unavailable`. The future transport closes after
+later attempts return `broker_unavailable`. The transport closes after
 that terminal result. This bounds both retained IDs and per-connection
 validation work.
 
 Protocol debug representations omit request IDs, scope/session IDs, and
-payload/result values. This is defense in depth for future operational code;
+payload/result values. This is defense in depth for operational code;
 the logging allowlist in the ADR remains mandatory and must not log a complete
 wire message or request object.
 
@@ -218,11 +250,11 @@ values, and a closed union for the two audit-event shapes.
 The nested definitions pin highlight, finding, safety, warning, analysis,
 document, restoration, and audit-event fields and enums. Result score,
 confidence, timestamp, and latency values use decimal strings on this wire;
-Slice 3 must convert already validated finite HTTP numbers into that canonical
+Slice 3 converts already validated finite HTTP numbers into that canonical
 representation.
 
 The protocol schema is an additional boundary, not a replacement for the
-existing HTTP-v2 DTO. Slice 3 must first validate the child response header and
+existing HTTP-v2 DTO. Slice 3 first validates the child response header and
 complete HTTP projection—including its cross-field count, interval, warning
 order, and recommendation invariants—then convert it to this broker schema
 before constructing a success.
@@ -248,7 +280,7 @@ before constructing a success.
 
 Desktop scope kinds are `desktop_ui` and `desktop_hotkey`. Extension scope
 kinds are `extension_tab` and `extension_panel`. A role cannot open another
-role's scope kind. Slice 3 will bind broker-issued scope IDs and session
+role's scope kind. Slice 3 binds broker-issued scope IDs and session
 handles to the authenticated connection; Slice 1 validates only their opaque
 syntax and the closed policy.
 
@@ -276,7 +308,7 @@ The closed table is:
 | `broker_incompatible` | `never` | no common explicit broker protocol |
 | `request_invalid` | `never` | malformed, noncanonical, unknown, missing, duplicate, or invalid request structure |
 | `payload_too_large` | `never` | frame, message, field, or decoded document exceeds a fixed cap |
-| `broker_busy` | `never` | a bounded connection-message or future executor/queue limit rejected admission |
+| `broker_busy` | `never` | a bounded connection-message or executor/queue limit rejected admission |
 | `operation_timeout` | `never` | the broker-selected deadline expired |
 | `operation_failed` | `never` | unknown/internal failure collapsed at the broker boundary |
 | `session_unavailable` | `never` | handle/session is missing, expired, invalidated, or not owned |
@@ -330,7 +362,7 @@ Revising a wire limit requires an explicit compatible protocol update.
 ## Broker-selected deadlines
 
 Clients cannot send or extend deadlines. These values are normative terminal
-whole-operation wall-clock caps. A future data-plane adapter must enforce them
+whole-operation wall-clock caps. The Slice 3 data-plane adapter enforces them
 independently with a monotonic outer deadline; it cannot rely on an HTTP
 library's scalar timeout to enforce total elapsed time. In particular, the
 current 15-second TNER and 60-second provider scalar `httpx` settings apply to
@@ -342,9 +374,9 @@ of every internal `detect_tb` call. Outbound policy may rescan multiple
 segments inside one phase. The six-minute phase cap is authoritative over that
 whole nested call graph and may fail closed on a valid worst-case expansion or
 segment-rescan case; it is not a claim that the current uncontained core always
-finishes in six minutes. Before each local detector phase, Slice 3 must reject
+finishes in six minutes. Before each local detector phase, Slice 3 rejects
 masked, restored, or provider-output text above the fixed 200,000-code-point
-intermediate cap as `payload_too_large`. It must also make the phase and outer
+intermediate cap as `payload_too_large`. It also makes the phase and outer
 deadline cancellable. Slice 1 changes no current core path.
 
 | Profile | Deadline | Policy basis |
@@ -380,10 +412,10 @@ extracted text has no finite broker cap.
 unchanged.
 
 A deadline expiry is terminal even if an underlying HTTP timeout has not
-expired. A future broker must apply the ADR's known-session disposal or
-backend-teardown rule; it must not return a partial result or replay the
-request. Cancellation and teardown enforcement belong to the later
-data-plane/lifecycle slices, not Slice 1.
+expired. The Slice 3 broker applies the ADR's known-session disposal or
+backend-teardown rule; it does not return a partial result or replay the
+request. Cancellation and teardown enforcement belong to the integrated
+data-plane/lifecycle slices, not historical Slice 1.
 
 ## Replay and uncertain mutation
 
@@ -393,7 +425,7 @@ read-like data operations, because replay can resend raw text to remote TNER,
 repeat provider use, refresh session retention, duplicate publication, or
 confuse ownership.
 
-Future uncertain-completion handling is fixed:
+Implemented uncertain-completion handling is fixed:
 
 - `sanitize` without a supplied session handle: possible unknown session
   publication; if the backend session ID is unknown, tear down the backend and
@@ -411,5 +443,7 @@ Future uncertain-completion handling is fixed:
 - broker/backend restart or upgrade: invalidate every handle and create no
   restoration continuity.
 
-Slice 1 implements no retry, disposal, teardown, or backend call. It exposes
-the policy metadata so later slices cannot silently choose weaker semantics.
+Slice 1 itself implements no retry, disposal, teardown, or backend call. It
+exposes the policy metadata so later slices cannot silently choose weaker
+semantics; integrated Slices 2--3 enforce that policy at the runtime and data
+plane.

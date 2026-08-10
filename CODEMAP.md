@@ -124,24 +124,26 @@ localhost/127.0.0.1 (`app/server.py`).
 
 ## Architecture: "Single Brain, Multiple Storefronts"
 
-One core pipeline (`pii_redactor/`) exposed via five storefronts over one shared backend:
+One shared Python core/backend implementation (`pii_redactor/` plus the
+applicable adapter) is reused by five storefronts. This is a code-ownership
+boundary, not a claim that every storefront shares one process or transport:
 
 | Storefront | Entry point |
 |---|---|
 | Browser extension (primary UI) | `extension/` (MV3: in-page Mask/Restore bar on ChatGPT/Claude/Gemini/Grok/Perplexity/GLM·Z.ai + docked side panel via `chrome.sidePanel`; per-site DOM selectors in `sites.js` with a generic fallback. Mask reports success only after re-reading the composer and matching the sanitized text (EXT-2); any mask failure raises a blocking overlay (EXT-3); the restored-PII overlay renders inside a closed shadow root so page scripts cannot read it — its styles live in `OVERLAY_CSS` in content.js, not content.css (EXT-4)) |
 | CLI | `demo_cli.py`, `ai_guard.py` |
 | Queue worker (provisional emulator) | `app/worker/` (`python -m app.worker`; job → stateless core; HTTP-poll transport and job schema are provisional local failure/retry fixtures, not the official AI for Thai delivery path; no PII in logs per VAULT-4; `docker compose --profile worker`) |
-| Desktop app (Windows) | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell that spawns and kills the packaged Python sidecar, `tests/` + `cargo test` for the kill sequence, `build-sidecar.ps1`). The Rust side owns process lifecycle and the boot token it passes to the sidecar; it is not a second copy of the pipeline. |
+| Desktop app | `desktop/` (Tauri: `src/` web UI, `src-tauri/` Rust shell, typed broker commands/client, tray, hotkeys, updater, and lifecycle cleanup). The webview invokes only fixed typed commands. Rust is admitted under protocol-v1 `desktop`, owns per-window `desktop_ui` and separate `desktop_hotkey` scopes, and has no direct backend/data-plane HTTP, provider implementation, Python-launch, port-discovery, backend-key, or fallback authority. The shared broker owns the private HTTP-v2 backend and Python remains the only product pipeline. The installed profile is fixed to local `thainer`; `fake` is available only to internal native conformance, not through a webview provider command. |
 | Microsoft 365 add-in | `office-addin/` (TypeScript task pane, Vite + Vitest, Node 22. `src/adapters/{word,excel,powerpoint}.ts` are host adapters behind one contract; `src/controller.ts` holds the shared Detect/Analyze/Mask/Restore flow; `src/api.ts` talks to the backend over an HTTPS localhost proxy; session state is memory-only. `scripts/*.mjs` validate the per-host manifests and package the unified manifest. Its `package.json`/`vitest.config.ts` are separate from the repo-root ones.) |
 
 The single machine-readable broker-v1 policy is
 `native-broker/protocol-v1.json`; `native_broker_protocol.py` and the Rust
 library under `native-broker/` share its serialization, framing, negotiation,
-policy, and conformance. Phase 8 Slice 2 adds the Rust broker executable,
-control-only client, strict component manifest, Windows named pipe,
-macOS/Linux filesystem UDS, OS peer/process inspection, atomic per-user/logon
-ownership, and broker-owned private-backend bootstrap. Slice 3 adds
-`src/data_plane.rs` and the private HTTP-v2 executor in `src/backend.rs`:
+policy, and conformance. Integrated Phase 8 Slices 1--3 provide the protocol,
+the Rust broker executable, control-only client, strict component manifest,
+Windows named pipe, macOS/Linux filesystem UDS, OS peer/process inspection,
+atomic per-user/logon ownership, broker-owned private-backend bootstrap,
+`src/data_plane.rs`, and the private HTTP-v2 executor in `src/backend.rs`:
 connection-owned scopes, broker session handles, strict response projection,
 confirmed disposal, non-replayable uncertain-completion handling, bounded
 concurrency through final native publication, deadline-bounded transport
@@ -153,17 +155,57 @@ detector boundaries. The private Python mode is
 existing FastAPI app only from a broker-prebound listener and inherited one-use
 credentials.
 
-The broker now exposes every protocol-v1 data operation to an authenticated,
-role-admitted native connection, but no storefront calls it yet. The Extension,
-Desktop/Tauri, and Office source paths below remain unchanged; those migrations
-are later accepted slices. The pipe/UDS plus path/build/digest checks establish
-OS peer context and package consistency only, not publisher attestation or
-protection from arbitrary malicious code already running as the same OS user.
+`native-broker/src/installed_product.rs` owns the installed Desktop/native
+configuration profile. It rejects any explicit detector other than `thainer`
+and any explicit provider allowlist other than `fake`, constructs both child
+environments from a fixed safe runtime-name allowlist without querying
+provider/TNER credential values, and pins `AIGUARD_NER_ENGINE=thainer` plus
+`AIGUARD_PROVIDERS=fake`. The Desktop client and broker no longer take separate
+remote-engine snapshots, so an attaching process cannot reinterpret a warm
+broker's detector configuration.
 
-The browser extension, desktop shell, and Office add-in use the local
-**FastAPI backend** `app/server.py` (`/api/*`); the demo is an opt-in route on
-that app. The CLI and provisional worker call shared `pii_redactor/` services
-through their own adapters rather than going through FastAPI. Main now also
+Desktop package builds follow one ordered native path: build and stage the
+frozen Python sidecar plus broker, atomically write invalid `{}` manifests only
+so Tauri can discover its declared resources, compile the Tauri executable,
+run the `beforeBundleCommand`, and map the selected manifest beside the native
+components. NSIS, macOS, and DEB manifests cover their direct bundle bytes.
+AppImage keeps an invalid placeholder through `linuxdeploy`; a checksum-pinned
+post-bundle finalizer then hashes the completed AppDir and repacks it. It parses
+both little-endian x86-64 ELF64 runtime prefixes, permits only appimagetool's
+single non-executable 16-byte `.digest_md5` rewrite, and requires every other
+prefix byte to match before executing and re-extracting the candidate. It then
+verifies all three native components plus the manifest before atomic
+replacement. The feature-gated package smoke runs only after that boundary.
+Windows NSIS, relocated macOS, and extracted DEB runs execute their direct
+package layouts. AppImage first attests an independent extraction, then starts
+the exact finalized outer file with `--appimage-extract-and-run` and a canonical
+private marker directory; after re-attesting the retained root, its verified
+`AppRun` supplies the warm repetition. The four fixed marker files use
+create-new semantics, and an invalid supplied marker root fails without a cwd
+fallback. This is exact outer-runtime and verified-`AppRun` evidence, not normal
+FUSE/double-click or installation evidence. A discovery or unfinalized AppImage
+placeholder is never a valid runtime manifest.
+
+The broker exposes every protocol-v1 data operation to an authenticated,
+role-admitted native connection. Slice 4 implements the typed Desktop client
+as the first storefront: webview → allowlisted Tauri command → Rust →
+authenticated native IPC → broker → private HTTP v2 → Python core. Unsupported
+installed-product selectors fail before broker connection or launch with a
+stable `ner_unavailable` or `provider_configuration` error; non-`fake` Desktop
+roundtrip requests are rejected before backend submission. Slice 4 integrated
+after exact branch CI, cross-platform package smoke, and independent review.
+The Extension
+and Office source paths remain unchanged;
+Extension broker migration is still open as Slice 5, and Office is outside
+broker v1. The pipe/UDS plus path/build/digest checks establish OS peer context
+and package consistency only, not publisher attestation or protection from
+arbitrary malicious code already running as the same OS user.
+
+The browser extension and Office add-in use the fixed local **FastAPI backend**
+`app/server.py` (`/api/*`); the demo is an opt-in route on that app. Desktop
+reaches the same HTTP-v2 adapter only behind its authenticated broker, never as
+a direct caller. The CLI and provisional worker call shared `pii_redactor/`
+services through their own adapters rather than going through FastAPI. Main now also
 contains `app.hosted`, a strict-v2 generic hosted candidate with required
 API-key/provider configuration and a fixed seven-route allowlist. It is not the
 confirmed official route/lifecycle contract. The separate `aiguard-aift`
@@ -178,11 +220,12 @@ extension's service worker calls the backend; CORS allows only extension/Tauri
 origins (strict allowlist, see above). The canonical token → original map lives
 in the backend's in-memory `SessionService` sessions
 (`pii_redactor/session_service.py`, one `SessionVault` per session). The
-current client boundary is `session_id` only: HTTP v2 projects no explicit
-mapping DTO or original/token pairs, and browser, Desktop, and Office construct
-fresh strict DTOs before using a result. Clients still necessarily hold their
-submitted and returned text transiently; response minimization is not a claim
-that caller-owned text cannot be compared.
+current HTTP client boundary is `session_id` only: HTTP v2 projects no explicit
+mapping DTO or original/token pairs. Browser and Office construct fresh strict
+DTOs; the broker translates Python IDs into connection/scope/generation-bound
+handles before Rust and the Desktop UI validate the broker result. Clients
+still necessarily hold submitted and returned text transiently; response
+minimization is not a claim that caller-owned text cannot be compared.
 
 ### Pipeline (Step 1-8)
 
@@ -390,8 +433,9 @@ reject extra fields.
 - `POST /api/redact-pdf` → source/OCR review metadata, count/type projections,
   `redacted_pdf_b64`, and only the after-redaction PNG preview. It does not
   return filename or an unredacted preview. Geometry remains source-space, but
-  entity-to-box ownership is still heuristic rather than exact source-offset
-  alignment. The 50 MB streaming cap and optional-OCR fallback remain.
+  entity-to-box ownership uses authoritative half-open `Entity.span` and
+  `WordBbox.source_span` intersection. The 50 MB streaming cap and optional-OCR
+  fallback remain.
 - `GET /api/audit-log`, `DELETE /api/session/{id}`, and `POST /api/shutdown`
   are local-only introspection/control routes. `app/hosted.py` removes them,
   document routes, developer metadata, and the demo. Its fixed allowlist is
@@ -417,12 +461,13 @@ publication is best effort. HTTP/hosted and worker roundtrip remain stateless;
 the CLI alone applies its vault snapshot/rollback around the shared provider
 attempt policy.
 
-`AIGUARD_TOKEN` is control-plane authority for shutdown/session disposal and is
-never given to browser or Office JavaScript. The optional, separate
+`AIGUARD_TOKEN` is private control-plane authority for shutdown/session
+disposal and is never given to storefront JavaScript. The optional, separate
 `AIGUARD_API_KEY` gates v2 data-plane, document, and introspection routes;
-health remains open. This caller authentication does not prove which process
-owns fixed localhost port 8000, so packaged browser/Office/Desktop identity
-still requires the native broker.
+health remains open. That HTTP caller authentication does not prove which
+process owns fixed localhost port 8000. Desktop current source instead uses
+the broker-owned private backend and never receives either credential;
+Extension and Office still require their later authenticated-boundary work.
 
 ## Versioning
 
@@ -511,7 +556,7 @@ green" is not a statement about OCR.
 
 - **Recall > Precision**: prefer false positives over missed PII
 - **Intended local mapping boundary**: the canonical pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path), and first-party clients keep only `session_id`. The published 2.5.0/v1 artifact violated the projection half by returning direct or reconstructable mapping fields; current unreleased source implements strict v2 projections and clients, while matching packaged/real-host acceptance remains open.
-- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. CLI, HTTP/hosted, and worker provider attempts use one shared orchestration layer, with a fresh scan immediately before each actual invocation, one immutable masked input, no fallback, at most three 60-second attempts, and fixed 1/2-second delays only for timeout, network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request per invocation. Packaged/live acceptance and the native broker remain open.
+- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. CLI, HTTP/hosted, and worker provider attempts use one shared orchestration layer, with a fresh scan immediately before each actual invocation, one immutable masked input, no fallback, at most three 60-second attempts, and fixed 1/2-second delays only for timeout, network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request per invocation. Packaged/live-provider acceptance remains open. Native-broker Slices 1--4 are integrated; Slice 4's Desktop configuration P1 is closed with a credential-free local-only installed profile. Extension Slice 5 migration has not started.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
 - **NER span filter**: reject any entity span < 2 characters before it reaches redaction.

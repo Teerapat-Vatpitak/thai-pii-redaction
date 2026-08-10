@@ -24,7 +24,14 @@ pub struct BrokerControlClient {
     stream: NativeStream,
     role: String,
     protocol_version: u64,
+    hello_request_id: String,
     timeout: Duration,
+}
+
+pub(crate) struct AuthenticatedClientParts {
+    pub stream: NativeStream,
+    pub protocol_version: u64,
+    pub hello_request_id: String,
 }
 
 #[doc(hidden)]
@@ -60,6 +67,20 @@ impl fmt::Debug for BrokerControlClient {
 }
 
 impl BrokerControlClient {
+    pub(crate) fn into_authenticated_parts(
+        self,
+        expected_role: &str,
+    ) -> Result<AuthenticatedClientParts, ProtocolError> {
+        if self.role != expected_role {
+            return Err(ProtocolError::new("broker_unauthorized", None));
+        }
+        Ok(AuthenticatedClientParts {
+            stream: self.stream,
+            protocol_version: self.protocol_version,
+            hello_request_id: self.hello_request_id,
+        })
+    }
+
     pub fn connect_existing(
         endpoint_root: &Path,
         manifest_path: &Path,
@@ -293,6 +314,7 @@ impl BrokerControlClient {
             stream,
             role: prepared.role.clone(),
             protocol_version: 1,
+            hello_request_id: request_id,
             timeout: established_timeout,
         })
     }
@@ -445,9 +467,8 @@ fn configure_broker_command(command: &mut Command) -> Result<(), ProtocolError> 
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .env_remove("AIGUARD_API_KEY")
-        .env_remove("AIGUARD_TOKEN");
+        .stderr(Stdio::null());
+    crate::installed_product::configure_child_command(command);
     use std::os::unix::process::CommandExt;
     let descriptor_limit = crate::process::descriptor_limit()?;
     // SAFETY: only async-signal-safe libc calls run before exec.

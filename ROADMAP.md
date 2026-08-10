@@ -195,9 +195,11 @@ reviewed, independently revertible integration units in this order:
    authentication/secrecy reviewers found no blocker on that exact head. Main
    integrated the branch with history-preserving merge `eb0c45c`; post-merge
    CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed Extension
-   and Desktop disposal remains Phase 8 work. Office is outside broker v1 under
-   the accepted native-broker ADR, and all eight Office real-host/package gates
-   remain open under the unchanged web-add-in architecture.
+   disposal remains Phase 8 work. The Slice 4 Desktop candidate now implements
+   broker-backed session/scope disposal but remains blocked before integration
+   by the provider/TNER ownership decision below. Office is outside broker v1
+   under the accepted native-broker ADR, and all eight Office real-host/package
+   gates remain open under the unchanged web-add-in architecture.
 8. **Converge longer-term choke points — in progress.** The first separately
    reviewable unit is integrated and implements the locked explicit-TNER
    policy: a failed request or incomplete ordered token stream aborts the whole
@@ -239,8 +241,8 @@ reviewed, independently revertible integration units in this order:
    filesystem protections, a held lock, peer credentials, stable process
    identity, and substitution-safe cleanup. Local Windows and real WSL2 Linux
    runtime gates, macOS runtime CI, all 14 implementation branch CI jobs, and
-   independent security review passed that checkpoint. Slice 3 now has a
-   source candidate for strict private HTTP-v2 forwarding,
+   independent security review passed that checkpoint. Slice 3 is integrated
+   with strict private HTTP-v2 forwarding,
    connection/scope/session ownership, confirmed disposal, non-replayable
    uncertain-completion handling, authenticated Python detector budgets,
    protocol deadlines, disconnect cleanup, bounded concurrency held through
@@ -254,10 +256,133 @@ reviewed, independently revertible integration units in this order:
    Reviewed implementation commit
    `19b38392541bdb1c713a037799190409e71e61c1`
    [passed all 14 branch CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31262151884),
-   including Windows, Ubuntu, and macOS native runtime; main integration remains
-   the final Slice 3 delivery-loop gate. No storefront cutover, Chrome/Tauri/Office change,
-   packaging migration, or installed acceptance exists; Slice 4 remains the
-   Desktop migration. Office remains outside broker v1. The third
+   including Windows, Ubuntu, and macOS native runtime. Integrated baseline
+   `33989cac356330ff4efdb080c470b8bb63561c6a` contains Slices 1--3.
+   Slice 4's last fully gated executable checkpoint is
+   `492dad34361b09d7ffa58fa192a2447de7414418`. Webview operations cross
+   operation-specific Tauri commands; hotkeys call the same typed Rust broker
+   client directly. Per-window UI and hotkey scopes own broker handles,
+   submitted data operations are never replayed, renderer generations reject
+   stale queued work, and unconfirmed cleanup disconnects fail closed.
+   Production Desktop contains no direct backend/data-plane HTTP, Python
+   launch, port scan, provider implementation, or legacy fallback authority.
+   The owner chose a credential-free installed-product boundary. The current
+   branch fixes the Desktop/shared-broker detector to local `thainer`, allows
+   `fake` only for internal backend conformance, and exposes no provider command
+   to the webview. Unsupported explicit detector/provider selectors fail before
+   launch with stable `ner_unavailable` or `provider_configuration` errors.
+   Desktop-to-broker and broker-to-backend child seams construct a fixed
+   runtime-name allowlist without querying provider/TNER credential values and
+   pin `thainer`/`fake`;
+   Desktop and broker no longer snapshot remote configuration independently, so
+   a warm broker cannot silently select a different detector. This closes the
+   identified configuration-ownership P1. Exact branch CI, cross-platform
+   package smoke, and independent review passed before Slice 4 integration.
+   Slices 5--6 have not started.
+
+   Evidence remains separated by exact path. Prior local source/native tests
+   pass on Windows and real WSL2 Linux. The 12-launch Windows NSIS result and
+   its hash/timings are historical dirty-tree evidence only. Clean predecessor
+   `c6dcad1` passed all 14 jobs in
+   [CI run 31325662048](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31325662048),
+   including a two-run isolated NSIS install. Predecessor `0424716` had a green
+   relocated-macOS-app job in
+   [run 31326610316](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31326610316),
+   whose overall workflow failed on Linux; relocation is not installation
+   evidence. Earlier predecessor `8be9523`
+   [CI run 31327288545](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288545)
+   passed 14/14 including installed Windows NSIS. Its macOS relocation job
+   passed in
+   [cross-platform package run 31327288595](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288595)
+   but the workflow is red because Linux process inspection rejected an
+   unrelated protected same-UID process before Desktop launch; that diagnostic
+   harness failure supplies no Linux DEB/AppImage result. Predecessor `6ad3422`
+   adds a reviewed process-name prefilter while retaining exact
+   `/proc` path and fail-closed checks for actual candidates. Its 56 focused
+   package/workflow tests and real WSL clean-parser probe passed locally. Exact
+   [CI run 31328047804](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047804)
+   passed all 14 jobs, including the two-run installed Windows NSIS smoke.
+   [Cross-platform package run 31328047802](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047802)
+   is red. Its macOS relocation job passed with
+   tested-app archive SHA-256
+   `8d22957bba783737df954dee5c2a76a012ebeb1bb6f4c1f04886e93916245939`;
+   the extracted DEB also completed both runs, but AppImage component digest
+   verification failed before AppImage Desktop launch because packaging mutated
+   the component bytes after the pre-bundle hashes. No AppImage, full Linux, or
+   cross-platform pass comes from that predecessor.
+
+   Predecessor `3836024` stages an invalid AppImage pre-manifest, hashes the
+   actual post-linuxdeploy AppDir components, and repacks with a
+   checksum-pinned AppImage plugin. Exact
+   [CI run 31329794579](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794579)
+   passed all 14 jobs, but
+   [cross-platform package run 31329794568](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794568)
+   is red: macOS passed and Linux failed finalization before package smoke
+   because the first runtime-prefix guard did not allow appimagetool's defined
+   `.digest_md5` rewrite.
+
+   Predecessor `73dcca4` copies the trusted original runtime prefix before
+   repacking. For the pinned, scrubbed no-sign/no-update invocation, it parses
+   both little-endian x86-64 ELF64 prefixes, permits only the unique
+   non-executable, non-overlapping 16-byte `.digest_md5` rewrite, rejects
+   overlap with executable load segments, and requires every other prefix byte
+   to match. Its 76 focused package/workflow tests and exact-delta independent
+   review passed with no P0/P1/P2. Exact
+   [CI run 31345691672](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691672)
+   passed 14/14 including installed Windows NSIS, but
+   [cross-platform package run 31345691667](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691667)
+   is red: relocated macOS and extracted DEB passed, while the AppImage harness
+   bypassed the outer runtime/`AppRun` and produced no marker.
+
+   Predecessor `8194c23` adds a separately precreated canonical private marker
+   directory for AppImage smoke, routes native-start and every fixed marker
+   through it without overwrite, and fails an invalid supplied root without a
+   package-directory fallback. An independently extracted layout attests the
+   finalized bytes; repetition one crosses the exact outer AppImage with
+   `--appimage-extract-and-run`, and the warm repetition re-attests the retained
+   live root before launching its `AppRun`.
+   [CI run 31348501253](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501253)
+   is red, 10/14, only because the new canonical-root unit test relied on
+   non-portable path spelling. Its installed-Windows NSIS job nevertheless
+   passed. Separate
+   [cross-platform package run 31348501256](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501256)
+   passed 2/2, covering relocated macOS, direct extracted-DEB smoke, and the
+   finalized outer AppImage plus verified warm `AppRun` with
+   `execution_mode=outer_appimage_extract_and_run_then_verified_apprun`.
+
+   Last fully gated checkpoint `492dad3` repairs only that portable test
+   construction and retains the production contract. Focused package/workflow
+   Python tests pass 100 with one expected Windows Unix-mode skip; separate
+   full local Rust runs of 19 default and 26 all-feature tests preceded the
+   final portability-only edit. After it, the exact private-root test passed on
+   Windows and real WSL; exact CI confirms all 26 Desktop tests on Ubuntu,
+   Windows, and macOS. Affected format, lint, Clippy, and diff gates pass. Exact
+   [CI run 31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519)
+   and
+   [cross-platform package run 31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518)
+   passed 14/14 and 2/2 respectively. CI includes two launches from the exact
+   isolated Windows NSIS installation. The package run includes two relocated
+   macOS launches, two direct extracted-DEB launches, and the finalized outer
+   AppImage `--appimage-extract-and-run` launch followed by a re-attested warm
+   `AppRun`; every path left zero broker/backend process delta. Installed
+   Windows NSIS, relocated macOS app, extracted DEB, and
+   outer-AppImage/warm-`AppRun` results remain separate evidence classes. The
+   AppImage run is not normal FUSE/double-click or installation evidence. The
+   detailed record is the
+   [Slice 4 acceptance document](docs/acceptance/2026-08-09-phase-8-native-broker-desktop.md).
+
+   Slice 4 package smoke uses an offline detector and fake provider. That is the
+   installed Desktop product boundary, not live provider/TNER evidence. The
+   owner-decision correction has focused source regressions for selector
+   rejection, child-environment isolation, warm-broker attachment, and Desktop
+   provider admission, plus green exact branch CI and package smoke. Slice 5 and
+   Slice 6 have not started. Slice 6 still
+   still owns manual visual, updater check/install, supported-path relocation,
+   upgrade/drain, interrupted-upgrade recovery, stale cleanup, uninstall, and
+   installed cross-platform recertification. Tag-triggered installer publishing
+   stays blocked until Slices 4--6 package and certify native messaging plus the
+   complete lifecycle. Office remains
+   outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
    the page-joined extraction text, and redaction selects boxes only by
@@ -268,7 +393,8 @@ reviewed, independently revertible integration units in this order:
    acceptance remain open.
 
 The outbound-policy, HTTP-v2 client, and token-identity source changes plus the
-future broker-backed client lifecycle/disposal, explicit-TNER,
+current Desktop broker-backed lifecycle/disposal, future Extension lifecycle,
+explicit-TNER,
 provider-orchestration, and PDF-offset changes each invalidate carry-forward
 evidence only for their affected paths. Fresh automated, packaged, real-host,
 live-provider, or official-platform evidence must match the strength of the
@@ -596,6 +722,11 @@ privacy behavior, and no artifact that carries a personal-data value.
 - A default heavyweight NER engine without resource and accuracy evidence.
 - Broad OCR expansion beyond the existing optional scanned-PDF path.
 - Public benchmark leadership claims.
+- Credential-requiring providers or remote TNER in installed Desktop. A future
+  owner-approved ADR must define credential ownership, provisioning,
+  permissions, storage, rotation, configuration identity/epoch, broker
+  restart/reconfiguration semantics, upgrade, uninstall, attestation, and
+  cross-platform behavior before this boundary can expand.
 
 Security fixes, official platform requirements, and defects in a committed
 feature are never deferred by this list.

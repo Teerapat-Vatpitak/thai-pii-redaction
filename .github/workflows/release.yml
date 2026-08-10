@@ -1,9 +1,12 @@
-# Build installers for Windows / macOS / Linux, attach them to a GitHub
-# Release, then hash + attest everything.
+# Release workflow retained for historical artifacts and Slice 6 completion.
+# Current native-broker source fails preflight before any publishing job because
+# Slice 5 native-messaging distribution and Slice 6 upgrade/uninstall
+# recertification are not complete.
 #
 # STATUS: the full Windows/macOS/Linux matrix and checksums/attestation path ran
-# successfully for v2.3.0, v2.4.0, and v2.5.0. Every new tag still has to pass
-# the same gates; prior success is not permission to publish a partial draft.
+# successfully for v2.3.0, v2.4.0, and v2.5.0. That evidence is historical;
+# every new tag remains blocked until Slices 5--6 certify the complete installed
+# product and lifecycle.
 #
 # Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
 # hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
@@ -58,6 +61,17 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: python scripts/check_release_readiness.py --expect-tag "$TAG"
+
+      # Slice 4 places the manifest beside the installed Desktop, broker, and
+      # backend. Publishing still waits for the Slice 5 native-messaging host and
+      # registration plus Slice 6 upgrade/uninstall recertification. Both
+      # publishing jobs depend on this preflight.
+      - name: Block native-broker installer publication until Slice 6
+        env:
+          NATIVE_INSTALLER_GATE: blocked-until-phase-8-slice-6
+        run: |
+          echo "::error::$NATIVE_INSTALLER_GATE: native-messaging registration and upgrade lifecycle are not certified"
+          exit 1
 
   build:
     needs: preflight
@@ -114,7 +128,9 @@ jobs:
       - name: Cache cargo
         uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          workspaces: desktop/src-tauri
+          workspaces: |
+            native-broker
+            desktop/src-tauri
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -123,6 +139,9 @@ jobs:
 
       - name: Build + stage the sidecar (cross-platform, single source)
         run: python scripts/build_sidecar.py
+
+      - name: Build + stage the native broker
+        run: python scripts/build_native_broker.py
 
       - name: Install desktop (Tauri CLI) deps
         working-directory: desktop

@@ -4,25 +4,31 @@ AI Guard follows **one core, multiple storefronts**. Detection,
 pseudonymization, leak scanning, restoration, and validation live under
 `pii_redactor/`. The extension, desktop app, Microsoft 365 add-in, CLI, HTTP
 API, demo, and hosted adapters translate caller input to that core; they must
-not create separate detection logic.
+not create separate detection logic. They reuse one Python implementation, not
+necessarily one process or transport.
 
 ## System shape
 
 ```text
-Browser extension ----\
-Desktop app -----------+--> local FastAPI adapter --------\
-Office add-in ---------/                                  |
-                                                           +--> pii_redactor core
-Hosted HTTP -----------> main hosted candidate ------------|    detect -> mask
-Demo playground -------> demo/API adapter -----------------|    -> guard
-CLI -------------------> direct core adapter --------------|    -> provider
-Provisional job runner -> worker adapter ------------------/    -> restore
+Desktop webview -> typed Tauri commands -> Rust Desktop client
+  -> authenticated native IPC -> shared broker -> private HTTP-v2 backend --\
+Browser extension -------------------------------> fixed-port local FastAPI --+
+Office add-in -> HTTPS development proxy --------> fixed-port local FastAPI --+--> pii_redactor core
+Hosted HTTP -----------------------------------------------> hosted adapter --+    detect -> mask
+Demo playground --------------------------------------------> demo/API ------+    -> guard
+CLI --------------------------------------------------------> direct core ---+    -> provider
+Provisional job runner -------------------------------------> worker adapter-/    -> restore
 ```
 
-The adapters serve three deliberately different lifecycles:
+The adapters serve four deliberately different lifecycles:
 
-- Local HTTP sessions retain the canonical mapping in backend process memory
-  behind an opaque `session_id`, enabling multi-turn restoration on one
+- Desktop uses connection-owned broker scopes (`desktop_ui` per window and a
+  separate `desktop_hotkey` scope). Broker session handles are bound to the
+  connection, scope, role, and backend generation; Python session IDs and
+  mappings do not cross native IPC. Closing a scope or connection removes its
+  authority and requires confirmed cleanup or fail-closed teardown.
+- Extension and Office fixed-port HTTP sessions retain the canonical mapping
+  in backend process memory behind an opaque `session_id`, enabling multi-turn restoration on one
   device. Clients necessarily handle the user-submitted and returned text, but
   receive no explicit mapping DTO and retain no mapping collection. Current
   HTTP v2 projects sanitized/restored text plus safe counts, categories,
@@ -43,13 +49,17 @@ The adapters serve three deliberately different lifecycles:
 
 ## Trust boundary A - local product
 
-The desktop sidecar binds to localhost and serves the browser, desktop, and
-Office paths (the Office task pane reaches it through an HTTPS localhost
-proxy). The intended local invariant is that a client's retained authority is
-an opaque session reference rather than an explicit mapping or credential, the
-canonical token-to-original map remains in backend memory, and an
-AI Guard-controlled provider adapter should send only leak-guarded masked text.
-Clients still handle input and display/output text transiently.
+Current source has two local transport boundaries. Desktop uses typed Tauri
+commands and an authenticated native broker connection; the broker alone owns
+the private random-loopback HTTP-v2 backend and its per-boot credentials. The
+Extension and Office paths remain on the separately documented fixed localhost
+service (the Office task pane reaches it through an HTTPS development proxy),
+so Slice 4 does not strengthen those storefronts. Across both boundaries, a
+client's retained authority is an opaque session reference rather than an
+explicit mapping or credential, the canonical token-to-original map remains in
+backend memory, and an AI Guard-controlled provider adapter sends only
+leak-guarded masked text. Clients still handle input and display/output text
+transiently.
 
 The browser in-page composer has an earlier trust boundary: raw text is typed
 into a provider-owned page DOM before the user clicks Mask. Page code can
@@ -93,10 +103,12 @@ provider. Tokenmind performs one HTTP request per `complete()` invocation and
 does not interpret `Retry-After`. Current provider-orchestration evidence is
 source-level automation only. The earlier packaged-backend and Office HTTPS
 proxy preflight predates this change and did not exercise a provider. Fixed-port
-identity remains unauthenticated. CORS and
+identity remains unauthenticated for Extension and Office. CORS and
 `TrustedHost` restrict browser request context and host headers; they do not
-establish server identity. Fresh client/package acceptance and the native
-broker remain open hardening gates.
+establish server identity. Desktop current source no longer uses that boundary;
+its authenticated package/process and lifecycle evidence is recorded under the
+native broker section. Fresh Extension/Office client and installed-package
+acceptance remain open hardening gates.
 
 ### Native broker boundary
 
@@ -115,10 +127,12 @@ plane validates the complete HTTP-v2 projection.
 
 The pre-hello decoder accepts one frame under a 4 KiB allocation cap; a fresh
 post-hello decoder is required after negotiation. Connection validation is
-bounded to 4,096 complete messages. Remote TNER is source-only for broker
-`detect`, `analyze`, and `analyze_report`; it is disabled without fallback for
-sanitize, reidentify, roundtrip, and PDF because the current paths can scan
-non-source or unbounded intermediate text. Local multiphase operations carry a
+bounded to 4,096 complete messages. Protocol v1 defines remote-TNER policy only
+for broker `detect`, `analyze`, and `analyze_report`; it disables remote
+selection without fallback for sanitize, reidentify, roundtrip, and PDF because
+those paths can scan non-source or unbounded intermediate text. The current
+installed Desktop/shared-broker profile is narrower and never selects remote
+TNER for any operation. Local multiphase operations carry a
 200,000-code-point intermediate-detector cap and terminal phase/operation
 budgets enforced by Slice 3.
 
@@ -211,11 +225,73 @@ release session authority and admission. Protocol deadlines remain operation-spe
 backend/provider attempt timeouts stay owned by their existing layers.
 Observable disconnect or process loss cancels in-flight transport, and
 post-submission cancellation uses the same uncertain-completion policy. There
-is still no Chrome adapter, Extension change, Tauri command, Desktop migration,
-Office change, or storefront bridge. Existing storefronts therefore retain
-their prior paths until later accepted slices. There is no broker `backend`
-role; Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
-protocol v1.
+is still no Chrome adapter, Extension change, or Office change.
+
+Slice 4 adds the first storefront bridge without changing Slices 1--3. The
+Desktop webview can select only operation-specific Tauri commands, and the Rust
+Desktop client is admitted under the existing `desktop` role before opening
+per-window `desktop_ui` or separate `desktop_hotkey` scopes. Both layers use the
+shared protocol-v1 validators, deadlines, framing limits, fixed errors, and
+non-replay semantics. JavaScript never opens native IPC or receives a backend
+endpoint, credential, mapping, Python session ID, or native endpoint detail.
+Rust has no backend data-plane HTTP, provider, detector, or PDF implementation
+and no legacy sidecar fallback. The owner selected a credential-free installed
+Desktop/native-broker profile: local `thainer` is the only detector and `fake`
+is the backend provider allowlist solely for internal conformance. No provider
+command is exposed to the webview. Explicit unsupported detector or provider
+selectors fail before broker connection or launch with stable,
+non-secret `ner_unavailable` or `provider_configuration` errors. Both child
+seams construct a name-allowlisted runtime environment without querying
+provider/TNER credential values, then pin `thainer`/`fake`. Desktop and broker no longer hold independent
+remote-configuration snapshots, and a rejected attach never consumes a warm
+broker. Non-`fake` Desktop roundtrip requests are rejected before backend
+submission. This closes the identified configuration-ownership P1. Slice 4
+integrated after exact branch full/package gates and independent review passed.
+
+Each window label owns its scope within the one Desktop connection. Closing a
+window removes its local authority before requesting scope close; app quit does
+the same for every UI and hotkey scope but does not issue global broker stop.
+Any unconfirmed cleanup forces connection teardown. A transport or integrity
+failure clears all local scope state, and an uncertain session mutation clears
+the UI/hotkey handle rather than replaying the request. The current Tauri
+product remains one main window and uses its existing single-instance plugin;
+independent admitted Desktop client processes nevertheless converge on the
+shared broker without sharing scopes or sessions.
+
+The webview capability file grants no shell, filesystem, native networking,
+clipboard-read, or global-shortcut plugin authority. CSP has no backend
+localhost destination; navigation is restricted to exact internal Tauri
+origins. Rust hotkey and frontend output paths validate the operation-specific
+result and safety status before clipboard, UI, or file publication. The
+feature-gated package harness is wired to run production JavaScript through
+real typed Tauri commands and to check the Desktop, broker, and frozen backend
+against the colocated final-byte manifest. Direct NSIS, macOS, and DEB inputs are
+hashed by the `beforeBundle` hook. AppImage remains invalid while `linuxdeploy`
+changes ELF bytes; afterward, a checksum-pinned output plugin seals the
+completed AppDir. The finalizer parses both little-endian x86-64 ELF64 runtime
+prefixes, permits only appimagetool's single non-executable, non-overlapping
+16-byte `.digest_md5` rewrite, and requires every other prefix byte to match
+before executing the repacked runtime, confirming its offset, re-extracting the
+image, and comparing the three native components and manifest before atomic
+replacement. Checkpoint `3836024` passed CI but failed that Linux finalization
+stage before package smoke. Checkpoint `73dcca4` contained the narrowed verifier,
+but its harness bypassed the outer runtime and `AppRun`. The current harness
+independently attests an extracted AppImage layout, then starts the exact
+finalized outer file with `--appimage-extract-and-run` using a canonical private
+marker directory. It re-attests the retained live root and uses its verified
+`AppRun` for the warm repetition. Fixed marker names use create-new semantics;
+an invalid supplied marker directory has no cwd fallback. Checkpoint `8194c23`
+passed that separate cross-platform package workflow, although its main CI
+failed a non-portable canonical-path test. Last fully gated checkpoint
+`492dad34361b09d7ffa58fa192a2447de7414418` repairs the test construction;
+exact CI run `31349781519` passed 14/14 and exact cross-platform package run
+`31349781518` passed 2/2. Historical dirty-tree Windows NSIS evidence remains
+provisional. The named AppImage path is not normal FUSE/double-click or
+installation evidence, and relocation, upgrade, and uninstall recertification
+remain Slice 6. There is still no Chrome adapter
+or Extension change (Slice 5),
+and Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
+protocol v1. There is no broker `backend` role.
 
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
 earliest-deadline timer and expires every due session at the exact half-open TTL
@@ -248,11 +324,11 @@ is single-use. Recognized Uvicorn access records discard query values and
 replace the bearer-like session path value with a fixed redaction marker before
 launcher or Desktop output forwarding; an unknown access-record shape is
 suppressed fail-closed. Non-sensitive access and application logs remain
-enabled. Desktop web and hotkey paths reuse their prior session and retry once
-without it only for exact expiry/mode-reset errors. Extension tab close and
-Office reset still clear only client references. No JavaScript client receives
-the boot secret or a derived disposal authorization; broker-backed client
-disposal remains Phase 8.
+enabled. Desktop does not replay submitted mutations; invalid session authority
+is cleared, and session/scope cleanup is confirmed through the broker or the
+connection is torn down. Extension tab close and Office reset still clear only
+local references; their broker-backed disposal remains open. No JavaScript
+client receives the boot secret or a derived disposal authorization.
 
 The session resource graph is deliberately small: the service owns each
 in-memory vault/mapping namespace, entity list, trusted digest list, salt,
@@ -440,7 +516,8 @@ exceptions are reduced and scrubbed inside the single-attempt primitive; each
 outer adapter discards its caught fixed exception before emitting a fresh
 value-free failure. Response validation, restoration, and other tail work
 remain outside the retry loop.
-Likewise, explicitly selected remote TNER receives raw pre-mask chunks. Current
+Outside the installed Desktop/native-broker profile, explicitly selected remote
+TNER receives raw pre-mask chunks. Current
 source makes it the fail-closed exception to the shared NER chunk guard:
 configuration, dependency, network, or upstream unavailability aborts the
 whole operation as `ner_unavailable`, while malformed, unequal, misaligned,
@@ -497,11 +574,11 @@ signals into automatic blocking or redaction.
 | `app/http_v2.py` | Strict HTTP-v2 response and error DTOs shared by the main adapters. |
 | `app/hosted.py` | Generic main-repository hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not an official-platform acceptance claim. |
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
-| `native-broker/` | Broker-v1 Rust codec plus the Slice 2 transport/bootstrap and Slice 3 connection-owned data plane: central admission, Windows named pipe and macOS/Linux filesystem UDS, private authenticated HTTP-v2 forwarding, broker scope/session-handle metadata, deterministic disposal, deadline/cancellation handling, and backend-generation invalidation. It contains no mapping or duplicate PII/provider/PDF logic and has no storefront bridge. |
+| `native-broker/` | Broker-v1 Rust codec, Slice 2 transport/bootstrap, Slice 3 connection-owned data plane, and the typed Slice 4 Desktop client: central admission, Windows named pipe and macOS/Linux filesystem UDS, private authenticated HTTP-v2 forwarding, broker scope/session-handle metadata, deterministic disposal, deadline/cancellation handling, backend-generation invalidation, and no replay. It contains no mapping or duplicate PII/provider/PDF logic. |
 | `native_broker_protocol.py` | Transport-free Python reference implementation of the same broker-v1 policy and shared fixture behavior; not a server or packaged runtime path. |
 | `native_broker_backend.py`, `app/private_backend_bootstrap.py` | Broker-private Python bootstrap: receives a prebound listener and one-use in-memory data/control credentials through inherited OS state, then starts the existing HTTP-v2 app. It is not a storefront endpoint or native protocol adapter. |
 | `extension/` | MV3 browser extension and supported-site adapters. |
-| `desktop/` | Tauri shell, static UI, updater, and sidecar lifecycle. |
+| `desktop/` | Tauri shell, static UI, updater, typed allowlisted broker commands, per-window/hotkey scope lifecycle, fixed-error UX, and fail-closed output validation. It has no production direct HTTP or Python-process authority. |
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Automated packaged-backend/HTTPS-development-proxy transport composition is verified locally; all eight real-host/package gates remain open. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
@@ -537,7 +614,26 @@ is deferred unless a concrete dependency or ownership problem appears.
 - Current HTTP v2 uses `X-AIGuard-Contract-Version: 2` as a required assertion
   on every API operation except health; clients also validate the fixed
   response header before using a result.
-- `AIGUARD_NER_ENGINE` selects a process-wide NER implementation.
+- `AIGUARD_NER_ENGINE` selects a process-wide NER implementation for the broader
+  core, CLI, HTTP/hosted, and worker boundaries. It cannot reconfigure installed
+  Desktop/native-broker execution.
+- The installed profile validates a parent selector before broker connection or
+  launch: only `AIGUARD_NER_ENGINE=thainer` (or unset) and
+  `AIGUARD_PROVIDERS=fake` (or unset) are accepted. Other values fail closed as
+  `ner_unavailable` or `provider_configuration` without echoing the value.
+- Desktop-to-broker and broker-to-backend process creation queries only a fixed
+  allowlist of ordinary runtime-variable names. It never queries or copies AI
+  for Thai, Anthropic, Tokenmind, provider/detector selectors, Tokenmind
+  transport controls, fine-tuned model paths, or inherited broker API/control
+  values, then sets exactly the installed profile's
+  `AIGUARD_NER_ENGINE=thainer` and `AIGUARD_PROVIDERS=fake` values. Broker and
+  Desktop validation always use the local profile rather than independent
+  environment snapshots.
+- Credential-backed providers or remote TNER in installed Desktop require a
+  future owner-approved ADR covering credential ownership, provisioning,
+  permissions, storage, rotation, configuration identity/epoch, broker restart
+  or reconfiguration, upgrade, uninstall, attestation, and cross-platform
+  behavior. No credential store is part of Slice 4.
 - `AIGUARD_TOKEN` is local control-plane authority for shutdown and the secret
   from which trusted native/backend code derives target-bound session-disposal
   authorization. Raw boot-token use does not authorize session disposal, and

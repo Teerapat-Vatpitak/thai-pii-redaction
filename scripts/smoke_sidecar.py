@@ -44,11 +44,18 @@ BIN_GLOB = str(ROOT / "desktop" / "src-tauri" / "binaries" / "aiguard-*")
 
 
 def find_sidecar():
-    matches = sorted(m for m in glob.glob(BIN_GLOB) if not m.endswith(".d"))
+    matches = sorted(
+        candidate
+        for candidate in glob.glob(BIN_GLOB)
+        if not candidate.endswith(".d")
+        and not Path(candidate).name.startswith("aiguard-native-broker-")
+    )
     if not matches:
         raise FileNotFoundError(
             f"no staged sidecar matching {BIN_GLOB}; run scripts/build_sidecar.py first"
         )
+    if len(matches) > 1:
+        raise RuntimeError("multiple packaged backend sidecars found")
     return matches[0]
 
 

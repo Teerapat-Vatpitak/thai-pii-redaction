@@ -69,9 +69,12 @@ records instead of returning a warning-only masked result. Historical
 browser/store and published 2.5.0 evidence predates that change, so it does not
 establish an accepted production package. Users should run only a backend they
 started and trust and review high-risk output before submitting it. Packaged
-production operation is intended to move to a native broker and remove direct
-localhost host permissions; broker work and fresh package/browser acceptance
-remain open.
+production operation is intended to move through a Chrome Native Messaging
+host/adapter to the shared broker already present in current source and remove
+direct localhost host permissions. That Extension-specific Slice 5 migration,
+native-host registration/lifecycle, and fresh package/browser acceptance remain
+open; this is not a claim that the broker protocol or Desktop broker client is
+absent.
 
 ## `content_scripts` matches (6 AI chat providers)
 

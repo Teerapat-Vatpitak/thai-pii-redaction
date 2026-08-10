@@ -2,6 +2,8 @@ use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
@@ -133,6 +135,7 @@ impl WindowsEndpoint {
                             WindowsNativeStream {
                                 handle: connected_pipe,
                                 server_side: true,
+                                aborted: Arc::new(AtomicBool::new(false)),
                             },
                             context,
                             executable,
@@ -265,6 +268,17 @@ impl Drop for WindowsEndpoint {
 pub(crate) struct WindowsNativeStream {
     handle: HANDLE,
     server_side: bool,
+    aborted: Arc<AtomicBool>,
+}
+
+pub(crate) struct WindowsAbortHandle {
+    aborted: Arc<AtomicBool>,
+}
+
+impl WindowsAbortHandle {
+    pub(crate) fn abort(&self) {
+        self.aborted.store(true, Ordering::Release);
+    }
 }
 
 // Windows kernel handles are valid process-wide. This wrapper owns one handle
@@ -316,6 +330,7 @@ impl WindowsNativeStream {
                 return Ok(Self {
                     handle,
                     server_side: false,
+                    aborted: Arc::new(AtomicBool::new(false)),
                 });
             }
             if unsafe { GetLastError() } != ERROR_PIPE_BUSY || Instant::now() >= deadline {
@@ -333,6 +348,9 @@ impl WindowsNativeStream {
         let deadline = Instant::now() + timeout;
         let mut offset = 0;
         while offset < target.len() {
+            if self.aborted.load(Ordering::Acquire) {
+                return Err(ProtocolError::new("broker_unavailable", None));
+            }
             let mut available = 0_u32;
             // SAFETY: available is a valid output and other optional buffers are null.
             let peeked = unsafe {
@@ -393,6 +411,9 @@ impl WindowsNativeStream {
         let deadline = Instant::now() + timeout;
         let mut offset = 0;
         while offset < bytes.len() {
+            if self.aborted.load(Ordering::Acquire) {
+                return Err(ProtocolError::new("broker_unavailable", None));
+            }
             let request = (bytes.len() - offset).min(PIPE_BUFFER_BYTES as usize);
             let mut written = 0_u32;
             // SAFETY: the source sub-slice is readable for request bytes.
@@ -482,9 +503,16 @@ impl WindowsNativeStream {
     }
 
     pub(crate) fn shutdown(&mut self) {
+        self.aborted.store(true, Ordering::Release);
         if self.server_side {
             unsafe { DisconnectNamedPipe(self.handle) };
         }
+    }
+
+    pub(crate) fn abort_handle(&self) -> Result<WindowsAbortHandle, ProtocolError> {
+        Ok(WindowsAbortHandle {
+            aborted: Arc::clone(&self.aborted),
+        })
     }
 
     pub(crate) fn finish_response(&mut self, _timeout: Duration) {

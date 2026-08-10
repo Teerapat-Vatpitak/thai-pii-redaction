@@ -45,6 +45,19 @@ def test_workflows_exist():
 
 
 @pytest.mark.parametrize("name,text", _texts(), ids=[p.name for p in WORKFLOWS])
+def test_external_actions_are_pinned_to_commit_shas(name, text):
+    for match in re.finditer(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", text, re.MULTILINE):
+        action = match.group(1).strip("\"'")
+        if action.startswith("./"):
+            continue
+        assert "@" in action, f"{name}: action has no revision: {action}"
+        revision = action.rsplit("@", 1)[1]
+        assert re.fullmatch(r"[0-9a-fA-F]{40}", revision), (
+            f"{name}: action is not pinned to a 40-character commit SHA: {action}"
+        )
+
+
+@pytest.mark.parametrize("name,text", _texts(), ids=[p.name for p in WORKFLOWS])
 def test_node_version_is_pinned(name, text):
     """`lts/*` makes setup-node resolve an alias against GitHub's API at run
     time — non-deterministic, and the source of a real CI failure."""
@@ -117,6 +130,47 @@ def test_windows_packaged_smoke_runs_office_v2_composition():
     assert "python scripts/office_v2_composition.py" in packaged_job
     assert "--skip-sidecar-build" in packaged_job
     assert "--skip-office-build" in packaged_job
+
+
+def test_native_runtime_matrix_stages_build_only_tauri_resources():
+    """Every platform compile must satisfy Tauri resource discovery."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    rust_job = ci.split("  rust:", 1)[1].split("  native-broker-runtime:", 1)[0]
+    runtime_job = ci.split("  native-broker-runtime:", 1)[1].split("  js-syntax:", 1)[0]
+
+    for job in (rust_job, runtime_job):
+        assert "cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml" in job
+        for manifest in (
+            "native-components-v1.nsis.json",
+            "native-components-v1.macos.json",
+            "native-components-v1.deb.json",
+            "native-components-v1.appimage.json",
+        ):
+            assert manifest in job
+        assert "invalid manifest" in job
+
+
+def test_windows_packaged_smoke_uses_exact_installed_nsis_candidate():
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    packaged_job = ci.split("  windows-exe-smoke:", 1)[1]
+
+    placeholder_command = "python scripts/prepare_desktop_native_package.py --build-placeholders"
+    assert packaged_job.count(placeholder_command) == 1
+    placeholder_index = packaged_job.index(placeholder_command)
+    assert packaged_job.index("python scripts/build_native_broker.py") < placeholder_index
+    assert placeholder_index < packaged_job.index("npm run tauri -- build --bundles nsis")
+    assert "npm run tauri -- build --bundles nsis" in packaged_job
+    assert '"createUpdaterArtifacts":false' in packaged_job
+    assert 'Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe"' in packaged_job
+    assert "Start-Process `" in packaged_job
+    assert '"/S", "/D=$installRoot"' in packaged_job
+    assert 'scripts/smoke_desktop_native_package.py "$env:AIGUARD_DESKTOP_INSTALL_ROOT"' in (
+        packaged_job
+    )
+    assert "artifacts/desktop-native-nsis/AI-Guard-windows-x64-setup.exe" in packaged_job
+    assert "artifacts/desktop-native-nsis/smoke-evidence.json" in packaged_job
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in packaged_job
+    assert "--no-bundle" not in packaged_job
 
 
 def test_compose_keeps_api_key_optional_for_local_and_worker_modes():

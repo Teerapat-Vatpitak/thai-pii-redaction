@@ -10,6 +10,11 @@ _spec = importlib.util.spec_from_file_location("smoke_sidecar", SPEC_PATH)
 smoke = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(smoke)
 
+EXE_SPEC_PATH = Path(__file__).resolve().parent.parent / "scripts" / "smoke_exe.py"
+_exe_spec = importlib.util.spec_from_file_location("smoke_exe", EXE_SPEC_PATH)
+smoke_exe = importlib.util.module_from_spec(_exe_spec)
+_exe_spec.loader.exec_module(smoke_exe)
+
 
 def test_port_is_free_false_when_bound():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
@@ -30,6 +35,42 @@ def test_find_sidecar_raises_when_missing(monkeypatch):
     monkeypatch.setattr(smoke, "BIN_GLOB", "/no/such/dir/aiguard-*")
     with pytest.raises(FileNotFoundError):
         smoke.find_sidecar()
+
+
+def test_find_sidecar_excludes_native_broker_and_selects_backend(tmp_path, monkeypatch):
+    backend = tmp_path / "aiguard-x86_64-unknown-linux-gnu"
+    backend.write_bytes(b"backend")
+    (tmp_path / "aiguard-native-broker-x86_64-unknown-linux-gnu").write_bytes(b"broker")
+    monkeypatch.setattr(smoke, "BIN_GLOB", str(tmp_path / "aiguard-*"))
+
+    assert smoke.find_sidecar() == str(backend)
+
+
+def test_find_sidecar_rejects_ambiguous_backends(tmp_path, monkeypatch):
+    (tmp_path / "aiguard-x86_64-unknown-linux-gnu").write_bytes(b"first")
+    (tmp_path / "aiguard-aarch64-unknown-linux-gnu").write_bytes(b"second")
+    monkeypatch.setattr(smoke, "BIN_GLOB", str(tmp_path / "aiguard-*"))
+
+    with pytest.raises(RuntimeError, match="multiple packaged backend"):
+        smoke.find_sidecar()
+
+
+def test_find_windows_sidecar_excludes_native_broker_and_selects_backend(tmp_path, monkeypatch):
+    backend = tmp_path / "aiguard-x86_64-pc-windows-msvc.exe"
+    backend.write_bytes(b"backend")
+    (tmp_path / "aiguard-native-broker-x86_64-pc-windows-msvc.exe").write_bytes(b"broker")
+    monkeypatch.setattr(smoke_exe, "STAGED_GLOB", str(tmp_path / "aiguard-*"))
+
+    assert smoke_exe.find_sidecar() == str(backend)
+
+
+def test_find_windows_sidecar_rejects_ambiguous_backends(tmp_path, monkeypatch):
+    (tmp_path / "aiguard-x86_64-pc-windows-msvc.exe").write_bytes(b"first")
+    (tmp_path / "aiguard-aarch64-pc-windows-msvc.exe").write_bytes(b"second")
+    monkeypatch.setattr(smoke_exe, "STAGED_GLOB", str(tmp_path / "aiguard-*"))
+
+    with pytest.raises(RuntimeError, match="multiple packaged backend"):
+        smoke_exe.find_sidecar()
 
 
 def test_main_refuses_on_win32(monkeypatch):

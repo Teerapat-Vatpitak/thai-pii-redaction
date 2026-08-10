@@ -15,6 +15,7 @@ import socket
 import struct
 import sys
 import threading
+import types
 from collections.abc import Callable
 
 from app.private_backend_bootstrap import (
@@ -255,6 +256,16 @@ def _watch_broker_channel_and_exit(channel: socket.socket) -> None:
         os._exit(0)
 
 
+def _install_bounded_reportlab_settings() -> None:
+    """Prevent ambient cross-platform font-directory probing in this child."""
+
+    settings = types.ModuleType("reportlab_settings")
+    settings.T1SearchPath = ()
+    settings.TTFSearchPath = ()
+    settings.CMapSearchPath = ()
+    sys.modules["reportlab_settings"] = settings
+
+
 def _run(prepare: Callable[[], None] | None = None) -> int:
     if os.name == "nt":
         credentials, listener = _read_windows_bootstrap()
@@ -272,6 +283,7 @@ def _run(prepare: Callable[[], None] | None = None) -> int:
     if prepare is not None:
         prepare()
     install_private_backend_credentials(credentials)
+    _install_bounded_reportlab_settings()
 
     import uvicorn
 

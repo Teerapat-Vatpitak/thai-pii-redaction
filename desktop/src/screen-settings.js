@@ -39,9 +39,9 @@ export function renderSettings(root) {
       <p class="muted">รองรับ ChatGPT, Codex, Gemini, Grok, Perplexity และ GLM/Z.ai โดยตรง โหลดโฟลเดอร์ <span class="mono">extension/</span> แบบ unpacked เพื่อทดลองใช้งาน</p>
     </div>
     <div class="card">
-      <b>บริการในเครื่อง</b>
-      <p class="muted">API: <span class="mono">http://127.0.0.1:8000</span> · เอกสาร: <span class="mono">/docs</span></p>
-      <div class="row"><button class="btn btn--danger" id="s-quit">ออกจากโปรแกรม (ปิด backend)</button></div>
+      <b>การปกป้องในเครื่อง</b>
+      <p class="muted">แอปเชื่อมต่อส่วนประมวลผลผ่านช่องทางระบบที่ยืนยันตัวตน และไม่เปิดที่อยู่บริการให้หน้าเว็บ</p>
+      <div class="row"><button class="btn btn--danger" id="s-quit">ออกจากโปรแกรม</button></div>
     </div>
     <div class="card">
       <b>อัปเดตโปรแกรม</b>
@@ -115,12 +115,12 @@ export function renderSettings(root) {
           status.textContent = "กำลังดาวน์โหลดและติดตั้ง...";
           try {
             await window.__TAURI__.core.invoke("update_install");
-          } catch (e) {
-            status.textContent = "อัปเดตไม่สำเร็จ " + e;
+          } catch {
+            status.textContent = "อัปเดตไม่สำเร็จ กรุณาลองใหม่ภายหลัง";
           }
         });
-      } catch (e) {
-        status.textContent = "ตรวจอัปเดตไม่สำเร็จ " + e;
+      } catch {
+        status.textContent = "ตรวจอัปเดตไม่สำเร็จ กรุณาลองใหม่ภายหลัง";
       }
     });
   }

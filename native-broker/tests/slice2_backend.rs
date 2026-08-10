@@ -1,6 +1,7 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aiguard_native_broker_protocol::backend::{BackendTimeouts, ManagedBackend};
 
@@ -16,6 +17,32 @@ fn backend_test_guard() -> MutexGuard<'static, ()> {
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+struct BackendEnvironment {
+    previous: Vec<(&'static str, Option<OsString>)>,
+}
+
+impl BackendEnvironment {
+    fn replace(values: &[(&'static str, OsString)]) -> Self {
+        let mut previous = Vec::with_capacity(values.len());
+        for (name, value) in values {
+            previous.push((*name, std::env::var_os(name)));
+            std::env::set_var(name, value);
+        }
+        Self { previous }
+    }
+}
+
+impl Drop for BackendEnvironment {
+    fn drop(&mut self) {
+        for (name, value) in self.previous.drain(..).rev() {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
 }
 
 fn python_command(root: &Path, requested: &[String]) -> (PathBuf, Vec<String>) {
@@ -106,6 +133,114 @@ fn inherited_prebound_backend_is_healthy_private_and_gracefully_owned() {
     assert!(process_id > 0);
     backend.shutdown().unwrap();
     assert!(!backend.is_alive());
+}
+
+#[test]
+fn backend_child_receives_only_fixed_installed_configuration() {
+    let _guard = backend_test_guard();
+    let report_path = std::env::temp_dir().join(format!(
+        "aiguard-slice2-backend-environment-{}-{}.json",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let environment = BackendEnvironment::replace(&[
+        ("AIGUARD_NER_ENGINE", OsString::from("tner")),
+        ("AIGUARD_PROVIDERS", OsString::from("pathumma")),
+        (
+            "AIGUARD_FINETUNED_MODEL_DIR",
+            OsString::from("synthetic-model-path"),
+        ),
+        (
+            "AIFORTHAI_API_KEY",
+            OsString::from("synthetic-aifth-secret"),
+        ),
+        (
+            "ANTHROPIC_API_KEY",
+            OsString::from("synthetic-anthropic-secret"),
+        ),
+        (
+            "TOKENMIND_API_KEY",
+            OsString::from("synthetic-tokenmind-secret"),
+        ),
+        (
+            "TOKENMIND_BASE_URL",
+            OsString::from("https://synthetic.invalid"),
+        ),
+        ("TOKENMIND_ALLOW_HTTP", OsString::from("1")),
+        (
+            "AIGUARD_API_KEY",
+            OsString::from("synthetic-backend-secret"),
+        ),
+        ("AIGUARD_TOKEN", OsString::from("synthetic-control-secret")),
+    ]);
+    let root = repository_root();
+    let launcher = serde_json::to_string(&root.join("launcher.py").to_string_lossy()).unwrap();
+    let report = serde_json::to_string(&report_path.to_string_lossy()).unwrap();
+    let restricted = serde_json::to_string(&[
+        "AIGUARD_API_KEY",
+        "AIGUARD_TOKEN",
+        "AIGUARD_FINETUNED_MODEL_DIR",
+        "AIFORTHAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "TOKENMIND_API_KEY",
+        "TOKENMIND_BASE_URL",
+        "TOKENMIND_ALLOW_HTTP",
+    ])
+    .unwrap();
+    let code = format!(
+        r#"import json
+import os
+import pathlib
+import runpy
+import sys
+restricted = {restricted}
+evidence = {{
+    "credential_configuration_absent": all(name not in os.environ for name in restricted),
+    "ner_engine_is_thainer": os.environ.get("AIGUARD_NER_ENGINE") == "thainer",
+    "providers_are_fake": os.environ.get("AIGUARD_PROVIDERS") == "fake",
+}}
+pathlib.Path({report}).write_text(json.dumps(evidence, sort_keys=True), encoding="utf-8")
+for name in restricted:
+    os.environ.pop(name, None)
+os.environ["AIGUARD_NER_ENGINE"] = "thainer"
+os.environ["AIGUARD_PROVIDERS"] = "fake"
+sys.argv = [{launcher}, "--native-broker-backend"]
+runpy.run_path({launcher}, run_name="__main__")
+"#
+    );
+    let requested = vec!["-c".to_owned(), code];
+    let (python, arguments) = python_command(&root, &requested);
+    let mut backend = ManagedBackend::spawn_synthetic_for_test(
+        &python,
+        &arguments,
+        &root,
+        "2.5.0",
+        BackendTimeouts {
+            startup: Duration::from_secs(20),
+            request: Duration::from_secs(2),
+            shutdown: Duration::from_secs(5),
+        },
+    )
+    .unwrap();
+    let evidence = std::fs::read(&report_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    backend.health().unwrap();
+    backend.shutdown().unwrap();
+    drop(environment);
+    let _ = std::fs::remove_file(&report_path);
+
+    assert_eq!(
+        evidence.expect("backend environment fixture must publish evidence"),
+        serde_json::json!({
+            "credential_configuration_absent": true,
+            "ner_engine_is_thainer": true,
+            "providers_are_fake": true
+        })
+    );
 }
 
 #[cfg(windows)]

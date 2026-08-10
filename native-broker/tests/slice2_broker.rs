@@ -524,6 +524,55 @@ fn authenticated_desktop_health_and_slice3_data_are_live_while_global_stop_stays
 }
 
 #[test]
+fn transient_backend_lock_busy_keeps_the_health_connection_live() {
+    let _guard = broker_test_guard();
+    let mut fixture = ManifestFixture::create("desktop");
+    let endpoint_root = test_temp_root("health-lock-busy");
+    let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
+    let publication = endpoint.publication();
+    let runtime = BrokerRuntime::from_parts_for_test(
+        endpoint,
+        fixture.manifest.take().unwrap(),
+        launch_backend(),
+        "2.5.0",
+        runtime_config(),
+    )
+    .unwrap();
+    let backend = runtime.backend_handle_for_test();
+    let backend_guard = backend.lock().unwrap();
+    let server = thread::spawn(move || runtime.run().unwrap());
+
+    let mut client = connect(&publication);
+    hello(&mut client, "desktop", serde_json::json!([1]));
+    let busy = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "broker_health",
+            "payload": {},
+            "request_id": "health-lock-busy",
+        }),
+    );
+    assert_eq!(busy["error"]["code"], "broker_busy");
+
+    drop(backend_guard);
+    let recovered = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "broker_health",
+            "payload": {},
+            "request_id": "health-lock-recovered",
+        }),
+    );
+    assert_eq!(recovered["result"]["status"], "ok");
+    drop(client);
+    assert_eq!(server.join().unwrap(), BrokerExit::Idle);
+    #[cfg(unix)]
+    std::fs::remove_dir_all(endpoint_root).unwrap();
+}
+
+#[test]
 fn maintenance_can_health_and_stop_but_cannot_request_data() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("maintenance");
@@ -959,6 +1008,7 @@ fn on_demand_bootstrap_and_simultaneous_clients_converge_on_one_broker() {
 fn expired_on_demand_deadline_never_launches_a_late_broker() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    let _guard = broker_test_guard();
     let fixture = ManifestFixture::create("desktop");
     let endpoint_root = test_temp_root("expired-start-runtime");
     let launched = AtomicBool::new(false);
@@ -1310,9 +1360,13 @@ fn control_client_client_fixture() {
                 });
                 let mut keepalive_error = None;
                 while !capacity.is_finished() {
-                    if let Err(error) = client.health() {
-                        keepalive_error = Some(error.code().to_owned());
-                        break;
+                    match client.health() {
+                        Ok(()) => {}
+                        Err(error) if error.code() == "broker_busy" => {}
+                        Err(error) => {
+                            keepalive_error = Some(error.code().to_owned());
+                            break;
+                        }
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
@@ -1327,13 +1381,27 @@ fn control_client_client_fixture() {
                     .unwrap();
                     return;
                 }
-                if let Err(error) = client.health() {
-                    std::fs::write(
-                        PathBuf::from(std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap()),
-                        format!("post-capacity-{}", error.code()),
-                    )
-                    .unwrap();
-                    return;
+                let health_deadline = std::time::Instant::now() + Duration::from_secs(5);
+                loop {
+                    match client.health() {
+                        Ok(()) => break,
+                        Err(error)
+                            if error.code() == "broker_busy"
+                                && std::time::Instant::now() < health_deadline =>
+                        {
+                            thread::sleep(Duration::from_millis(20));
+                        }
+                        Err(error) => {
+                            std::fs::write(
+                                PathBuf::from(
+                                    std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap(),
+                                ),
+                                format!("post-capacity-{}", error.code()),
+                            )
+                            .unwrap();
+                            return;
+                        }
+                    }
                 }
                 std::fs::write(
                     PathBuf::from(std::env::var_os("AIGUARD_SLICE2_RESULT_PATH").unwrap()),

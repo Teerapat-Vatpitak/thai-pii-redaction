@@ -52,7 +52,6 @@ pub struct BrokerRuntime {
     manifest: Arc<ComponentManifest>,
     backend: Arc<Mutex<ManagedBackend>>,
     data_plane: DataPlane,
-    remote_tner_enabled: bool,
     product_version: String,
     config: BrokerRuntimeConfig,
     stop: Arc<AtomicBool>,
@@ -75,6 +74,7 @@ impl BrokerRuntime {
         backend_timeouts: BackendTimeouts,
         config: BrokerRuntimeConfig,
     ) -> Result<Self, ProtocolError> {
+        crate::installed_product::validate_requested_configuration()?;
         validate_config(config)?;
         let manifest = Arc::new(ComponentManifest::load(manifest_path, product_version)?);
         let current_executable =
@@ -94,7 +94,6 @@ impl BrokerRuntime {
             manifest,
             backend,
             data_plane,
-            remote_tner_enabled: remote_tner_enabled(),
             product_version: product_version.to_owned(),
             config,
             stop: Arc::new(AtomicBool::new(false)),
@@ -120,7 +119,6 @@ impl BrokerRuntime {
             manifest: Arc::new(manifest),
             backend,
             data_plane,
-            remote_tner_enabled: remote_tner_enabled(),
             product_version: product_version.to_owned(),
             config,
             stop: Arc::new(AtomicBool::new(false)),
@@ -142,6 +140,11 @@ impl BrokerRuntime {
     #[doc(hidden)]
     pub fn data_plane_for_test(&self) -> DataPlane {
         self.data_plane.clone()
+    }
+
+    #[doc(hidden)]
+    pub fn backend_handle_for_test(&self) -> Arc<Mutex<ManagedBackend>> {
+        Arc::clone(&self.backend)
     }
 
     #[doc(hidden)]
@@ -216,7 +219,6 @@ impl BrokerRuntime {
                     let backend_failed = Arc::clone(&backend_failed);
                     let maintenance_stop = Arc::clone(&maintenance_stop);
                     let product_version = self.product_version.clone();
-                    let remote_tner_enabled = self.remote_tner_enabled;
                     let config = self.config;
                     workers.push(std::thread::spawn(move || {
                         let _permit = permit;
@@ -230,7 +232,6 @@ impl BrokerRuntime {
                             &backend_failed,
                             &maintenance_stop,
                             &product_version,
-                            remote_tner_enabled,
                             config,
                         );
                     }));
@@ -285,7 +286,6 @@ fn handle_connection(
     backend_failed: &AtomicBool,
     maintenance_stop: &AtomicBool,
     product_version: &str,
-    remote_tner_enabled: bool,
     config: BrokerRuntimeConfig,
 ) {
     let Some(hello_deadline) = Instant::now().checked_add(config.hello_timeout) else {
@@ -417,7 +417,7 @@ fn handle_connection(
                 return;
             }
         };
-        let request = match validate_request(&raw, &mut state, remote_tner_enabled) {
+        let request = match validate_request(&raw, &mut state, false) {
             Ok(request) => request,
             Err(error) => {
                 send_terminal_fixed_error_until(
@@ -466,14 +466,16 @@ fn handle_connection(
                     backend.health_until(operation_deadline).is_ok()
                 }
                 Err(TryLockError::WouldBlock) => {
-                    send_terminal_fixed_error_until(
+                    if !send_fixed_error_until(
                         connection.stream_mut(),
                         "broker_busy",
                         Some(&request.request_id),
                         state.protocol_version(),
                         operation_deadline,
-                    );
-                    return;
+                    ) {
+                        return;
+                    }
+                    continue;
                 }
                 Err(TryLockError::Poisoned(_)) => false,
             };
@@ -652,10 +654,6 @@ fn send_fixed_error_until(
             .is_ok();
     }
     false
-}
-
-fn remote_tner_enabled() -> bool {
-    std::env::var_os("AIGUARD_NER_ENGINE").is_some_and(|value| value == "tner")
 }
 
 fn reap_finished_workers(workers: &mut Vec<JoinHandle<()>>) -> bool {

@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-09 Phase 8 native-broker Desktop migration](2026-08-09-phase-8-native-broker-desktop.md)
 - [2026-08-08 Phase 8 native-broker data plane, ownership, and disposal](2026-08-08-phase-8-native-broker-data-plane.md)
 - [2026-08-08 Phase 8 authenticated native-broker bootstrap and health](2026-08-08-phase-8-native-broker-bootstrap.md)
 - [2026-08-08 Phase 8 native-broker protocol and cross-language conformance](2026-08-08-phase-8-native-broker-protocol.md)
@@ -104,6 +105,95 @@ confirmed disposal, non-replayable uncertain completion, protocol deadlines,
 and backend-generation invalidation. It does not establish Chrome Native
 Messaging, Extension or Desktop migration, Office support, installer/update
 migration, installed-artifact acceptance, or a release.
+
+The 2026-08-09 Slice 4 record covers the Desktop source migration: production
+package JavaScript crosses typed allowlisted Tauri commands, authenticated
+Desktop admission, UI/hotkey scopes, broker session handles, fail-closed native
+copy/file publication, and frozen broker/backend cleanup. Its evidence is split
+by delivery path. The twelve-launch Windows NSIS result is historical
+dirty-tree evidence. A clean predecessor passed an installed Windows NSIS smoke;
+a later predecessor passed a relocated macOS app job in a workflow that failed
+on Linux. Earlier predecessor `8be9523` passed 14/14 CI, including installed
+Windows NSIS, and passed relocated macOS; its cross-platform workflow was red
+because Linux process inspection failed on an unrelated protected same-UID
+process before Desktop launch. That diagnostic harness failure supplied no
+Linux DEB/AppImage result. Predecessor `6ad3422` contains the reviewed
+candidate-filter repair and passed all 14 jobs in
+[CI run 31328047804](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047804),
+including the two-run installed Windows NSIS smoke. Its
+[cross-platform package run 31328047802](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047802)
+is red: relocated macOS and extracted DEB passed, but AppImage component digest
+verification failed before AppImage Desktop launch because packaging mutated
+the bytes after the pre-bundle hashes.
+
+Predecessor `3836024` seals the AppImage manifest from actual
+post-linuxdeploy bytes and repacks with a checksum-pinned plugin.
+[CI run 31329794579](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794579)
+passed, but
+[cross-platform package run 31329794568](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794568)
+is red: macOS passed and Linux failed finalization before package smoke because
+the first runtime-prefix guard did not allow appimagetool's defined digest
+rewrite.
+
+Predecessor `73dcca4` narrowed that verifier and passed all 14 jobs in
+[CI run 31345691672](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691672),
+including installed Windows NSIS. Its
+[cross-platform package run 31345691667](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691667)
+is red: relocated macOS and extracted DEB passed, but the AppImage harness
+bypassed the outer runtime/`AppRun` and produced no marker. Its 76 focused
+package/workflow tests and exact-delta independent review remain valid
+predecessor evidence.
+
+Predecessor `8194c23` added a separate canonical private marker root and the
+faithful AppImage entrypoint. Its
+[CI run 31348501253](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501253)
+is red, 10/14, because four Rust jobs exposed only non-portable path spelling in
+the new canonical-root unit test; its installed-Windows NSIS job nevertheless
+passed. Its separate
+[cross-platform package run 31348501256](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501256)
+passed 2/2: relocated macOS, directly smoked extracted DEB, and the finalized
+outer AppImage followed by a re-attested warm `AppRun` all passed. The AppImage
+recorded
+`execution_mode=outer_appimage_extract_and_run_then_verified_apprun`; the
+independent extracted layout attested bytes and was not the launched package.
+
+Last fully gated executable checkpoint `492dad34361b09d7ffa58fa192a2447de7414418`
+repairs only that cross-platform test construction. Local focused Python tests
+pass 100 with one expected Windows Unix-mode skip. Full local Rust runs of 19
+default and 26 all-feature tests preceded the final portability-only edit;
+afterward, the exact private-root test passed on Windows and real WSL, and exact
+CI confirms all 26 Desktop tests on Ubuntu, Windows, and macOS. Affected
+formatting/lint gates pass.
+[CI run 31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519)
+and
+[cross-platform package run 31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518)
+passed 14/14 and 2/2 respectively. The current checkpoint passed two launches
+from the exact isolated Windows NSIS installation, two relocated macOS
+launches, two direct extracted-DEB launches, and the exact finalized outer
+AppImage `--appimage-extract-and-run` launch followed by a re-attested warm
+`AppRun`; every path left zero broker/backend process delta. Installed Windows
+NSIS, relocated macOS app, extracted DEB, and outer-AppImage plus warm `AppRun`
+are distinct evidence classes. The last three are not interchangeable
+installation evidence, and this AppImage mode is not normal FUSE/double-click
+evidence.
+
+The owner-decision correction after clean branch head `fcdbeed` implements a
+credential-free installed Desktop/native-broker profile: local `thainer`, a
+`fake`-only backend allowlist for internal conformance, no webview provider
+command, stable pre-launch rejection of unsupported selectors, and safe
+name-allowlisted child environments with a fixed profile at both seams. Focused source regressions cover
+inherited environment, warm-broker attach, unsupported remote/credential-backed
+selection, backend startup, and pre-backend Desktop provider rejection. This is
+provisional working-candidate evidence; exact-head full CI, package smoke, and
+independent review remain pending.
+
+The earlier configuration-ownership P1 is closed and Slice 4 is integrated
+after exact branch CI, package smoke, and independent review. Slices 5--6 have
+not started. The record does not establish Chrome Native
+Messaging or Extension migration (Slice 5), manual visual/updater/relocation,
+upgrade/interrupted-upgrade/stale-cleanup/uninstall recertification (Slice 6),
+Office broker support, live-provider/TNER evidence, a release, deployment, or
+official hosted acceptance.
 
 The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
 first merge review rejected `f968833` with six lifecycle, authorization,
@@ -222,6 +312,12 @@ The exact published Windows `2.5.0` installer completed this checklist on
 was inspected in the operator session but not committed; the dated records
 contain only version, hashes, aggregate outcomes, and privacy-safe
 observations. See the [Issue #69 run record](2026-08-02-desktop-2.5.0-issue-69-run.md).
+
+Those checked boxes remain historical pre-broker evidence. Slice 4's automated
+package smoke is not a rerun of this manual checklist: it does not establish
+visual inspection, settings/global-hotkey behavior, updater check or install,
+supported-path relocation, upgrade, interrupted upgrade, stale cleanup, or
+uninstall for executable checkpoint `492dad3`.
 
 ## Playground checklist
 

@@ -22,6 +22,8 @@ pub mod broker;
 pub mod control;
 pub mod control_client;
 pub mod data_plane;
+pub mod desktop_client;
+mod installed_product;
 pub mod manifest;
 mod process;
 pub mod transport;
@@ -324,6 +326,33 @@ pub struct ConnectionState {
 }
 
 impl ConnectionState {
+    #[doc(hidden)]
+    pub(crate) fn for_authenticated_client(
+        role: &str,
+        protocol_version: u64,
+        hello_request_id: &str,
+    ) -> Result<Self, ProtocolError> {
+        if !valid_role(role)
+            || !valid_id(hello_request_id)
+            || !contract()["supported_protocol_versions"]
+                .as_array()
+                .is_some_and(|versions| {
+                    versions
+                        .iter()
+                        .any(|version| version.as_u64() == Some(protocol_version))
+                })
+        {
+            return Err(ProtocolError::new("broker_unauthorized", None));
+        }
+        Ok(Self {
+            role: role.to_owned(),
+            protocol_version,
+            seen_request_ids: BTreeSet::from([hello_request_id.to_owned()]),
+            messages_seen: 1,
+            terminal: false,
+        })
+    }
+
     pub fn role(&self) -> &str {
         &self.role
     }

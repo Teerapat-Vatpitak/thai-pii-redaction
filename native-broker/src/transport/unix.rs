@@ -196,6 +196,22 @@ pub(crate) struct UnixNativeStream {
     stream: UnixStream,
 }
 
+pub(crate) struct UnixAbortHandle {
+    stream: UnixStream,
+}
+
+impl UnixAbortHandle {
+    pub(crate) fn abort(&self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+impl Drop for UnixNativeStream {
+    fn drop(&mut self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
 impl UnixNativeStream {
     pub(crate) fn connect(publication: &str, timeout: Duration) -> Result<Self, ProtocolError> {
         let path = Path::new(publication);
@@ -338,6 +354,14 @@ impl UnixNativeStream {
 
     pub(crate) fn shutdown(&mut self) {
         let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
+    pub(crate) fn abort_handle(&self) -> Result<UnixAbortHandle, ProtocolError> {
+        let stream = self
+            .stream
+            .try_clone()
+            .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+        Ok(UnixAbortHandle { stream })
     }
 
     pub(crate) fn finish_response(&mut self, timeout: Duration) {
@@ -889,6 +913,24 @@ fn current_executable(process_id: u32) -> Result<PathBuf, ProtocolError> {
     std::fs::read_link(format!("/proc/{process_id}/exe"))
         .and_then(|path| path.canonicalize())
         .map_err(|_| ProtocolError::new("broker_unauthorized", None))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_stream_closes_peer_even_while_abort_handle_remains() {
+        let (stream, mut peer) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        let stream = UnixNativeStream { stream };
+        let _abort = stream.abort_handle().unwrap();
+
+        drop(stream);
+
+        let mut byte = [0_u8; 1];
+        assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
 }
 
 #[cfg(target_os = "macos")]

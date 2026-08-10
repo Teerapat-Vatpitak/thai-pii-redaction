@@ -51,7 +51,14 @@ STAGED_GLOB = str(ROOT / "desktop" / "src-tauri" / "binaries" / "aiguard-*")
 
 
 def find_sidecar():
-    matches = sorted(m for m in glob.glob(STAGED_GLOB) if m.endswith(".exe"))
+    matches = sorted(
+        candidate
+        for candidate in glob.glob(STAGED_GLOB)
+        if candidate.endswith(".exe")
+        and not Path(candidate).name.startswith("aiguard-native-broker-")
+    )
+    if len(matches) > 1:
+        raise RuntimeError("multiple packaged backend sidecars found")
     if matches:
         return matches[0]
     fallback = ROOT / "dist" / "AIGuard.exe"

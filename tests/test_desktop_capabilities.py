@@ -1,11 +1,9 @@
 """DESK-3 — the webview capability must stay minimal.
 
-The frontend only calls three custom invoke commands (update_check,
-update_install, quit_app); the global shortcut, clipboard and sidecar work is
-all done Rust-side, which never consults webview capabilities. Granting
-shell:allow-execute / clipboard-manager / global-shortcut to the webview means
-an XSS there (see DESK-4) escalates to re-executing AIGuard.exe with arbitrary
-args and reading the clipboard. This test pins the grants OUT of the file.
+Application operations use compiled, typed Tauri commands. The one framework
+grant lets the main webview listen for native authority invalidation. Granting
+shell, clipboard, global-shortcut, updater, or broader core permissions would
+turn a renderer compromise into unnecessary native authority.
 """
 
 import json
@@ -38,8 +36,5 @@ def test_webview_has_no_clipboard_or_global_shortcut_grants():
     assert not any(p.startswith("global-shortcut:") for p in ids)
 
 
-def test_webview_keeps_the_grants_it_actually_needs():
-    ids = _permission_ids()
-    assert "core:default" in ids
-    assert "core:tray:default" in ids
-    assert "updater:default" in ids
+def test_webview_has_only_the_authority_invalidation_listener_grant():
+    assert _permission_ids() == ["core:event:allow-listen"]

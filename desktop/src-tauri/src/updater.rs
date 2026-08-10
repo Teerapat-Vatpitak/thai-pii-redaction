@@ -1,6 +1,8 @@
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::broker::DesktopCommandError;
+
 #[derive(serde::Serialize)]
 pub struct UpdateInfo {
     pub available: bool,
@@ -10,8 +12,10 @@ pub struct UpdateInfo {
 
 /// Ask the configured endpoint whether a newer signed release exists.
 #[tauri::command]
-pub async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
+pub async fn update_check(app: AppHandle) -> Result<UpdateInfo, DesktopCommandError> {
+    let updater = app
+        .updater()
+        .map_err(|_| DesktopCommandError::operation_failed())?;
     match updater.check().await {
         Ok(Some(update)) => Ok(UpdateInfo {
             available: true,
@@ -23,19 +27,25 @@ pub async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
             version: String::new(),
             notes: String::new(),
         }),
-        Err(e) => Err(e.to_string()),
+        Err(_) => Err(DesktopCommandError::operation_failed()),
     }
 }
 
 /// Download + install the pending update, then restart into the new version.
 #[tauri::command]
-pub async fn update_install(app: AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
+pub async fn update_install(app: AppHandle) -> Result<(), DesktopCommandError> {
+    let updater = app
+        .updater()
+        .map_err(|_| DesktopCommandError::operation_failed())?;
+    if let Some(update) = updater
+        .check()
+        .await
+        .map_err(|_| DesktopCommandError::operation_failed())?
+    {
         update
             .download_and_install(|_downloaded, _total| {}, || {})
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| DesktopCommandError::operation_failed())?;
         app.restart();
     }
     Ok(())

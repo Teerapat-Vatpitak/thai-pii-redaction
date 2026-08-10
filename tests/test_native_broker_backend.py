@@ -24,6 +24,7 @@ from native_broker_backend import (
     BOOTSTRAP_MAX_BYTES,
     BOOTSTRAP_VERSION,
     BootstrapError,
+    _install_bounded_reportlab_settings,
     _parse_unix_descriptors,
     _validate_listener,
     decode_bootstrap_packet,
@@ -31,6 +32,19 @@ from native_broker_backend import (
 
 ROOT = Path(__file__).resolve().parent.parent
 HEADER = struct.Struct(">8sHHHHI")
+
+
+def test_private_backend_bounds_reportlab_search_paths(monkeypatch):
+    sentinel = object()
+    monkeypatch.setitem(sys.modules, "reportlab_settings", sentinel)
+
+    _install_bounded_reportlab_settings()
+
+    settings = sys.modules["reportlab_settings"]
+    assert settings is not sentinel
+    assert settings.T1SearchPath == ()
+    assert settings.TTFSearchPath == ()
+    assert settings.CMapSearchPath == ()
 
 
 def _bootstrap_packet(

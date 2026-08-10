@@ -1,14 +1,15 @@
 # Running from source
 
 The installer on the [releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest)
-bundles everything and needs no Python. This page is the developer path: run the
-same backend from a checkout.
+bundles everything and needs no Python. This page covers two different developer
+paths: the fixed-port HTTP-v2 backend used by the current Extension, Office
+Add-in, API, and demo; and the broker-backed Desktop package.
 
 ## Requirements
 
 Python 3.11+ and git.
 
-## Start the backend
+## Start the fixed-port developer backend
 
 ```bash
 git clone https://github.com/Teerapat-Vatpitak/thai-pii-redaction.git
@@ -25,8 +26,12 @@ cd thai-pii-redaction
 
 The script creates a virtual environment and installs dependencies on first run
 (a few minutes). The first Thai NER run downloads a ~2 MB model, so it needs
-internet once. The backend then listens on `http://localhost:8000` — the same
-one the desktop app bundles.
+internet once. The backend then listens on `http://localhost:8000` for the
+Extension, Office Add-in, API, and demo development paths. Current Desktop does
+not connect to this fixed port or make it available to those storefronts. Its
+native broker owns a private random loopback listener and its per-boot
+credentials, and transfers the listener plus credentials to the frozen backend
+child through an inherited channel. None of them reaches the webview.
 
 Check it: open `http://localhost:8000/api/health`. Current source returns
 `status`, `version`, `contract_version: 2`, and the
@@ -37,9 +42,11 @@ the matching v2 response header. Interactive API docs are at
 Current source uses strict HTTP contract v2. It removes mapping-oriented
 response fields, separates control- and data-plane capability flags, and
 requires `X-AIGuard-Contract-Version: 2` on every API operation except health.
-First-party clients validate the matching response header and exact DTO before
-using a result. Fixed-port clients still do not authenticate the localhost
-process. Outbound-capable local sanitization plus CLI, HTTP, and worker
+The Extension and Office clients validate the matching response header and
+exact DTO before using a result. Those fixed-port clients still do not
+authenticate the localhost process. Desktop instead validates broker protocol
+v1 through typed Tauri commands and has no direct backend HTTP fallback.
+Outbound-capable local sanitization plus CLI, HTTP, and worker
 provider boundaries fail closed on the shared residual policy from source-level
 automated evidence; packaged, real-host, live-provider, and official hosted
 evidence remains open. The default detector is local; explicitly selecting
@@ -88,9 +95,11 @@ sticky multi-instance routing around this candidate.
 
 ## Browser extension
 
-The current source extension requires the matching current-source backend or a
-matching sidecar build. It is not compatible with the published Desktop
-2.5.0/HTTP-v1 backend.
+The current source extension requires the matching fixed-port current-source
+backend started with `run.ps1` or `run.sh`. Launching or building Desktop does
+not supply that endpoint. The extension is not compatible with the published
+Desktop 2.5.0/HTTP-v1 backend, and its Chrome Native Messaging migration to the
+shared broker remains Slice 5.
 
 1. Open `chrome://extensions` in any Chromium browser.
 2. Turn on **Developer mode**.
@@ -163,20 +172,87 @@ code page.
 
 ## Build the desktop app
 
-```powershell
-python scripts/build_sidecar.py     # PyInstaller backend -> Tauri sidecar
-cd desktop && npm install && npm run tauri build
+Desktop requires Node 22, Rust 1.97, and a Python 3.13 environment containing
+the hash-locked build dependencies. From a clean checkout, prewarm the pinned
+model, build and stage both native components, and create deliberately invalid
+resource placeholders before invoking Tauri. On Windows PowerShell, set
+`$env:PYTHONUTF8='1'` before the Python commands:
+
+```bash
+python -m pip install pip==26.1.2
+python -m pip install --require-hashes -r requirements-build.lock
+python scripts/prewarm_ner.py
+python scripts/build_sidecar.py
+python scripts/build_native_broker.py
+python scripts/prepare_desktop_native_package.py --build-placeholders
+cd desktop
+npm ci
 ```
 
-Requires the Rust toolchain and Node. Output lands in
-`desktop/src-tauri/target/release/bundle/`.
+Run exactly the command for the current host, still inside `desktop/`:
+
+```powershell
+# Windows
+npm run tauri -- build --bundles nsis --ci --no-sign `
+  --config '{"bundle":{"createUpdaterArtifacts":false}}'
+```
+
+```bash
+# macOS
+npm run tauri -- build --bundles app --ci --no-sign \
+  --config '{"bundle":{"createUpdaterArtifacts":false}}'
+```
+
+```bash
+# Linux
+npm run tauri -- build --bundles deb,appimage --ci --no-sign \
+  --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+# Tauri/linuxdeploy changes ELF bytes after beforeBundle. Seal the completed
+# AppDir with the checksum-pinned output tool before using the AppImage.
+appimage_root="src-tauri/target/release/bundle/appimage"
+test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = "1"
+test "$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' | wc -l | tr -d ' ')" = "1"
+appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+appdir=$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' -print -quit)
+tool_dir=$(mktemp -d)
+trap 'rm -rf "$tool_dir"' EXIT
+plugin="$tool_dir/linuxdeploy-plugin-appimage-x86_64.AppImage"
+curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+  --header 'Accept: application/octet-stream' \
+  --output "$plugin" \
+  'https://api.github.com/repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/497460911'
+echo 'a45d3e227bc7f397e9cf6bfa4c9507494efa2293357b6e86690a3de2ca992e79  '"$plugin" \
+  | sha256sum --check --strict
+chmod 0755 "$plugin"
+python ../scripts/prepare_desktop_native_package.py --finalize-appimage "$appimage" \
+  --appdir "$appdir" \
+  --appimage-plugin "$plugin" \
+  --appimage-arch x86_64
+```
+
+The `{}` placeholders exist only so a clean Rust build can discover every
+allowlisted Tauri resource. The `beforeBundle` hook replaces the relevant
+platform placeholder with `native-components-v1.json`. NSIS, macOS, and DEB
+digests cover their direct bundle inputs, including Tauri's bundle-type patch.
+AppImage deliberately retains `{}` until the finalizer hashes the completed
+post-`linuxdeploy` AppDir and repacks it. For this pinned, scrubbed
+no-sign/no-update path, the finalizer parses both little-endian x86-64 ELF64
+runtime prefixes, permits only appimagetool's single non-executable,
+non-overlapping 16-byte `.digest_md5` rewrite, and requires every other prefix
+byte to match before it executes the repacked runtime to confirm its offset,
+re-extracts it, and checks all three native components plus the manifest. An
+invalid placeholder is never accepted by the runtime. Output lands in
+`desktop/src-tauri/target/release/bundle/`. A successful build is package
+evidence only, not an install, upgrade/uninstall, signing/notarization, or
+release-publication result.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| "Backend offline" in the extension | The backend is not running — launch the desktop app or the `run` script. |
-| Port 8000 already in use | Stop the process using it, or a previous backend instance. |
+| "Backend offline" in the extension | The fixed-port backend is not running — start `run.ps1` or `run.sh`. Desktop does not supply this endpoint. |
+| Port 8000 already in use | Stop the process using it, or a previous fixed-port developer-backend instance. Desktop uses a broker-private random listener instead. |
 | SmartScreen blocks the installer | Expected for an unsigned build: **More info → Run anyway**. |
 | Extension bar does not appear | Reload the chat tab after loading the extension. |
 | Thai text shows as `?` in the terminal | Set `PYTHONUTF8=1`. |

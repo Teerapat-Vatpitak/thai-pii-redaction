@@ -1,4 +1,5 @@
-import { health } from "./api.js";
+import { health, rotateScope } from "./api.js";
+import { safeErrorMessage } from "./errors.js";
 import { initTheme } from "./theme.js";
 import { renderText } from "./screen-text.js";
 import { renderRedact } from "./screen-redact.js";
@@ -14,28 +15,98 @@ const SCREENS = {
   audit: renderAudit,
 };
 
-async function waitForBackend() {
+const AUTHORITY_INVALIDATED_EVENT = "desktop-authority-invalidated";
+
+async function waitForBroker() {
   const msg = document.getElementById("boot-msg");
-  for (let attempt = 1; attempt <= 60; attempt++) {
-    try {
-      await health();
-      return true;
-    } catch {
-      msg.textContent = `กำลังเริ่มบริการในเครื่อง... (${attempt})`;
-      await new Promise((r) => setTimeout(r, 500));
-    }
+  try {
+    await health();
+    return true;
+  } catch (error) {
+    msg.textContent = safeErrorMessage(error);
+    const closeApp = document.createElement("button");
+    closeApp.className = "btn btn--primary";
+    closeApp.textContent = "ปิดแอป";
+    closeApp.addEventListener("click", () => {
+      void window.__TAURI__?.core?.invoke("quit_app");
+    });
+    msg.after(closeApp);
+    return false;
   }
-  msg.textContent = "เริ่มบริการไม่สำเร็จ ปิดแล้วเปิดแอปใหม่";
-  return false;
 }
 
-function selectTab(name) {
+let activeCleanup = null;
+let activeTab = null;
+let authorityInvalidated = false;
+let tabTransition = Promise.resolve();
+
+function discardPublishedScreen() {
+  if (authorityInvalidated) return;
+  authorityInvalidated = true;
+
+  const cleanup = activeCleanup;
+  activeCleanup = null;
+  if (typeof cleanup?.invalidatePublication === "function") {
+    try {
+      cleanup.invalidatePublication();
+    } catch {
+      // Replacing the screen below remains the fail-closed publication barrier.
+    }
+  }
+
+  const screen = document.getElementById("screen");
+  if (screen) {
+    screen.replaceWith(screen.cloneNode(false));
+  }
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    button.classList.remove("active");
+  });
+  document.getElementById("app")?.classList.add("hidden");
+  document.getElementById("boot")?.classList.remove("hidden");
+  const message = document.getElementById("boot-msg");
+  if (message) {
+    message.textContent = "สิทธิ์ของหน้าต่างหมดอายุ กรุณาเปิดแอปใหม่";
+  }
+}
+
+async function registerAuthorityInvalidationListener() {
+  const listen = window.__TAURI__?.event?.listen;
+  if (typeof listen !== "function") {
+    throw new Error("desktop event bridge unavailable");
+  }
+  await listen(AUTHORITY_INVALIDATED_EVENT, discardPublishedScreen);
+}
+
+async function performTabSelection(name) {
+  if (authorityInvalidated || !Object.hasOwn(SCREENS, name)) return;
+  if (activeTab !== null) {
+    if (activeCleanup) {
+      const cleanup = activeCleanup;
+      activeCleanup = null;
+      await cleanup();
+    }
+    if (authorityInvalidated) return;
+    try {
+      await rotateScope();
+    } catch {
+      discardPublishedScreen();
+      return;
+    }
+    if (authorityInvalidated) return;
+  }
   document.querySelectorAll(".nav-item").forEach((b) => {
     b.classList.toggle("active", b.dataset.tab === name);
   });
   const root = document.getElementById("screen");
   root.innerHTML = "";
-  SCREENS[name](root);
+  activeTab = name;
+  activeCleanup = SCREENS[name](root) || null;
+}
+
+function selectTab(name) {
+  const transition = tabTransition.then(() => performTabSelection(name));
+  tabTransition = transition.catch(() => {});
+  return transition;
 }
 
 async function checkForUpdateBanner() {
@@ -61,15 +132,25 @@ async function checkForUpdateBanner() {
 
 async function main() {
   initTheme();
-  const ok = await waitForBackend();
-  if (!ok) return;
+  try {
+    await registerAuthorityInvalidationListener();
+  } catch (error) {
+    const message = document.getElementById("boot-msg");
+    if (message) message.textContent = safeErrorMessage(error);
+    return false;
+  }
+  const ok = await waitForBroker();
+  if (!ok || authorityInvalidated) return false;
   document.getElementById("boot").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.querySelectorAll(".nav-item").forEach((b) => {
-    b.addEventListener("click", () => selectTab(b.dataset.tab));
+    b.addEventListener("click", () => {
+      void selectTab(b.dataset.tab).catch(() => {});
+    });
   });
-  selectTab("text");
+  await selectTab("text");
   checkForUpdateBanner();
+  return !authorityInvalidated;
 }
 
-main();
+window.__AIGUARD_APP_READY__ = main();

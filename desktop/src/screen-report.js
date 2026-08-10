@@ -1,4 +1,5 @@
 import { analyze, analyzeReport } from "./api.js";
+import { safeErrorMessage } from "./errors.js";
 import { screenHeader, escapeHtml } from "./ui.js";
 
 const REPORT_FILENAME = "aiguard-pdpa-report.pdf";
@@ -166,13 +167,15 @@ export function renderReport(root) {
     }
     $("#a-err").classList.add("hidden");
     hideStatus();
+    $("#a-out").replaceChildren();
     try {
       const r = await analyze(text);
       if (!isMounted(button, "#a-go")) return;
       renderReportBody(r);
     } catch (e) {
       if (!isMounted(button, "#a-go")) return;
-      showError("วิเคราะห์ไม่สำเร็จ: " + e.message);
+      $("#a-out").replaceChildren();
+      showError("วิเคราะห์ไม่สำเร็จ: " + safeErrorMessage(e));
     } finally {
       if (isMounted(button, "#a-go")) button.disabled = false;
     }
@@ -202,7 +205,7 @@ export function renderReport(root) {
     } catch (e) {
       if (!isMounted(button, "#a-download")) return;
       hideStatus();
-      showError("สร้างรายงาน PDF ไม่สำเร็จ: " + e.message);
+      showError("สร้างรายงาน PDF ไม่สำเร็จ: " + safeErrorMessage(e));
     } finally {
       if (isMounted(button, "#a-download")) {
         button.textContent = "ดาวน์โหลดรายงาน PDF";

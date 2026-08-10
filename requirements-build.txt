@@ -2,3 +2,5 @@
 # Source of the PyInstaller floor; the exact pinned version + hashes live in
 # requirements-build.lock (regenerate with scripts/lock_deps.py).
 pyinstaller>=6.0
+# Installed package smoke records fail-closed process resource evidence.
+psutil>=7.2.2

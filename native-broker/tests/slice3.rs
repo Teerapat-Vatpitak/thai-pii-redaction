@@ -304,6 +304,29 @@ fn guard_success() -> BackendCompletion {
     confirmed(200, json!({"flagged": false, "guard_findings": []}))
 }
 
+fn fake_roundtrip_success() -> BackendCompletion {
+    confirmed(
+        200,
+        json!({
+            "ai_response_masked": "synthetic-safe-output",
+            "detected_entity_count": 0,
+            "entity_type_counts": {},
+            "guard_findings": [],
+            "provider_used": "fake",
+            "restoration": {
+                "leftover_count": 0,
+                "replaced_count": 0,
+                "status": "complete"
+            },
+            "restored_text": "synthetic-safe-output",
+            "safety": {"residual_count": 0, "status": "pass"},
+            "sanitized_text": "synthetic-masked-output",
+            "section26_categories": [],
+            "warnings": []
+        }),
+    )
+}
+
 fn disposal_success() -> BackendCompletion {
     confirmed(200, json!({"deleted": true}))
 }
@@ -482,6 +505,44 @@ fn valid_stateless_operation_forwards_once_and_returns_exact_projection() {
     );
     assert_eq!(backend.calls().len(), 1);
     assert_eq!(backend.teardowns(), 0);
+}
+
+#[test]
+fn desktop_provider_policy_rejects_nonfake_roundtrip_before_backend_submission() {
+    let backend = ScriptedBackend::new([fake_roundtrip_success()]);
+    let plane = DataPlane::new(backend.clone()).unwrap();
+    let mut connection = plane.open_connection("desktop").unwrap();
+    let scope = open_scope(&mut connection);
+
+    for provider in ["pathumma", "tokenmind", "claude", "ollama"] {
+        let error = connection
+            .dispatch(
+                &request(
+                    "roundtrip",
+                    Some(&scope),
+                    json!({"mode": "token", "provider": provider, "text": "synthetic-input"}),
+                    "transient_mapping",
+                ),
+                &|| false,
+            )
+            .unwrap_err();
+        assert_eq!(error.code(), "provider_configuration");
+        assert!(backend.calls().is_empty());
+    }
+
+    let result = connection
+        .dispatch(
+            &request(
+                "roundtrip",
+                Some(&scope),
+                json!({"mode": "token", "provider": "fake", "text": "synthetic-input"}),
+                "transient_mapping",
+            ),
+            &|| false,
+        )
+        .unwrap();
+    assert_eq!(result["provider_used"], "fake");
+    assert_eq!(backend.calls().len(), 1);
 }
 
 #[test]

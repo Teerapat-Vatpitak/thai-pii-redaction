@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "macOS": {
+      "files": {
+        "MacOS/native-components-v1.json": "binaries/native-components-v1.macos.json"
+      }
+    }
+  }
+}

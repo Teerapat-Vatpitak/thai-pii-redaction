@@ -1,5 +1,6 @@
 import { redactPdf } from "./api.js";
-import { screenHeader, escapeHtml } from "./ui.js";
+import { safeErrorMessage } from "./errors.js";
+import { screenHeader } from "./ui.js";
 
 function renderFieldChips(container, fields) {
   container.replaceChildren();
@@ -37,7 +38,7 @@ function b64ToBlob(b64, type) {
 
 export function renderRedact(root) {
   root.innerHTML = `
-    ${screenHeader("Redact PDF", "อัปโหลด PDF เพื่อดำกล่องทับข้อมูลส่วนบุคคล (ค่าเริ่มต้นทำงานในเครื่อง; explicit TNER ส่งข้อความที่สกัดไปยังบริการภายนอก)")}
+    ${screenHeader("Redact PDF", "อัปโหลด PDF เพื่อดำกล่องทับข้อมูลส่วนบุคคล (Desktop ที่ติดตั้งใช้ตัวตรวจจับในเครื่องเท่านั้น)")}
     <div class="dropzone" id="r-drop" tabindex="0" role="button">
       <svg class="dropzone__icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path d="M6 2h9l3 3v17a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
@@ -73,19 +74,36 @@ export function renderRedact(root) {
   `;
 
   const $ = (id) => root.querySelector(id);
+  const drop = $("#r-drop");
+  const fileInput = $("#r-file");
+  const isMounted = () => drop.isConnected && root.querySelector("#r-drop") === drop;
   let redactedB64 = null;
-  let outName = "redacted.pdf";
+  let requestGeneration = 0;
+  const outName = "aiguard-redacted.pdf";
+
+  function clearPublishedResult() {
+    redactedB64 = null;
+    $("#r-out").classList.add("hidden");
+    $("#r-after").removeAttribute("src");
+    $("#r-source-type").textContent = "";
+    $("#r-entity-count").textContent = "";
+    $("#r-ocr-confidence").textContent = "";
+    $("#r-fields").replaceChildren();
+    $("#r-human-review").classList.add("hidden");
+  }
 
   async function handleFile(file) {
     if (!file) return;
+    const generation = ++requestGeneration;
+    const isCurrent = () => generation === requestGeneration && isMounted();
+    clearPublishedResult();
     $("#r-err").classList.add("hidden");
-    $("#r-out").classList.add("hidden");
     $("#r-filename").textContent = file.name;
     $("#r-processing").classList.remove("hidden");
     try {
       const res = await redactPdf(file);
+      if (!isCurrent()) return;
       redactedB64 = res.redacted_pdf_b64;
-      outName = "redacted-" + file.name;
       $("#r-source-type").textContent = res.source_type;
       $("#r-entity-count").textContent = res.detected_entity_count;
       $("#r-ocr-confidence").textContent =
@@ -95,15 +113,14 @@ export function renderRedact(root) {
       $("#r-human-review").classList.toggle("hidden", !res.human_review);
       $("#r-out").classList.remove("hidden");
     } catch (e) {
-      $("#r-err").textContent = "ปกปิด PDF ไม่สำเร็จ: " + escapeHtml(e.message);
+      if (!isCurrent()) return;
+      clearPublishedResult();
+      $("#r-err").textContent = "ปกปิด PDF ไม่สำเร็จ: " + safeErrorMessage(e);
       $("#r-err").classList.remove("hidden");
     } finally {
-      $("#r-processing").classList.add("hidden");
+      if (isCurrent()) $("#r-processing").classList.add("hidden");
     }
   }
-
-  const drop = $("#r-drop");
-  const fileInput = $("#r-file");
 
   drop.addEventListener("click", () => fileInput.click());
   drop.addEventListener("keydown", (e) => {

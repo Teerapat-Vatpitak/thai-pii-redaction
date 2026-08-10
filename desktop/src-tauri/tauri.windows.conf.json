@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "binaries/native-components-v1.nsis.json": "native-components-v1.json"
+    }
+  }
+}

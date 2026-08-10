@@ -33,7 +33,7 @@ word boxes, and produce a PDPA-oriented risk report.
 |---|---|
 | Thai PII detection | Detects structured PII, names, addresses, dates, and selected quasi-identifiers. |
 | Mask and restore | Token or surrogate anonymization with an in-memory mapping and outbound leak checks. |
-| PDF redaction | Paints selected word boxes and flattens the result so covered source text is not recoverable from a text layer. Entity-to-box association is currently heuristic; exact repeated-value coverage and untouched negative controls remain open. |
+| PDF redaction | Carries authoritative half-open source intervals into word boxes, paints only intersecting boxes, and flattens the result so covered source text is not recoverable from a text layer. Optional live OCR and physical-scan acceptance remain separate gates. |
 | PDPA analysis | Reports direct PII, Section 26 signals, and re-identification risk without including raw values in the generated report. |
 | Protected AI roundtrip | Masks a prompt, fail-closes on structured, text-based, or independent 6+ digit residuals, calls a configured provider such as Pathumma, and restores the answer. Current source uses strict HTTP-v2 projections and first-party validators; shared retry orchestration and fresh packaged/live-provider acceptance remain hardening gates. |
 | Prompt-injection signals | Flags known Thai and English attacks with explicit rules plus bounded normalization/intent features. It warns; it is not a complete defense. |
@@ -45,7 +45,8 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local desktop, browser extension, and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. Current backend source rejects outbound residuals before returning masked text or making an AI Guard-controlled provider call. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. Current source uses strict HTTP v2 without mapping DTOs; package acceptance and localhost process identity remain open. |
+| Local Desktop | The installed webview uses typed commands and authenticated native IPC to a shared broker, which owns the private authenticated HTTP-v2 backend. Mappings, backend endpoint/credentials, provider credentials, and Python session IDs never reach the webview. The installed Desktop/native-broker profile is deliberately credential-free: it fixes detection to local `thainer`, admits only `fake` as an internal backend conformance provider, and exposes no provider command to the webview. Unsupported explicit engine/provider selectors fail before broker connection or launch with `ner_unavailable` or `provider_configuration`; broker and backend children receive a name-allowlisted runtime environment that never queries provider/TNER credential values and pins `thainer`/`fake`. Remote TNER and credential-requiring providers remain available only outside this installed-product boundary. Slice 4 is integrated; Slice 5 has not started. |
+| Browser extension and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. Current backend source rejects outbound residuals before returning masked text or making an AI Guard-controlled provider call. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. These storefronts still use strict direct HTTP v2 without mapping DTOs; fresh package acceptance and localhost process identity remain open. |
 | Hosted platform service | The raw request reaches the platform-hosted AI Guard container. The selected sibling port is request-stateless, gates business routes with a signed caller cookie, proxies its public aliases to strict contract 2, and returns minimized projections without mapping DTOs. Main's `app.hosted` session routes remain a generic reference, not the selected deployment. The exact sibling commit passes provider-free local check/deploy; exact live-provider, public-proxy, and platform acceptance remain open. |
 
 The hosted statement is intentionally narrower than the local statement. AI
@@ -78,15 +79,18 @@ HTTP and worker roundtrip rescan immediately before their direct calls. The
 inspection endpoints `/api/detect`, `/api/analyze`, and `/api/guard` remain
 report/warn paths, not outbound-use blockers.
 
-Other gates remain open. Current source removes mapping-oriented HTTP fields,
-uses strict v2 validators in browser, Desktop, and Office, and combines a
-vault-generation namespace with an unpredictable nonce for each newly minted
-token. Regressions show stale and guessed tokens remain foreign in the
-exercised lifecycle cases. The random 64-bit generation tag plus approximately
-94-bit per-token nonce makes accidental identity reuse and future-token preplay
-computationally impractical; this is probabilistic separation, not
-impossibility.
-Fixed-port clients still do not authenticate the localhost process. Historical
+Other gates remain open. Current source removes mapping-oriented HTTP fields
+from the fixed-port Extension and Office path, and those clients validate strict
+HTTP-v2 DTOs. Desktop instead validates broker protocol v1 through typed Tauri
+commands; backend HTTP details and Python session IDs do not reach its webview.
+All three paths use a vault-generation namespace with an unpredictable nonce
+for each newly minted token. Regressions show stale and guessed tokens remain
+foreign in the exercised lifecycle cases. The random 64-bit generation tag plus
+approximately 94-bit per-token nonce makes accidental identity reuse and
+future-token preplay computationally impractical; this is probabilistic
+separation, not impossibility.
+The Extension and Office fixed-port clients still do not authenticate the
+localhost process. Historical
 release, storefront, packaged-runtime, and live-provider evidence remains valid
 for the exact named artifacts, but the published 2.5.0 backend predates these
 transaction, outbound-policy, HTTP-v2, and token-identity changes. Those paths
@@ -98,7 +102,8 @@ submitting it to an external AI.
 
 - Browser extension: in-page Mask/Restore for supported AI sites plus a docked
   side panel.
-- Desktop app: bundled Tauri shell and local FastAPI sidecar.
+- Desktop app: Tauri shell using typed native commands, authenticated broker
+  IPC, and a broker-private FastAPI backend.
 - Microsoft 365 Add-in: one Thai task pane with Word, Excel, and PowerPoint
   adapters. Current-source automated checks pass. A dated partial local XML
   real-host functional slice predates the HTTP-v2/token candidate and remains
@@ -132,7 +137,7 @@ separate detection implementations.
 | `app/` | FastAPI and provisional worker adapters; no separate detection or vault implementation. |
 | `ai_guard.py` / `demo_cli.py` | Supported CLI entry points for reports, sanitization, compliance tools, and the end-to-end demo. |
 | `extension/` | Chrome MV3 storefront and site adapters. |
-| `desktop/` | Tauri shell, static UI, and packaged-sidecar integration. |
+| `desktop/` | Tauri shell, static UI, typed broker client, lifecycle guards, ordinary package layout, and a feature-gated package-smoke harness. Evidence stays qualified by its exact path: isolated Windows NSIS installation, relocated macOS app, extracted DEB, independently extracted AppImage bytes, or finalized outer AppImage extract-and-run plus verified warm `AppRun`. Only the first is installation evidence. |
 | `office-addin/` | Word, Excel, and PowerPoint task pane and host adapters. |
 | `demo/` | Opt-in browser playground. |
 | `benchmark/` / `research/` / `training/` | Synthetic evaluation, privacy-reviewed evidence, and optional training material. |
@@ -171,9 +176,10 @@ backend and does not ship in the current installer.
 
 ## Develop from source
 
-Requirements are Python 3.11+ and Git. Node 22 is required for the Office
-Add-in and JavaScript test harness; Rust is required only to build the desktop
-shell. Windows is the primary local development platform.
+Requirements are Python 3.11+ and Git. Node 22 is required for the JavaScript
+test harness, Office Add-in, and Desktop packaging; Rust 1.97 is required to
+build the native broker and Desktop shell. Windows is the primary local
+development platform.
 
 The quickest local start is:
 
@@ -183,9 +189,13 @@ $env:PYTHONUTF8='1'
 ```
 
 `run.ps1` creates `.venv` and installs the core plus web dependencies on first
-run. The equivalent Git Bash/Linux/macOS command is `./run.sh`. The backend
-serves `http://localhost:8000`; check `http://localhost:8000/api/health` before
-starting a storefront.
+run. The equivalent Git Bash/Linux/macOS command is `./run.sh`. This developer
+backend serves `http://localhost:8000`; check
+`http://localhost:8000/api/health` before starting the Extension, Office Add-in,
+demo, or another direct HTTP client. Desktop does not use or supply that
+fixed-port backend: Desktop reaches the shared broker over native IPC, and the
+broker alone uses a private authenticated random-loopback listener to reach the
+frozen backend.
 
 For a manual setup, install the same dependencies with:
 
@@ -195,13 +205,16 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-web.txt
 ```
 
-Use [`.env.example`](.env.example) as the safe configuration reference. Keep
-provider keys and the local boot/API tokens in the environment of the backend;
-the canonical vault belongs in backend memory. Clients necessarily handle
-submitted and returned text, and may retain a security-sensitive `session_id`.
-Current HTTP v2 returns no explicit mapping DTO or backend-projected
-original/token pairs; first-party clients reject unknown or missing safety
-fields.
+Use [`.env.example`](.env.example) as the safe configuration reference for the
+fixed-port developer backend. Keep provider keys and the local boot/API tokens
+in that backend's environment; the canonical vault belongs in backend memory.
+Extension and Office necessarily handle submitted and returned text, and may
+retain a security-sensitive `session_id`. Current HTTP v2 returns no explicit
+mapping DTO or backend-projected original/token pairs; those clients reject
+unknown or missing safety fields. Desktop's broker-backed configuration boundary
+is separate: provider/TNER credentials are not passed to broker/backend children
+or used as installed-product configuration, and unsupported explicit selectors
+fail closed before broker connection or launch.
 
 ### API and CLI
 
@@ -233,9 +246,27 @@ Use synthetic fixtures from `examples/` for demonstrations and acceptance.
 ### Storefront development
 
 - Extension: load `extension/` unpacked in `chrome://extensions` while the
-  backend is running; see [extension/README.md](extension/README.md).
-- Desktop: run `python scripts/build_sidecar.py`, then `cd desktop`, `npm ci`,
-  and `npm run tauri dev`; see [desktop/README.md](desktop/README.md).
+  separately started fixed-port backend is running; see
+  [extension/README.md](extension/README.md). Launching Desktop does not provide
+  this backend.
+- Desktop: build the frozen backend and native broker, atomically stage invalid
+  `{}` resource placeholders for clean-build discovery, and then build an
+  ordinary Tauri bundle. The `beforeBundle` hook writes final direct-bundle
+  manifests for NSIS, macOS, and DEB. AppImage stays deliberately invalid until
+  the checksum-pinned post-`linuxdeploy` finalizer hashes the completed AppDir
+  and repacks it. For this scrubbed no-sign/no-update path, the finalizer permits
+  only appimagetool's single 16-byte `.digest_md5` rewrite in a non-executable
+  ELF64 section and requires every other runtime-prefix byte to match before it
+  executes and re-extracts the candidate to verify all native-component bytes.
+  The feature-gated package smoke runs production webview code through real
+  typed commands. Direct Windows NSIS, relocated macOS, and extracted DEB
+  layouts use their package root. AppImage independently attests an extracted
+  layout, starts the exact finalized outer file with
+  `--appimage-extract-and-run` and a private marker root, re-attests its retained
+  payload, and uses the verified `AppRun` for the warm repetition. That is not
+  normal FUSE/double-click or installation evidence. `tauri dev` has no
+  backend/data-plane HTTP escape path and does not assemble the manifest. See
+  [desktop/README.md](desktop/README.md).
 - Office: start the backend, then `cd office-addin`, `npm ci`, and `npm run dev`;
   use `start:word` for the unified Word manifest or the documented `*:local`
   commands for host-specific acceptance; see
@@ -262,7 +293,9 @@ cd ..\desktop\src-tauri; cargo test
 ```
 
 CI also runs the core-only dependency tier, Docker-context checks, version
-checks, and packaged-runtime smoke gates. See
+checks, and artifact-specific package smoke gates. Those jobs do not by
+themselves prove signing, notarization, publication, upgrade, uninstall, or a
+live-provider path. See
 [CONTRIBUTING.md](CONTRIBUTING.md) and the [release process](docs/release-process.md)
 before changing version-bearing files.
 
@@ -300,35 +333,46 @@ reproducibility.
 
 ## Current status and limitations
 
-Dated acceptance remains evidence for the exact local storefront candidates
-named in those records. Current source has open privacy/security/correctness
-hardening gates, and Office still has eight real-host/package items in the
-acceptance checklist. Detection accuracy remains the declared normal Track A
-priority; the owner-approved eight-phase hardening campaign is an explicit
-temporary exception, not completion of Track A. Accuracy numbers live in
-generated benchmark reports with corpus size and limitations — do not infer a
-public accuracy claim from prose.
+Dated acceptance remains evidence only for the exact candidate and evidence
+class named in each record. Current truth is deliberately split as follows:
 
-The exact current candidate now has automated local transport evidence: a
-newly built packaged sidecar served strict-v2 health, token sanitize, and
-reidentify directly and through the Office HTTPS development proxy. The proxy
-reused pre-existing trusted development certificates and left them unchanged.
-This did not execute an Office client or host, install Desktop, sideload or
-activate a unified manifest, call a live provider, release, or deploy anything.
-Real-browser, installed Desktop, storefront, live-provider, and all eight
-Office real-host/package gates remain open. The sibling
-hosted port now pins current core `8c6efef`, applies its public aliases to
-strict contract 2, and has immutable local commit `e075ca4`. That commit passed
-the BusyBox check and provider-free deploy; independent review found no further
-static blocker. Live-provider/soak evidence predates the final commit. Its
-one-page OCR route passes locally but takes 221 seconds, nearly saturates its
-two-core allowance, and reaches the 6 GiB memory limit, so the advertised
-20-page/300-second PDF ceiling is not deploy-ready. Tokenmind credential
-rotation, public HTTPS/browser routing, authoritative PDF entity-to-box
-coverage, a protected/isolated production runner, first push, and platform
-acceptance remain. The worker envelope
-remains version 1, and shared provider orchestration, broker/auth, lifecycle,
-real-host, and official-platform gates remain open.
+- **Source tests:** current Python, JavaScript, Rust, Office, protocol, and
+  packaging-contract tests can establish source behavior. They do not install a
+  product or exercise a live host/provider.
+- **Packaged tests:** the Desktop harness uses production package JavaScript,
+  typed Tauri commands, the native broker, and the frozen backend. Its evidence
+  classes are an isolated Windows NSIS installed root, a relocated macOS app
+  layout, a directly extracted DEB layout, independent AppImage byte
+  extraction, and exact outer AppImage `--appimage-extract-and-run` followed by
+  a re-attested warm `AppRun`. They are not interchangeable. The AppImage path
+  does not prove normal FUSE/double-click behavior or an installed lifecycle.
+- **Installed real-host tests:** the published 2.5.0 Desktop/browser/Office
+  records remain historical pre-broker/HTTP-v2 evidence. They do not certify the
+  current candidate. Current Extension live-site, Office-host, package
+  upgrade/uninstall, and complete installed cross-platform acceptance remain
+  open unless a dated exact-candidate record says otherwise.
+- **Live or external tests:** live Pathumma/TNER, official hosted-platform,
+  signing/notarization, store submission, release publication, and deployment
+  evidence remain separate. A mock, schema check, package build, or local
+  provider-free run cannot close them.
+
+Desktop source now crosses broker protocol v1 and has no webview localhost
+fallback. Its installed profile is fixed to local `thainer`; `fake` is the only
+backend provider admitted for internal conformance, and no provider operation is
+exposed to the webview. Unsupported remote/credential-backed configuration
+fails closed, including when a Desktop process finds a warm broker. Slice 4
+integration is complete. The Extension
+and Office remain fixed-port HTTP-v2 clients; Slice 5 is specifically the
+Extension Chrome Native Messaging migration to the existing shared broker, and
+Slice 6 is cross-platform package/install/relocation/updater/upgrade,
+interrupted-upgrade, stale-cleanup, and uninstall recertification. New tag
+publication is intentionally preflight-blocked until those delivery gates are
+complete.
+Detection accuracy remains the declared normal Track A priority; the
+owner-approved hardening campaign is an explicit temporary exception, not
+completion of Track A. Accuracy numbers live in generated benchmark reports
+with corpus size and limitations—do not infer a public accuracy claim from
+prose.
 
 `blind-v1` is a closed historical evidence set, not an active blind evaluation:
 its six-reveal budget is exhausted. Do not tune against it or present its

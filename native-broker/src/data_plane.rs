@@ -618,6 +618,13 @@ impl DataConnection {
                 Some(&request.request_id),
             ));
         }
+        if self.role == Role::Desktop {
+            crate::installed_product::validate_desktop_provider_request(
+                &request.operation,
+                &request.payload,
+            )
+            .map_err(|error| ProtocolError::new(error.code(), Some(&request.request_id)))?;
+        }
         self.sync_generation();
         if self.plane.inner.backend_invalidated.load(Ordering::Acquire) {
             let code = if matches!(

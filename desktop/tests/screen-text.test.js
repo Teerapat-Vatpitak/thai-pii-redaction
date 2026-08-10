@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/api.js", () => ({
+  copyMasked: vi.fn(),
+  disposeSession: vi.fn(),
   sanitize: vi.fn(),
   reidentify: vi.fn(),
 }));
 
-import { reidentify, sanitize } from "../src/api.js";
+import { copyMasked, disposeSession, reidentify, sanitize } from "../src/api.js";
 import { renderText } from "../src/screen-text.js";
 
 const TOKEN = `[ชื่อ_${"a".repeat(25)}_${"n".repeat(20)}_1]`;
@@ -41,10 +43,7 @@ async function flush() {
 beforeEach(() => {
   document.body.innerHTML = '<div id="root"></div>';
   vi.clearAllMocks();
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: { writeText: vi.fn().mockResolvedValue(undefined) },
-  });
+  copyMasked.mockResolvedValue({ copied: true });
 });
 
 describe("Desktop text write boundary", () => {
@@ -61,7 +60,7 @@ describe("Desktop text write boundary", () => {
     );
     root.querySelector("#t-copy").click();
     await flush();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`😀 ${TOKEN}`);
+    expect(copyMasked).toHaveBeenCalledWith("session", `😀 ${TOKEN}`);
   });
 
   it("preserves source whitespace and Unicode exactly through sanitize and copy", async () => {
@@ -91,7 +90,7 @@ describe("Desktop text write boundary", () => {
     expect(sanitize).toHaveBeenCalledWith(browserSource, "token");
     root.querySelector("#t-copy").click();
     await flush();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(sanitized);
+    expect(copyMasked).toHaveBeenCalledWith("session", sanitized);
   });
 
   it("does not expose or copy a response with unsafe safety state", async () => {
@@ -106,7 +105,7 @@ describe("Desktop text write boundary", () => {
 
     expect(root.querySelector("#t-out").classList).toContain("hidden");
     expect(root.textContent).not.toContain(TOKEN);
-    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(copyMasked).not.toHaveBeenCalled();
   });
 
   it("does not expose or copy an empty sanitize success payload", async () => {
@@ -129,7 +128,7 @@ describe("Desktop text write boundary", () => {
     expect(root.querySelector("#t-err").classList).not.toContain("hidden");
     root.querySelector("#t-copy").click();
     await flush();
-    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    expect(copyMasked).not.toHaveBeenCalled();
   });
 
   it("does not render an incomplete or warning-bearing restoration", async () => {
@@ -213,19 +212,16 @@ describe("Desktop text write boundary", () => {
     expect(root.querySelector("#t-restored").textContent).toBe("081-234-5678");
   });
 
-  it.each([
-    { status: 404, code: "session_unavailable" },
-    { status: 400, code: "invalid_request" },
-  ])("retries once without a stale session for $status/$code", async (failure) => {
+  it("invalidates stale session authority and never retries an ambiguous mutation", async () => {
     sanitize
       .mockResolvedValueOnce(validSanitize({ session_id: "stale-session" }))
       .mockRejectedValueOnce(
         Object.assign(new Error("safe failure"), {
           name: "ApiError",
-          ...failure,
+          code: "operation_failed",
+          sessionInvalidated: true,
         })
-      )
-      .mockResolvedValueOnce(validSanitize({ session_id: "fresh-session" }));
+      );
     const root = document.getElementById("root");
     renderText(root);
 
@@ -236,13 +232,55 @@ describe("Desktop text write boundary", () => {
     root.querySelector("#t-mask").click();
     await flush();
 
-    expect(sanitize).toHaveBeenNthCalledWith(
-      2,
-      "second",
-      "token",
-      "stale-session"
+    expect(sanitize).toHaveBeenNthCalledWith(2, "second", "token", "stale-session");
+    expect(sanitize).toHaveBeenCalledTimes(2);
+    expect(root.querySelector("#t-out").classList).toContain("hidden");
+    expect(copyMasked).not.toHaveBeenCalled();
+  });
+
+  it("invalidates cached publication when native copy authority is gone", async () => {
+    sanitize.mockResolvedValue(validSanitize());
+    copyMasked.mockRejectedValue(
+      Object.assign(new Error("safe failure"), {
+        name: "ApiError",
+        code: "session_unavailable",
+        sessionInvalidated: true,
+      })
     );
-    expect(sanitize).toHaveBeenNthCalledWith(3, "second", "token");
-    expect(sanitize).toHaveBeenCalledTimes(3);
+    const root = document.getElementById("root");
+    renderText(root);
+    root.querySelector("#t-input").value = "synthetic";
+    root.querySelector("#t-mask").click();
+    await flush();
+
+    root.querySelector("#t-copy").click();
+    await flush();
+    root.querySelector("#t-copy").click();
+    await flush();
+
+    expect(copyMasked).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("#t-out").classList).toContain("hidden");
+  });
+
+  it("invalidates published text locally without issuing a data operation", async () => {
+    sanitize.mockResolvedValue(validSanitize());
+    const root = document.getElementById("root");
+    const cleanup = renderText(root);
+    root.querySelector("#t-input").value = "synthetic-private-value";
+    root.querySelector("#t-mask").click();
+    await flush();
+    root.querySelector("#t-reply").value = TOKEN;
+
+    cleanup.invalidatePublication();
+
+    expect(root.querySelector("#t-input").value).toBe("");
+    expect(root.querySelector("#t-reply").value).toBe("");
+    expect(root.querySelector("#t-masked").textContent).toBe("");
+    expect(root.querySelector("#t-restored").textContent).toBe("");
+    expect(root.querySelector("#t-out").classList).toContain("hidden");
+    root.querySelector("#t-copy").click();
+    await flush();
+    expect(copyMasked).not.toHaveBeenCalled();
+    expect(disposeSession).not.toHaveBeenCalled();
   });
 });

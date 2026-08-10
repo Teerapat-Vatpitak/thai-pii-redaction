@@ -16,7 +16,10 @@ records. Strict HTTP v2 removes mapping-bearing fields and first-party clients
 reject malformed, unknown, or unsafe responses. Direct fixed-port localhost
 operation still does not authenticate server identity. The published 2.5.0/v1
 backend and historical store/browser evidence predate all of these source
-changes. The native broker and fresh package/browser acceptance must land
+changes. Current source already contains the shared native broker and Desktop
+client; the Extension's Slice 5 Chrome Native Messaging host/adapter,
+registration, and lifecycle
+migration to that broker, plus fresh package/browser acceptance, must land
 before this copy is used for a new package.
 
 In-page Mask acts only after raw text has been entered into the AI site's
@@ -46,7 +49,7 @@ AI Guard — ปกปิดข้อมูลส่วนบุคคลก่�
 
 AI Guard เป็น extension ที่ช่วยตรวจและปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทยก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงในเครื่อง Detector ปกติทำงานใน backend บนเครื่อง; หากผู้ใช้เลือก remote TNER อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai
 
-Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว พร้อมใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง field ที่เกี่ยวกับ mapping และ client ปิดกั้น response ที่ malformed, unknown หรือ unsafe แต่ source นี้ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port หลักฐาน store/browser และ backend 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อน source change เหล่านี้ ระบบ native broker และการทดสอบ package/browser ใหม่ยังเป็น gate ที่เปิดอยู่
+Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว พร้อมใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง field ที่เกี่ยวกับ mapping และ client ปิดกั้น response ที่ malformed, unknown หรือ unsafe แต่ source นี้ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port Source ปัจจุบันมี shared native broker และ Desktop client แล้ว; งานที่ยังเปิดคือการย้าย Extension ใน Slice 5 ผ่าน Chrome Native Messaging host/adapter พร้อมการลงทะเบียนและ lifecycle ไปยัง broker นั้น และการทดสอบ package/browser ใหม่
 
 การกด Mask ในหน้าเว็บเริ่มหลังจากข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว โค้ดเว็บอาจเห็นหรือส่ง draft ก่อน extension แทนที่ หากต้องการขอบเขตที่เข้มกว่า ต้องพิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ
 
@@ -93,8 +96,10 @@ digit residuals, and missing replacement records. Strict HTTP v2 removes
 mapping-bearing fields, and first-party clients reject malformed, unknown, or
 unsafe responses. Fixed-port clients still do not authenticate the localhost
 process. The published 2.5.0/v1 backend and historical store/browser evidence
-predate these source changes. The native broker and fresh package/browser
-acceptance remain open.
+predate these source changes. Current source already contains the shared native
+broker and Desktop client; the open work is the Extension's Slice 5 Chrome
+Native Messaging host/adapter, registration, and lifecycle migration to that
+broker, followed by fresh package/browser acceptance.
 
 In-page Mask acts after raw text is already in the AI site's
 provider-controlled DOM, whose code can observe or transmit the draft. For the

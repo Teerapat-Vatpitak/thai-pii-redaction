@@ -30,26 +30,33 @@ state which context it affects.
 
 ### Local desktop and extension
 
-- The backend binds to localhost and restricts accepted hosts/origins to the
-  local extension and Tauri shell by default. These controls do not
-  authenticate which process owns the fixed port; native-broker identity is an
-  open hardening gate.
+- Current unreleased Desktop source no longer calls a fixed localhost service.
+  Its only production data path is typed webview command → Rust Desktop client
+  → authenticated native IPC → shared broker → broker-private authenticated
+  HTTP-v2 backend. The Extension and Office paths still use the separately
+  documented fixed localhost service. Host/origin restrictions on that service
+  do not authenticate which process owns its port; Slice 4 does not strengthen
+  those storefronts.
 - The canonical pseudonym-to-original mapping lives in process memory and is
   not intentionally persisted. The published 2.5.0/v1 artifact sent direct or
   reconstructable mapping fields, raw Section 26 matches, and prompt-guard
   excerpts/rationales to first-party clients over loopback. Current unreleased
   source implements strict v2 DTOs without those fields and reduces findings
   to category/severity/count-only metadata. This is not a shipped-fix claim.
-- The extension may retain a security-sensitive opaque session ID, not a
-  mapping collection, and necessarily handles input/output text transiently.
-- Default PII detection and pseudonym generation run locally. Explicit remote
-  TNER sends raw pre-mask chunks to AI for Thai. Current-source
-  outbound-capable local sanitization plus CLI, HTTP, and worker provider
-  boundaries fail closed on the shared residual policy. This is automated
-  source evidence; packaged, real-host, live-provider, and official hosted
-  acceptance remains open.
-- The control plane uses a boot token when the bundled desktop shell launches
-  the sidecar. Current unreleased source makes session expiry eager at the
+- The extension may retain a security-sensitive opaque HTTP session ID. The
+  Desktop UI may retain only a connection/scope/generation-bound broker session
+  handle; Python session IDs and mappings do not cross the broker. Both clients
+  necessarily handle input/output text transiently.
+- Default PII detection and pseudonym generation run locally. Installed Desktop
+  fixes detection to local `thainer` and cannot select remote TNER. Outside that
+  installed-product boundary, explicitly selected remote TNER sends raw pre-mask
+  chunks to AI for Thai. Current-source outbound-capable local sanitization plus
+  CLI, HTTP, and worker provider boundaries fail closed on the shared residual
+  policy. This is automated source evidence; packaged, real-host, live-provider,
+  and official hosted acceptance remains open.
+- The native broker alone creates and retains private backend data/control
+  credentials and owns the Python process. Current unreleased source makes
+  session expiry eager at the
   exact TTL boundary and requires a short-lived, single-use disposal
   authorization derived inside the trusted control plane and bound to the
   target session. Only canonical unpadded base64url is accepted, and final
@@ -57,13 +64,84 @@ state which context it affects.
   lifecycle lock. Missing configuration, malformed/noncanonical,
   expired/cross-session authority, and replay fail closed. The raw boot token
   no longer authorizes session disposal. Uvicorn access logging discards query
-  values, replaces the bearer-like route value with a fixed marker before
-  launcher/Desktop forwarding, and suppresses unknown access-record shapes.
-  Browser, Office, and extension code receive neither form of control
-  authority; broker-backed client disposal remains open.
+  values, replaces the bearer-like route value with a fixed marker, and
+  suppresses unknown access-record shapes. Storefront code receives neither
+  form of control authority. Desktop session/scope/window/app cleanup is now
+  broker-backed and any unconfirmed cleanup disconnects fail closed; Extension
+  and Office disposal remain open.
 - A separately configured API key can authenticate HTTP callers, but normal
-  fixed-port first-party clients do not receive it and still cannot
-  authenticate the process that owns localhost.
+  fixed-port first-party clients still cannot authenticate the process that
+  owns localhost. Desktop code neither reads nor uses this fixed-port key; its
+  broker-generated private backend credential is never projected to Desktop,
+  and Desktop has no backend/data-plane HTTP fallback.
+- The owner closed the Slice 4 configuration P1 by selecting a credential-free
+  installed Desktop/native-broker profile. It supports only local `thainer`;
+  the backend provider allowlist is `fake` solely for internal conformance, and
+  the webview exposes no provider command. Explicit unsupported engine/provider
+  selectors fail before broker connection or launch with stable,
+  value-free `ner_unavailable` or `provider_configuration` errors. Both native
+  child seams construct their environment by querying only a fixed allowlist of
+  ordinary runtime-variable names; provider/TNER credentials, URLs, transport
+  controls, selectors, and fine-tuned model paths are never queried or copied.
+  The policy then pins `AIGUARD_NER_ENGINE=thainer` and
+  `AIGUARD_PROVIDERS=fake`. Desktop and broker
+  no longer snapshot remote configuration independently, so a hostile parent
+  environment or attaching Desktop cannot silently reconfigure a warm broker.
+  Slice 4 integrated only after exact branch CI, cross-platform package smoke,
+  and independent review passed.
+- Credential-requiring providers and remote TNER for installed Desktop remain a
+  separate future architecture capability. Any expansion requires an
+  owner-approved ADR covering credential ownership, provisioning, permissions,
+  storage, rotation, configuration identity/epoch, broker restart or
+  reconfiguration, upgrade, uninstall, attestation, and cross-platform behavior.
+
+The native broker's OS peer context and component path/build/digest checks
+establish per-user process context and package consistency only. They are not
+publisher attestation and do not claim protection from arbitrary malicious
+code already running as the same OS user or replacement of an unsigned
+installation. Desktop webview capabilities grant no shell, filesystem, native
+networking, clipboard-read, or global-shortcut plugin access; navigation is
+restricted to exact internal Tauri origins. A submitted Desktop data operation
+is never replayed after timeout or disconnect, and malformed/unsafe results do
+not authorize clipboard, UI, or file publication.
+
+AppImage packaging stays fail closed across `linuxdeploy`'s ELF mutations. Its
+pre-bundle resource is deliberately `{}`; only the checksum-pinned post-bundle
+finalizer may hash the completed AppDir and repack it. For the pinned, scrubbed
+no-sign/no-update invocation, it parses both little-endian x86-64 ELF64 runtime
+prefixes, permits mutation only in the single non-executable, non-overlapping
+16-byte `.digest_md5` section that appimagetool rewrites, and requires every
+other prefix byte to match. Only after that source-level attestation does it
+execute the repacked runtime to confirm its offset, re-extract it, and compare
+the Desktop, broker, backend, and manifest bytes before atomic replacement.
+Package smoke independently extracts and attests those bytes, then starts the
+exact finalized outer file with `--appimage-extract-and-run`. Its four fixed,
+create-new marker files live in a separately created canonical private
+directory; an invalid supplied directory fails without falling back to package
+cwd. After the cold run, the harness re-attests the retained root before a warm
+verified-`AppRun` launch, then requires natural process-group and native-process
+cleanup before recovery cleanup or deletion. This proves internal package
+consistency and the named execution path, not normal FUSE/double-click,
+installation, publisher provenance, or signing.
+
+Historical dirty-tree Windows NSIS evidence provisionally exercised the
+installed production package JavaScript, typed Tauri commands, broker path,
+manifest consistency, and cleanup. It did not execute a provider or remote
+TNER operation and does not close live-provider, provider-configuration,
+clean-commit candidate, macOS/Linux package, upgrade, updater, uninstall, or
+release gates. Checkpoint `3836024` passed CI but failed Linux AppImage
+finalization before package smoke because its first prefix guard did not account
+for the defined `.digest_md5` rewrite. Checkpoint `73dcca4` narrowed that
+exception, but its harness bypassed the outer runtime and `AppRun`, so that run
+did not establish AppImage execution. Checkpoint `8194c23` passed the separate
+two-platform package workflow, including the exact outer AppImage path, while
+its main CI failed only a non-portable canonical-path test construction.
+Current checkpoint `492dad34361b09d7ffa58fa192a2447de7414418` repairs that
+test construction. Exact [CI run
+31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519)
+passed 14/14, and exact [cross-platform package run
+31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518)
+passed 2/2. These automated results retain all evidence limits above.
 
 For the browser in-page flow, raw text is typed into provider-controlled page
 DOM before Mask runs. Page code can observe or transmit it; AI Guard does not
@@ -123,8 +201,10 @@ repository's code.
 - Current unreleased HTTP v2 errors expose only stable codes plus bounded safe
   metadata; they omit payloads, upstream bodies, pseudonyms, mappings, and raw
   exception messages. The published 2.5.0/v1 artifact predates this boundary.
-  Worker-envelope compatibility and provider-orchestration convergence remain
-  separate work. Request-validation errors are fixed and do not
+  HTTP-v2/worker-v1 compatibility and shared provider-orchestration convergence
+  are implemented in current source for CLI, HTTP/hosted roundtrip, and worker
+  roundtrip; their packaged, live-provider, real-host, and official-platform
+  gates remain open. Request-validation errors are fixed and do not
   echo rejected body/query values; an outer HTTP boundary also contains
   pre-response-start JSON rendering failures. Current HTTP endpoint, direct
   stateless/session transaction and restore, provider, PDF/OCR fallback, and

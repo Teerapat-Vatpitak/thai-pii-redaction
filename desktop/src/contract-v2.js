@@ -179,8 +179,13 @@ function positiveInt(value, label) {
 }
 
 function finiteRange(value, min, max, label) {
-  if (!Number.isFinite(value) || value < min || value > max) fail(label);
-  return value;
+  let projected = value;
+  if (typeof value === "string") {
+    if (!/^(0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$/.test(value)) fail(label);
+    projected = Number(value);
+  }
+  if (!Number.isFinite(projected) || projected < min || projected > max) fail(label);
+  return projected;
 }
 
 function uniqueEnumList(value, allowed, label) {
@@ -311,6 +316,12 @@ export function validateHealth(value) {
   };
 }
 
+export function validateBrokerHealth(value) {
+  const item = exactObject(value, ["status"], "broker health");
+  if (item.status !== "ok") fail("broker health");
+  return { status: "ok" };
+}
+
 export function validateSanitize(value) {
   const item = exactObject(
     value,
@@ -402,6 +413,77 @@ export function validateDetect(value, sourceText) {
     detected_entity_count: detectedCount,
     entity_type_counts: counts,
     highlights,
+  };
+}
+
+export function validateGuard(value) {
+  const item = exactObject(value, ["flagged", "guard_findings"], "guard");
+  const findings = guardFindings(item.guard_findings, "guard");
+  const flagged = booleanValue(item.flagged, "guard");
+  if (flagged !== (findings.length > 0)) fail("guard");
+  return { flagged, guard_findings: findings };
+}
+
+export function validateRoundtrip(value, requestedProvider) {
+  const item = exactObject(
+    value,
+    [
+      "sanitized_text",
+      "ai_response_masked",
+      "restored_text",
+      "detected_entity_count",
+      "entity_type_counts",
+      "provider_used",
+      "section26_categories",
+      "guard_findings",
+      "warnings",
+      "safety",
+      "restoration",
+    ],
+    "roundtrip"
+  );
+  const providerUsed = stringValue(item.provider_used, "roundtrip", {
+    nonempty: true,
+  });
+  if (providerUsed !== requestedProvider) fail("roundtrip");
+  const counts = countMap(item.entity_type_counts, "roundtrip");
+  const detectedCount = nonNegativeInt(item.detected_entity_count, "roundtrip");
+  if (sumCounts(counts) !== detectedCount) fail("roundtrip");
+  const warnings = warningList(item.warnings, RESTORE_WARNINGS, "roundtrip");
+  const restoration = exactObject(
+    item.restoration,
+    ["status", "replaced_count", "leftover_count"],
+    "roundtrip"
+  );
+  const leftoverCount = nonNegativeInt(restoration.leftover_count, "roundtrip");
+  const expectedStatus = warnings.length
+    ? "unsafe"
+    : leftoverCount
+      ? "incomplete"
+      : "complete";
+  if (restoration.status !== expectedStatus) fail("roundtrip");
+  return {
+    sanitized_text: stringValue(item.sanitized_text, "roundtrip", {
+      nonempty: true,
+    }),
+    ai_response_masked: stringValue(item.ai_response_masked, "roundtrip"),
+    restored_text: stringValue(item.restored_text, "roundtrip"),
+    detected_entity_count: detectedCount,
+    entity_type_counts: counts,
+    provider_used: providerUsed,
+    section26_categories: uniqueEnumList(
+      item.section26_categories,
+      SECTION26,
+      "roundtrip"
+    ),
+    guard_findings: guardFindings(item.guard_findings, "roundtrip"),
+    warnings,
+    safety: safety(item.safety, "roundtrip"),
+    restoration: {
+      status: expectedStatus,
+      replaced_count: nonNegativeInt(restoration.replaced_count, "roundtrip"),
+      leftover_count: leftoverCount,
+    },
   };
 }
 

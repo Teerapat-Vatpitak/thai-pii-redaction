@@ -1,4 +1,5 @@
 import { auditLog } from "./api.js";
+import { safeErrorMessage } from "./errors.js";
 import { screenHeader, escapeHtml } from "./ui.js";
 
 const REFRESH_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`;
@@ -34,20 +35,28 @@ export function renderAudit(root) {
     <p class="err hidden" id="au-err"></p>
   `;
   const $ = (id) => root.querySelector(id);
+  const output = $("#au-out");
+  const updated = $("#au-updated");
+  const error = $("#au-err");
+  const refresh = $("#au-refresh");
+  let requestGeneration = 0;
 
-  $("#au-out").innerHTML = `<div class="card"><table class="table">
+  output.innerHTML = `<div class="card"><table class="table">
     <thead><tr><th>เวลา</th><th>step</th><th>entities</th><th>ผล</th><th>ms</th></tr></thead>
     <tbody>${skeletonRows()}</tbody>
   </table></div>`;
 
   async function load() {
-    $("#au-err").classList.add("hidden");
+    const generation = ++requestGeneration;
+    const isCurrent = () => generation === requestGeneration && root.contains(output);
+    error.classList.add("hidden");
     try {
       const r = await auditLog(200, 0);
+      if (!isCurrent()) return;
       if (!r.logs.length) {
-        $("#au-out").innerHTML = `<div class="card"><p class="muted" style="text-align:center;">ยังไม่มีบันทึก</p></div>`;
+        output.innerHTML = `<div class="card"><p class="muted" style="text-align:center;">ยังไม่มีบันทึก</p></div>`;
       } else {
-        $("#au-out").innerHTML = `<div class="card"><table class="table">
+        output.innerHTML = `<div class="card"><table class="table">
           <thead><tr><th>เวลา</th><th>step</th><th>entities</th><th>ผล</th><th>ms</th></tr></thead>
           <tbody>${r.logs
             .map(
@@ -62,12 +71,13 @@ export function renderAudit(root) {
             .join("")}</tbody>
         </table></div>`;
       }
-      $("#au-updated").textContent = `อัปเดตล่าสุด ${formatUpdatedAt(new Date())}`;
+      updated.textContent = `อัปเดตล่าสุด ${formatUpdatedAt(new Date())}`;
     } catch (e) {
-      $("#au-err").textContent = "โหลด audit log ไม่สำเร็จ: " + e.message;
-      $("#au-err").classList.remove("hidden");
+      if (!isCurrent()) return;
+      error.textContent = "โหลด audit log ไม่สำเร็จ: " + safeErrorMessage(e);
+      error.classList.remove("hidden");
     }
   }
-  $("#au-refresh").addEventListener("click", load);
+  refresh.addEventListener("click", load);
   load();
 }

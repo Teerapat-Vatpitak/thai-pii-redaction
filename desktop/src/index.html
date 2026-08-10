@@ -4,16 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Guard</title>
-  <script>
-    // Apply the saved theme before first paint to avoid a flash of the wrong theme.
-    (function () {
-      try {
-        var p = localStorage.getItem("aiguard.theme") || "system";
-        var dark = p === "dark" || (p === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-      } catch (e) {}
-    })();
-  </script>
+  <script src="theme-bootstrap.js"></script>
   <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -24,7 +15,7 @@
       <span>AI Guard</span>
     </div>
     <div class="spinner"></div>
-    <p id="boot-msg">กำลังเริ่มบริการในเครื่อง...</p>
+    <p id="boot-msg">กำลังเชื่อมต่อการปกป้องในเครื่อง...</p>
   </div>
 
   <div id="app" class="app hidden">
@@ -38,7 +29,7 @@
       <button class="nav-item" data-tab="report">PDPA Report</button>
       <button class="nav-item" data-tab="settings">Settings</button>
       <button class="nav-item" data-tab="audit">Audit Log</button>
-      <div class="status" id="status"><span class="dot"></span> <span id="status-text">ทำงานในเครื่อง · localhost:8000</span></div>
+      <div class="status" id="status"><span class="dot"></span> <span id="status-text">ช่องทางในเครื่องได้รับการยืนยันแล้ว</span></div>
     </nav>
     <main class="content" id="screen"></main>
   </div>

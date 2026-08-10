@@ -24,6 +24,43 @@ extension remains source/unpacked distribution unless the owner explicitly adds
 its zip as a release asset; it is not published to the Chrome Web Store. The
 Office add-in is likewise outside the automated GitHub Release asset set.
 
+## Current publication block
+
+This document describes the intended process and preserves the procedure used
+for historical releases. It is not currently an instruction to push a new tag.
+Every new tag intentionally fails `.github/workflows/release.yml` in the
+`release metadata preflight` job before any build or publishing job can run.
+That stop remains until Slice 5 packages and registers the Extension Chrome
+Native Messaging host against the shared broker and every Slice 6 gate in the
+roadmap is complete, including cross-platform package/install, relocation,
+updater, upgrade, interrupted-upgrade, stale-cleanup, and uninstall lifecycle
+recertification.
+
+`python scripts/check_release_readiness.py` is a metadata-consistency check
+only: it verifies synchronized version targets plus the changelog, and with
+`--expect-tag` also checks tag identity and an empty `Unreleased` section. A
+green result does not certify architecture, security, packages, installed
+hosts, signing, notarization, or release readiness, and it does not bypass the
+workflow stop above.
+
+Branch CI can build unpublished package candidates and exercise bounded smoke
+paths. Those jobs do not create or publish a GitHub Release. Current branch
+package commands explicitly use `--no-sign`; macOS app relocation and Linux
+package extraction are package-layout evidence, not signing/notarization or a
+native installer lifecycle result. Treat every result according to the exact
+evidence class recorded for it. A distributable AppImage must pass the
+checksum-pinned post-`linuxdeploy` finalizer before smoke, hashing, signing, or
+upload. For the pinned no-sign/no-update build, that gate permits only the
+single non-executable, non-overlapping 16-byte `.digest_md5` rewrite defined by
+appimagetool, requires every other x86-64 ELF64 runtime-prefix byte to match,
+then confirms the runtime offset and re-extracts the image to verify the native
+components and manifest. The raw Tauri AppImage intentionally carries an
+invalid manifest and is not a release candidate. Automated AppImage smoke must
+independently attest the extracted bytes, start the exact finalized outer file
+with `--appimage-extract-and-run`, re-attest the retained root, and exercise its
+verified `AppRun` warm. Record that separately from normal FUSE/double-click,
+which this branch gate does not certify.
+
 ## Semantic version policy
 
 - **Patch** (`x.y.Z`) - compatible bug/security fixes and operational fixes.
@@ -43,13 +80,16 @@ the current sibling port inherits the product version. See
 
 ## Release preparation branch
 
-1. Freeze the intended scope and ensure every item meets the roadmap definition
-   of done.
+1. Freeze the intended scope, ensure every item meets the roadmap definition of
+   done, and confirm that the intentional Slice 5/Slice 6 release-workflow block
+   has been removed through reviewed implementation rather than bypassed.
 2. Pull the latest `main` and create a short-lived release-preparation branch.
 3. Run `python scripts/bump_version.py X.Y.Z` rather than editing version strings.
 4. Move the relevant `Unreleased` entries into
    `## [X.Y.Z] - YYYY-MM-DD`; leave a fresh empty `Unreleased` section.
-5. Run `python scripts/check_release_readiness.py`.
+5. Run `python scripts/check_release_readiness.py` as the metadata-only check;
+   complete the separate architecture, package, installed-host, security, and
+   external gates required by the candidate.
 6. Run the full local checks appropriate to the change, push the branch, and
    wait for every GitHub Actions job to pass.
 7. Review the diff for installer names, updater configuration, API contract,
@@ -59,7 +99,8 @@ the current sibling port inherits the product version. See
 
 ## Tag and build
 
-After the release-preparation branch is squashed into `main` and `main` is green:
+The commands below apply only after the current publication block has been
+removed and the release-preparation branch is squashed into a green `main`:
 
 ```bash
 git switch main
@@ -88,6 +129,9 @@ The draft remains unpublished until the maintainer verifies:
 
 - all expected Windows/macOS/Linux assets and every expected updater/signature
   file are present;
+- every AppImage was finalized from the post-`linuxdeploy` AppDir and the exact
+  finalized file, not the raw Tauri output, was hashed and exercised through
+  the recorded outer-AppImage/verified-`AppRun` path;
 - the workflow is green on the tag;
 - checksums match downloaded artifacts;
 - `gh attestation verify` succeeds for representative artifacts;

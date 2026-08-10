@@ -1,6 +1,6 @@
 # AI Guard — นโยบายความเป็นส่วนตัว / Privacy Policy
 
-_อัปเดตล่าสุด / Last updated: 2026-08-06_
+_อัปเดตล่าสุด / Last updated: 2026-08-10_
 
 ลิงก์ถาวรของหน้านี้ (สำหรับกรอกในฟอร์ม Chrome Web Store):
 `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md`
@@ -15,11 +15,11 @@ _อัปเดตล่าสุด / Last updated: 2026-08-06_
 
 ### AI Guard ทำอะไรกับข้อมูลของคุณ
 
-Extension เรียก backend บนเครื่องของคุณโดยตรงเท่านั้น (`http://localhost:8000` หรือ `http://127.0.0.1:8000`) ซึ่งไม่ใช่เซิร์ฟเวอร์ของผู้พัฒนา extension ตัว extension ไม่มี host permission หรือโค้ดที่เรียกปลายทางอื่น แต่ backend จะเรียก AI for Thai หากผู้ใช้ตั้งค่า `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน Source build ปัจจุบันยังไม่ยืนยันตัวตนของ process ที่ครอบครอง port 8000 ดังนั้นควรใช้กับ backend ที่คุณเปิดและเชื่อถือเท่านั้น ระบบ native broker สำหรับ packaged build ยังเป็น hardening gate ที่เปิดอยู่
+Extension เรียก backend บนเครื่องของคุณโดยตรงเท่านั้น (`http://localhost:8000` หรือ `http://127.0.0.1:8000`) ซึ่งไม่ใช่เซิร์ฟเวอร์ของผู้พัฒนา extension ตัว extension ไม่มี host permission หรือโค้ดที่เรียกปลายทางอื่น แต่ backend จะเรียก AI for Thai หากผู้ใช้ตั้งค่า `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน Source build ปัจจุบันยังไม่ยืนยันตัวตนของ process ที่ครอบครอง port 8000 ดังนั้นควรใช้กับ backend ที่คุณเปิดและเชื่อถือเท่านั้น Source ปัจจุบันมี shared native broker และ Desktop client แล้ว; hardening gate ที่ยังเปิดคือการย้าย Extension ใน Slice 5 ผ่าน Chrome Native Messaging host/adapter พร้อมการลงทะเบียนและ lifecycle ไปยัง broker นั้น
 
 เมื่อคุณกดปุ่ม "Mask PII" (บนแถบลอยในหน้าเว็บแชท AI หรือใน side panel) extension จะอ่านข้อความจากช่องพิมพ์ (หรือข้อความที่คุณเลือก/คำตอบล่าสุดของ AI เมื่อกด "Restore PII") แล้วส่งข้อความนั้นไปยัง backend ผ่าน loopback เพื่อตรวจจับและปกปิด PII ก่อนส่งต่อให้ AI ภายนอก Backend source ปัจจุบันไม่คืนผลที่ปกปิดเมื่อพบ structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักจาก detector-independent scan หรือ missing replacement record แต่หลักฐาน browser/store และ backend ที่เผยแพร่ใน Desktop 2.5.0 เกิดก่อนการเปลี่ยนนี้และต้องทดสอบซ้ำ จึงยังห้ามถือว่าเป็น production store package ที่ผ่าน acceptance แล้ว
 
-เมื่อใช้ปุ่ม Mask ในหน้าเว็บ ข้อความดิบถูกพิมพ์ลงใน DOM ที่ควบคุมโดยเว็บ AI ก่อน extension ทำงาน โค้ดของเว็บอาจเห็นหรือส่ง draft นั้นได้ก่อนถูกแทนที่ Contract v2 และ native broker แก้ขอบเขตนี้ไม่ได้ หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ AI
+เมื่อใช้ปุ่ม Mask ในหน้าเว็บ ข้อความดิบถูกพิมพ์ลงใน DOM ที่ควบคุมโดยเว็บ AI ก่อน extension ทำงาน โค้ดของเว็บอาจเห็นหรือส่ง draft นั้นได้ก่อนถูกแทนที่ Contract v2 และการย้าย transport ไป Chrome Native Messaging แก้ขอบเขตนี้ไม่ได้ หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ AI
 
 ตารางหลักที่แปลงค่าจริงกลับไปกลับมากับรหัสปลอม ("vault") อยู่ใน **หน่วยความจำของ backend บนเครื่องคุณ** และไม่มีการจงใจเขียนลงดิสก์ Source ปัจจุบันใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง explicit mapping DTO และให้ extension เก็บเพียง `session_id` แบบ opaque ซึ่งเป็นรหัสอ้างอิงที่มีความสำคัญด้านความปลอดภัย แต่ backend 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อนการแก้นี้ และยังไม่มี package/browser acceptance สำหรับ source candidate ปัจจุบัน
 
@@ -50,7 +50,7 @@ Backend source ปัจจุบันเขียน process/security audit �
 - ไม่มี analytics, telemetry หรือ tracking ใด ๆ
 - ไม่ส่ง backend call หรือ telemetry ไปยังเซิร์ฟเวอร์ของผู้พัฒนา; ข้อความที่ผู้ใช้กดส่งในหน้าเว็บจะไปยังบริการ AI ที่ผู้ใช้เลือก
 - AI Guard ไม่ขายข้อมูลหรือส่งข้อมูลให้ผู้พัฒนา; ข้อความที่ผู้ใช้กดส่งจะถูกประมวลผลโดยบริการ AI ที่ผู้ใช้เลือก
-- ไม่เก็บ mapping ระหว่างข้อมูลจริงกับรหัสปลอมไว้ถาวร canonical vault จะถูกทิ้งเมื่อ backend ปิด, session ถูกลบ/evict หรือเมื่อ service ตรวจพบ idle expiry ในการทำงานครั้งถัดไป
+- ไม่เก็บ mapping ระหว่างข้อมูลจริงกับรหัสปลอมไว้ถาวร canonical vault จะถูกทิ้งเมื่อ backend ปิด, session ถูกลบ/evict หรือเมื่อ deadline timer ของ backend ทำให้ session หมดอายุที่ขอบเขต `age >= TTL` โดยไม่รอ operation ครั้งถัดไป
 
 ### ติดต่อ
 
@@ -66,11 +66,11 @@ The AI Guard extension and backend use a local detector by default. They do not 
 
 ### What AI Guard does with your data
 
-This extension directly talks only to a backend running on your own machine (`http://localhost:8000` or `http://127.0.0.1:8000`), not a server operated by the extension's developer. The extension has no host permissions or code that reach another endpoint. The backend is local by default but calls AI for Thai if the user explicitly configures `AIGUARD_NER_ENGINE=tner`. The current source build does not authenticate which process owns port 8000, so use it only with a backend you started and trust. A native broker for packaged operation is an open hardening gate.
+This extension directly talks only to a backend running on your own machine (`http://localhost:8000` or `http://127.0.0.1:8000`), not a server operated by the extension's developer. The extension has no host permissions or code that reach another endpoint. The backend is local by default but calls AI for Thai if the user explicitly configures `AIGUARD_NER_ENGINE=tner`. The current source build does not authenticate which process owns port 8000, so use it only with a backend you started and trust. Current source already contains the shared native broker and Desktop client; the open hardening gate is the Extension's Slice 5 Chrome Native Messaging host/adapter, registration, and lifecycle migration to that broker.
 
 When you click "Mask PII" (on the floating bar shown on supported AI chat sites, or in the side panel), the extension reads the likely composer element (or your selection / a likely reply element for Restore) and sends that text to the backend over loopback so it can detect and mask PII before you send it to an external AI. Current backend source returns no masked result when it finds structured FP, text-based TB, detector-independent contiguous 6+ digit residuals, or a missing replacement record. The published Desktop 2.5.0 backend and historical browser/store evidence predate this change and must be rerun, so no production store package containing this behavior has been accepted.
 
-For in-page Mask, raw text is already typed into the AI site's provider-controlled DOM before the extension acts. Site code can observe or transmit that draft before replacement; contract v2 and a native broker cannot remove this earlier boundary. For stronger isolation, enter raw text in the side panel and paste only the reviewed masked result into the AI site.
+For in-page Mask, raw text is already typed into the AI site's provider-controlled DOM before the extension acts. Site code can observe or transmit that draft before replacement; contract v2 and a Chrome Native Messaging transport migration cannot remove this earlier boundary. For stronger isolation, enter raw text in the side panel and paste only the reviewed masked result into the AI site.
 
 The canonical mapping between real values and fake placeholders (the "vault") is kept **in the memory of the backend running on your machine** and is not deliberately written to disk. Current source uses strict HTTP v2, returns no explicit mapping DTO, and leaves the extension with an opaque, security-sensitive `session_id`. The published 2.5.0/v1 backend predates that repair, and the current source candidate has not yet received matching package/browser acceptance.
 
@@ -112,7 +112,7 @@ containing either current change has been accepted.
 - No analytics, telemetry, or tracking of any kind.
 - No backend call or telemetry is sent to the developer's servers; composer text you choose to submit is sent by the page to your selected AI service.
 - AI Guard does not sell data or send it to the developer; text you submit is handled by the AI service you selected.
-- No deliberate permanent storage of the mapping. The canonical vault is dropped when the backend stops, the session is deleted/evicted, or a later service operation observes idle expiry.
+- No deliberate permanent storage of the mapping. The canonical vault is dropped when the backend stops, the session is deleted/evicted, or the backend-owned deadline timer expires the session at the exact `age >= TTL` boundary without waiting for a later operation.
 
 ### Contact
 

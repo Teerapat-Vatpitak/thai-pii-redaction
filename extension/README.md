@@ -21,10 +21,12 @@ These behaviors have automated source evidence only. The published 2.5.0
 backend and historical browser/store candidates predate them and must be rerun
 before a package is accepted. The extension still trusts whichever process
 owns the configured fixed localhost port; CORS does not authenticate that
-process. Broker-backed identity/lifecycle and fresh package acceptance remain
-open hardening gates. Run this source extension only with the matching source
-backend that you started and trust, and review high-risk output before
-submitting it.
+process. Current source already contains the shared broker protocol and Desktop
+client; the open Extension work is specifically the Slice 5 Chrome Native
+Messaging host/adapter, origin admission, registration, and lifecycle migration
+to that broker, followed by fresh package/browser acceptance. Run this source
+extension only with the matching source backend that you started and trust, and
+review high-risk output before submitting it.
 
 The default detector is local. If the backend is explicitly configured with
 `AIGUARD_NER_ENGINE=tner`, it sends raw pre-mask chunks to AI for Thai. The
@@ -33,7 +35,8 @@ mapping.
 
 In-page Mask runs after raw text has been typed into the AI site's
 provider-controlled DOM. Site code can observe or transmit that draft before
-the extension replaces it; no localhost broker can undo that earlier boundary.
+the extension replaces it; a Native Messaging transport migration cannot undo
+that earlier boundary.
 For stronger isolation, enter raw text in the side panel, review/copy the
 masked result, and paste only that result into the AI site.
 

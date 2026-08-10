@@ -200,13 +200,8 @@ fn environment_block() -> Result<Vec<u16>, crate::ProtocolError> {
     use std::os::windows::ffi::OsStrExt;
 
     let mut entries = Vec::new();
-    for (key, value) in std::env::vars_os() {
+    for (key, value) in crate::installed_product::child_environment() {
         let key_text = key.to_string_lossy().into_owned();
-        if key_text.eq_ignore_ascii_case("AIGUARD_API_KEY")
-            || key_text.eq_ignore_ascii_case("AIGUARD_TOKEN")
-        {
-            continue;
-        }
         let key_units: Vec<u16> = key.encode_wide().collect();
         let value_units: Vec<u16> = value.encode_wide().collect();
         if key_units.is_empty()

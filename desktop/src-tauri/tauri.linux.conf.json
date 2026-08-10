@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/native-components-v1.json": "binaries/native-components-v1.deb.json"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/bin/native-components-v1.json": "binaries/native-components-v1.appimage.json"
+        }
+      }
+    }
+  }
+}

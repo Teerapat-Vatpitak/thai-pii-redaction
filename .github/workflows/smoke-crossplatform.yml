@@ -1,6 +1,6 @@
-# Verify the packaged sidecar's runtime lifecycle + the F1 orphan-port watchdog
-# on real macOS + Linux kernels. The Windows watchdog is a no-op (taskkill /T
-# reaps the tree), so this is unix-only. Runs on merges to main + on demand.
+# Build the ordinary macOS/Linux Desktop packages and exercise relocated or
+# extracted layouts through production JavaScript and typed Tauri commands.
+# The existing Unix sidecar watchdog remains part of the same native-runner gate.
 name: Smoke (cross-platform)
 
 permissions:
@@ -8,11 +8,17 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: cross-platform-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
+    name: packaged Desktop smoke (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -21,10 +27,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Linux package and WebView dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus-daemon libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-build.lock
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Install Python deps (locked, incl. the PyInstaller pin)
         run: |
@@ -32,12 +53,19 @@ jobs:
           python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Pre-download the offline NER model
-        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+        run: python scripts/prewarm_ner.py
 
       - name: Set up Rust (build_sidecar reads the host triple from rustc)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
         with:
           toolchain: "1.97.0"
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: |
+            native-broker
+            desktop/src-tauri
 
       - name: Record the exact Python child executable
         run: python -c "import sys; print('AIGUARD_TEST_PYTHON=' + sys.executable)" >> "$GITHUB_ENV"
@@ -52,3 +80,142 @@ jobs:
 
       - name: Run the sidecar lifecycle + watchdog smoke check
         run: python scripts/smoke_sidecar.py
+
+      - name: Build + stage the native broker
+        run: python scripts/build_native_broker.py
+
+      - name: Install locked Desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Stage invalid build-only Tauri resource manifests
+        run: python scripts/prepare_desktop_native_package.py --build-placeholders
+
+      - name: Build the feature-gated macOS app
+        if: matrix.os == 'macos-latest'
+        working-directory: desktop
+        run: >-
+          npm run tauri -- build --bundles app --features package-smoke --ci --no-sign
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Relocate and smoke the exact macOS app layout
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_root="desktop/src-tauri/target/release/bundle/macos"
+          count=$(find "$bundle_root" -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')
+          test "$count" = "1"
+          app=$(find "$bundle_root" -maxdepth 1 -type d -name '*.app' -print -quit)
+          mkdir -p artifacts/desktop-native-macos
+          relocated="$GITHUB_WORKSPACE/artifacts/desktop-native-macos/AI Guard.app"
+          test ! -e "$relocated"
+          ditto "$app" "$relocated"
+          package="$relocated/Contents/MacOS"
+          python scripts/smoke_desktop_native_package.py "$package" --repetitions 2 > artifacts/desktop-native-macos/smoke-evidence.json
+          (cd "$package" && shasum -a 256 desktop aiguard-native-broker aiguard native-components-v1.json) > artifacts/desktop-native-macos/component-sha256.txt
+          archive="$GITHUB_WORKSPACE/artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz"
+          tar -C "$(dirname "$relocated")" -czf "$archive" "$(basename "$relocated")"
+          (cd artifacts/desktop-native-macos && shasum -a 256 AI-Guard-macos-tested-app.tar.gz) > artifacts/desktop-native-macos/archive-sha256.txt
+          cat artifacts/desktop-native-macos/smoke-evidence.json
+
+      - name: Upload the exact tested macOS app and value-free evidence
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-native-macos-${{ github.sha }}
+          path: |
+            artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz
+            artifacts/desktop-native-macos/smoke-evidence.json
+            artifacts/desktop-native-macos/component-sha256.txt
+            artifacts/desktop-native-macos/archive-sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Build the feature-gated Linux DEB and AppImage
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: desktop
+        run: >-
+          npm run tauri -- build --bundles deb,appimage --features package-smoke --ci --no-sign
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Finalize the AppImage manifest from post-linuxdeploy bytes
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          APPIMAGE_PLUGIN_SHA256: a45d3e227bc7f397e9cf6bfa4c9507494efa2293357b6e86690a3de2ca992e79
+          APPIMAGE_PLUGIN_URL: https://api.github.com/repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/497460911
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          appimage_root="desktop/src-tauri/target/release/bundle/appimage"
+          test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = "1"
+          test "$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' | wc -l | tr -d ' ')" = "1"
+          appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          appdir=$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' -print -quit)
+          plugin="$RUNNER_TEMP/linuxdeploy-plugin-appimage-x86_64.AppImage"
+          test ! -e "$plugin"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            --header 'Accept: application/octet-stream' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --output "$plugin" \
+            "$APPIMAGE_PLUGIN_URL"
+          echo "$APPIMAGE_PLUGIN_SHA256  $plugin" | sha256sum --check --strict
+          chmod 0755 "$plugin"
+          python scripts/prepare_desktop_native_package.py --finalize-appimage "$appimage" \
+            --appdir "$appdir" \
+            --appimage-plugin "$plugin" \
+            --appimage-arch x86_64
+
+      - name: Extract and smoke the exact Linux package layouts
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb_root="desktop/src-tauri/target/release/bundle/deb"
+          appimage_root="desktop/src-tauri/target/release/bundle/appimage"
+          test "$(find "$deb_root" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = "1"
+          test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = "1"
+          deb=$(find "$deb_root" -maxdepth 1 -type f -name '*.deb' -print -quit)
+          appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          extracted_deb="$RUNNER_TEMP/aiguard-deb"
+          extracted_appimage="$RUNNER_TEMP/aiguard-appimage"
+          test ! -e "$extracted_deb"
+          test ! -e "$extracted_appimage"
+          mkdir -p "$extracted_deb" "$extracted_appimage" artifacts/desktop-native-linux
+          dpkg-deb -x "$deb" "$extracted_deb"
+          (
+            cd "$extracted_appimage"
+            "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
+          )
+          dbus-run-session -- xvfb-run -a -e /dev/stderr sh -c \
+            'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 > "$2"' \
+            sh "$extracted_deb/usr/bin" artifacts/desktop-native-linux/deb-smoke-evidence.json
+          dbus-run-session -- xvfb-run -a -e /dev/stderr sh -c \
+            'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 --finalized-appimage "$3" --appimage-layout "$4" > "$2"' \
+            sh "$extracted_appimage/squashfs-root/usr/bin" artifacts/desktop-native-linux/appimage-smoke-evidence.json \
+            "$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"
+          : > artifacts/desktop-native-linux/package-sha256.txt
+          (cd "$deb_root" && sha256sum "$(basename "$deb")") >> artifacts/desktop-native-linux/package-sha256.txt
+          (cd "$appimage_root" && sha256sum "$(basename "$appimage")") >> artifacts/desktop-native-linux/package-sha256.txt
+          archive="$GITHUB_WORKSPACE/artifacts/desktop-native-linux/AI-Guard-linux-tested-packages.tar.gz"
+          tar -czf "$archive" -C "$deb_root" "$(basename "$deb")" -C "$GITHUB_WORKSPACE/$appimage_root" "$(basename "$appimage")"
+          (cd artifacts/desktop-native-linux && sha256sum AI-Guard-linux-tested-packages.tar.gz) > artifacts/desktop-native-linux/archive-sha256.txt
+          cat artifacts/desktop-native-linux/deb-smoke-evidence.json
+          cat artifacts/desktop-native-linux/appimage-smoke-evidence.json
+
+      - name: Upload the exact tested Linux packages and value-free evidence
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-native-linux-${{ github.sha }}
+          path: |
+            artifacts/desktop-native-linux/AI-Guard-linux-tested-packages.tar.gz
+            artifacts/desktop-native-linux/deb-smoke-evidence.json
+            artifacts/desktop-native-linux/appimage-smoke-evidence.json
+            artifacts/desktop-native-linux/package-sha256.txt
+            artifacts/desktop-native-linux/archive-sha256.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

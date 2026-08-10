@@ -156,6 +156,24 @@ pub struct NativeStream {
     inner: PlatformStream,
 }
 
+pub struct NativeStreamAbortHandle {
+    inner: PlatformAbortHandle,
+}
+
+impl NativeStreamAbortHandle {
+    pub fn abort(&self) {
+        self.inner.abort();
+    }
+}
+
+impl fmt::Debug for NativeStreamAbortHandle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeStreamAbortHandle")
+            .finish_non_exhaustive()
+    }
+}
+
 impl NativeStream {
     pub fn connect(publication: &str, timeout: Duration) -> Result<Self, ProtocolError> {
         if publication.is_empty() || timeout.is_zero() {
@@ -279,6 +297,12 @@ impl NativeStream {
         self.inner.shutdown();
     }
 
+    pub fn abort_handle(&self) -> Result<NativeStreamAbortHandle, ProtocolError> {
+        Ok(NativeStreamAbortHandle {
+            inner: self.inner.abort_handle()?,
+        })
+    }
+
     pub(crate) fn finish_response_until(&mut self, deadline: Instant) {
         let grace = deadline.saturating_duration_since(Instant::now());
         self.inner.finish_response(grace);
@@ -334,6 +358,8 @@ type PlatformEndpointReservationInner = unix::UnixEndpointReservation;
 type PlatformStream = unix::UnixNativeStream;
 #[cfg(unix)]
 type PlatformPeerGuard = unix::UnixPeerGuard;
+#[cfg(unix)]
+type PlatformAbortHandle = unix::UnixAbortHandle;
 
 #[cfg(windows)]
 type PlatformEndpointInner = windows::WindowsEndpoint;
@@ -343,6 +369,8 @@ type PlatformEndpointReservationInner = windows::WindowsEndpointReservation;
 type PlatformStream = windows::WindowsNativeStream;
 #[cfg(windows)]
 type PlatformPeerGuard = windows::WindowsPeerGuard;
+#[cfg(windows)]
+type PlatformAbortHandle = windows::WindowsAbortHandle;
 
 impl PlatformEndpoint {
     pub fn current_os_context() -> Result<BrokerOsContext, ProtocolError> {
