@@ -179,6 +179,13 @@ integration. Extension Slice 5 and packaging/lifecycle Slice 6 have not started.
 Authoritative PDF source-to-box
 intervals are tracked as the separate third Phase 8 unit below.
 
+Post-integration branch hygiene was conservative and evidence-based: 38 local,
+49 origin, and 50 unique branch names became 35/35/35 after deleting the
+integrated Slice 4 branch, true-ancestor Phase 7/remediation refs, and twelve
+true-ancestor remote historical refs. No open PR existed. Every remaining
+non-`main` branch remains REVIEW/UNKNOWN pending separate patch-equivalence or
+unique-work analysis; no tag or release was changed.
+
 Phase 8 second-unit status:
 **shared provider orchestration integrated; branch CI green; external
 acceptance open**. CLI, HTTP/hosted, and worker roundtrip now delegate attempts
