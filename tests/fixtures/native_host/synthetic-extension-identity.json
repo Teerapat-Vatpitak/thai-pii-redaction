@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "classification": "synthetic_test_only",
+  "extension_id": "efocdbdljgaaiflfleofbjpenncenhee",
+  "origin": "chrome-extension://efocdbdljgaaiflfleofbjpenncenhee/",
+  "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwihhgD23JcrRrEi9ih+MVSvyvfU6FgWG2zBftLenS+H5eZIN1mOelQgnsxNylso0MvGALtyn9Uvkpt1gL7im5aTtY1KFMplN4Qj/YRhXUzVfDHIWM4NHbhwEW9EMmJtKN6089svm2w7MPu6aXs+WI4Hvu8ruOBsLaruMSxPAn8Y6o61wvqbWD/eTZNG61FHYdVAM+MxH6pEninaIEnfOra0iTv26hO6K+pFqWACxEZHjXPBpIly2sm9UlX50VpaiYyPcwfSD6mlw0VLx+Xr/2t9tWsdsid1AzvrAYDXOpsZMBHR05U6LCbQXiPnAr61qE/u+SDEWOzvtkuqSYImrjwIDAQAB",
+  "provenance": "Public-only deterministic repository fixture for tests and synthetic package acceptance; not a production or Chrome Web Store identity."
+}

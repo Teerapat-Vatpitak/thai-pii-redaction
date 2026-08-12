@@ -1,7 +1,9 @@
 # Native broker protocol v1
 
-- Status: normative Slice 1 contract; runtime Slices 2--3 integrated; Slice 4
-  installed-product profile implemented in source and pending exact-head gates
+- Status: normative Slice 1 contract; runtime Slices 2--4 integrated; Slice 5
+  Extension/native-host implementation has its owner-approved production
+  identity and installed-companion evidence, with final exact-head gates before
+  integration
 - Protocol version: `1`
 - Product version: independent (`VERSION` remains `2.5.0`)
 - HTTP contract: independent (HTTP v2 remains unchanged)
@@ -125,10 +127,33 @@ switch. Post-hello stream decoders may accumulate partial input and may return
 multiple complete frames in order.
 
 This is the broker framing used over the Slice 2 named-pipe/UDS stream. Chrome
-Native Messaging keeps its platform-defined outer stdio framing; the future
-adapter validates that message and creates a broker frame rather than tunneling
-an untrusted length prefix. Slice 1 itself opens neither transport, and Native
-Messaging remains future Slice 5 work.
+Native Messaging keeps its platform-defined native-endian stdio framing. The
+Slice 5 adapter validates that outer frame and creates a new broker request;
+it never tunnels an untrusted Chrome length prefix. Slice 1 itself still opens
+neither transport.
+
+### Chrome Native Messaging adapter
+
+The registered host is `th.ac.psu.aiguard.native_host`. It accepts one exact
+build-specific `chrome-extension://<id>/` origin and no wildcard. Before
+processing PII-bearing input it validates Chrome's supplied origin argument,
+a stable same-user browser parent/process context, its own installed
+path/build/digest, and broker admission as role `extension`.
+
+The outer request and response cap is 1,048,576 bytes. Zero, partial, invalid,
+or oversized frames; invalid UTF-8; duplicate or unknown JSON fields;
+unsupported operations; and incompatible versions fail closed. Stdout is
+reserved exclusively for Native Messaging frames. Diagnostics use only fixed
+structural event codes and bounded counts/durations on stderr; no request ID,
+scope/session handle, text, origin, path, credential, or exception message is
+logged.
+
+The Extension subset is `broker_health`, `scope_open`, `scope_close`,
+`sanitize`, and `reidentify`. Scope kind is only `extension_tab` or
+`extension_panel`. PDF/document bytes, provider operations, remote TNER,
+audit, maintenance, mapping values, backend identity/address/credentials, and
+arbitrary broker operations cannot enter this adapter path. Only PII-free
+connect/hello/health may be retried; a PII-bearing operation is never replayed.
 
 ## Mandatory hello
 

@@ -1,162 +1,114 @@
-# AI Guard — Chrome Web Store Listing Copy
+# AI Guard — Chrome Web Store listing copy
 
-## Single purpose statement
+> Candidate status (2026-08-12): owner-approved unpublished Item ID
+> `kdjmkknedgmfphpkjhjdhmjadaelgggm` is bound to the Native Messaging
+> production path. The item remains Draft/unpublished. Do not submit, publish,
+> or claim Web Store installation acceptance; exact-ID browser evidence is an
+> unpacked load. The deterministic test identity remains synthetic only.
 
-AI Guard detects and masks Thai personally identifiable information (PII) in
-text before the user sends it to an external AI chat service (ChatGPT,
-Claude, Gemini, Grok, Perplexity, GLM/Z.ai), and restores the original values
-locally once the AI's reply comes back. The extension calls a backend on the
-user's machine. Detection is local by default; explicitly selected remote TNER
-sends raw pre-mask chunks from that backend to AI for Thai.
+## Single purpose
 
-The current source candidate is not accepted as a fail-closed production store
-package. Its backend source now rejects structured FP, text-based TB,
-detector-independent contiguous 6+ digit residuals, and missing replacement
-records. Strict HTTP v2 removes mapping-bearing fields and first-party clients
-reject malformed, unknown, or unsafe responses. Direct fixed-port localhost
-operation still does not authenticate server identity. The published 2.5.0/v1
-backend and historical store/browser evidence predate all of these source
-changes. Current source already contains the shared native broker and Desktop
-client; the Extension's Slice 5 Chrome Native Messaging host/adapter,
-registration, and lifecycle
-migration to that broker, plus fresh package/browser acceptance, must land
-before this copy is used for a new package.
+AI Guard detects and masks Thai personally identifiable information before
+the user sends text to an external AI chat service, and restores the original
+values locally from the reply. The installed Extension uses the local
+`thainer` detector through the registered companion and shared broker. It has
+no remote TNER, provider selection, credential-requiring provider, or
+localhost fallback.
 
-In-page Mask acts only after raw text has been entered into the AI site's
-provider-controlled DOM, whose code can observe or transmit the draft. For the
-stronger isolation boundary, users must enter raw text in the extension side
-panel and paste only the reviewed masked result into the site.
+In-page Mask starts after raw text has entered provider-controlled page DOM.
+Page code may observe or transmit the draft before replacement. Side-panel
+entry is the stronger raw-entry boundary.
 
 ## Category
 
-Productivity → Tools (closest match in the Chrome Web Store's current
-category list; use whichever equivalent "Tools" / "Developer Tools" bucket
-CWS presents at submission time if the exact label has changed).
+Productivity → Tools (confirm the current equivalent during an owner-approved
+submission).
 
-## Listing copy
+## ภาษาไทย
 
-### ภาษาไทย
-
-**ชื่อ (title)**
+**ชื่อ**
 
 AI Guard — ปกปิดข้อมูลส่วนบุคคลก่อนส่งให้ AI
 
-**คำอธิบายสั้น (short description, ≤132 ตัวอักษร)**
+**คำอธิบายสั้น**
 
-ปกปิด PII ไทยก่อนส่งแชท AI; side panel แยกข้อความดิบได้ดีกว่า Detector ในเครื่องเป็น default; remote TNER ต้องเลือกเอง
+ปกปิด PII ไทยในเครื่องก่อนส่งแชท AI; side panel ช่วยแยกข้อความดิบ และไม่มี localhost fallback
 
-**คำอธิบายแบบละเอียด (detailed description)**
+**คำอธิบายแบบละเอียด**
 
-AI Guard เป็น extension ที่ช่วยตรวจและปกปิด (mask) ข้อมูลส่วนบุคคลของคนไทยก่อนที่คุณจะส่งข้อความไปให้ AI แชทภายนอกอย่าง ChatGPT, Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai จากนั้นเมื่อ AI ตอบกลับมา extension จะคืนค่าข้อมูลจริงในเครื่อง Detector ปกติทำงานใน backend บนเครื่อง; หากผู้ใช้เลือก remote TNER อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai
+AI Guard ช่วยตรวจและปกปิดข้อมูลส่วนบุคคลของคนไทยก่อนส่งข้อความให้ ChatGPT,
+Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai และคืนค่าข้อมูลจริงจากคำตอบใน
+เครื่องของผู้ใช้
 
-Backend source ปัจจุบันปิดกั้น structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักที่ detector ไม่พบ และ missing replacement record แล้ว พร้อมใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง field ที่เกี่ยวกับ mapping และ client ปิดกั้น response ที่ malformed, unknown หรือ unsafe แต่ source นี้ยังไม่ใช่ production package ที่ผ่าน acceptance เพราะ client ยังไม่ยืนยันตัวตน process ที่ครอบครอง localhost port Source ปัจจุบันมี shared native broker และ Desktop client แล้ว; งานที่ยังเปิดคือการย้าย Extension ใน Slice 5 ผ่าน Chrome Native Messaging host/adapter พร้อมการลงทะเบียนและ lifecycle ไปยัง broker นั้น และการทดสอบ package/browser ใหม่
+Extension ใช้ Chrome Native Messaging ไปยัง Desktop companion ที่ลงทะเบียน
+ไว้ จากนั้น shared broker จะเรียก private backend และ detector `thainer`
+Desktop GUI ไม่ต้องเปิดอยู่ ไม่มี remote TNER, provider ที่ต้องใช้ credential,
+analytics, tracking, localhost permission หรือ HTTP fallback Canonical mapping
+อยู่ในหน่วยความจำของ backend และไม่ถูกส่งให้ Extension JavaScript
 
-การกด Mask ในหน้าเว็บเริ่มหลังจากข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว โค้ดเว็บอาจเห็นหรือส่ง draft ก่อน extension แทนที่ หากต้องการขอบเขตที่เข้มกว่า ต้องพิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ
+แต่การกด Mask ในหน้าเว็บเริ่มหลังข้อความดิบอยู่ใน DOM ที่เว็บ AI ควบคุมแล้ว
+หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ใน side panel แล้ววางเฉพาะผล masked ที่
+ตรวจแล้วลงเว็บ
 
-วิธีใช้งาน:
-1. ติดตั้ง extension แล้วรัน backend ของ AI Guard บนเครื่องคุณ (ดูวิธีที่ README ของโปรเจกต์)
-2. พิมพ์ข้อความในหน้าเว็บแชท AI ที่รองรับ แล้วกดปุ่ม "Mask PII" บนแถบลอย (หรือใช้ side panel เพื่อวางข้อความเอง)
-3. ส่งข้อความที่ปกปิดแล้วให้ AI ตามปกติ
-4. เมื่อ AI ตอบกลับ กดปุ่ม "Restore PII" เพื่อคืนค่าข้อมูลจริงกลับมา — ทำในเครื่องคุณเท่านั้น
+วิธีใช้:
 
-จุดเด่นด้านความเป็นส่วนตัว:
-- detector ปกติ, masking, restoration และ canonical vault อยู่ใน backend บนเครื่อง; remote TNER เป็นตัวเลือกที่ส่ง raw chunk ไป AI for Thai
-- ไม่มี analytics หรือ tracking
-- canonical mapping อยู่ในหน่วยความจำและไม่จงใจเขียนลงดิสก์; source HTTP v2 ไม่ส่ง explicit mapping DTO แต่ package 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อนการแก้นี้
-- รองรับ 2 โหมด: token (เช่น `[ชื่อ_<generation-tag>_<token-nonce>_1]`) หรือ surrogate (ข้อมูลปลอมที่สมจริง อ่านลื่นไหลสำหรับ AI)
+1. ติดตั้ง Extension และ Desktop companion ที่ตรงกัน
+2. กด Mask บนเว็บที่รองรับ หรือใช้ side panel
+3. ตรวจและส่ง masked text ด้วยปุ่ม Send ของเว็บ
+4. กด Restore เพื่อคืนค่าใน scope เดิมบนเครื่อง
 
-AI Guard เป็นโปรเจกต์ open source ภายใต้สัญญาอนุญาต Apache-2.0 ตรวจสอบซอร์สโค้ดทั้งหมดได้ที่ GitHub
-
-ดูนโยบายความเป็นส่วนตัวฉบับเต็มได้ที่: `docs/store/privacy-policy.md`
-
-### English
+## English
 
 **Title**
 
 AI Guard — Thai PII Protection for AI Chats
 
-**Short description (≤132 chars)**
+**Short description**
 
-Masks Thai PII before AI chats; side-panel entry gives stronger isolation. Default detection is local; remote TNER is opt-in.
+Masks Thai PII locally before AI chats; side-panel entry isolates raw text, with no localhost fallback.
 
 **Detailed description**
 
-AI Guard is a browser extension that masks Thai personally identifiable
-information (PII) — names, national ID numbers, phone numbers, emails,
-addresses, dates of birth, bank account numbers — before you send text to an
-external AI chat service such as ChatGPT, Claude, Gemini, Grok, Perplexity,
-or GLM/Z.ai. When the AI replies, AI Guard restores the real values back into
-the reply for you. The default detector runs in the local backend. If the user
-explicitly selects remote TNER, the backend sends raw pre-mask chunks to AI for
-Thai.
+AI Guard detects and masks Thai PII before text is sent to ChatGPT, Claude,
+Gemini, Grok, Perplexity, or GLM/Z.ai, then restores the original values
+locally from the reply.
 
-The current source build is not yet an accepted fail-closed production package.
-It rejects structured FP, text-based TB, detector-independent contiguous 6+
-digit residuals, and missing replacement records. Strict HTTP v2 removes
-mapping-bearing fields, and first-party clients reject malformed, unknown, or
-unsafe responses. Fixed-port clients still do not authenticate the localhost
-process. The published 2.5.0/v1 backend and historical store/browser evidence
-predate these source changes. Current source already contains the shared native
-broker and Desktop client; the open work is the Extension's Slice 5 Chrome
-Native Messaging host/adapter, registration, and lifecycle migration to that
-broker, followed by fresh package/browser acceptance.
+The Extension uses Chrome Native Messaging to a registered Desktop companion.
+The shared broker calls a private backend with the local `thainer` detector;
+the Desktop GUI need not be running. There is no remote TNER, credential-
+requiring provider, analytics, tracking, localhost permission, or HTTP
+fallback. The canonical mapping remains in backend memory and is never sent to
+Extension JavaScript.
 
-In-page Mask acts after raw text is already in the AI site's
-provider-controlled DOM, whose code can observe or transmit the draft. For the
-stronger boundary, enter raw text in the side panel and paste only the reviewed
-masked result into the site.
+In-page Mask starts after raw text is already in provider-controlled page DOM.
+For stronger raw-entry isolation, type in the side panel and paste only the
+reviewed masked result into the site.
 
 How it works:
-1. Install the extension and run the AI Guard backend on your own machine
-   (see the project README).
-2. Type your message on a supported AI chat site and click "Mask PII" on the
-   floating bar (or use the side panel to paste text manually).
-3. Send the masked text to the AI as usual.
-4. When the AI replies, click "Restore PII" to restore the real values —
-   done entirely on your device.
 
-Privacy highlights:
-- Default detection, masking, restoration, and the canonical vault run in the
-  local backend; remote TNER is an explicit option that sends raw chunks to AI
-  for Thai.
-- No analytics or tracking.
-- The canonical real-data ↔ placeholder mapping lives in memory and is not
-  deliberately written to disk. Current source v2 sends no explicit mapping
-  DTO; the published 2.5.0/v1 artifact predates that repair.
-- Two modes: token (e.g. `[Name_<generation-tag>_<token-nonce>_1]`) or
-  surrogate (realistic fake data that reads naturally to the AI).
+1. Install the matching Extension and Desktop companion.
+2. Mask on a supported site or in the side panel.
+3. Review and submit the masked text using the site's Send control.
+4. Restore locally within the same tab or panel scope.
 
-AI Guard is an open-source project under the Apache-2.0 license. The full
-source code is available on GitHub.
+## Submission checklist
 
-Full privacy policy: `docs/store/privacy-policy.md`
+- [x] Record the owner-approved unpublished Item ID and public manifest key in
+      `config/chrome-extension-identity.json`.
+- [x] Build with classification `production_owner_approved`; synthetic builds
+      are test-only and must be rejected.
+- [x] Verify the native-host manifest contains exactly
+      `chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/`.
+- [x] Run exact-ID unpacked real-Chromium plus installed-companion acceptance.
+- [ ] Run installed-Web-Store acceptance only if a supported unpublished-item
+      mechanism exists or the owner separately authorizes review/submission.
+- [x] Capture only synthetic PII in screenshots and evidence.
+- [ ] Reconfirm category labels and listing length limits at submission time.
 
-## Screenshot checklist
-
-Chrome Web Store requires at least 1 screenshot at 1280x800 (or 640x400);
-recommend preparing 3-5 at 1280x800:
-
-- [ ] Floating Mask/Restore bar visible on ChatGPT, with a masked message in
-      the composer (blur/replace any real personal data used in the demo
-      text with placeholder text before capturing).
-- [ ] Same bar on Claude.ai, showing the "Restore PII" overlay after a reply.
-- [ ] Side panel open, showing the mode toggle (token/surrogate), a masked
-      text result with highlighted chips, and the Copy button.
-- [ ] Before/after comparison: original text with PII vs. masked text
-      (can be a single composed image).
-- [ ] Side panel showing the backend status indicator (green "พร้อมใช้งาน").
-
-Promo tile (440x280) — optional, checklist only, no image produced by this
-task:
-- [ ] 440x280 promo tile with the AI Guard logo/name and a one-line tagline,
-      matching the short description above.
-
-## Store fields quick reference
+## Store fields
 
 | Field | Value |
 |---|---|
-| Category | Productivity → Tools |
-| Privacy policy URL | `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md` |
-| Support/contact | `https://github.com/Teerapat-Vatpitak` |
-| Single purpose | See statement at the top of this file |
-| Host permission justification | `docs/store/permissions-justification.md` |
+| Privacy policy | `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md` |
+| Support | `https://github.com/Teerapat-Vatpitak` |
+| Permission justification | `docs/store/permissions-justification.md` |

@@ -29,6 +29,7 @@ SMOKE_FAILURE = "desktop-smoke-failure"
 SMOKE_NATIVE_START = "desktop-smoke-native-start"
 APPIMAGE_EXTRACTED_PREFIX = "appimage_extracted_"
 APPIMAGE_EXTRACTED_NAME = re.compile(r"appimage_extracted_[0-9a-f]{32}\Z")
+PRODUCT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 EXPECTED_SMOKE_METRICS = frozenset(
     {
         "health_connect_ms",
@@ -46,7 +47,17 @@ EXPECTED_SMOKE_METRICS = frozenset(
 )
 EXPECTED_FAILURE_STAGES = frozenset(
     {
+        "app_build",
+        "app_exit",
         "app_ready",
+        "app_runtime",
+        "appimage_desktop",
+        "appimage_environment",
+        "appimage_executable",
+        "appimage_exec",
+        "appimage_manifest",
+        "appimage_repair",
+        "appimage_root",
         "health",
         "ready_signal",
         "analyze",
@@ -61,6 +72,7 @@ EXPECTED_FAILURE_STAGES = frozenset(
         "finish",
         "bootstrap_import",
         "bootstrap_eval",
+        "webview_process",
     }
 )
 EXPECTED_RESOURCE_METRICS = frozenset(
@@ -80,6 +92,7 @@ class AppImageAttestation:
         "layout",
         "manifest_digest",
         "package",
+        "product_version",
     )
 
     def __init__(
@@ -93,6 +106,7 @@ class AppImageAttestation:
         apprun_digest: str,
         manifest_digest: str,
         component_digests: dict[str, str],
+        product_version: str,
     ) -> None:
         self.candidate = candidate
         self.candidate_digest = candidate_digest
@@ -102,6 +116,7 @@ class AppImageAttestation:
         self.apprun_digest = apprun_digest
         self.manifest_digest = manifest_digest
         self.component_digests = component_digests
+        self.product_version = product_version
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -170,6 +185,24 @@ def _fixed_failure_stage(path: Path) -> str | None:
     return stage if stage in EXPECTED_FAILURE_STAGES else None
 
 
+def _raise_for_smoke_failure(path: Path) -> None:
+    failure_stage = _fixed_failure_stage(path)
+    if failure_stage is not None:
+        raise RuntimeError(f"packaged Desktop smoke failed at fixed stage: {failure_stage}")
+    if _path_exists(path):
+        raise RuntimeError("packaged Desktop smoke failure evidence invalid")
+
+
+def _missing_smoke_evidence_error(returncode: int) -> str:
+    if returncode == 0:
+        return "packaged Desktop smoke evidence unavailable"
+    if returncode == 75:
+        return "packaged Desktop smoke bootstrap rejected"
+    if returncode < 0:
+        return "packaged Desktop smoke process terminated"
+    return "packaged Desktop smoke process failed"
+
+
 def _component(package: Path, entry: dict[str, object]) -> Path:
     relative = entry.get("path")
     digest = entry.get("sha256")
@@ -231,14 +264,45 @@ def _manifest_components(package: Path) -> tuple[dict[str, Path], str]:
         raise RuntimeError("package component verification failed")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        clients = manifest["clients"]
+        if not isinstance(clients, list) or not clients:
+            raise TypeError
+        verified_clients: dict[str, Path] = {}
+        for client in clients:
+            role = client["role"]
+            if role not in {"desktop", "extension", "maintenance"} or role in verified_clients:
+                raise TypeError
+            verified_clients[role] = _component(package, client)
+        if "desktop" not in verified_clients:
+            raise TypeError
+        if "native_host" in manifest and set(verified_clients) != {
+            "desktop",
+            "extension",
+            "maintenance",
+        }:
+            raise TypeError
         paths = {
-            "desktop": _component(package, manifest["clients"][0]),
+            "desktop": verified_clients["desktop"],
             "broker": _component(package, manifest["broker"]),
             "backend": _component(package, manifest["backend"]),
         }
     except (IndexError, KeyError, OSError, TypeError, json.JSONDecodeError):
         raise RuntimeError("package component verification failed") from None
     return paths, _digest(manifest_path)
+
+
+def _manifest_product_version(package: Path, expected_digest: str) -> str:
+    manifest_path = package / "native-components-v1.json"
+    try:
+        if _is_link_or_reparse(manifest_path) or _digest(manifest_path) != expected_digest:
+            raise ValueError
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        product_version = manifest["product_version"]
+        if not isinstance(product_version, str) or not PRODUCT_VERSION.fullmatch(product_version):
+            raise ValueError
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        raise RuntimeError("package component verification failed") from None
+    return product_version
 
 
 def _attest_appimage_inputs(
@@ -256,6 +320,7 @@ def _attest_appimage_inputs(
         ):
             raise ValueError
         component_paths, manifest_digest = _manifest_components(package)
+        product_version = _manifest_product_version(package, manifest_digest)
         for marker in (SMOKE_EVIDENCE, SMOKE_READY, SMOKE_FAILURE, SMOKE_NATIVE_START):
             if _path_exists(package / marker):
                 raise ValueError
@@ -270,6 +335,7 @@ def _attest_appimage_inputs(
         apprun_digest=_digest(apprun),
         manifest_digest=manifest_digest,
         component_digests={name: _digest(path) for name, path in component_paths.items()},
+        product_version=product_version,
     )
 
 
@@ -292,6 +358,8 @@ def _verified_live_appimage(
         if (
             live_layout != layout
             or manifest_digest != attestation.manifest_digest
+            or _manifest_product_version(live_package, manifest_digest)
+            != attestation.product_version
             or _digest(live_apprun) != attestation.apprun_digest
             or {name: _digest(path) for name, path in component_paths.items()}
             != attestation.component_digests
@@ -300,6 +368,40 @@ def _verified_live_appimage(
     except (OSError, RuntimeError, ValueError):
         raise RuntimeError("live AppImage verification failed") from None
     return component_paths, live_layout
+
+
+def _verified_stable_appimage(
+    data_root: Path,
+    attestation: AppImageAttestation,
+) -> dict[str, Path]:
+    try:
+        data_root = data_root.absolute()
+        if (
+            _is_link_or_reparse(data_root)
+            or not data_root.is_dir()
+            or data_root.resolve(strict=True) != data_root
+        ):
+            raise ValueError
+        stable_package = data_root / "aiguard" / "native-host-v1" / attestation.product_version
+        current = data_root
+        for part in stable_package.relative_to(data_root).parts:
+            current = current / part
+            if _is_link_or_reparse(current) or not current.is_dir():
+                raise ValueError
+        if stable_package.resolve(strict=True) != stable_package:
+            raise ValueError
+        component_paths, manifest_digest = _manifest_components(stable_package)
+        if (
+            manifest_digest != attestation.manifest_digest
+            or _manifest_product_version(stable_package, manifest_digest)
+            != attestation.product_version
+            or {name: _digest(path) for name, path in component_paths.items()}
+            != attestation.component_digests
+        ):
+            raise ValueError
+    except (OSError, RuntimeError, ValueError):
+        raise RuntimeError("stable AppImage verification failed") from None
+    return component_paths
 
 
 def _linux_executable_path(pid: int) -> str | None:
@@ -552,6 +654,7 @@ def _run_started_process(
         ready_ms: float | None = None
         deadline = started + timeout
         while process.poll() is None:
+            _raise_for_smoke_failure(failure_path)
             if sample_failures:
                 raise RuntimeError("resource sampling unavailable") from None
             if ready_ms is None and _fixed_marker(ready_path, b"ready"):
@@ -566,12 +669,10 @@ def _run_started_process(
             raise RuntimeError("resource sampling unavailable") from None
         if ready_ms is None and _fixed_marker(ready_path, b"ready"):
             ready_ms = elapsed * 1000.0
-        failure_stage = _fixed_failure_stage(failure_path)
+        _raise_for_smoke_failure(failure_path)
         encoded_evidence = _read_regular_marker(evidence_path, 4096)
         if process.returncode != 0 or encoded_evidence is None:
-            if failure_stage is not None:
-                raise RuntimeError(f"packaged Desktop smoke failed at fixed stage: {failure_stage}")
-            raise RuntimeError("packaged Desktop smoke evidence unavailable")
+            raise RuntimeError(_missing_smoke_evidence_error(process.returncode))
         try:
             evidence = json.loads(encoded_evidence.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError):
@@ -600,11 +701,12 @@ def _run_started_process(
 def _run_desktop(
     desktop: Path,
     package: Path,
+    marker_root: Path,
     environment: dict[str, str],
     component_paths: dict[str, Path],
     timeout: float,
 ) -> tuple[float, dict[str, float], dict[str, float]]:
-    _clear_markers(package)
+    _clear_markers(marker_root)
     process = subprocess.Popen(
         [str(desktop)],
         cwd=package,
@@ -615,7 +717,7 @@ def _run_desktop(
     )
     return _run_started_process(
         process,
-        package,
+        marker_root,
         component_paths,
         timeout,
         started=time.monotonic(),
@@ -662,7 +764,42 @@ def _acceptance_environment() -> dict[str, str]:
             "PYTHONUTF8": "1",
         }
     )
+    # Xvfb has neither a compositor nor a DMA-BUF renderer.
+    if sys.platform.startswith("linux"):
+        environment["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+        environment["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
     return environment
+
+
+def _private_package_smoke_root() -> tuple[Path, tuple[int, int]]:
+    try:
+        root = Path(tempfile.mkdtemp(prefix="aiguard-package-smoke-")).resolve(strict=True)
+        os.chmod(root, 0o700)
+        metadata = root.lstat()
+        if _is_link_or_reparse(root) or not stat.S_ISDIR(metadata.st_mode):
+            raise OSError
+        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise OSError
+    except OSError:
+        raise RuntimeError("packaged Desktop smoke isolation unavailable") from None
+    return root, (metadata.st_dev, metadata.st_ino)
+
+
+def _cleanup_private_package_smoke_root(root: Path, identity: tuple[int, int]) -> None:
+    try:
+        metadata = root.lstat()
+        if (
+            _is_link_or_reparse(root)
+            or not stat.S_ISDIR(metadata.st_mode)
+            or (metadata.st_dev, metadata.st_ino) != identity
+            or root.resolve(strict=True) != root
+        ):
+            raise OSError
+        shutil.rmtree(root)
+        if root.exists():
+            raise OSError
+    except OSError:
+        raise RuntimeError("packaged Desktop smoke isolation cleanup failed") from None
 
 
 def _private_appimage_root() -> tuple[Path, tuple[int, int], dict[str, Path]]:
@@ -722,6 +859,10 @@ def _appimage_environment(
             "XDG_STATE_HOME": str(directories["state"]),
         }
     )
+    # Xvfb has neither a compositor nor a DMA-BUF renderer.
+    if sys.platform.startswith("linux"):
+        environment["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+        environment["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
     if layout is None or candidate is None:
         environment["NO_CLEANUP"] = "1"
     else:
@@ -767,18 +908,25 @@ def _stop_process_groups(processes: list[subprocess.Popen]) -> None:
 
 def _wait_for_live_appimage(
     layout: Path,
+    data_root: Path,
     marker_root: Path,
     attestation: AppImageAttestation,
     process: subprocess.Popen,
     deadline: float,
 ) -> dict[str, Path]:
     marker = marker_root / SMOKE_NATIVE_START
+    failure_marker = marker_root / SMOKE_FAILURE
     while True:
+        failure_stage = _fixed_failure_stage(failure_marker)
+        if failure_stage is not None:
+            raise RuntimeError(f"packaged Desktop smoke failed at fixed stage: {failure_stage}")
+        if _path_exists(failure_marker):
+            raise RuntimeError("AppImage bootstrap failure evidence invalid")
         if _fixed_marker(marker, b"started"):
-            component_paths, verified_layout = _verified_live_appimage(layout, attestation)
+            _component_paths, verified_layout = _verified_live_appimage(layout, attestation)
             if verified_layout != layout:
                 raise RuntimeError("live AppImage verification failed")
-            return component_paths
+            return _verified_stable_appimage(data_root, attestation)
         try:
             marker.lstat()
         except FileNotFoundError:
@@ -788,6 +936,11 @@ def _wait_for_live_appimage(
         else:
             raise RuntimeError("AppImage native start evidence invalid")
         if process.poll() is not None:
+            failure_stage = _fixed_failure_stage(failure_marker)
+            if failure_stage is not None:
+                raise RuntimeError(f"packaged Desktop smoke failed at fixed stage: {failure_stage}")
+            if _path_exists(failure_marker):
+                raise RuntimeError("AppImage bootstrap failure evidence invalid")
             raise RuntimeError("AppImage native start evidence unavailable")
         if time.monotonic() >= deadline:
             raise RuntimeError("packaged Desktop smoke timed out")
@@ -911,6 +1064,7 @@ def _run_appimage_smoke(
         processes.append(process)
         live_paths = _wait_for_live_appimage(
             live_layout,
+            directories["data"],
             marker_root,
             attestation,
             process,
@@ -928,8 +1082,9 @@ def _run_appimage_smoke(
         peaks.update(run_peaks)
 
         for _ in range(1, repetitions):
-            verified_paths, verified_layout = _verified_live_appimage(live_layout, attestation)
-            if verified_paths != live_paths or verified_layout != live_layout:
+            _verified_paths, verified_layout = _verified_live_appimage(live_layout, attestation)
+            verified_stable_paths = _verified_stable_appimage(directories["data"], attestation)
+            if verified_stable_paths != live_paths or verified_layout != live_layout:
                 raise RuntimeError("live AppImage verification failed")
             try:
                 _clear_markers(marker_root)
@@ -987,8 +1142,9 @@ def _run_appimage_smoke(
             ):
                 raise RuntimeError("finalized AppImage changed during smoke")
             if live_paths is not None:
-                verified_paths, verified_layout = _verified_live_appimage(live_layout, attestation)
-                if verified_paths != live_paths or verified_layout != live_layout:
+                _verified_paths, verified_layout = _verified_live_appimage(live_layout, attestation)
+                verified_stable_paths = _verified_stable_appimage(directories["data"], attestation)
+                if verified_stable_paths != live_paths or verified_layout != live_layout:
                     raise RuntimeError("live AppImage verification failed")
         except OSError:
             cleanup_error = RuntimeError("AppImage smoke verification unavailable")
@@ -1037,7 +1193,9 @@ def smoke(
     backend = component_paths["backend"]
     baseline_broker = _process_count(broker)
     baseline_backend = _process_count(backend)
+    marker_root, marker_identity = _private_package_smoke_root()
     environment = _acceptance_environment()
+    environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] = str(marker_root)
     runs = []
     peaks: dict[str, float] = {}
     try:
@@ -1045,6 +1203,7 @@ def smoke(
             elapsed_ms, evidence, run_peaks = _run_desktop(
                 desktop,
                 package,
+                marker_root,
                 environment,
                 component_paths,
                 timeout,
@@ -1053,12 +1212,22 @@ def smoke(
             for name, value in run_peaks.items():
                 peaks[name] = max(peaks.get(name, 0.0), value)
     finally:
-        broker_count, backend_count = _wait_for_native_baseline(
-            broker,
-            backend,
-            baseline_broker=baseline_broker,
-            baseline_backend=baseline_backend,
-        )
+        cleanup_error: Exception | None = None
+        try:
+            broker_count, backend_count = _wait_for_native_baseline(
+                broker,
+                backend,
+                baseline_broker=baseline_broker,
+                baseline_backend=baseline_backend,
+            )
+        except (OSError, RuntimeError) as error:
+            cleanup_error = error
+        try:
+            _cleanup_private_package_smoke_root(marker_root, marker_identity)
+        except RuntimeError as error:
+            cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise cleanup_error
     return _smoke_result(
         runs,
         peaks,

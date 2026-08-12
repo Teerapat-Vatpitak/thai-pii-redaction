@@ -167,6 +167,8 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           touch "desktop/src-tauri/binaries/aiguard-$triple"
           touch "desktop/src-tauri/binaries/aiguard-native-broker-$triple"
+          touch "desktop/src-tauri/binaries/aiguard-chrome-native-host-$triple"
+          touch "desktop/src-tauri/binaries/aiguard-native-host-manager-$triple"
           # Build-only invalid manifests satisfy Tauri resource discovery and
           # cannot authorize a runtime. Package jobs generate real manifests.
           for manifest in \
@@ -245,6 +247,8 @@ jobs:
           mkdir -p desktop/src-tauri/binaries
           touch "desktop/src-tauri/binaries/aiguard-$triple$suffix"
           touch "desktop/src-tauri/binaries/aiguard-native-broker-$triple$suffix"
+          touch "desktop/src-tauri/binaries/aiguard-chrome-native-host-$triple$suffix"
+          touch "desktop/src-tauri/binaries/aiguard-native-host-manager-$triple$suffix"
           # Tauri validates resource existence during Cargo builds. These
           # build-only invalid manifests cannot authorize a runtime; ordinary
           # package jobs replace them with final-byte manifests before bundling.
@@ -451,6 +455,8 @@ jobs:
     # A machine with an already trusted certificate runs that leg too.
     name: packaged backend + installed Desktop smoke (windows)
     runs-on: windows-latest
+    env:
+      AIGUARD_EXTENSION_IDENTITY: ${{ github.workspace }}/config/chrome-extension-identity.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -537,6 +543,7 @@ jobs:
             throw "installed native-component manifest is missing"
           }
           "AIGUARD_DESKTOP_INSTALL_ROOT=$installRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AIGUARD_NATIVE_HOST_ADAPTER=$(Join-Path $installRoot 'aiguard-chrome-native-host.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
           $artifactRoot = "artifacts/desktop-native-nsis"
           New-Item -ItemType Directory -Path $artifactRoot | Out-Null
@@ -545,6 +552,15 @@ jobs:
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installers[0].FullName).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactInstaller).Hash) {
             throw "copied NSIS artifact digest mismatch"
           }
+
+          $registration = python scripts/verify_native_host_registration.py `
+            --shape nsis --state present `
+            --adapter "$installRoot\aiguard-chrome-native-host.exe" `
+            --identity "$env:AIGUARD_EXTENSION_IDENTITY"
+          if ($LASTEXITCODE -ne 0) {
+            throw "installed native-host registration verification failed"
+          }
+          $registration | Set-Content -LiteralPath "$artifactRoot/registration-present.json" -Encoding utf8
 
       - name: Run the authenticated smoke from the installed root
         shell: pwsh
@@ -558,6 +574,26 @@ jobs:
           $evidence | Set-Content -LiteralPath "artifacts/desktop-native-nsis/smoke-evidence.json" -Encoding utf8
           Write-Output $evidence
 
+      - name: Uninstall and verify product-owned native-host registration removal
+        shell: pwsh
+        run: |
+          $uninstallers = @(Get-ChildItem -LiteralPath $env:AIGUARD_DESKTOP_INSTALL_ROOT -Filter "uninstall*.exe" -File)
+          if ($uninstallers.Count -ne 1) {
+            throw "expected exactly one Desktop uninstaller, found $($uninstallers.Count)"
+          }
+          $uninstaller = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList @("/S") -Wait -PassThru
+          if ($uninstaller.ExitCode -ne 0) {
+            throw "NSIS uninstaller failed with exit code $($uninstaller.ExitCode)"
+          }
+          $registration = python scripts/verify_native_host_registration.py `
+            --shape nsis --state absent `
+            --adapter "$env:AIGUARD_NATIVE_HOST_ADAPTER" `
+            --identity "$env:AIGUARD_EXTENSION_IDENTITY"
+          if ($LASTEXITCODE -ne 0) {
+            throw "native-host registration removal verification failed"
+          }
+          $registration | Set-Content -LiteralPath "artifacts/desktop-native-nsis/registration-absent.json" -Encoding utf8
+
       - name: Upload the exact tested NSIS candidate and value-free evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -565,6 +601,8 @@ jobs:
           path: |
             artifacts/desktop-native-nsis/AI-Guard-windows-x64-setup.exe
             artifacts/desktop-native-nsis/smoke-evidence.json
+            artifacts/desktop-native-nsis/registration-present.json
+            artifacts/desktop-native-nsis/registration-absent.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

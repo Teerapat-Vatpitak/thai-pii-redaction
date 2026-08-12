@@ -48,6 +48,11 @@ PORT = 8000
 # Prefer the staged Tauri sidecar (what smoke_sidecar.py uses); fall back to the
 # raw PyInstaller output so this works straight after `build_sidecar.py` too.
 STAGED_GLOB = str(ROOT / "desktop" / "src-tauri" / "binaries" / "aiguard-*")
+NATIVE_COMPONENT_PREFIXES = (
+    "aiguard-native-broker-",
+    "aiguard-chrome-native-host-",
+    "aiguard-native-host-manager-",
+)
 
 
 def find_sidecar():
@@ -55,7 +60,7 @@ def find_sidecar():
         candidate
         for candidate in glob.glob(STAGED_GLOB)
         if candidate.endswith(".exe")
-        and not Path(candidate).name.startswith("aiguard-native-broker-")
+        and not Path(candidate).name.startswith(NATIVE_COMPONENT_PREFIXES)
     )
     if len(matches) > 1:
         raise RuntimeError("multiple packaged backend sidecars found")

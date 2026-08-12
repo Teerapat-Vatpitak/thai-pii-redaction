@@ -524,6 +524,52 @@ fn authenticated_desktop_health_and_slice3_data_are_live_while_global_stop_stays
 }
 
 #[test]
+fn admitted_idle_connection_survives_the_partial_frame_deadline() {
+    let _guard = broker_test_guard();
+    let mut fixture = ManifestFixture::create("desktop");
+    let endpoint_root = test_temp_root("idle-connection");
+    let endpoint = PlatformEndpoint::create_for_test(&endpoint_root).unwrap();
+    let publication = endpoint.publication();
+    let runtime = BrokerRuntime::from_parts_for_test(
+        endpoint,
+        fixture.manifest.take().unwrap(),
+        launch_backend(),
+        "2.5.0",
+        BrokerRuntimeConfig {
+            accept_poll: Duration::from_millis(10),
+            hello_timeout: Duration::from_secs(1),
+            request_timeout: Duration::from_millis(100),
+            idle_timeout: Duration::from_millis(250),
+            drain_timeout: Duration::from_secs(1),
+        },
+    )
+    .unwrap();
+    let stop = runtime.stop_signal_for_test();
+    let server = thread::spawn(move || runtime.run().unwrap());
+
+    let mut client = connect(&publication);
+    let negotiated = hello(&mut client, "desktop", serde_json::json!([1]));
+    assert_eq!(negotiated["broker_protocol_version"], 1);
+    thread::sleep(Duration::from_millis(300));
+    let health = send(
+        &mut client,
+        serde_json::json!({
+            "broker_protocol_version": 1,
+            "operation": "broker_health",
+            "payload": {},
+            "request_id": "idle-health",
+        }),
+    );
+    assert_eq!(health["result"], serde_json::json!({"status": "ok"}));
+
+    drop(client);
+    stop.store(true, Ordering::Release);
+    assert_eq!(server.join().unwrap(), BrokerExit::Idle);
+    #[cfg(unix)]
+    std::fs::remove_dir_all(endpoint_root).unwrap();
+}
+
+#[test]
 fn transient_backend_lock_busy_keeps_the_health_connection_live() {
     let _guard = broker_test_guard();
     let mut fixture = ManifestFixture::create("desktop");

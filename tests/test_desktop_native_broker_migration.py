@@ -283,6 +283,8 @@ def test_native_components_replace_python_as_desktop_runtime_authority():
     assert config["bundle"]["externalBin"] == [
         "binaries/aiguard",
         "binaries/aiguard-native-broker",
+        "binaries/aiguard-chrome-native-host",
+        "binaries/aiguard-native-host-manager",
     ]
     cargo = (TAURI / "Cargo.toml").read_text(encoding="utf-8")
     assert 'aiguard-native-broker-protocol = { path = "../../native-broker" }' in cargo

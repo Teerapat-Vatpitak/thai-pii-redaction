@@ -17,15 +17,22 @@ Stdlib-only (no fastapi import) so this runs in the core-only CI job.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
+IDENTITY = ROOT / "tests" / "fixtures" / "native_host" / "synthetic-extension-identity.json"
+PRODUCTION_IDENTITY = ROOT / "config" / "chrome-extension-identity.json"
 
 EXTENSION_DIR = ROOT / "extension"
 LOCALES_DIR = EXTENSION_DIR / "_locales"
@@ -100,6 +107,14 @@ def test_appDesc_is_within_cws_132_char_limit_both_locales():
         )
 
 
+def test_appDesc_describes_only_the_installed_local_detector_boundary():
+    for locale in ("th", "en"):
+        desc = _load_locale(locale)["appDesc"]["message"].casefold()
+        assert "thainer" in desc
+        assert "tner" not in desc
+        assert "remote" not in desc
+
+
 # ---------------------------------------------------------------------------
 # manifest wiring
 # ---------------------------------------------------------------------------
@@ -129,6 +144,27 @@ def test_manifest_msg_placeholders_resolve_in_both_locales():
             assert key in _load_locale(locale), f"{locale} messages.json missing key {key!r}"
 
 
+def test_current_public_docs_do_not_restore_the_retired_http_extension_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    install = (ROOT / "docs" / "install-from-source.md").read_text(encoding="utf-8")
+    combined = "\n".join((readme, security, install))
+
+    assert "one registered Chrome Native Messaging port" in readme
+    assert "Extension MV3\n  service worker uses one registered Native Messaging port" in security
+    assert "does not supply an Extension endpoint" in install
+    for retired in (
+        "The Extension and Office paths still use",
+        "The extension may retain a security-sensitive opaque HTTP session ID",
+        "current source extension requires the current source HTTP-v2 backend",
+        "before starting the Extension, Office Add-in",
+        "while the separately started fixed-port backend is running",
+        "Extension and Office remain fixed-port HTTP-v2 clients",
+        '"Backend offline" in the extension',
+    ):
+        assert retired not in combined
+
+
 # ---------------------------------------------------------------------------
 # scripts/package_extension.py
 # ---------------------------------------------------------------------------
@@ -144,12 +180,27 @@ def _copy_repo_slice(tmp_path: Path) -> Path:
     shutil.copy2(
         ROOT / "scripts" / "package_extension.py", dest / "scripts" / "package_extension.py"
     )
+    shutil.copy2(
+        ROOT / "scripts" / "native_host_identity.py",
+        dest / "scripts" / "native_host_identity.py",
+    )
+    fixture_dir = dest / "tests" / "fixtures" / "native_host"
+    fixture_dir.mkdir(parents=True)
+    shutil.copy2(IDENTITY, fixture_dir / IDENTITY.name)
     return dest
 
 
 def _run_package(root: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [PY, str(root / "scripts" / "package_extension.py"), "--root", str(root)],
+        [
+            PY,
+            str(root / "scripts" / "package_extension.py"),
+            "--root",
+            str(root),
+            "--identity",
+            str(root / "tests" / "fixtures" / "native_host" / IDENTITY.name),
+            "--allow-synthetic-identity",
+        ],
         capture_output=True,
         text=True,
     )
@@ -173,14 +224,90 @@ def test_package_extension_zip_contains_manifest_and_excludes_readme(tmp_path):
     zip_path = repo / "dist" / f"aiguard-extension-{version}.zip"
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
+        packaged_manifest = json.loads(zf.read("manifest.json"))
+        text_files = b"\n".join(
+            zf.read(name) for name in names if Path(name).suffix in {".html", ".js", ".json"}
+        )
 
     assert "manifest.json" in names
     assert not any(n.upper().endswith("README.MD") for n in names)
+    assert not any(n == "tests" or n.startswith("tests/") for n in names)
     # a sanity spot-check that other real extension files made it in
     assert "background.js" in names
+    assert "theme-bootstrap.js" in names
     assert "_locales/th/messages.json" in names
     assert "_locales/en/messages.json" in names
     assert "icons/icon128.png" in names
+    identity = json.loads(IDENTITY.read_text(encoding="utf-8"))
+    assert packaged_manifest["key"] == identity["public_key"]
+    assert "key" not in _manifest()
+
+    for forbidden in (
+        b"localhost",
+        b"127.0.0.1",
+        b"fetch(",
+        b"AIGUARD_API_KEY",
+        b"AIFORTHAI_API_KEY",
+        b"TOKENMIND_API_KEY",
+        b"backend_url",
+        b"backend_port",
+        b"session_id",
+    ):
+        assert forbidden not in text_files
+
+
+def test_package_extension_builds_owner_approved_production_identity_without_override(tmp_path):
+    result = subprocess.run(
+        [
+            PY,
+            str(ROOT / "scripts" / "package_extension.py"),
+            "--root",
+            str(ROOT),
+            "--dist-dir",
+            str(tmp_path),
+            "--identity",
+            str(PRODUCTION_IDENTITY),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    zip_path = tmp_path / "aiguard-extension-2.5.0.zip"
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        manifest = json.loads(zf.read("manifest.json"))
+        packaged_text = b"\n".join(
+            zf.read(name) for name in names if Path(name).suffix in {".html", ".js", ".json"}
+        )
+
+    decoded = base64.b64decode(manifest["key"], validate=True)
+    digest = hashlib.sha256(decoded).hexdigest()[:32]
+    derived_id = "".join(chr(ord("a") + int(nibble, 16)) for nibble in digest)
+    assert derived_id == "kdjmkknedgmfphpkjhjdhmjadaelgggm"
+    assert manifest["permissions"] == [
+        "storage",
+        "clipboardWrite",
+        "sidePanel",
+        "nativeMessaging",
+    ]
+    assert "host_permissions" not in manifest
+    assert b"efocdbdljgaaiflfleofbjpenncenhee" not in packaged_text
+    assert b"localhost" not in packaged_text
+    assert b"127.0.0.1" not in packaged_text
+    assert b"fetch(" not in packaged_text
+
+
+def test_package_extension_refuses_to_create_an_identityless_storefront_artifact(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    result = subprocess.run(
+        [PY, str(repo / "scripts" / "package_extension.py"), "--root", str(repo)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "identity" in (result.stdout + result.stderr).casefold()
+    assert not (repo / "dist").exists() or not any((repo / "dist").iterdir())
 
 
 def test_package_extension_fails_on_version_mismatch(tmp_path):
@@ -193,6 +320,46 @@ def test_package_extension_fails_on_version_mismatch(tmp_path):
     result = _run_package(repo)
     assert result.returncode == 1
     assert "bump_version" in (result.stdout + result.stderr)
+    assert not (repo / "dist").exists() or not any((repo / "dist").iterdir())
+
+
+@pytest.mark.parametrize("link_kind", ["file", "directory"])
+def test_package_extension_rejects_links_before_creating_an_artifact(tmp_path, link_kind):
+    repo = _copy_repo_slice(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "synthetic-secret.txt"
+    target.write_text("synthetic-private-sentinel", encoding="utf-8")
+    link = repo / "extension" / "linked-outside"
+    try:
+        if link_kind == "directory":
+            os.symlink(outside, link, target_is_directory=True)
+        else:
+            os.symlink(target, link)
+    except OSError as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    result = _run_package(repo)
+
+    assert result.returncode == 1
+    assert "link" in (result.stdout + result.stderr).casefold()
+    assert not (repo / "dist").exists() or not any((repo / "dist").iterdir())
+
+
+def test_package_extension_rejects_hard_links_before_creating_an_artifact(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    outside = repo / "outside-synthetic-private-sentinel.txt"
+    outside.write_text("synthetic-private-sentinel", encoding="utf-8")
+    link = repo / "extension" / "linked-outside-hardlink"
+    try:
+        os.link(outside, link)
+    except OSError as error:
+        pytest.skip(f"hard links unavailable: {error}")
+
+    result = _run_package(repo)
+
+    assert result.returncode == 1
+    assert "hard link" in (result.stdout + result.stderr).casefold()
     assert not (repo / "dist").exists() or not any((repo / "dist").iterdir())
 
 

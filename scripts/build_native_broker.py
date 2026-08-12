@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and stage the native broker for Tauri's externalBin convention."""
+"""Build and stage the native broker components for Tauri externalBin."""
 
 from __future__ import annotations
 
@@ -11,6 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "native-broker" / "Cargo.toml"
+BINARIES = (
+    "aiguard-native-broker",
+    "aiguard-chrome-native-host",
+    "aiguard-native-host-manager",
+)
 
 
 def host_triple() -> str:
@@ -21,35 +26,36 @@ def host_triple() -> str:
     raise RuntimeError("could not determine the Rust host triple")
 
 
-def stage_broker(*, build: bool = True) -> Path:
+def stage_native_components(*, build: bool = True) -> dict[str, Path]:
     if build:
-        subprocess.check_call(
-            [
-                "cargo",
-                "build",
-                "--locked",
-                "--release",
-                "--manifest-path",
-                str(MANIFEST),
-                "--bin",
-                "aiguard-native-broker",
-            ],
-            cwd=ROOT,
-        )
+        command = [
+            "cargo",
+            "build",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            str(MANIFEST),
+        ]
+        for binary in BINARIES:
+            command.extend(("--bin", binary))
+        subprocess.check_call(command, cwd=ROOT)
     suffix = ".exe" if os.name == "nt" else ""
-    source = ROOT / "native-broker" / "target" / "release" / (f"aiguard-native-broker{suffix}")
-    if not source.is_file():
-        raise FileNotFoundError(f"native broker build output not found: {source}")
-    destination = (
-        ROOT
-        / "desktop"
-        / "src-tauri"
-        / "binaries"
-        / f"aiguard-native-broker-{host_triple()}{suffix}"
-    )
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
-    return destination
+    triple = host_triple()
+    staged = {}
+    for binary in BINARIES:
+        source = ROOT / "native-broker" / "target" / "release" / f"{binary}{suffix}"
+        if not source.is_file():
+            raise FileNotFoundError(f"native component build output not found: {source}")
+        destination = ROOT / "desktop" / "src-tauri" / "binaries" / f"{binary}-{triple}{suffix}"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        staged[binary] = destination
+    return staged
+
+
+def stage_broker(*, build: bool = True) -> Path:
+    """Compatibility wrapper returning the broker while staging the full set."""
+    return stage_native_components(build=build)["aiguard-native-broker"]
 
 
 def main() -> int:
@@ -60,8 +66,9 @@ def main() -> int:
         help="stage an already-built release binary",
     )
     args = parser.parse_args()
-    destination = stage_broker(build=not args.skip_build)
-    print(f"Native broker staged: {destination.relative_to(ROOT)}")
+    staged = stage_native_components(build=not args.skip_build)
+    rendered = ", ".join(str(path.relative_to(ROOT)) for path in staged.values())
+    print(f"Native components staged: {rendered}")
     return 0
 
 

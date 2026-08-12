@@ -1,8 +1,8 @@
 # AI Guard Desktop
 
 AI Guard Desktop is a Tauri 2 shell with a static HTML/CSS/JavaScript UI. The
-current Slice 4 candidate routes product data through the authenticated native
-broker:
+current package routes Desktop and Extension product data through separate
+authenticated connections to one native broker:
 
 ```text
 webview -> typed Tauri command -+
@@ -11,6 +11,7 @@ global hotkey -----------------+   -> authenticated native IPC
                                    -> shared broker
                                    -> private authenticated HTTP-v2 backend
                                    -> shared Python core
+Chrome -> registered native host -> extension-role broker connection ---+
 ```
 
 The webview uses only operation-specific Tauri commands. Hotkeys call the same
@@ -49,7 +50,8 @@ deferred. Adding them requires a separate owner-approved ADR covering credential
 ownership, provisioning, permissions, storage, rotation, configuration
 identity/epoch, broker restart/reconfiguration semantics, upgrade, uninstall,
 attestation, and cross-platform behavior. No credential store is added by Slice
-4, and broader core, CLI, HTTP, hosted, and worker capabilities are unchanged.
+4 or Slice 5, and broader core, CLI, HTTP, hosted, and worker capabilities are
+unchanged.
 
 The webview can invoke only the typed commands registered in
 `src-tauri/src/lib.rs`. There is no raw broker send, arbitrary operation,
@@ -111,7 +113,8 @@ cargo test --locked --manifest-path native-broker\Cargo.toml --test slice4
 ```
 
 The native runtime requires `native-components-v1.json` beside the installed
-Desktop, broker, and backend executables. `tauri dev` does not assemble that
+Desktop, broker, Chrome adapter, native-host manager, and backend executables.
+`tauri dev` does not assemble that
 layout and is not an accepted runnable path; there is no `AIGUARD_ALLOW_ATTACH`,
 direct-Uvicorn, or localhost escape hatch.
 
@@ -120,8 +123,11 @@ direct-Uvicorn, or localhost escape hatch.
 The ordinary Tauri bundle hook creates final direct-bundle manifests for
 Windows NSIS, macOS app, and Linux DEB layouts. AppImage deliberately receives
 an invalid pre-manifest because linuxdeploy mutates ELF bytes after that hook.
-The cross-platform workflow writes the manifest from the actual post-linuxdeploy
-AppDir bytes and repacks with a checksum-pinned plugin. For the pinned,
+Before linuxdeploy runs, the cross-platform workflow preserves the exact
+PyInstaller backend in a private runner path. The finalizer requires its frozen
+archive cookie, atomically restores that backend after linuxdeploy, writes the
+manifest from the restored final AppDir bytes, and repacks with a
+checksum-pinned plugin. For the pinned,
 scrubbed no-sign/no-update path, it permits only appimagetool's single
 non-executable, non-overlapping 16-byte `.digest_md5` rewrite and requires every
 other x86-64 ELF64 runtime-prefix byte to match before it executes, re-extracts,
@@ -138,13 +144,14 @@ two outer-AppImage launches.
 
 The `package-smoke` feature is absent from default builds. When explicitly
 compiled, it adds a native-start marker plus bounded readiness/success/failure
-evidence commands and loads `src/package-smoke.js`. Direct-layout smoke uses the
-package working directory. AppImage smoke instead passes a separately
-precreated, canonical private evidence directory through
-`AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT`; an invalid supplied root fails without a
-package-directory fallback. Rust accepts only the four fixed marker names and
-creates each without overwriting an existing entry. The script uses the
-production `api.js` path and actual typed Tauri commands for health, analyze,
+evidence commands and loads `src/package-smoke.js`. Every smoke mode passes a
+separately precreated, canonical private mode-0700 evidence directory through
+`AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT`; direct-layout evidence is not written
+into the package working directory. An invalid supplied root fails without a
+package-directory fallback. Rust accepts only the four fixed marker names,
+publishes complete files without overwriting an existing entry, and removes
+only each writer's own temporary file. The script uses the production `api.js`
+path and actual typed Tauri commands for health, analyze,
 fresh and continuation sanitize, native validated masked copy, reidentify,
 report, PDF, audit, session dispose, and scope reset. It does not exercise
 detect, guard, roundtrip, a live provider, or live TNER.
@@ -155,7 +162,8 @@ Build the Windows acceptance installer from the repository root:
 .\.venv\Scripts\python.exe scripts\build_sidecar.py
 .\.venv\Scripts\python.exe scripts\build_native_broker.py
 .\.venv\Scripts\python.exe scripts\prepare_desktop_native_package.py `
-  --build-placeholders
+  --build-placeholders `
+  --extension-identity path\to\owner-approved-public-identity.json
 Push-Location desktop
 npm ci
 npm run tauri -- build --bundles nsis --features package-smoke --ci --no-sign `
@@ -203,15 +211,23 @@ No row establishes live provider/TNER behavior, manual visual acceptance,
 updater check/install, supported-path relocation, upgrade/drain, interrupted
 upgrade, stale cleanup, uninstall, signing/notarization, release, or deployment.
 
-The owner-selected local-only configuration boundary is implemented in source;
-exact branch verification, package smoke, and independent review passed before
-Slice 4 integration. Slice 5 has not started and will need to package and register
-Chrome Native Messaging, and Slice 6 must certify manual visual,
-installer/relocation, updater, upgrade/interruption/stale-cleanup, and uninstall
-behavior across Windows, macOS, and Linux. Tag-triggered publication remains
-fail-closed until those gates pass.
+The owner-selected local-only configuration boundary is integrated. The Slice
+5 branch packages the Chrome adapter and registration manager, registers exact
+per-platform native-host manifests for owner-approved production ID
+`kdjmkknedgmfphpkjhjdhmjadaelgggm`, and lets Chrome start/join the broker
+without the Desktop GUI. Production-origin package and installed-companion
+evidence is green; the deterministic identity remains test-only. The Web Store
+item is still Draft/unpublished, and exact-ID unpacked Chromium evidence is not
+Web Store installation.
+DEB registration remains package-manager/root-owned rather than pretending an
+ordinary GUI launch can repair `/etc`; macOS and AppImage use their documented
+per-user repair paths, and Windows uses the NSIS hooks.
+Slice 6 has not started and still owns manual visual, installer/relocation,
+updater, upgrade/interruption/stale-cleanup, and broad uninstall recertification.
+Tag-triggered publication remains fail-closed until those gates pass.
 
 See
 [`docs/acceptance/2026-08-09-phase-8-native-broker-desktop.md`](../docs/acceptance/2026-08-09-phase-8-native-broker-desktop.md)
 for the exact migration boundary, fault matrix, performance evidence, and
-remaining gates.
+remaining Slice 4 gates. The Slice 5 candidate evidence is in
+[`docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md`](../docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md).

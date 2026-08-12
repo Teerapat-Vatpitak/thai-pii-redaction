@@ -194,10 +194,11 @@ reviewed, independently revertible integration units in this order:
    11/11 jobs, and the two read-only lifecycle/concurrency and
    authentication/secrecy reviewers found no blocker on that exact head. Main
    integrated the branch with history-preserving merge `eb0c45c`; post-merge
-   CI passed 11/11 and cross-platform smoke passed 2/2. Broker-backed Extension
-   disposal remains Phase 8 work. The Slice 4 Desktop candidate now implements
-   broker-backed session/scope disposal but remains blocked before integration
-   by the provider/TNER ownership decision below. Office is outside broker v1
+   CI passed 11/11 and cross-platform smoke passed 2/2. Slice 4 Desktop
+   broker-backed session/scope disposal is integrated. Slice 5 implements the
+   Extension equivalent on a preserved branch; its owner-approved production
+   identity and installed-companion gates now pass, with final exact-head
+   review/CI preceding integration. Office is outside broker v1
    under the accepted native-broker ADR, and all eight Office real-host/package
    gates remain open under the unchanged web-add-in architecture.
 8. **Converge longer-term choke points — in progress.** The first separately
@@ -278,7 +279,40 @@ reviewed, independently revertible integration units in this order:
    a warm broker cannot silently select a different detector. This closes the
    identified configuration-ownership P1. Exact branch CI, cross-platform
    package smoke, and independent review passed before Slice 4 integration.
-   Slices 5--6 have not started.
+
+   Slice 5 is implemented on `codex/phase-8-native-broker-extension`. The MV3
+   service worker owns one Native Messaging port and separate broker scopes for
+   each tab and panel instance; every document replacement, including same-
+   origin hard navigation, gets a fresh tab scope. The strict adapter validates
+   exact origin,
+   browser process context, package identity, framing, response bounds, and the
+   `extension` role. Production Extension code has no loopback permission,
+   fetch/port discovery, credential/provider/TNER path, or fallback. The
+   Desktop companion packages and registers the adapter and exact host manifest
+   on Windows, macOS, DEB, and AppImage layouts. Transient AppImage Desktop
+   startup re-executes from the verified stable package so it shares Chrome's
+   exact component root; the GUI is not a runtime dependency. Historical
+   synthetic evidence remains test-only. Production-keyed real Chromium and
+   exact CI-produced NSIS installed-companion acceptance is recorded in the
+   [Slice 5 record](docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md).
+   AppImage packaging preserves the frozen backend outside linuxdeploy,
+   restores it atomically, and attests the restored final bytes before
+   checksum-pinned repacking. One private per-version lock serializes the full
+   stage+register or unregister+remove transaction; repeated repair preserves
+   every verified stable component inode when the complete installed set
+   already matches, so a live broker remains admissible across AppImage
+   launches.
+   Owner-approved unpublished Chrome Web Store Item ID
+   `kdjmkknedgmfphpkjhjdhmjadaelgggm` derives from the committed public key and
+   admits only
+   `chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/`. The normal
+   production packager, exact-ID Chromium 145 run, CI-produced NSIS
+   install/register/use/uninstall path, wrong-origin fixture, and Windows/Linux/
+   macOS package smoke all pass with zero final product registration/process
+   delta. The Web Store item remains Draft/unpublished; this is exact-ID
+   unpacked-browser evidence, not Web Store installation or default-path NSIS
+   evidence. Final exact-head review/CI precedes integration. Slice 6 has not
+   started.
 
    Evidence remains separated by exact path. Prior local source/native tests
    pass on Windows and real WSL2 Linux. The 12-launch Windows NSIS result and
@@ -375,9 +409,9 @@ reviewed, independently revertible integration units in this order:
    installed Desktop product boundary, not live provider/TNER evidence. The
    owner-decision correction has focused source regressions for selector
    rejection, child-environment isolation, warm-broker attachment, and Desktop
-   provider admission, plus green exact branch CI and package smoke. Slice 5 and
-   Slice 6 have not started. Slice 6 still
-   still owns manual visual, updater check/install, supported-path relocation,
+   provider admission, plus green exact branch CI and package smoke. Slice 5 is
+   implemented but blocked as described above. Slice 6 has not started and still
+   owns manual visual, updater check/install, supported-path relocation,
    upgrade/drain, interrupted-upgrade recovery, stale cleanup, uninstall, and
    installed cross-platform recertification. Tag-triggered installer publishing
    stays blocked until Slices 4--6 package and certify native messaging plus the

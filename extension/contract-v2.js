@@ -1,8 +1,6 @@
 (function installContractV2(scope) {
   "use strict";
 
-  const HEADER = "X-AIGuard-Contract-Version";
-  const VERSION = "2";
   const SECTION26 = new Set([
     "RACE_ETHNICITY",
     "POLITICAL_OPINION",
@@ -23,36 +21,6 @@
   const GUARD_SEVERITIES = new Set(["low", "medium", "high"]);
   const RESTORE_WARNINGS = new Set(["generated_pii", "foreign_replacement"]);
   const REDACT_TYPES = new Set(["FP", "TB"]);
-  const ERROR_SPECS = new Map([
-    ["contract_version_required", [426, "contract", false]],
-    ["invalid_request", [400, "request", false]],
-    ["request_schema_invalid", [422, "request", false]],
-    ["authentication_required", [401, "authentication", false]],
-    ["control_forbidden", [403, "authentication", false]],
-    ["route_not_found", [404, "request", false]],
-    ["session_unavailable", [404, "session", false]],
-    ["method_not_allowed", [405, "request", false]],
-    ["rate_limited", [429, "service", true]],
-    ["payload_too_large", [413, "request", false]],
-    ["residual_pii", [422, "privacy", false]],
-    ["document_invalid", [422, "document", false]],
-    ["provider_unavailable", [502, "upstream", true]],
-    ["provider_rejected", [502, "upstream", false]],
-    ["provider_response_invalid", [502, "upstream", false]],
-    ["ner_incomplete", [502, "upstream", false]],
-    ["provider_configuration", [503, "configuration", false]],
-    ["dependency_unavailable", [503, "dependency", false]],
-    ["ocr_unavailable", [503, "dependency", false]],
-    ["service_unavailable", [503, "service", true]],
-    ["restore_failed", [500, "internal", false]],
-    ["internal_error", [500, "internal", false]],
-  ]);
-  const COUNTED_ERROR_CODES = new Set([
-    "request_schema_invalid",
-    "residual_pii",
-    "ner_incomplete",
-    "ner_unavailable",
-  ]);
 
   function fail(label) {
     throw new Error(`invalid ${label} response`);
@@ -89,12 +57,6 @@
   function nonNegativeInt(value, label) {
     if (!Number.isInteger(value) || value < 0) fail(label);
     return value;
-  }
-
-  function errorCount(code, value, label) {
-    const count = nonNegativeInt(value, label);
-    if (!COUNTED_ERROR_CODES.has(code) && count !== 0) fail(label);
-    return count;
   }
 
   function positiveInt(value, label) {
@@ -222,11 +184,26 @@
     };
   }
 
-  function validateSanitize(value) {
+  function validateNativeHealth(value) {
+    const item = exactObject(value, ["product_version", "status"], "native health");
+    if (item.status !== "ok") fail("native health");
+    const version = stringValue(item.product_version, "native health", true);
+    if (!/^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(version)) fail("native health");
+    return {
+      status: "ok",
+      version,
+      contract_version: 2,
+      capabilities: {
+        control_token_required: true,
+        api_key_required: false,
+      },
+    };
+  }
+
+  function validateNativeSanitize(value) {
     const item = exactObject(
       value,
       [
-        "session_id",
         "sanitized_text",
         "detected_entity_count",
         "replacement_count",
@@ -237,24 +214,29 @@
         "warnings",
         "safety",
       ],
-      "sanitize"
+      "native sanitize"
     );
-    const text = stringValue(item.sanitized_text, "sanitize", true);
-    const counts = countMap(item.entity_type_counts, "sanitize");
-    const detected = nonNegativeInt(item.detected_entity_count, "sanitize");
-    const replacement = nonNegativeInt(item.replacement_count, "sanitize");
-    const highlights = highlightList(item.highlights, text, "sanitize");
+    const text = stringValue(item.sanitized_text, "native sanitize", true);
+    const counts = countMap(item.entity_type_counts, "native sanitize");
+    const detected = nonNegativeInt(item.detected_entity_count, "native sanitize");
+    const replacement = nonNegativeInt(item.replacement_count, "native sanitize");
+    const highlights = highlightList(item.highlights, text, "native sanitize");
     if (
       sumCounts(counts) !== detected ||
       highlights.length !== replacement ||
       replacement < detected
     ) {
-      fail("sanitize");
+      fail("native sanitize");
     }
-    const safety = exactObject(item.safety, ["status", "residual_count"], "sanitize");
-    if (safety.status !== "pass" || safety.residual_count !== 0) fail("sanitize");
+    const safety = exactObject(
+      item.safety,
+      ["status", "residual_count"],
+      "native sanitize"
+    );
+    if (safety.status !== "pass" || safety.residual_count !== 0) {
+      fail("native sanitize");
+    }
     return {
-      session_id: stringValue(item.session_id, "sanitize", true),
       sanitized_text: text,
       detected_entity_count: detected,
       replacement_count: replacement,
@@ -263,10 +245,10 @@
       section26_categories: uniqueEnumList(
         item.section26_categories,
         SECTION26,
-        "sanitize"
+        "native sanitize"
       ),
-      guard_findings: guardFindings(item.guard_findings, "sanitize"),
-      warnings: warningList(item.warnings, new Set(), "sanitize"),
+      guard_findings: guardFindings(item.guard_findings, "native sanitize"),
+      warnings: warningList(item.warnings, new Set(), "native sanitize"),
       safety: { status: "pass", residual_count: 0 },
     };
   }
@@ -291,53 +273,6 @@
       value.leftover_count === 0 &&
       Array.isArray(value.warnings) &&
       !value.warnings.some((warning) => RESTORE_WARNINGS.has(warning.code))
-    );
-  }
-
-  function validateError(value, responseStatus) {
-    const outer = exactObject(value, ["error"], "error");
-    const item = exactObject(
-      outer.error,
-      ["code", "category", "count", "retryable", "status"],
-      "error"
-    );
-    const code = stringValue(item.code, "error", true);
-    let spec = ERROR_SPECS.get(code);
-    if (code === "ner_unavailable") {
-      const valid =
-        ((item.category === "configuration" || item.category === "dependency") &&
-          item.retryable === false) ||
-        ((item.category === "network" || item.category === "upstream") &&
-          item.retryable === true);
-      if (!valid || item.status !== 503) fail("error");
-      spec = [503, item.category, item.retryable];
-    }
-    if (
-      !spec ||
-      item.status !== responseStatus ||
-      item.status !== spec[0] ||
-      item.category !== spec[1] ||
-      item.retryable !== spec[2]
-    ) {
-      fail("error");
-    }
-    return {
-      error: {
-        code,
-        category: item.category,
-        count: errorCount(code, item.count, "error"),
-        retryable: item.retryable,
-        status: item.status,
-      },
-    };
-  }
-
-  function hasHeader(response) {
-    return (
-      response &&
-      response.headers &&
-      typeof response.headers.get === "function" &&
-      response.headers.get(HEADER) === VERSION
     );
   }
 
@@ -386,13 +321,10 @@
   }
 
   scope.AIGUARD_CONTRACT_V2 = Object.freeze({
-    HEADER,
-    VERSION,
-    hasHeader,
     validateHealth,
-    validateSanitize,
+    validateNativeHealth,
+    validateNativeSanitize,
     validateReidentify,
-    validateError,
     restorationIsComplete,
     codePointRangeToUtf16,
     renderHighlightedText,

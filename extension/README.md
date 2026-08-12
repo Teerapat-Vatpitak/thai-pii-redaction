@@ -1,105 +1,112 @@
 # AI Guard browser extension
 
-Masks Thai PII in your AI chat prompt before you send it, then restores the
-real values locally from the AI's reply. The canonical token -> original vault
-stays in the local backend's memory and is not deliberately persisted.
+AI Guard masks Thai PII before text is sent to an AI chat site and restores
+the original values locally from a reply. The installed-production transport
+in current source is Chrome Native Messaging:
 
-Current source uses strict HTTP contract v2. It validates exact health and
-operation DTOs before sending PII or writing a result, and the backend returns
-no explicit mapping DTO, original/token pair, raw Section 26 match, or guard
-excerpt. The backend also returns no masked result when it finds structured FP,
-text-based TB, detector-independent contiguous 6+ digit residuals, or a missing
-replacement record. Token text combines a random vault-generation tag with an
-unpredictable nonce for each newly minted token. Regressions keep stale and
-guessed tokens foreign in the exercised lifecycle cases. The random 64-bit tag
-plus approximately 94-bit nonce makes accidental identity reuse and
-same-session future-token preplay computationally impractical; this is
-probabilistic separation, not impossibility. Unknown tokens become count-only
-unsafe warnings.
+```text
+content script or side panel
+  -> MV3 service worker (the only native-port owner)
+  -> th.ac.psu.aiguard.native_host
+  -> shared per-user broker
+  -> private authenticated HTTP-v2 backend
+  -> shared Python core
+```
 
-These behaviors have automated source evidence only. The published 2.5.0
-backend and historical browser/store candidates predate them and must be rerun
-before a package is accepted. The extension still trusts whichever process
-owns the configured fixed localhost port; CORS does not authenticate that
-process. Current source already contains the shared broker protocol and Desktop
-client; the open Extension work is specifically the Slice 5 Chrome Native
-Messaging host/adapter, origin admission, registration, and lifecycle migration
-to that broker, followed by fresh package/browser acceptance. Run this source
-extension only with the matching source backend that you started and trust, and
-review high-risk output before submitting it.
+The production manifest requests `nativeMessaging` and has no loopback
+`host_permissions`. Production JavaScript contains no HTTP client, backend
+port probing, native broker endpoint, credential, provider command, or
+localhost fallback. The Desktop companion package owns the adapter, broker,
+backend, native-host manifest, and registration. Chrome can start or join that
+broker without the Desktop GUI running.
 
-The default detector is local. If the backend is explicitly configured with
-`AIGUARD_NER_ENGINE=tner`, it sends raw pre-mask chunks to AI for Thai. The
-security-sensitive `session_id` is an opaque restoration reference, not the
-mapping.
+The repository-owned production identity is the owner-approved unpublished
+Chrome Web Store item `kdjmkknedgmfphpkjhjdhmjadaelgggm`, exact origin
+`chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/`. Its public key is in
+`config/chrome-extension-identity.json`; no private signing key is stored or
+required. The deterministic identity under `tests/fixtures/native_host/` is
+public-only and may be selected only by explicit test/package-acceptance flags;
+it is not a production identity. The Web Store item remains Draft/unpublished,
+and exact-ID unpacked Chromium acceptance is not Web Store installation.
 
-In-page Mask runs after raw text has been typed into the AI site's
-provider-controlled DOM. Site code can observe or transmit that draft before
-the extension replaces it; a Native Messaging transport migration cannot undo
-that earlier boundary.
-For stronger isolation, enter raw text in the side panel, review/copy the
-masked result, and paste only that result into the AI site.
+## Data and authority boundary
 
-Works on **ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM / Z.ai**. Site
-DOM selectors live in `sites.js`; each site also has a heuristic generic
-fallback. It may survive minor selector drift, but a changed site can make it
-select a different visible matching element, so current live-site acceptance
-is still required. On any other page the docked side panel (below) still
-masks/restores by paste.
+The installed Extension profile uses local `thainer` only. `fake` is retained
+inside backend conformance support; the Extension exposes no provider or
+detector selector. Remote TNER, provider credentials, and credential-requiring
+providers are unavailable on this path. The adapter contains no detector,
+mapping, restore, provider, retry, or HTTP logic.
 
-## Prerequisites
+The canonical token-to-original vault stays in the private backend's memory.
+Python session IDs and mappings never reach Extension JavaScript. The service
+worker keeps only broker-issued handles in memory and owns a separate broker
+scope for each admitted tab and each side-panel instance. A handle cannot cross
+tabs or panel contexts.
 
-Start the local backend first (from the repo root):
+- Top-frame content messages require consistent HTTPS sender, tab, document,
+  and origin evidence.
+- Every replacement document, including a same-origin hard navigation,
+  disposes the old tab scope. Tab or panel close disposes only that context.
+- Native-port loss or service-worker restart invalidates every local handle,
+  clears legacy/stale session storage, removes restore/write authority, and
+  shows a fixed unavailable/session-expired state.
+- Only PII-free connect/hello/health startup may retry. Health recovery uses
+  bounded exponential delay capped at 30 seconds while the page stays active.
+  Mask, Restore, and any possibly completed operation are never replayed.
+- A fresh connection never revives an old mapping; a new user-initiated Mask
+  is required before Restore is available again.
+
+Strict result validators run before composer, closed-shadow overlay,
+side-panel, or clipboard writes. Unknown, malformed, oversized, stale,
+incompatible, or uncertain responses produce no write.
+
+In-page Mask still starts after raw text has entered the AI site's
+provider-controlled DOM. Page code may observe or transmit the draft before
+AI Guard replaces it. Native Messaging does not remove that earlier boundary.
+Use the side panel and paste only the reviewed masked result when stronger
+raw-entry isolation is required.
+
+## Development and test loading
+
+An unpacked build needs a matching registered companion and an identity whose
+public key derives the loaded Extension ID. Do not start the fixed-port
+developer backend for the Extension; it has no path to that service.
+
+Production packaging requires an identity JSON classified
+`production_owner_approved`:
 
 ```powershell
-# Windows
-./run.ps1
+.\.venv\Scripts\python.exe scripts\package_extension.py `
+  --identity config\chrome-extension-identity.json
 ```
 
-```bash
-# git-bash / Linux / macOS
-./run.sh
-```
+The identity file may contain only the Chrome Web Store Item ID, exact
+`chrome-extension://<id>/` origin, public manifest key, classification, and
+provenance. Never place a private signing key in the repository or command
+output. Synthetic packaging is reserved for deterministic automated and local
+acceptance and requires its explicit opt-in flag; see `--help`.
 
-This serves the API at `http://localhost:8000`. Confirm it is up at
-`http://localhost:8000/api/health`.
+After registering a matching candidate:
 
-## Load the extension (unpacked)
+1. Open `chrome://extensions` and enable Developer mode.
+2. Load the built candidate directory, not an arbitrary source directory.
+3. Confirm the derived ID exactly matches the registered manifest origin.
+4. Open the toolbar side panel or a supported site.
 
-1. Open `chrome://extensions` in Chrome (or any Chromium browser).
-2. Turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select this `extension/` folder.
+Supported content-script sites remain ChatGPT, Claude, Gemini, Grok,
+Perplexity, and GLM/Z.ai. Site selectors live in `sites.js`; selector drift can
+still choose another visible matching element and requires fresh live-site
+acceptance.
 
-## Use it
+## Failure behavior
 
-On a supported site (`chatgpt.com`, `claude.ai`, `gemini.google.com`,
-`grok.com`, `perplexity.ai`, `chat.z.ai` / `chatglm.cn`) a small **AI Guard**
-bar appears (bottom right):
+- **Companion unavailable**: install/repair the matching Desktop companion.
+  Restore and page writes remain blocked.
+- **Session expired**: perform a new user-initiated Mask. Old masked text cannot
+  restore through the new connection.
+- **In-page controls missing**: use the side panel while the site selector is
+  reviewed.
 
-1. Type your prompt (with names, phone numbers, IDs, etc.) in the chat box.
-2. Click **Mask PII** -- the box now shows session-namespaced tokens like
-   `[ชื่อ_<generation-tag>_<token-nonce>_1]`. Send it with the site's own Send
-   button.
-3. When the AI replies (keeping the tokens), click **Restore PII** -- the
-   real values are shown back in an overlay. You can also select any reply
-   text first and then click Restore to restore just that selection.
-
-Each AI message also gets its own best-effort **Restore PII** button.
-
-### Side panel (docked workspace)
-
-Click the extension's toolbar icon to open the **AI Guard side panel**, docked
-to the side of the browser. Unlike a popup it stays open while you work: paste
-text, Mask, copy the safe version, then paste the reply and Restore. Use it on
-any page (not just ChatGPT/Claude), or as a fallback if a site update ever
-moves the in-page bar. The panel also shows live backend status. Close it with
-Chrome's browser-owned side-panel close control; drag its edge to resize.
-
-## When something breaks
-
-- **"Backend offline"**: the local server is not running -- start it with
-  `run.ps1` / `run.sh`. The side panel re-checks status automatically once the
-  backend is back.
-- **In-page bar missing or buttons do nothing**: the host site changed its
-  DOM. All selectors live in `sites.js` -- update them there. Meanwhile, use
-  the side panel's manual mode.
+The exact Slice 5 production-identity, installed-companion, and remaining
+unpublished-Web-Store evidence classifications are recorded in
+`docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md`.

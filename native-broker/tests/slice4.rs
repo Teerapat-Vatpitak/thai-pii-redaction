@@ -15,6 +15,7 @@ use aiguard_native_broker_protocol::control_client::{
 use aiguard_native_broker_protocol::desktop_client::{
     DesktopBrokerClient, DesktopClientError, DesktopScopeKind,
 };
+use aiguard_native_broker_protocol::extension_client::{ExtensionBrokerClient, ExtensionScopeKind};
 use aiguard_native_broker_protocol::manifest::ComponentManifest;
 use aiguard_native_broker_protocol::transport::{NativeStream, PlatformEndpoint};
 use aiguard_native_broker_protocol::{
@@ -29,6 +30,7 @@ const BROKER_TEST_NAME: &str = "desktop_broker_subprocess_fixture";
 const BROKER_ENVIRONMENT_TEST_NAME: &str = "desktop_broker_environment_subprocess_fixture";
 const DESKTOP_CLIENT_TEST_NAME: &str = "desktop_client_subprocess_fixture";
 const EXTENSION_TEST_NAME: &str = "extension_client_subprocess_fixture";
+const EXTENSION_OWNER_TEST_NAME: &str = "extension_owner_client_subprocess_fixture";
 
 fn connection_message_limit() -> usize {
     serde_json::from_str::<serde_json::Value>(include_str!("../protocol-v1.json")).unwrap()
@@ -779,6 +781,134 @@ fn desktop_exit_preserves_an_admitted_extension_scope() {
 }
 
 #[test]
+fn extension_started_broker_admits_desktop_and_preserves_extension_scope() {
+    let _guard = slice4_guard();
+    let fixture = PackageFixture::create_with_extension();
+    let endpoint_root = test_temp_root("extension-owned-broker");
+    let coordination_root = test_temp_root("extension-owner-coordination");
+    std::fs::create_dir_all(&coordination_root).unwrap();
+    let ready_path = coordination_root.join("ready");
+    let continue_path = coordination_root.join("continue");
+    let survived_path = coordination_root.join("survived");
+    let broker_count_path = coordination_root.join("broker-count");
+    let _environment = FixtureEnvironment::set(&fixture, &endpoint_root, "runtime", None);
+    let mut extension = std::process::Command::new(fixture.extension_path.as_ref().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            EXTENSION_OWNER_TEST_NAME,
+            "--nocapture",
+        ])
+        .env("AIGUARD_SLICE4_EXTENSION_MANIFEST", &fixture.manifest_path)
+        .env("AIGUARD_SLICE4_EXTENSION_ENDPOINT", &endpoint_root)
+        .env("AIGUARD_SLICE4_EXTENSION_READY", &ready_path)
+        .env("AIGUARD_SLICE4_EXTENSION_CONTINUE", &continue_path)
+        .env("AIGUARD_SLICE4_EXTENSION_SURVIVED", &survived_path)
+        .env("AIGUARD_SLICE4_EXTENSION_BROKER_COUNT", &broker_count_path)
+        .spawn()
+        .unwrap();
+    wait_for_file(&ready_path, Duration::from_secs(20));
+
+    let mut unexpected_desktop_launch = false;
+    let mut desktop = DesktopBrokerClient::connect_or_start_with_launcher_for_test(
+        &endpoint_root,
+        &fixture.manifest_path,
+        PRODUCT_VERSION,
+        Duration::from_secs(5),
+        || {
+            unexpected_desktop_launch = true;
+            Err(ProtocolError::new("broker_unavailable", None))
+        },
+    )
+    .unwrap();
+    assert!(!unexpected_desktop_launch);
+    let desktop_scope = desktop.open_scope(DesktopScopeKind::Ui).unwrap();
+    desktop
+        .sanitize(
+            &desktop_scope,
+            "synthetic desktop joins extension-owned broker",
+            "token",
+            None,
+        )
+        .unwrap();
+    desktop.close_scope(&desktop_scope).unwrap();
+    desktop.disconnect();
+
+    std::fs::write(&continue_path, b"continue").unwrap();
+    let extension_status = wait_for_child(&mut extension, Duration::from_secs(20));
+    assert!(extension_status.success());
+    assert!(survived_path.is_file());
+    assert_eq!(std::fs::read(&broker_count_path).unwrap(), b"1");
+    remove_temp_tree(&endpoint_root);
+    remove_temp_tree(&coordination_root);
+}
+
+#[test]
+fn extension_exit_preserves_an_admitted_desktop_scope() {
+    let _guard = slice4_guard();
+    let fixture = PackageFixture::create_with_extension();
+    let endpoint_root = test_temp_root("extension-desktop-isolation");
+    let coordination_root = test_temp_root("extension-exit-coordination");
+    std::fs::create_dir_all(&coordination_root).unwrap();
+    let ready_path = coordination_root.join("ready");
+    let continue_path = coordination_root.join("continue");
+    let survived_path = coordination_root.join("survived");
+    let _environment = FixtureEnvironment::set(&fixture, &endpoint_root, "runtime", None);
+    let broker_child = Arc::new(Mutex::new(None));
+    let broker_slot = Arc::clone(&broker_child);
+    let mut desktop = DesktopBrokerClient::connect_or_start_with_launcher_for_test(
+        &endpoint_root,
+        &fixture.manifest_path,
+        PRODUCT_VERSION,
+        Duration::from_secs(30),
+        || {
+            *broker_slot.lock().unwrap() = Some(spawn_fixture_broker(&fixture)?);
+            Ok(())
+        },
+    )
+    .unwrap();
+    let desktop_scope = desktop.open_scope(DesktopScopeKind::Ui).unwrap();
+    let source = "synthetic desktop scope remains live";
+    let sanitized = desktop
+        .sanitize(&desktop_scope, source, "token", None)
+        .unwrap();
+    let desktop_session = broker_session(&sanitized);
+    let masked = sanitized["sanitized_text"].as_str().unwrap().to_owned();
+
+    let mut extension = std::process::Command::new(fixture.extension_path.as_ref().unwrap())
+        .args(["--ignored", "--exact", EXTENSION_TEST_NAME, "--nocapture"])
+        .env("AIGUARD_SLICE4_EXTENSION_MANIFEST", &fixture.manifest_path)
+        .env("AIGUARD_SLICE4_EXTENSION_ENDPOINT", &endpoint_root)
+        .env("AIGUARD_SLICE4_EXTENSION_READY", &ready_path)
+        .env("AIGUARD_SLICE4_EXTENSION_CONTINUE", &continue_path)
+        .env("AIGUARD_SLICE4_EXTENSION_SURVIVED", &survived_path)
+        .spawn()
+        .unwrap();
+    wait_for_file(&ready_path, Duration::from_secs(10));
+    std::fs::write(&continue_path, b"continue").unwrap();
+    let extension_status = wait_for_child(&mut extension, Duration::from_secs(20));
+    assert!(extension_status.success());
+    assert!(survived_path.is_file());
+
+    let restored = desktop
+        .reidentify(&desktop_scope, &desktop_session, &masked)
+        .unwrap();
+    assert_eq!(restored["restored_text"], source);
+    desktop.close_scope(&desktop_scope).unwrap();
+    desktop.disconnect();
+
+    let mut children = broker_child
+        .lock()
+        .unwrap()
+        .take()
+        .into_iter()
+        .collect::<Vec<_>>();
+    reap_brokers(&mut children);
+    remove_temp_tree(&endpoint_root);
+    remove_temp_tree(&coordination_root);
+}
+
+#[test]
 fn independent_desktop_processes_share_the_broker_with_owned_scopes() {
     let _guard = slice4_guard();
     let fixture = PackageFixture::create("desktop");
@@ -1429,6 +1559,67 @@ fn extension_client_subprocess_fixture() {
         serde_json::json!({}),
     );
     assert_eq!(closed, serde_json::json!({"closed": true}));
+    std::fs::write(&survived_path, b"survived").unwrap();
+}
+
+#[test]
+#[ignore]
+fn extension_owner_client_subprocess_fixture() {
+    let Some(manifest_path) = std::env::var_os("AIGUARD_SLICE4_EXTENSION_MANIFEST") else {
+        return;
+    };
+    let endpoint_root =
+        PathBuf::from(std::env::var_os("AIGUARD_SLICE4_EXTENSION_ENDPOINT").unwrap());
+    let ready_path = PathBuf::from(std::env::var_os("AIGUARD_SLICE4_EXTENSION_READY").unwrap());
+    let continue_path =
+        PathBuf::from(std::env::var_os("AIGUARD_SLICE4_EXTENSION_CONTINUE").unwrap());
+    let survived_path =
+        PathBuf::from(std::env::var_os("AIGUARD_SLICE4_EXTENSION_SURVIVED").unwrap());
+    let broker_count_path =
+        PathBuf::from(std::env::var_os("AIGUARD_SLICE4_EXTENSION_BROKER_COUNT").unwrap());
+    let manifest = ComponentManifest::load(Path::new(&manifest_path), PRODUCT_VERSION).unwrap();
+    let broker_path = manifest.verified_broker_executable().unwrap();
+    let broker_child = Arc::new(Mutex::new(None));
+    let broker_slot = Arc::clone(&broker_child);
+    let mut client = ExtensionBrokerClient::connect_or_start_with_launcher_for_test(
+        &endpoint_root,
+        Path::new(&manifest_path),
+        PRODUCT_VERSION,
+        Duration::from_secs(30),
+        || {
+            let child = spawn_sealed_broker_process_for_test(
+                &broker_path,
+                &broker_arguments(),
+                broker_path.parent().unwrap(),
+            )?;
+            *broker_slot.lock().unwrap() = Some(child);
+            Ok(())
+        },
+    )
+    .unwrap();
+    let scope = client.open_scope(ExtensionScopeKind::Tab).unwrap();
+    let source = "synthetic extension scope remains live";
+    let sanitized = client.sanitize(&scope, source, "token", None).unwrap();
+    let session = broker_session(&sanitized);
+    let masked = sanitized["sanitized_text"].as_str().unwrap().to_owned();
+    std::fs::write(&ready_path, b"ready").unwrap();
+    wait_for_file(&continue_path, Duration::from_secs(10));
+
+    let restored = client.reidentify(&scope, &session, &masked).unwrap();
+    assert_eq!(restored["restored_text"], source);
+    client.close_scope(&scope).unwrap();
+    client.disconnect();
+    drop(client);
+
+    let mut children = broker_child
+        .lock()
+        .unwrap()
+        .take()
+        .into_iter()
+        .collect::<Vec<_>>();
+    assert_eq!(children.len(), 1);
+    std::fs::write(&broker_count_path, children.len().to_string()).unwrap();
+    reap_brokers(&mut children);
     std::fs::write(&survived_path, b"survived").unwrap();
 }
 

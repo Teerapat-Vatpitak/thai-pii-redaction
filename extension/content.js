@@ -14,7 +14,11 @@
   if (!CONTRACT) return;
 
   const PREFIX = "aiguard-";
+  const MAX_HEALTH_RETRY_DELAY_MS = 30_000;
   let backendReady = false;
+  let healthRetryAttempts = 0;
+  let healthRetryTimer = null;
+  let sessionAvailable = false;
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -28,20 +32,20 @@
       try {
         chrome.runtime.sendMessage(message, (resp) => {
           if (chrome.runtime.lastError) {
-            resolve({ ok: false, status: 0, error: chrome.runtime.lastError.message });
+            resolve({ ok: false, status: 0, error: "native-unavailable" });
           } else {
             resolve(resp);
           }
         });
-      } catch (e) {
-        resolve({ ok: false, status: 0, error: String(e) });
+      } catch {
+        resolve({ ok: false, status: 0, error: "native-unavailable" });
       }
     });
   }
 
   function backendError(resp) {
-    if (resp && resp.status === 404) return "เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง";
-    return "backend ยังไม่ทำงาน เปิดแอป AI Guard";
+    if (resp && resp.error === "session-expired") return "เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง";
+    return "ติดตั้งหรือซ่อมแซม AI Guard Desktop companion";
   }
 
   // ---- floating control bar ---------------------------------------------
@@ -71,10 +75,29 @@
   function setBackendReady(ready) {
     backendReady = Boolean(ready);
     maskBtn.disabled = !backendReady;
-    restoreBtn.disabled = !backendReady;
+    restoreBtn.disabled = !backendReady || !sessionAvailable;
     document.querySelectorAll("." + PREFIX + "msg-btn").forEach((button) => {
-      button.disabled = !backendReady;
+      button.disabled = !backendReady || !sessionAvailable;
     });
+  }
+
+  function resetHealthRetry() {
+    healthRetryAttempts = 0;
+    if (healthRetryTimer !== null) {
+      clearTimeout(healthRetryTimer);
+      healthRetryTimer = null;
+    }
+  }
+
+  function scheduleHealthRetry() {
+    if (healthRetryTimer !== null) return;
+    const exponent = Math.min(healthRetryAttempts, 7);
+    const delay = Math.min(250 * 2 ** exponent, MAX_HEALTH_RETRY_DELAY_MS);
+    healthRetryAttempts = Math.min(healthRetryAttempts + 1, 7);
+    healthRetryTimer = setTimeout(() => {
+      healthRetryTimer = null;
+      void checkHealth();
+    }, delay);
   }
 
   async function checkHealth() {
@@ -88,7 +111,12 @@
       response.data.capabilities &&
       response.data.capabilities.api_key_required === false;
     setBackendReady(ready);
-    if (!ready) setStatus("backend ยังไม่พร้อมใช้งาน", "err");
+    if (ready) {
+      resetHealthRetry();
+    } else {
+      setStatus("backend ยังไม่พร้อมใช้งาน", "err");
+      scheduleHealthRetry();
+    }
   }
 
   // ---- overlay for restored text / prominent warnings --------------------
@@ -275,7 +303,17 @@
       ) {
         setBackendReady(false);
       }
+      sessionAvailable = false;
+      setBackendReady(backendReady);
       maskFailed(backendError(resp));
+      return;
+    }
+    try {
+      resp.data = CONTRACT.validateNativeSanitize(resp.data);
+    } catch {
+      sessionAvailable = false;
+      setBackendReady(false);
+      maskFailed("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย");
       return;
     }
     if (
@@ -294,9 +332,13 @@
     // may have swallowed the write (React re-render, replaced node). Success
     // is only what fresh reads of the composer actually contain.
     if (!(await waitForComposerText(resp.data.sanitized_text))) {
+      sessionAvailable = false;
+      setBackendReady(backendReady);
       maskFailed("เขียนข้อความที่ปกปิดแล้วลงช่องพิมพ์ไม่สำเร็จ");
       return;
     }
+    sessionAvailable = true;
+    setBackendReady(backendReady);
     setStatus("ปกปิด " + resp.data.replacement_count + " รายการ", "ok");
   }
 
@@ -306,6 +348,10 @@
       setStatus("backend ยังไม่พร้อมใช้งาน", "err");
       return;
     }
+    if (!sessionAvailable) {
+      setStatus("เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง", "err");
+      return;
+    }
     if (!text || !text.trim()) {
       setStatus("ไม่มีข้อความให้คืนค่า", "err");
       return;
@@ -313,10 +359,20 @@
     setStatus("กำลังคืนค่า...");
     const resp = await send({ type: "reidentify", text });
     if (!resp || !resp.ok) {
-      setStatus(resp && resp.error === "no-session" ? "ปกปิดข้อความก่อน" : backendError(resp), "err");
+      sessionAvailable = false;
+      setBackendReady(backendReady);
+      setStatus(backendError(resp), "err");
       return;
     }
-    const d = resp.data;
+    let d;
+    try {
+      d = CONTRACT.validateReidentify(resp.data);
+    } catch {
+      sessionAvailable = false;
+      setBackendReady(false);
+      setStatus("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย", "err");
+      return;
+    }
     if (!CONTRACT.restorationIsComplete(d)) {
       const warningCount = d.warnings.reduce(
         (sum, warning) => sum + warning.count,
@@ -374,7 +430,7 @@
     for (const m of msgs) {
       if (m.querySelector(":scope > ." + PREFIX + "msg-btn")) continue;
       const b = el("button", "msg-btn", "คืนค่า");
-      b.disabled = !backendReady;
+      b.disabled = !backendReady || !sessionAvailable;
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         restoreText(messageText(m), "คำตอบ");
@@ -386,5 +442,24 @@
   const obs = new MutationObserver(() => decorate());
   obs.observe(document.documentElement, { childList: true, subtree: true });
   decorate();
+  if (chrome.runtime.onMessage && chrome.runtime.onMessage.addListener) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (
+        message &&
+        message.type === "aiguard-native-state" &&
+        message.state === "session-expired" &&
+        Object.keys(message).length === 2
+      ) {
+        sessionAvailable = false;
+        setBackendReady(false);
+        document
+          .querySelectorAll("." + PREFIX + "overlay-host")
+          .forEach((host) => host.remove());
+        setStatus("เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง", "err");
+        resetHealthRetry();
+        scheduleHealthRetry();
+      }
+    });
+  }
   checkHealth();
 })();

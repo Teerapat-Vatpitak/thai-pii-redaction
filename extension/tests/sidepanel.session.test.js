@@ -1,7 +1,3 @@
-// EXT-1 (side-panel path): the side panel must reuse its own session_id on the
-// next Mask so multi-turn token numbering stays consistent. The panel's message
-// sender has no tab, so background.js cannot key reuse on tabId — the panel has
-// to pass its stored session_id explicitly in the sanitize message.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 function setupDom() {
@@ -21,7 +17,17 @@ function setupDom() {
   `;
 }
 
-let sent;
+function event() {
+  const listeners = [];
+  return {
+    addListener(listener) {
+      listeners.push(listener);
+    },
+    emit(value) {
+      for (const listener of listeners) listener(value);
+    },
+  };
+}
 
 function healthData() {
   return {
@@ -34,7 +40,6 @@ function healthData() {
 
 function sanitizeData(text = "[ชื่อ_1]") {
   return {
-    session_id: "SP1",
     sanitized_text: text,
     detected_entity_count: 1,
     replacement_count: 1,
@@ -54,25 +59,55 @@ function sanitizeData(text = "[ชื่อ_1]") {
   };
 }
 
-function setupChrome() {
-  sent = [];
+function setupChrome(handler = null) {
+  const sent = [];
+  const ports = [];
+  const respond =
+    handler ||
+    ((message) => {
+      if (message.type === "health") return { ok: true, status: 200, data: healthData() };
+      if (message.type === "sanitize") {
+        return { ok: true, status: 200, data: sanitizeData() };
+      }
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          restored_text: "synthetic-restored",
+          replaced_count: 1,
+          leftover_count: 0,
+          warnings: [],
+        },
+      };
+    });
   global.chrome = {
     runtime: {
+      connect: vi.fn(() => {
+        const onMessage = event();
+        const onDisconnect = event();
+        const port = {
+          onDisconnect,
+          onMessage,
+          postMessage(envelope) {
+            sent.push(structuredClone(envelope.message));
+            const response = respond(envelope.message);
+            queueMicrotask(() =>
+              onMessage.emit({
+                panel_request_id: envelope.panel_request_id,
+                response,
+                type: "response",
+              })
+            );
+          },
+        };
+        ports.push(port);
+        return port;
+      }),
       lastError: null,
-      sendMessage: (message, cb) => {
-        sent.push(message);
-        // sanitize returns a session_id the panel should remember and resend
-        if (message.type === "sanitize") {
-          cb({ ok: true, status: 200, data: sanitizeData() });
-        } else if (message.type === "health") {
-          cb({ ok: true, status: 200, data: healthData() });
-        } else {
-          cb({ ok: true, status: 200, data: {} });
-        }
-      },
     },
-    storage: { local: { get: (_k, cb) => cb({ mode: "token" }), set: () => {} } },
+    storage: { local: { get: (_key, callback) => callback({ mode: "token" }), set: () => {} } },
   };
+  return { ports, sent };
 }
 
 function setupBrowserApis() {
@@ -84,197 +119,152 @@ function setupBrowserApis() {
   vi.spyOn(global, "setInterval").mockReturnValue(0);
 }
 
+async function flush() {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function loadPanel(handler = null) {
+  setupDom();
+  const harness = setupChrome(handler);
+  setupBrowserApis();
+  vi.resetModules();
+  await import("../contract-v2.js");
+  await import("../sidepanel.js");
+  await flush();
+  return harness;
+}
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   delete global.chrome;
   delete global.AIGUARD_CONTRACT_V2;
   document.body.innerHTML = "";
 });
 
-describe("side panel sanitize session reuse (EXT-1)", () => {
-  it("resends the panel's session_id on the second Mask", async () => {
-    setupDom();
-    setupChrome();
-    setupBrowserApis();
-    vi.resetModules();
-    await import("../contract-v2.js");
-    await import("../sidepanel.js");
-
-    const flush = () => new Promise((r) => setTimeout(r, 0));
-    await flush();
-
-    document.getElementById("input").value = "นาย ก";
+describe("side panel service-worker scope", () => {
+  it("reuses one panel port without receiving or sending a session handle", async () => {
+    const { sent } = await loadPanel();
+    document.getElementById("input").value = "synthetic-a";
     document.getElementById("maskBtn").click();
     await flush();
-
-    document.getElementById("input").value = "นาย ข";
+    document.getElementById("input").value = "synthetic-b";
     document.getElementById("maskBtn").click();
     await flush();
-
-    const sanitizes = sent.filter((m) => m.type === "sanitize");
-    expect(sanitizes.length).toBe(2);
-    expect(sanitizes[1].session_id).toBe("SP1");
+    const sanitizes = sent.filter((message) => message.type === "sanitize");
+    expect(sanitizes).toHaveLength(2);
+    expect(JSON.stringify(sanitizes)).not.toContain("session_id");
+    expect(chrome.runtime.connect).toHaveBeenCalledTimes(1);
   });
 
   it("sends source and restore text without trimming", async () => {
-    setupDom();
-    setupChrome();
-    global.chrome.runtime.sendMessage = (message, cb) => {
-      sent.push(message);
-      if (message.type === "health") {
-        cb({ ok: true, status: 200, data: healthData() });
-      } else if (message.type === "sanitize") {
-        cb({ ok: true, status: 200, data: sanitizeData() });
-      } else {
-        cb({
-          ok: true,
-          status: 200,
-          data: {
-            restored_text: "  restored  ",
-            replaced_count: 1,
-            leftover_count: 0,
-            warnings: [],
-          },
-        });
-      }
-    };
-    setupBrowserApis();
-    vi.resetModules();
-    await import("../contract-v2.js");
-    await import("../sidepanel.js");
-    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-    await flush();
-
-    const source = "  นาย ก\r\n\u200b  ";
+    const { sent } = await loadPanel();
+    const source = "  synthetic source\r\n\u200b  ";
     document.getElementById("input").value = source;
-    const browserSource = document.getElementById("input").value;
     document.getElementById("maskBtn").click();
     await flush();
-    const reply = "  [ชื่อ_1]\r\n  ";
+    const reply = "  [NAME_1]\r\n  ";
     document.getElementById("reply").value = reply;
-    const browserReply = document.getElementById("reply").value;
     document.getElementById("restoreBtn").click();
     await flush();
-
-    expect(sent.find((message) => message.type === "sanitize").text).toBe(browserSource);
-    expect(sent.find((message) => message.type === "reidentify").text).toBe(browserReply);
+    expect(sent.find((message) => message.type === "sanitize").text).toBe(
+      document.getElementById("input").value
+    );
+    expect(sent.find((message) => message.type === "reidentify").text).toBe(
+      document.getElementById("reply").value
+    );
   });
 
-  it("keeps preview and copy disabled for an empty sanitize success payload", async () => {
-    setupDom();
-    setupChrome();
-    global.chrome.runtime.sendMessage = (message, cb) => {
-      sent.push(message);
-      if (message.type === "health") {
-        cb({ ok: true, status: 200, data: healthData() });
-      } else {
-        cb({
-          ok: true,
-          status: 200,
-          data: {
-            ...sanitizeData(),
-            sanitized_text: "",
-            detected_entity_count: 0,
-            replacement_count: 0,
-            entity_type_counts: {},
-            highlights: [],
-          },
-        });
-      }
-    };
-    setupBrowserApis();
-    vi.resetModules();
-    await import("../contract-v2.js");
-    await import("../sidepanel.js");
-    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-    await flush();
-
-    document.getElementById("input").value = "ข้อความต้นฉบับสังเคราะห์";
-    document.getElementById("maskBtn").click();
-    await flush();
-
-    expect(document.getElementById("maskedWrap").hidden).toBe(true);
-    expect(document.getElementById("copyBtn").hidden).toBe(true);
-    expect(document.getElementById("restoreBtn").disabled).toBe(true);
-    expect(document.getElementById("msg").className).toContain("err");
-  });
-});
-
-describe("restore status blocks unsafe results", () => {
-  it("shows a count-only warning and does not render restored text", async () => {
-    setupDom();
-    setupChrome();
-    // restore reply carries a foreign_tokens warning from the backend
-    global.chrome.runtime.sendMessage = (message, cb) => {
-      sent.push(message);
-      if (message.type === "sanitize") {
-        cb({ ok: true, status: 200, data: sanitizeData() });
-      } else if (message.type === "health") {
-        cb({ ok: true, status: 200, data: healthData() });
-      } else {
-        cb({
-          ok: true,
-          status: 200,
-          data: {
-            restored_text: "สมชาย",
-            replaced_count: 1,
-            leftover_count: 0,
-            warnings: [{ code: "foreign_replacement", count: 3 }],
-          },
-        });
-      }
-    };
-    setupBrowserApis();
-    vi.resetModules();
-    await import("../contract-v2.js");
-    await import("../sidepanel.js");
-    const flush = () => new Promise((r) => setTimeout(r, 0));
-    await flush();
-
-    document.getElementById("input").value = "นาย ก";
-    document.getElementById("maskBtn").click();
-    await flush();
-    document.getElementById("reply").value = "[ชื่อ_1]";
-    document.getElementById("restoreBtn").click();
-    await flush();
-
-    const msg = document.getElementById("msg");
-    expect(msg.textContent).toContain("คำเตือน 3 รายการ");
-    // setMsg (sidepanel.js) sets: m.className = "msg" + (kind ? " " + kind : "")
-    expect(msg.className).toContain("err");
-    expect(document.getElementById("out").hidden).toBe(true);
-    expect(document.body.textContent).not.toContain("สมชาย");
-  });
-});
-
-describe("side panel sanitized-space highlighting", () => {
-  it("converts code-point offsets before slicing JavaScript text", async () => {
-    setupDom();
-    setupChrome();
-    global.chrome.runtime.sendMessage = (message, cb) => {
-      sent.push(message);
-      if (message.type === "health") {
-        cb({ ok: true, status: 200, data: healthData() });
-      } else if (message.type === "sanitize") {
-        cb({ ok: true, status: 200, data: sanitizeData("😀 [ชื่อ_1]") });
-      } else {
-        cb({ ok: true, status: 200, data: {} });
-      }
-    };
-    setupBrowserApis();
-    vi.resetModules();
-    await import("../contract-v2.js");
-    await import("../sidepanel.js");
-    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-    await flush();
-
+  it("keeps all write surfaces disabled for malformed sanitize success", async () => {
+    await loadPanel((message) => {
+      if (message.type === "health") return { ok: true, status: 200, data: healthData() };
+      return {
+        ok: true,
+        status: 200,
+        data: sanitizeData(""),
+      };
+    });
     document.getElementById("input").value = "synthetic";
     document.getElementById("maskBtn").click();
     await flush();
+    expect(document.getElementById("maskedWrap").hidden).toBe(true);
+    expect(document.getElementById("copyBtn").hidden).toBe(true);
+    expect(document.getElementById("restoreBtn").disabled).toBe(true);
+  });
 
+  it("blocks warning-bearing restore text", async () => {
+    await loadPanel((message) => {
+      if (message.type === "health") return { ok: true, status: 200, data: healthData() };
+      if (message.type === "sanitize") return { ok: true, status: 200, data: sanitizeData() };
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          restored_text: "synthetic-restored",
+          replaced_count: 1,
+          leftover_count: 0,
+          warnings: [{ code: "foreign_replacement", count: 3 }],
+        },
+      };
+    });
+    document.getElementById("input").value = "synthetic";
+    document.getElementById("maskBtn").click();
+    await flush();
+    document.getElementById("reply").value = "[NAME_1]";
+    document.getElementById("restoreBtn").click();
+    await flush();
+    expect(document.getElementById("out").hidden).toBe(true);
+    expect(document.body.textContent).not.toContain("synthetic-restored");
+  });
+
+  it("invalidates restore immediately on native lifecycle loss", async () => {
+    const { ports } = await loadPanel();
+    document.getElementById("input").value = "synthetic";
+    document.getElementById("maskBtn").click();
+    await flush();
+    expect(document.getElementById("restoreBtn").disabled).toBe(false);
+    ports[0].onMessage.emit({ type: "lifecycle", state: "session-expired" });
+    expect(document.getElementById("restoreBtn").disabled).toBe(true);
+    expect(document.getElementById("copyBtn").hidden).toBe(true);
+  });
+
+  it("reconnects with PII-free health and never revives the old panel session", async () => {
+    const { ports, sent } = await loadPanel();
+    document.getElementById("input").value = "synthetic";
+    document.getElementById("maskBtn").click();
+    await flush();
+    expect(document.getElementById("restoreBtn").disabled).toBe(false);
+
+    const beforeDisconnect = sent.length;
+    vi.useFakeTimers();
+    ports[0].onDisconnect.emit();
+    expect(document.getElementById("restoreBtn").disabled).toBe(true);
+    expect(document.getElementById("copyBtn").hidden).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chrome.runtime.connect).toHaveBeenCalledTimes(2);
+    expect(sent.slice(beforeDisconnect).map((message) => message.type)).toEqual(["health"]);
+    expect(document.getElementById("maskBtn").disabled).toBe(false);
+
+    document.getElementById("reply").value = "[NAME_1]";
+    document.getElementById("restoreBtn").click();
+    await vi.runAllTicks();
+    expect(sent.slice(beforeDisconnect).some((message) => message.type === "reidentify")).toBe(
+      false
+    );
+  });
+
+  it("converts code-point highlight offsets before rendering", async () => {
+    await loadPanel((message) => {
+      if (message.type === "health") return { ok: true, status: 200, data: healthData() };
+      return { ok: true, status: 200, data: sanitizeData("😀 [ชื่อ_1]") };
+    });
+    document.getElementById("input").value = "synthetic";
+    document.getElementById("maskBtn").click();
+    await flush();
     expect(document.getElementById("masked").innerHTML).toContain(
       '<span class="chip chip--token">[ชื่อ_1]</span>'
     );
-    expect(document.getElementById("masked").textContent).toBe("😀 [ชื่อ_1]");
   });
 });

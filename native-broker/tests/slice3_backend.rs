@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -26,6 +27,40 @@ fn backend_test_guard() -> MutexGuard<'static, ()> {
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+struct TestBackend {
+    inner: Arc<Mutex<ManagedBackend>>,
+    working_directory: PathBuf,
+}
+
+impl Deref for TestBackend {
+    type Target = Arc<Mutex<ManagedBackend>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Drop for TestBackend {
+    fn drop(&mut self) {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .force_terminate();
+        let _ = std::fs::remove_dir_all(&self.working_directory);
+    }
+}
+
+fn backend_working_directory() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "aiguard-slice3-backend-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::AcqRel)
+    ));
+    std::fs::create_dir(&path).unwrap();
+    path
 }
 
 struct TimedExecutor {
@@ -99,18 +134,19 @@ fn python_command(root: &Path, requested: &[String]) -> (PathBuf, Vec<String>) {
     }
 }
 
-fn launch_backend() -> Arc<Mutex<ManagedBackend>> {
+fn launch_backend() -> TestBackend {
     let root = repository_root();
+    let working_directory = backend_working_directory();
     let requested = vec![
         root.join("launcher.py").to_string_lossy().into_owned(),
         "--native-broker-backend".to_owned(),
     ];
     let (python, arguments) = python_command(&root, &requested);
-    Arc::new(Mutex::new(
+    let inner = Arc::new(Mutex::new(
         ManagedBackend::spawn_synthetic_for_test(
             &python,
             &arguments,
-            &root,
+            &working_directory,
             "2.5.0",
             BackendTimeouts {
                 startup: Duration::from_secs(20),
@@ -119,7 +155,11 @@ fn launch_backend() -> Arc<Mutex<ManagedBackend>> {
             },
         )
         .unwrap(),
-    ))
+    ));
+    TestBackend {
+        inner,
+        working_directory,
+    }
 }
 
 fn launch_blocking_backend(ready: &Path) -> Arc<Mutex<ManagedBackend>> {

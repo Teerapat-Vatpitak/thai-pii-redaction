@@ -45,8 +45,9 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local Desktop | The installed webview uses typed commands and authenticated native IPC to a shared broker, which owns the private authenticated HTTP-v2 backend. Mappings, backend endpoint/credentials, provider credentials, and Python session IDs never reach the webview. The installed Desktop/native-broker profile is deliberately credential-free: it fixes detection to local `thainer`, admits only `fake` as an internal backend conformance provider, and exposes no provider command to the webview. Unsupported explicit engine/provider selectors fail before broker connection or launch with `ner_unavailable` or `provider_configuration`; broker and backend children receive a name-allowlisted runtime environment that never queries provider/TNER credential values and pins `thainer`/`fake`. Remote TNER and credential-requiring providers remain available only outside this installed-product boundary. Slice 4 is integrated; Slice 5 has not started. |
-| Browser extension and Office Add-in | The default detector, pseudonymization, and canonical mapping run on the user's device. Current backend source rejects outbound residuals before returning masked text or making an AI Guard-controlled provider call. Explicit remote TNER sends raw pre-mask chunks to AI for Thai. These storefronts still use strict direct HTTP v2 without mapping DTOs; fresh package acceptance and localhost process identity remain open. |
+| Local Desktop | The installed webview uses typed commands and authenticated native IPC to a shared broker, which owns the private authenticated HTTP-v2 backend. Mappings, backend endpoint/credentials, provider credentials, and Python session IDs never reach the webview. The installed Desktop/native-broker profile is deliberately credential-free: it fixes detection to local `thainer`, admits only `fake` as internal backend conformance support, and exposes no provider command. Slice 4 is integrated. |
+| Browser Extension candidate | The MV3 service worker owns one registered Chrome Native Messaging port to the same shared broker. Content scripts and side panels never receive mappings, Python session IDs, backend endpoints/credentials, or native transport access. Installed detection is fixed to local `thainer`; no provider, remote TNER, credential, localhost permission, HTTP client, or fallback is exposed. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm`, exact-ID unpacked Chromium, and installed-companion gates pass; the Web Store item remains Draft/unpublished. |
+| Office Add-in | Office remains outside broker protocol v1 and retains its separately documented strict fixed-port HTTP-v2 development path. Explicit remote TNER outside the installed Desktop/Extension boundary sends raw pre-mask chunks to AI for Thai. Fresh Office host/package acceptance and localhost process identity remain open. |
 | Hosted platform service | The raw request reaches the platform-hosted AI Guard container. The selected sibling port is request-stateless, gates business routes with a signed caller cookie, proxies its public aliases to strict contract 2, and returns minimized projections without mapping DTOs. Main's `app.hosted` session routes remain a generic reference, not the selected deployment. The exact sibling commit passes provider-free local check/deploy; exact live-provider, public-proxy, and platform acceptance remain open. |
 
 The hosted statement is intentionally narrower than the local statement. AI
@@ -80,17 +81,19 @@ inspection endpoints `/api/detect`, `/api/analyze`, and `/api/guard` remain
 report/warn paths, not outbound-use blockers.
 
 Other gates remain open. Current source removes mapping-oriented HTTP fields
-from the fixed-port Extension and Office path, and those clients validate strict
-HTTP-v2 DTOs. Desktop instead validates broker protocol v1 through typed Tauri
-commands; backend HTTP details and Python session IDs do not reach its webview.
-All three paths use a vault-generation namespace with an unpredictable nonce
+from the fixed-port Office path. Desktop and Extension instead validate broker
+protocol v1 through typed Tauri or Native Messaging boundaries; backend HTTP
+details and Python session IDs do not reach either storefront. All three paths
+use a vault-generation namespace with an unpredictable nonce
 for each newly minted token. Regressions show stale and guessed tokens remain
 foreign in the exercised lifecycle cases. The random 64-bit generation tag plus
 approximately 94-bit per-token nonce makes accidental identity reuse and
 future-token preplay computationally impractical; this is probabilistic
 separation, not impossibility.
-The Extension and Office fixed-port clients still do not authenticate the
-localhost process. Historical
+The Office fixed-port client still does not authenticate the localhost process.
+The Extension candidate admits only the owner-approved exact registered origin
+and browser process context before joining the broker. Exact-ID unpacked
+Chromium is not Web Store installation. Historical
 release, storefront, packaged-runtime, and live-provider evidence remains valid
 for the exact named artifacts, but the published 2.5.0 backend predates these
 transaction, outbound-policy, HTTP-v2, and token-identity changes. Those paths
@@ -166,9 +169,10 @@ unsigned by design. Verify the checksum and GitHub build provenance before
 installing; see [SECURITY.md](SECURITY.md).
 
 To add the in-page browser bar to a published install, use the extension from
-the matching release candidate. The current source extension requires the
-current source HTTP-v2 backend; load `extension/` unpacked only with that
-matching backend. See [extension/README.md](extension/README.md).
+the matching release candidate. The current source Extension requires a
+companion built and registered with the exact same approved public identity;
+the fixed-port developer backend does not supply an Extension endpoint. See
+[extension/README.md](extension/README.md).
 
 To develop or sideload the Windows Office task pane, see
 [office-addin/README.md](office-addin/README.md). It reuses the running local
@@ -191,11 +195,11 @@ $env:PYTHONUTF8='1'
 `run.ps1` creates `.venv` and installs the core plus web dependencies on first
 run. The equivalent Git Bash/Linux/macOS command is `./run.sh`. This developer
 backend serves `http://localhost:8000`; check
-`http://localhost:8000/api/health` before starting the Extension, Office Add-in,
-demo, or another direct HTTP client. Desktop does not use or supply that
-fixed-port backend: Desktop reaches the shared broker over native IPC, and the
-broker alone uses a private authenticated random-loopback listener to reach the
-frozen backend.
+`http://localhost:8000/api/health` before starting the Office Add-in, demo, or
+another direct HTTP client. Desktop and Extension do not use or supply that
+fixed-port endpoint: both reach the shared broker over authenticated native
+IPC, and the broker alone uses a private authenticated random-loopback listener
+to reach the frozen backend.
 
 For a manual setup, install the same dependencies with:
 
@@ -208,13 +212,13 @@ python -m venv .venv
 Use [`.env.example`](.env.example) as the safe configuration reference for the
 fixed-port developer backend. Keep provider keys and the local boot/API tokens
 in that backend's environment; the canonical vault belongs in backend memory.
-Extension and Office necessarily handle submitted and returned text, and may
-retain a security-sensitive `session_id`. Current HTTP v2 returns no explicit
-mapping DTO or backend-projected original/token pairs; those clients reject
-unknown or missing safety fields. Desktop's broker-backed configuration boundary
-is separate: provider/TNER credentials are not passed to broker/backend children
-or used as installed-product configuration, and unsupported explicit selectors
-fail closed before broker connection or launch.
+Extension and Office necessarily handle submitted and returned text. Office may
+retain a security-sensitive HTTP `session_id`; Extension content/panel code
+receives no session handle, while its service worker retains only opaque
+connection/scope-bound broker authority. Current HTTP v2 returns no explicit
+mapping DTO or backend-projected original/token pairs. The installed Desktop/
+Extension broker boundary never reads or passes provider/TNER credentials and
+rejects unsupported explicit selectors before broker connection or launch.
 
 ### API and CLI
 
@@ -245,10 +249,11 @@ Use synthetic fixtures from `examples/` for demonstrations and acceptance.
 
 ### Storefront development
 
-- Extension: load `extension/` unpacked in `chrome://extensions` while the
-  separately started fixed-port backend is running; see
-  [extension/README.md](extension/README.md). Launching Desktop does not provide
-  this backend.
+- Extension: build and register the matching Desktop companion and Extension
+  with one exact public identity, then load the candidate in
+  `chrome://extensions`; see [extension/README.md](extension/README.md). The
+  deterministic repository identity is test-only, and the fixed-port backend
+  is never an Extension fallback.
 - Desktop: build the frozen backend and native broker, atomically stage invalid
   `{}` resource placeholders for clean-build discovery, and then build an
   ordinary Tauri bundle. The `beforeBundle` hook writes final direct-bundle
@@ -347,10 +352,12 @@ class named in each record. Current truth is deliberately split as follows:
   a re-attested warm `AppRun`. They are not interchangeable. The AppImage path
   does not prove normal FUSE/double-click behavior or an installed lifecycle.
 - **Installed real-host tests:** the published 2.5.0 Desktop/browser/Office
-  records remain historical pre-broker/HTTP-v2 evidence. They do not certify the
-  current candidate. Current Extension live-site, Office-host, package
-  upgrade/uninstall, and complete installed cross-platform acceptance remain
-  open unless a dated exact-candidate record says otherwise.
+  records remain historical pre-broker/HTTP-v2 evidence. Slice 5 now has
+  production-keyed unpacked real-Chromium and exact CI NSIS installed-companion
+  evidence. This is production-origin/runtime evidence, not Web Store
+  installation or default-path NSIS evidence. Office-host, package upgrade, and
+  complete installed cross-platform acceptance remain open unless a dated
+  exact-candidate record says otherwise.
 - **Live or external tests:** live Pathumma/TNER, official hosted-platform,
   signing/notarization, store submission, release publication, and deployment
   evidence remain separate. A mock, schema check, package build, or local
@@ -361,10 +368,12 @@ fallback. Its installed profile is fixed to local `thainer`; `fake` is the only
 backend provider admitted for internal conformance, and no provider operation is
 exposed to the webview. Unsupported remote/credential-backed configuration
 fails closed, including when a Desktop process finds a warm broker. Slice 4
-integration is complete. The Extension
-and Office remain fixed-port HTTP-v2 clients; Slice 5 is specifically the
-Extension Chrome Native Messaging migration to the existing shared broker, and
-Slice 6 is cross-platform package/install/relocation/updater/upgrade,
+integration is complete. The Extension Native Messaging migration has its
+owner-approved production identity, exact-ID unpacked-browser, installed-
+companion, and cross-platform gates; final exact-head review/CI precedes Slice 5
+integration. Office
+remains outside broker v1 on fixed-port HTTP v2. Slice 6 is cross-platform
+package/install/relocation/updater/upgrade,
 interrupted-upgrade, stale-cleanup, and uninstall recertification. New tag
 publication is intentionally preflight-blocked until those delivery gates are
 complete.

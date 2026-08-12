@@ -397,6 +397,19 @@ fn handle_connection(
         if stop.load(Ordering::Acquire) {
             return;
         }
+        loop {
+            match connection.stream_mut().has_pending_input() {
+                Ok(true) => break,
+                Ok(false) => match connection.stream_mut().peer_connected() {
+                    Ok(true) => std::thread::sleep(Duration::from_millis(10)),
+                    Ok(false) | Err(_) => return,
+                },
+                Err(_) => return,
+            }
+            if stop.load(Ordering::Acquire) {
+                return;
+            }
+        }
         let Some(read_deadline) = Instant::now().checked_add(config.request_timeout) else {
             return;
         };

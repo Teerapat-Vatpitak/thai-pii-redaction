@@ -4,7 +4,7 @@
     "description": "Extension name shown in chrome://extensions and the Chrome Web Store listing."
   },
   "appDesc": {
-    "message": "Masks Thai PII before AI chats; side-panel entry gives stronger isolation. Default detection is local; remote TNER is opt-in.",
+    "message": "Masks Thai PII before AI chats; side-panel entry gives stronger isolation. Installed detection uses local thainer only.",
     "description": "Extension description shown in chrome://extensions and the Chrome Web Store listing."
   }
 }

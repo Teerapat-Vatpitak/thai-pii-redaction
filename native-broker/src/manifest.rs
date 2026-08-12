@@ -28,6 +28,8 @@ struct RawManifest {
     broker: RawComponent,
     clients: Vec<RawClient>,
     backend: RawBackend,
+    #[serde(default)]
+    native_host: Option<RawNativeHost>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -59,12 +61,60 @@ struct RawBackend {
     arguments: Vec<String>,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNativeHost {
+    name: String,
+    allowed_origin: String,
+    identity_classification: String,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct NativeHostPolicy {
+    name: String,
+    allowed_origin: String,
+    identity_classification: String,
+}
+
+impl NativeHostPolicy {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn allowed_origin(&self) -> &str {
+        &self.allowed_origin
+    }
+
+    pub fn identity_classification(&self) -> &str {
+        &self.identity_classification
+    }
+
+    #[doc(hidden)]
+    pub fn for_test(name: &str, allowed_origin: &str, identity_classification: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            allowed_origin: allowed_origin.to_owned(),
+            identity_classification: identity_classification.to_owned(),
+        }
+    }
+}
+
+impl fmt::Debug for NativeHostPolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeHostPolicy")
+            .field("identity_classification", &self.identity_classification)
+            .finish_non_exhaustive()
+    }
+}
+
 pub struct ComponentManifest {
     root: PathBuf,
     product_version: String,
     broker: RawComponent,
     clients: Vec<RawClient>,
     backend: RawBackend,
+    native_host: Option<RawNativeHost>,
 }
 
 impl fmt::Debug for ComponentManifest {
@@ -155,6 +205,7 @@ impl ComponentManifest {
             broker: raw.broker,
             clients: raw.clients,
             backend: raw.backend,
+            native_host: raw.native_host,
         };
         manifest.validate(expected_product_version)?;
         Ok(manifest)
@@ -191,6 +242,35 @@ impl ComponentManifest {
             });
         }
         Err(unauthorized_error())
+    }
+
+    pub fn verified_client_executable_for_role(
+        &self,
+        role: &str,
+    ) -> Result<PathBuf, ProtocolError> {
+        let client = self
+            .clients
+            .iter()
+            .find(|client| client.role == role)
+            .ok_or_else(unauthorized_error)?;
+        let expected = self.resolve_component_path(&client.path, "broker_unauthorized")?;
+        verify_component_bytes(
+            &expected,
+            &client.sha256,
+            Some(&client.build_id),
+            "broker_unauthorized",
+        )?;
+        Ok(expected)
+    }
+
+    pub fn native_host_policy(&self) -> Result<NativeHostPolicy, ProtocolError> {
+        let policy = self.native_host.as_ref().ok_or_else(unavailable_error)?;
+        validate_native_host(policy)?;
+        Ok(NativeHostPolicy {
+            name: policy.name.clone(),
+            allowed_origin: policy.allowed_origin.clone(),
+            identity_classification: policy.identity_classification.clone(),
+        })
     }
 
     pub fn verify_broker_executable(&self, observed_path: &Path) -> Result<(), ProtocolError> {
@@ -259,6 +339,12 @@ impl ComponentManifest {
                 return unavailable();
             }
         }
+        if let Some(native_host) = &self.native_host {
+            validate_native_host(native_host)?;
+            if !self.clients.iter().any(|client| client.role == "extension") {
+                return unavailable();
+            }
+        }
         let mut resolved_paths = BTreeSet::new();
         for path in paths {
             let resolved = self.resolve_component_path(path, "broker_unavailable")?;
@@ -307,6 +393,35 @@ impl ComponentManifest {
         }
         Ok(canonical)
     }
+}
+
+fn validate_native_host(native_host: &RawNativeHost) -> Result<(), ProtocolError> {
+    let name = native_host.name.as_bytes();
+    let valid_name = (1..=64).contains(&name.len())
+        && name[0] != b'.'
+        && name[name.len() - 1] != b'.'
+        && !native_host.name.contains("..")
+        && name.iter().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_')
+        });
+    let origin = native_host.allowed_origin.as_bytes();
+    let prefix = b"chrome-extension://";
+    let valid_origin = origin.len() == prefix.len() + 32 + 1
+        && origin.starts_with(prefix)
+        && origin.ends_with(b"/")
+        && origin[prefix.len()..prefix.len() + 32]
+            .iter()
+            .all(|byte| (b'a'..=b'p').contains(byte));
+    if !valid_name
+        || !valid_origin
+        || !matches!(
+            native_host.identity_classification.as_str(),
+            "production_owner_approved" | "synthetic_test_only"
+        )
+    {
+        return unavailable();
+    }
+    Ok(())
 }
 
 fn validate_component(

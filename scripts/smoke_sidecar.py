@@ -41,6 +41,11 @@ ROOT = Path(__file__).resolve().parent.parent
 HOST = "127.0.0.1"
 PORT = 8000
 BIN_GLOB = str(ROOT / "desktop" / "src-tauri" / "binaries" / "aiguard-*")
+NATIVE_COMPONENT_PREFIXES = (
+    "aiguard-native-broker-",
+    "aiguard-chrome-native-host-",
+    "aiguard-native-host-manager-",
+)
 
 
 def find_sidecar():
@@ -48,7 +53,7 @@ def find_sidecar():
         candidate
         for candidate in glob.glob(BIN_GLOB)
         if not candidate.endswith(".d")
-        and not Path(candidate).name.startswith("aiguard-native-broker-")
+        and not Path(candidate).name.startswith(NATIVE_COMPONENT_PREFIXES)
     )
     if not matches:
         raise FileNotFoundError(

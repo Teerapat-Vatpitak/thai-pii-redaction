@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::AppHandle;
 
 const PACKAGE_SMOKE_EVIDENCE: &str = "desktop-smoke-evidence.json";
@@ -9,6 +10,7 @@ const PACKAGE_SMOKE_FAILURE: &str = "desktop-smoke-failure";
 const PACKAGE_SMOKE_NATIVE_START: &str = "desktop-smoke-native-start";
 const PACKAGE_SMOKE_ROOT: &str = "AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT";
 const MAX_METRIC_MS: f64 = 900_000.0;
+static MARKER_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy)]
 enum PackageSmokeMarker {
@@ -38,7 +40,17 @@ void import("./package-smoke.js")
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackageSmokeFailure {
+    AppBuild,
+    AppExit,
     AppReady,
+    AppRuntime,
+    AppimageDesktop,
+    AppimageEnvironment,
+    AppimageExecutable,
+    AppimageExec,
+    AppimageManifest,
+    AppimageRepair,
+    AppimageRoot,
     Health,
     ReadySignal,
     Analyze,
@@ -53,12 +65,23 @@ pub enum PackageSmokeFailure {
     Finish,
     BootstrapImport,
     BootstrapEval,
+    WebviewProcess,
 }
 
 impl PackageSmokeFailure {
     fn as_str(self) -> &'static str {
         match self {
+            Self::AppBuild => "app_build",
+            Self::AppExit => "app_exit",
             Self::AppReady => "app_ready",
+            Self::AppRuntime => "app_runtime",
+            Self::AppimageDesktop => "appimage_desktop",
+            Self::AppimageEnvironment => "appimage_environment",
+            Self::AppimageExecutable => "appimage_executable",
+            Self::AppimageExec => "appimage_exec",
+            Self::AppimageManifest => "appimage_manifest",
+            Self::AppimageRepair => "appimage_repair",
+            Self::AppimageRoot => "appimage_root",
             Self::Health => "health",
             Self::ReadySignal => "ready_signal",
             Self::Analyze => "analyze",
@@ -73,6 +96,7 @@ impl PackageSmokeFailure {
             Self::Finish => "finish",
             Self::BootstrapImport => "bootstrap_import",
             Self::BootstrapEval => "bootstrap_eval",
+            Self::WebviewProcess => "webview_process",
         }
     }
 }
@@ -209,22 +233,79 @@ fn smoke_root() -> Result<PathBuf, &'static str> {
     smoke_root_for(std::env::var_os(PACKAGE_SMOKE_ROOT))
 }
 
+fn open_pending_marker(
+    root: &Path,
+    marker: PackageSmokeMarker,
+) -> Result<(PathBuf, std::fs::File), &'static str> {
+    (0..16)
+        .find_map(|_| {
+            let sequence = MARKER_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let candidate = root.join(format!(
+                ".{}.pending-{}-{sequence}",
+                marker.as_str(),
+                std::process::id()
+            ));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(output) => Some(Ok((candidate, output))),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(_) => Some(Err("operation_failed")),
+            }
+        })
+        .unwrap_or(Err("operation_failed"))
+}
+
+fn publish_pending_marker(
+    temporary: PathBuf,
+    mut output: std::fs::File,
+    path: &Path,
+    value: &[u8],
+) -> Result<(), &'static str> {
+    let result = (|| {
+        output
+            .write_all(value)
+            .and_then(|()| output.flush())
+            .map_err(|_| "operation_failed")?;
+        drop(output);
+        std::fs::hard_link(&temporary, path).map_err(|_| "operation_failed")
+    })();
+    let _ = std::fs::remove_file(temporary);
+    result
+}
+
 fn write_marker_at(
     root: &Path,
     marker: PackageSmokeMarker,
     value: &[u8],
 ) -> Result<(), &'static str> {
     let path = root.join(marker.as_str());
-    let mut output = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|_| "operation_failed")?;
-    output.write_all(value).map_err(|_| "operation_failed")
+    let (temporary, output) = open_pending_marker(root, marker)?;
+    publish_pending_marker(temporary, output, &path, value)
 }
 
 fn write_marker(marker: PackageSmokeMarker, value: &[u8]) -> Result<(), &'static str> {
     write_marker_at(&smoke_root()?, marker, value)
+}
+
+fn published_evidence_at(root: &Path) -> bool {
+    let path = root.join(PACKAGE_SMOKE_EVIDENCE);
+    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        return false;
+    };
+    // Python validates the DTO; this only detects completed atomic publication.
+    metadata.file_type().is_file()
+        && !is_reparse(&metadata)
+        && metadata.len() > 0
+        && metadata.len() <= 4096
+}
+
+fn write_failure_unless_finished_at(root: &Path, stage: PackageSmokeFailure) {
+    if !published_evidence_at(root) {
+        let _ = write_marker_at(root, PackageSmokeMarker::Failure, stage.as_str().as_bytes());
+    }
 }
 
 pub fn desktop_package_smoke_native_start() -> Result<(), &'static str> {
@@ -232,6 +313,20 @@ pub fn desktop_package_smoke_native_start() -> Result<(), &'static str> {
         return Err("operation_failed");
     }
     write_marker(PackageSmokeMarker::NativeStart, b"started")
+}
+
+pub fn desktop_package_smoke_bootstrap_fail(stage: PackageSmokeFailure) {
+    if requested() {
+        let _ = write_marker(PackageSmokeMarker::Failure, stage.as_str().as_bytes());
+    }
+}
+
+pub fn desktop_package_smoke_runtime_fail(stage: PackageSmokeFailure) {
+    if requested() {
+        if let Ok(root) = smoke_root() {
+            write_failure_unless_finished_at(&root, stage);
+        }
+    }
 }
 
 async fn shutdown_and_exit(app: AppHandle, code: i32) {
@@ -326,11 +421,26 @@ mod tests {
 
     #[test]
     fn failure_diagnostics_are_closed_fixed_values() {
+        assert_eq!(PackageSmokeFailure::AppBuild.as_str(), "app_build");
+        assert_eq!(PackageSmokeFailure::AppExit.as_str(), "app_exit");
         assert_eq!(PackageSmokeFailure::AppReady.as_str(), "app_ready");
+        assert_eq!(PackageSmokeFailure::AppRuntime.as_str(), "app_runtime");
+        assert_eq!(
+            PackageSmokeFailure::AppimageEnvironment.as_str(),
+            "appimage_environment"
+        );
+        assert_eq!(
+            PackageSmokeFailure::AppimageManifest.as_str(),
+            "appimage_manifest"
+        );
         assert_eq!(PackageSmokeFailure::Sanitize.as_str(), "sanitize");
         assert_eq!(
             PackageSmokeFailure::BootstrapEval.as_str(),
             "bootstrap_eval"
+        );
+        assert_eq!(
+            PackageSmokeFailure::WebviewProcess.as_str(),
+            "webview_process"
         );
     }
 
@@ -480,6 +590,31 @@ mod tests {
             .map(std::ffi::OsString::from)
             .collect()
         );
+        assert!(!root
+            .join(format!(".{PACKAGE_SMOKE_READY}.pending"))
+            .exists());
+
+        std::fs::remove_file(root.join(PACKAGE_SMOKE_READY)).unwrap();
+        let root = std::sync::Arc::new(root);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        let writers = [b"first".as_slice(), b"second".as_slice()].map(|value| {
+            let root = std::sync::Arc::clone(&root);
+            let barrier = std::sync::Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                write_marker_at(&root, PackageSmokeMarker::Ready, value)
+            })
+        });
+        barrier.wait();
+        let results = writers.map(|writer| writer.join().unwrap());
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        let published = std::fs::read(root.join(PACKAGE_SMOKE_READY)).unwrap();
+        assert!([b"first".as_slice(), b"second".as_slice()].contains(&published.as_slice()));
+        assert!(std::fs::read_dir(&*root).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".pending-")));
 
         #[cfg(unix)]
         {
@@ -508,6 +643,45 @@ mod tests {
         ] {
             std::fs::remove_file(root.join(name)).unwrap();
         }
+        std::fs::remove_dir(&*root).unwrap();
+    }
+
+    #[test]
+    fn marker_writers_remove_only_their_own_pending_file() {
+        let root = std::env::temp_dir().join(format!(
+            "aiguard-package-marker-ownership-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join(PACKAGE_SMOKE_READY);
+
+        let (first_pending, first_output) =
+            open_pending_marker(&root, PackageSmokeMarker::Ready).unwrap();
+        let (second_pending, second_output) =
+            open_pending_marker(&root, PackageSmokeMarker::Ready).unwrap();
+        assert_ne!(first_pending, second_pending);
+        assert!(first_pending.exists());
+        assert!(second_pending.exists());
+
+        publish_pending_marker(second_pending, second_output, &path, b"second").unwrap();
+        assert!(first_pending.exists());
+        assert_eq!(
+            publish_pending_marker(first_pending.clone(), first_output, &path, b"first"),
+            Err("operation_failed")
+        );
+        assert!(!first_pending.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        assert!(std::fs::read_dir(&root).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".pending-")));
+
+        std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
 
@@ -518,5 +692,34 @@ mod tests {
         assert_eq!(PACKAGE_SMOKE_READY, "desktop-smoke-ready");
         assert_eq!(PACKAGE_SMOKE_EVIDENCE, "desktop-smoke-evidence.json");
         assert_eq!(PACKAGE_SMOKE_FAILURE, "desktop-smoke-failure");
+    }
+
+    #[test]
+    fn runtime_failure_never_overrides_valid_success_evidence() {
+        let root = std::env::temp_dir().join(format!(
+            "aiguard-package-finish-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+
+        write_failure_unless_finished_at(&root, PackageSmokeFailure::AppExit);
+        assert_eq!(
+            std::fs::read(root.join(PACKAGE_SMOKE_FAILURE)).unwrap(),
+            b"app_exit"
+        );
+        std::fs::remove_file(root.join(PACKAGE_SMOKE_FAILURE)).unwrap();
+
+        let encoded = serde_json::to_vec(&evidence()).unwrap();
+        write_marker_at(&root, PackageSmokeMarker::Evidence, &encoded).unwrap();
+        assert!(published_evidence_at(&root));
+        write_failure_unless_finished_at(&root, PackageSmokeFailure::WebviewProcess);
+        assert!(!root.join(PACKAGE_SMOKE_FAILURE).exists());
+
+        std::fs::remove_file(root.join(PACKAGE_SMOKE_EVIDENCE)).unwrap();
+        std::fs::remove_dir(root).unwrap();
     }
 }

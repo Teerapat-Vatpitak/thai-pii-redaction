@@ -21,6 +21,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    from scripts.native_host_identity import ExtensionIdentity, load_extension_identity
+except ModuleNotFoundError:  # Direct script execution adds scripts/ to sys.path.
+    from native_host_identity import ExtensionIdentity, load_extension_identity
+
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_NAME = "native-components-v1.json"
 BUNDLE_MANIFEST_DIRECTORY = ROOT / "desktop" / "src-tauri" / "binaries"
@@ -49,6 +54,8 @@ APPIMAGE_RUNTIME_PIN = {
 }
 APPIMAGE_DIGEST_SECTION = b".digest_md5"
 APPIMAGE_DIGEST_SIZE = 16
+PYINSTALLER_COOKIE_MAGIC = b"MEI\x0c\x0b\x0a\x0b\x0e"
+PYINSTALLER_COOKIE_SEARCH_BYTES = 8192
 BUILD_MARKER_PREFIX = b"AIGUARD_NATIVE_COMPONENT_BUILD_ID="
 # AIGUARD_API_KEY appears in credential-scrub code, so it is not an authority
 # marker by itself.
@@ -138,8 +145,20 @@ def _manifest_document(
     names: dict[str, str],
     version: str,
     desktop_sha256: str | None = None,
+    adapter: Path | None = None,
+    manager: Path | None = None,
+    identity: ExtensionIdentity | None = None,
 ) -> dict[str, object]:
-    return {
+    clients = [
+        {
+            "component_id": "desktop",
+            "role": "desktop",
+            "path": names["desktop"],
+            "sha256": desktop_sha256 or _digest(desktop),
+            "build_id": version,
+        }
+    ]
+    manifest = {
         "schema_version": 1,
         "product_version": version,
         "broker": {
@@ -148,15 +167,7 @@ def _manifest_document(
             "sha256": _digest(broker),
             "build_id": version,
         },
-        "clients": [
-            {
-                "component_id": "desktop",
-                "role": "desktop",
-                "path": names["desktop"],
-                "sha256": desktop_sha256 or _digest(desktop),
-                "build_id": version,
-            }
-        ],
+        "clients": clients,
         "backend": {
             "component_id": "python-backend",
             "path": names["backend"],
@@ -165,6 +176,34 @@ def _manifest_document(
             "arguments": ["--native-broker-backend"],
         },
     }
+    native_values = (adapter, manager, identity)
+    if any(value is not None for value in native_values):
+        if adapter is None or manager is None or identity is None:
+            raise ValueError("incomplete native host package inputs")
+        clients.extend(
+            [
+                {
+                    "component_id": "chrome-native-host",
+                    "role": "extension",
+                    "path": names["adapter"],
+                    "sha256": _digest(adapter),
+                    "build_id": version,
+                },
+                {
+                    "component_id": "native-host-manager",
+                    "role": "maintenance",
+                    "path": names["manager"],
+                    "sha256": _digest(manager),
+                    "build_id": version,
+                },
+            ]
+        )
+        manifest["native_host"] = {
+            "name": "th.ac.psu.aiguard.native_host",
+            "allowed_origin": identity.origin,
+            "identity_classification": identity.classification,
+        }
+    return manifest
 
 
 def _write_manifest(path: Path, manifest: dict[str, object]) -> Path:
@@ -230,6 +269,9 @@ def write_bundle_manifest(
     broker: Path,
     backend: Path,
     version: str,
+    adapter: Path | None = None,
+    manager: Path | None = None,
+    identity: ExtensionIdentity | None = None,
     _desktop_sha256: str | None = None,
 ) -> Path:
     """Hash final build outputs without copying or renaming them."""
@@ -237,8 +279,14 @@ def write_bundle_manifest(
     desktop = _checked_source(desktop, marker_version=version)
     broker = _checked_source(broker, marker_version=version)
     backend = _checked_source(backend)
+    if adapter is not None:
+        adapter = _checked_source(adapter, marker_version=version)
+    if manager is not None:
+        manager = _checked_source(manager, marker_version=version)
     _reject_legacy_desktop_authority(desktop)
-    suffixes = {_bundle_suffix(path) for path in (desktop, broker, backend)}
+    components = [desktop, broker, backend]
+    components.extend(path for path in (adapter, manager) if path is not None)
+    suffixes = {_bundle_suffix(path) for path in components}
     if len(suffixes) != 1:
         raise ValueError("bundle component extension mismatch")
     suffix = suffixes.pop()
@@ -248,6 +296,8 @@ def write_bundle_manifest(
         "desktop": f"desktop{suffix}",
         "broker": f"aiguard-native-broker{suffix}",
         "backend": f"aiguard{suffix}",
+        "adapter": f"aiguard-chrome-native-host{suffix}",
+        "manager": f"aiguard-native-host-manager{suffix}",
     }
     manifest = _manifest_document(
         desktop=desktop,
@@ -256,6 +306,9 @@ def write_bundle_manifest(
         names=names,
         version=version,
         desktop_sha256=_desktop_sha256,
+        adapter=adapter,
+        manager=manager,
+        identity=identity,
     )
     return _write_manifest(manifest_path, manifest)
 
@@ -279,6 +332,9 @@ def write_tauri_bundle_manifests(
     broker: Path,
     backend: Path,
     version: str,
+    adapter: Path | None = None,
+    manager: Path | None = None,
+    identity: ExtensionIdentity | None = None,
 ) -> list[Path]:
     """Write final direct-bundle manifests and an invalid AppImage placeholder."""
     version = _checked_version(version)
@@ -311,6 +367,9 @@ def write_tauri_bundle_manifests(
                 broker=broker,
                 backend=backend,
                 version=version,
+                adapter=adapter,
+                manager=manager,
+                identity=identity,
                 _desktop_sha256=desktop_sha256,
             )
         )
@@ -330,6 +389,50 @@ def _checked_appimage_directory(appdir: Path) -> tuple[Path, Path]:
     if package.resolve(strict=True) != package or not package.is_dir():
         raise ValueError("invalid finalized AppImage directory")
     return appdir, package
+
+
+def _checked_frozen_backend(path: Path) -> Path:
+    path = _checked_source(path)
+    metadata = path.stat()
+    if os.name != "nt" and metadata.st_mode & 0o111 == 0:
+        raise ValueError("invalid frozen backend archive")
+    with path.open("rb") as handle:
+        handle.seek(max(0, metadata.st_size - PYINSTALLER_COOKIE_SEARCH_BYTES))
+        tail = handle.read(PYINSTALLER_COOKIE_SEARCH_BYTES)
+    if PYINSTALLER_COOKIE_MAGIC not in tail:
+        raise ValueError("invalid frozen backend archive")
+    return path
+
+
+def _restore_appimage_backend(source: Path, destination: Path) -> Path:
+    source = _checked_frozen_backend(source)
+    destination = _checked_source(destination)
+    source_digest = _digest(source)
+    source_mode = stat.S_IMODE(source.stat().st_mode)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.restore-", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        try:
+            with source.open("rb") as reader, os.fdopen(descriptor, "wb") as writer:
+                descriptor = -1
+                shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                writer.flush()
+                os.fsync(writer.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        os.chmod(temporary, source_mode)
+        if _digest(_checked_frozen_backend(source)) != source_digest:
+            raise RuntimeError("AppImage backend source changed during finalization")
+        os.replace(temporary, destination)
+        restored = _checked_frozen_backend(destination)
+        if _digest(restored) != source_digest:
+            raise RuntimeError("AppImage backend restoration failed")
+        return restored
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _appimage_tool_environment(**values: str) -> dict[str, str]:
@@ -581,7 +684,12 @@ def _extract_appimage(appimage: Path, output: Path) -> Path:
     return extracted
 
 
-def _verify_finalized_appimage(source_package: Path, extracted: Path, version: str) -> None:
+def _verify_finalized_appimage(
+    source_package: Path,
+    extracted: Path,
+    version: str,
+    identity: ExtensionIdentity | None = None,
+) -> None:
     usr = extracted / "usr"
     extracted_package = usr / "bin"
     if (
@@ -594,7 +702,9 @@ def _verify_finalized_appimage(source_package: Path, extracted: Path, version: s
     ):
         raise RuntimeError("finalized AppImage verification failed")
 
-    names = ("desktop", "aiguard-native-broker", "aiguard", MANIFEST_NAME)
+    names = ["desktop", "aiguard-native-broker", "aiguard", MANIFEST_NAME]
+    if identity is not None:
+        names[2:2] = ["aiguard-chrome-native-host", "aiguard-native-host-manager"]
     for name in names:
         source = _checked_source(source_package / name)
         packaged = _checked_source(extracted_package / name)
@@ -605,6 +715,16 @@ def _verify_finalized_appimage(source_package: Path, extracted: Path, version: s
     desktop = _checked_source(extracted_package / "desktop", marker_version=version)
     broker = _checked_source(extracted_package / "aiguard-native-broker", marker_version=version)
     backend = _checked_source(extracted_package / "aiguard")
+    adapter = (
+        _checked_source(extracted_package / "aiguard-chrome-native-host", marker_version=version)
+        if identity is not None
+        else None
+    )
+    manager = (
+        _checked_source(extracted_package / "aiguard-native-host-manager", marker_version=version)
+        if identity is not None
+        else None
+    )
     _reject_legacy_desktop_authority(desktop)
     expected = _manifest_document(
         desktop=desktop,
@@ -614,8 +734,19 @@ def _verify_finalized_appimage(source_package: Path, extracted: Path, version: s
             "desktop": "desktop",
             "broker": "aiguard-native-broker",
             "backend": "aiguard",
+            **(
+                {
+                    "adapter": "aiguard-chrome-native-host",
+                    "manager": "aiguard-native-host-manager",
+                }
+                if identity is not None
+                else {}
+            ),
         },
         version=version,
+        adapter=adapter,
+        manager=manager,
+        identity=identity,
     )
     if manifest != expected:
         raise RuntimeError("finalized AppImage verification failed")
@@ -625,9 +756,11 @@ def finalize_appimage(
     appimage: Path,
     *,
     appdir: Path,
+    backend_source: Path,
     plugin: Path,
     arch: str,
     version: str,
+    identity: ExtensionIdentity | None = None,
 ) -> Path:
     """Seal final AppDir bytes, repack, and verify before replacing AppImage."""
     if arch not in APPIMAGE_PLUGIN_SHA256 or arch not in APPIMAGE_RUNTIME_PIN:
@@ -646,12 +779,16 @@ def finalize_appimage(
     ):
         raise ValueError("AppImage output plugin digest mismatch")
 
+    _restore_appimage_backend(backend_source, package / "aiguard")
     manifest = write_bundle_manifest(
         package / MANIFEST_NAME,
         desktop=package / "desktop",
         broker=package / "aiguard-native-broker",
         backend=package / "aiguard",
         version=version,
+        adapter=package / "aiguard-chrome-native-host" if identity is not None else None,
+        manager=package / "aiguard-native-host-manager" if identity is not None else None,
+        identity=identity,
     )
     original_mode = stat.S_IMODE(appimage.stat().st_mode)
     temporary_root = Path(tempfile.mkdtemp(prefix=f".{appimage.name}.", dir=appimage.parent))
@@ -676,7 +813,7 @@ def finalize_appimage(
             if _appimage_runtime_offset(repacked) != runtime_size:
                 raise RuntimeError("finalized AppImage runtime verification failed")
             extracted = _extract_appimage(repacked, temporary_root / "verification")
-            _verify_finalized_appimage(manifest.parent, extracted, version)
+            _verify_finalized_appimage(manifest.parent, extracted, version, identity)
         except (json.JSONDecodeError, OSError, RuntimeError, ValueError):
             raise RuntimeError("finalized AppImage verification failed") from None
         os.chmod(repacked, original_mode)
@@ -706,11 +843,18 @@ def assemble_package(
     broker: Path,
     backend: Path,
     version: str,
+    adapter: Path | None = None,
+    manager: Path | None = None,
+    identity: ExtensionIdentity | None = None,
 ) -> Path:
     version = _checked_version(version)
     desktop = _checked_source(desktop, marker_version=version)
     broker = _checked_source(broker, marker_version=version)
     backend = _checked_source(backend)
+    if adapter is not None:
+        adapter = _checked_source(adapter, marker_version=version)
+    if manager is not None:
+        manager = _checked_source(manager, marker_version=version)
     _reject_legacy_desktop_authority(desktop)
     output = output.resolve()
     if output.exists():
@@ -724,18 +868,27 @@ def assemble_package(
         "desktop": f"AI Guard{suffix}",
         "broker": f"aiguard-native-broker{suffix}",
         "backend": f"aiguard{suffix}",
+        "adapter": f"aiguard-chrome-native-host{suffix}",
+        "manager": f"aiguard-native-host-manager{suffix}",
     }
     destinations = {
         "desktop": output / names["desktop"],
         "broker": output / names["broker"],
         "backend": output / names["backend"],
     }
+    if adapter is not None:
+        destinations["adapter"] = output / names["adapter"]
+    if manager is not None:
+        destinations["manager"] = output / names["manager"]
     for key, source in {
         "desktop": desktop,
         "broker": broker,
         "backend": backend,
     }.items():
         shutil.copy2(source, destinations[key])
+    for key, source in (("adapter", adapter), ("manager", manager)):
+        if source is not None:
+            shutil.copy2(source, destinations[key])
 
     manifest = _manifest_document(
         desktop=destinations["desktop"],
@@ -743,18 +896,23 @@ def assemble_package(
         backend=destinations["backend"],
         names=names,
         version=version,
+        adapter=destinations.get("adapter"),
+        manager=destinations.get("manager"),
+        identity=identity,
     )
     return _write_manifest(output / MANIFEST_NAME, manifest)
 
 
-def _default_paths() -> tuple[Path, Path, Path]:
+def _default_paths() -> tuple[Path, Path, Path, Path, Path]:
     triple = _host_triple()
     suffix = ".exe" if os.name == "nt" else ""
     desktop = ROOT / "desktop" / "src-tauri" / "target" / "release" / (f"desktop{suffix}")
     binaries = ROOT / "desktop" / "src-tauri" / "binaries"
     broker = binaries / f"aiguard-native-broker-{triple}{suffix}"
     backend = binaries / f"aiguard-{triple}{suffix}"
-    return desktop, broker, backend
+    adapter = binaries / f"aiguard-chrome-native-host-{triple}{suffix}"
+    manager = binaries / f"aiguard-native-host-manager-{triple}{suffix}"
+    return desktop, broker, backend, adapter, manager
 
 
 def main() -> int:
@@ -767,7 +925,12 @@ def main() -> int:
     parser.add_argument("--desktop", type=Path)
     parser.add_argument("--broker", type=Path)
     parser.add_argument("--backend", type=Path)
+    parser.add_argument("--adapter", type=Path)
+    parser.add_argument("--manager", type=Path)
+    parser.add_argument("--extension-identity", type=Path)
+    parser.add_argument("--allow-synthetic-identity", action="store_true")
     parser.add_argument("--appdir", type=Path)
+    parser.add_argument("--appimage-backend-source", type=Path)
     parser.add_argument("--appimage-plugin", type=Path)
     parser.add_argument("--appimage-arch", choices=tuple(APPIMAGE_PLUGIN_SHA256))
     args = parser.parse_args()
@@ -778,25 +941,49 @@ def main() -> int:
         return 0
 
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    identity_path = args.extension_identity
+    if identity_path is None and (
+        configured_identity := os.environ.get("AIGUARD_EXTENSION_IDENTITY")
+    ):
+        identity_path = Path(configured_identity)
+    if identity_path is None:
+        parser.error("an owner-approved --extension-identity is required")
+    allow_synthetic = (
+        args.allow_synthetic_identity
+        or os.environ.get("AIGUARD_ALLOW_SYNTHETIC_EXTENSION_IDENTITY") == "1"
+    )
+    identity = load_extension_identity(identity_path, allow_synthetic=allow_synthetic)
+    desktop_default, broker_default, backend_default, adapter_default, manager_default = (
+        _default_paths()
+    )
     if args.finalize_appimage:
-        if not args.appdir or not args.appimage_plugin or not args.appimage_arch:
+        if (
+            not args.appdir
+            or not args.appimage_backend_source
+            or not args.appimage_plugin
+            or not args.appimage_arch
+        ):
             parser.error(
-                "--finalize-appimage requires --appdir, --appimage-plugin, and --appimage-arch"
+                "--finalize-appimage requires --appdir, --appimage-backend-source, "
+                "--appimage-plugin, and --appimage-arch"
             )
         finalized = finalize_appimage(
             args.finalize_appimage,
             appdir=args.appdir,
+            backend_source=args.appimage_backend_source,
             plugin=args.appimage_plugin,
             arch=args.appimage_arch,
             version=version,
+            identity=identity,
         )
         print(f"Desktop AppImage finalized: {finalized}")
         return 0
 
-    desktop_default, broker_default, backend_default = _default_paths()
     desktop = args.desktop or desktop_default
     broker = args.broker or broker_default
     backend = args.backend or backend_default
+    adapter = args.adapter or adapter_default
+    manager = args.manager or manager_default
     if args.bundle_manifest:
         manifests = write_tauri_bundle_manifests(
             BUNDLE_MANIFEST_DIRECTORY,
@@ -805,6 +992,9 @@ def main() -> int:
             broker=broker,
             backend=backend,
             version=version,
+            adapter=adapter,
+            manager=manager,
+            identity=identity,
         )
         prepared = ", ".join(str(manifest) for manifest in manifests)
         print(f"Desktop native bundle manifests prepared: {prepared}")
@@ -815,6 +1005,9 @@ def main() -> int:
             broker=broker,
             backend=backend,
             version=version,
+            adapter=adapter,
+            manager=manager,
+            identity=identity,
         )
         print(f"Desktop native package assembled: {manifest.parent}")
     return 0

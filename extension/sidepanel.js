@@ -1,23 +1,117 @@
-// AI Guard side panel: backend status + manual paste-mode workspace.
-// Fetches go through the service worker so they share its host permissions.
+// AI Guard side panel. The MV3 service worker owns the only native port.
 
 const $ = (id) => document.getElementById(id);
 const CONTRACT = globalThis.AIGUARD_CONTRACT_V2;
-if (!CONTRACT) throw new Error("HTTP v2 contract helpers are unavailable");
-let sessionId = null;
+if (!CONTRACT) throw new Error("contract-unavailable");
+let sessionAvailable = false;
 let maskedText = "";
 let backendReady = false;
+let panelRequestCounter = 0;
+const pending = new Map();
+const HEALTH_RETRY_BASE_MS = 250;
+const HEALTH_RETRY_MAX_MS = 30000;
+let healthRetryAttempt = 0;
+let healthRetryTimer = null;
+let panelPort = null;
+let panelPortGeneration = 0;
+
+function unavailable() {
+  return { ok: false, status: 0, error: "native-unavailable" };
+}
+
+function scheduleHealthRetry() {
+  if (healthRetryTimer !== null) return;
+  const exponent = Math.min(healthRetryAttempt, 7);
+  const delay = Math.min(HEALTH_RETRY_MAX_MS, HEALTH_RETRY_BASE_MS * 2 ** exponent);
+  healthRetryAttempt += 1;
+  healthRetryTimer = setTimeout(() => {
+    healthRetryTimer = null;
+    void checkHealth();
+  }, delay);
+}
+
+function clearHealthRetry() {
+  healthRetryAttempt = 0;
+  if (healthRetryTimer !== null) {
+    clearTimeout(healthRetryTimer);
+    healthRetryTimer = null;
+  }
+}
+
+function settlePendingUnavailable() {
+  for (const resolve of pending.values()) resolve(unavailable());
+  pending.clear();
+}
+
+function disconnectGeneration(port, generation) {
+  if (panelPort !== port || panelPortGeneration !== generation) return;
+  void chrome.runtime.lastError;
+  panelPort = null;
+  backendReady = false;
+  invalidateSession();
+  settlePendingUnavailable();
+  scheduleHealthRetry();
+}
+
+function connectPanelPort() {
+  if (panelPort) return panelPort;
+  let port;
+  try {
+    port = chrome.runtime.connect({ name: "aiguard-side-panel-v1" });
+  } catch {
+    scheduleHealthRetry();
+    return null;
+  }
+  panelPortGeneration += 1;
+  const generation = panelPortGeneration;
+  panelPort = port;
+  port.onMessage.addListener((message) => {
+    if (panelPort !== port || panelPortGeneration !== generation) return;
+    if (message && message.type === "lifecycle") {
+      invalidateSession();
+      if (message.state === "session-expired") {
+        backendReady = false;
+        $("maskBtn").disabled = true;
+        setMsg("เซสชันหมดอายุ ปกปิดใหม่อีกครั้ง", "err");
+        scheduleHealthRetry();
+      }
+      return;
+    }
+    if (!message || message.type !== "response") return;
+    const resolve = pending.get(message.panel_request_id);
+    if (!resolve) return;
+    pending.delete(message.panel_request_id);
+    resolve(message.response);
+  });
+  port.onDisconnect.addListener(() => disconnectGeneration(port, generation));
+  return port;
+}
 
 function send(message) {
+  const port = panelPort || (message.type === "health" ? connectPanelPort() : null);
+  if (!port) return Promise.resolve(unavailable());
+  const generation = panelPortGeneration;
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (resp) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, status: 0, error: chrome.runtime.lastError.message });
-      } else {
-        resolve(resp);
-      }
-    });
+    panelRequestCounter += 1;
+    const panelRequestId = `panel-${panelRequestCounter}`;
+    pending.set(panelRequestId, resolve);
+    try {
+      port.postMessage({ message, panel_request_id: panelRequestId });
+    } catch {
+      pending.delete(panelRequestId);
+      resolve(unavailable());
+      disconnectGeneration(port, generation);
+    }
   });
+}
+
+function invalidateSession() {
+  sessionAvailable = false;
+  maskedText = "";
+  $("copyBtn").hidden = true;
+  $("restoreBtn").disabled = true;
+  $("out").textContent = "";
+  $("out").hidden = true;
 }
 
 function setMsg(text, kind) {
@@ -47,7 +141,12 @@ document.querySelectorAll(".seg__opt").forEach((b) =>
 );
 
 async function checkHealth() {
-  const r = await send({ type: "health" });
+  let r = await send({ type: "health" });
+  try {
+    if (r && r.ok) r = { ...r, data: CONTRACT.validateHealth(r.data) };
+  } catch {
+    r = { ok: false, status: 0, error: "contract-invalid" };
+  }
   const up =
     r &&
     r.ok &&
@@ -58,16 +157,15 @@ async function checkHealth() {
     r.data.capabilities.api_key_required === false;
   backendReady = Boolean(up);
   $("maskBtn").disabled = !backendReady;
-  if (!backendReady) {
-    sessionId = null;
-    maskedText = "";
-    $("copyBtn").hidden = true;
-    $("restoreBtn").disabled = true;
+  if (backendReady) clearHealthRetry();
+  else {
+    invalidateSession();
+    scheduleHealthRetry();
   }
   $("dot").className = "dot " + (up ? "up" : "down");
   $("conn").textContent = up
     ? "พร้อมใช้งาน v" + ((r.data && r.data.version) || "?")
-    : "backend ยังไม่ทำงาน เปิดแอป AI Guard";
+    : "ติดตั้งหรือซ่อมแซม AI Guard Desktop companion";
 }
 
 async function doMask() {
@@ -87,13 +185,18 @@ async function doMask() {
   $("maskedWrap").hidden = true;
   $("restoreBtn").disabled = true;
   const mode = currentMode();
-  // Reuse the panel's own session so multi-turn token numbering stays consistent
-  // (the panel's message has no tab, so background.js can't key reuse on tabId;
-  // we must pass session_id explicitly). EXT-1.
-  const r = await send({ type: "sanitize", text, mode, session_id: sessionId });
+  let r = await send({ type: "sanitize", text, mode });
   $("maskBtn").disabled = !backendReady;
   if (!r || !r.ok) {
+    invalidateSession();
     setMsg(r && r.status === 0 ? "backend ยังไม่ทำงาน" : "ปกปิดไม่สำเร็จ", "err");
+    return;
+  }
+  try {
+    r = { ...r, data: CONTRACT.validateNativeSanitize(r.data) };
+  } catch {
+    invalidateSession();
+    setMsg("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย", "err");
     return;
   }
   if (
@@ -107,7 +210,7 @@ async function doMask() {
     setMsg("ผลลัพธ์ไม่ผ่านการตรวจความปลอดภัย", "err");
     return;
   }
-  sessionId = r.data.session_id;
+  sessionAvailable = true;
   maskedText = r.data.sanitized_text;
   $("masked").innerHTML = CONTRACT.renderHighlightedText(
     maskedText,
@@ -127,12 +230,20 @@ async function doRestore() {
     setMsg("วางคำตอบจาก AI ก่อน", "err");
     return;
   }
-  if (!sessionId) {
+  if (!sessionAvailable) {
     setMsg("ปกปิดข้อความก่อน", "err");
     return;
   }
-  const r = await send({ type: "reidentify", session_id: sessionId, text });
+  let r = await send({ type: "reidentify", text });
   if (!r || !r.ok) {
+    invalidateSession();
+    setMsg("คืนค่าไม่สำเร็จ", "err");
+    return;
+  }
+  try {
+    r = { ...r, data: CONTRACT.validateReidentify(r.data) };
+  } catch {
+    invalidateSession();
     setMsg("คืนค่าไม่สำเร็จ", "err");
     return;
   }

@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-11 Phase 8 Chrome Native Messaging candidate](2026-08-11-phase-8-slice-5-native-messaging.md)
 - [2026-08-09 Phase 8 native-broker Desktop migration](2026-08-09-phase-8-native-broker-desktop.md)
 - [2026-08-08 Phase 8 native-broker data plane, ownership, and disposal](2026-08-08-phase-8-native-broker-data-plane.md)
 - [2026-08-08 Phase 8 authenticated native-broker bootstrap and health](2026-08-08-phase-8-native-broker-bootstrap.md)
@@ -188,12 +189,19 @@ provisional working-candidate evidence; exact-head full CI, package smoke, and
 independent review remain pending.
 
 The earlier configuration-ownership P1 is closed and Slice 4 is integrated
-after exact branch CI, package smoke, and independent review. Slices 5--6 have
-not started. The record does not establish Chrome Native
-Messaging or Extension migration (Slice 5), manual visual/updater/relocation,
-upgrade/interrupted-upgrade/stale-cleanup/uninstall recertification (Slice 6),
-Office broker support, live-provider/TNER evidence, a release, deployment, or
-official hosted acceptance.
+after exact branch CI, package smoke, and independent review. The 2026-08-11
+Slice 5 record covers the implemented Chrome Native Messaging adapter,
+Extension lifecycle, registration/package contracts, exact CI-produced NSIS
+companion install/register/use/uninstall, and real-Chromium evidence. On
+2026-08-12 the owner-approved unpublished production identity
+`kdjmkknedgmfphpkjhjdhmjadaelgggm` passed derivation, production package,
+exact-origin, exact-ID unpacked Chromium, installed-companion, and cross-
+platform gates. The deterministic identity remains test-only. The isolated-
+root NSIS run is installed-companion evidence, but not default-path or Web Store
+installation evidence; the item remains Draft/unpublished. Final exact-head
+review/CI precedes integration. Slice 6 has not started.
+Neither record establishes Office broker support, live-provider/TNER evidence,
+a release, deployment, or official hosted acceptance.
 
 The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
 first merge review rejected `f968833` with six lifecycle, authorization,

@@ -30,26 +30,26 @@ state which context it affects.
 
 ### Local desktop and extension
 
-- Current unreleased Desktop source no longer calls a fixed localhost service.
-  Its only production data path is typed webview command → Rust Desktop client
-  → authenticated native IPC → shared broker → broker-private authenticated
-  HTTP-v2 backend. The Extension and Office paths still use the separately
-  documented fixed localhost service. Host/origin restrictions on that service
-  do not authenticate which process owns its port; Slice 4 does not strengthen
-  those storefronts.
+- Current unreleased Desktop and Extension source no longer call a fixed
+  localhost service. Desktop uses typed webview commands; the Extension MV3
+  service worker uses one registered Native Messaging port. Both join the
+  authenticated shared broker, which alone reaches its broker-private
+  authenticated HTTP-v2 backend. Office retains the separately documented
+  fixed localhost path, whose host/origin restrictions do not authenticate
+  which process owns its port.
 - The canonical pseudonym-to-original mapping lives in process memory and is
   not intentionally persisted. The published 2.5.0/v1 artifact sent direct or
   reconstructable mapping fields, raw Section 26 matches, and prompt-guard
   excerpts/rationales to first-party clients over loopback. Current unreleased
   source implements strict v2 DTOs without those fields and reduces findings
   to category/severity/count-only metadata. This is not a shipped-fix claim.
-- The extension may retain a security-sensitive opaque HTTP session ID. The
-  Desktop UI may retain only a connection/scope/generation-bound broker session
-  handle; Python session IDs and mappings do not cross the broker. Both clients
-  necessarily handle input/output text transiently.
+- The Extension service worker and Desktop UI may retain only connection/scope/
+  generation-bound opaque broker handles; Extension content/panel code receives
+  no session handle. Python session IDs and mappings do not cross the broker.
+  Both clients necessarily handle input/output text transiently.
 - Default PII detection and pseudonym generation run locally. Installed Desktop
-  fixes detection to local `thainer` and cannot select remote TNER. Outside that
-  installed-product boundary, explicitly selected remote TNER sends raw pre-mask
+  and Extension fix detection to local `thainer` and cannot select remote TNER.
+  Outside that installed-product boundary, explicitly selected remote TNER sends raw pre-mask
   chunks to AI for Thai. Current-source outbound-capable local sanitization plus
   CLI, HTTP, and worker provider boundaries fail closed on the shared residual
   policy. This is automated source evidence; packaged, real-host, live-provider,
@@ -66,16 +66,16 @@ state which context it affects.
   no longer authorizes session disposal. Uvicorn access logging discards query
   values, replaces the bearer-like route value with a fixed marker, and
   suppresses unknown access-record shapes. Storefront code receives neither
-  form of control authority. Desktop session/scope/window/app cleanup is now
-  broker-backed and any unconfirmed cleanup disconnects fail closed; Extension
-  and Office disposal remain open.
-- A separately configured API key can authenticate HTTP callers, but normal
-  fixed-port first-party clients still cannot authenticate the process that
-  owns localhost. Desktop code neither reads nor uses this fixed-port key; its
-  broker-generated private backend credential is never projected to Desktop,
-  and Desktop has no backend/data-plane HTTP fallback.
-- The owner closed the Slice 4 configuration P1 by selecting a credential-free
-  installed Desktop/native-broker profile. It supports only local `thainer`;
+  form of control authority. Desktop and Extension scope/client cleanup is
+  broker-backed and any unconfirmed cleanup disconnects fail closed; Office
+  disposal remains outside this broker boundary.
+- A separately configured API key can authenticate HTTP callers, but the
+  fixed-port Office client still cannot authenticate the process that owns
+  localhost. Desktop and Extension code neither read nor use this fixed-port
+  key; the broker-generated private backend credential is never projected to
+  either client, and neither has a backend/data-plane HTTP fallback.
+- The owner selected a credential-free installed Desktop/Extension native-
+  broker profile. It supports only local `thainer`;
   the backend provider allowlist is `fake` solely for internal conformance, and
   the webview exposes no provider command. Explicit unsupported engine/provider
   selectors fail before broker connection or launch with stable,
@@ -88,8 +88,11 @@ state which context it affects.
   no longer snapshot remote configuration independently, so a hostile parent
   environment or attaching Desktop cannot silently reconfigure a warm broker.
   Slice 4 integrated only after exact branch CI, cross-platform package smoke,
-  and independent review passed.
-- Credential-requiring providers and remote TNER for installed Desktop remain a
+  and independent review passed. Slice 5 now has an owner-approved production
+  identity plus exact-ID unpacked-browser and installed-companion evidence; the
+  Web Store item remains Draft/unpublished and no review/publication occurred.
+- Credential-requiring providers and remote TNER for installed Desktop or
+  Extension remain a
   separate future architecture capability. Any expansion requires an
   owner-approved ADR covering credential ownership, provisioning, permissions,
   storage, rotation, configuration identity/epoch, broker restart or

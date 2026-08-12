@@ -28,11 +28,8 @@
   "permissions": [
     "storage",
     "clipboardWrite",
-    "sidePanel"
-  ],
-  "host_permissions": [
-    "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*"
+    "sidePanel",
+    "nativeMessaging"
   ],
   "content_scripts": [
     {

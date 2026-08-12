@@ -1,119 +1,133 @@
 # AI Guard — นโยบายความเป็นส่วนตัว / Privacy Policy
 
-_อัปเดตล่าสุด / Last updated: 2026-08-10_
+_อัปเดตล่าสุด / Last updated: 2026-08-12_
 
-ลิงก์ถาวรของหน้านี้ (สำหรับกรอกในฟอร์ม Chrome Web Store):
+ลิงก์ถาวร / Permanent URL:
 `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md`
 
----
+> สถานะ / Status: source ปัจจุบันใช้ Chrome Native Messaging และ Extension ID
+> `kdjmkknedgmfphpkjhjdhmjadaelgggm` ที่เจ้าของอนุมัติ แต่ Web Store item ยัง
+> เป็น Draft/unpublished และ real-browser acceptance เป็นการ load แบบ unpacked
+> Current source uses Chrome Native Messaging and owner-approved Extension ID
+> `kdjmkknedgmfphpkjhjdhmjadaelgggm`, but the Web Store item remains
+> Draft/unpublished and real-browser acceptance used an unpacked load.
 
 ## ภาษาไทย
 
-### สรุปสั้น
+### การประมวลผลข้อมูล
 
-ส่วน Extension และ backend ของ AI Guard ใช้ detector ในเครื่องโดย default ไม่มีการส่งข้อความไปยังเซิร์ฟเวอร์ของผู้พัฒนา และไม่มี analytics หรือ tracking หากผู้ใช้เลือก TNER แบบ remote อย่างชัดเจน backend จะส่งข้อความดิบก่อนปกปิดเป็นช่วง ๆ ไปยัง AI for Thai เมื่อคุณกดส่งข้อความในหน้าเว็บแชท ข้อความนั้นจะถูกส่งไปยังบริการ AI ที่คุณเลือกตามการทำงานปกติของเว็บนั้น
+Extension ส่งคำสั่งจาก MV3 service worker ไปยัง native host ชื่อ
+`th.ac.psu.aiguard.native_host` แล้วผ่าน shared broker ไปยัง backend ส่วนตัว
+บนเครื่องเดียวกัน Desktop GUI ไม่จำเป็นต้องเปิดอยู่ Production manifest ไม่มี
+localhost/`127.0.0.1` host permission, HTTP fallback, analytics หรือ telemetry
 
-### AI Guard ทำอะไรกับข้อมูลของคุณ
+Installed Extension profile ใช้ detector `thainer` ในเครื่องเท่านั้น ไม่รองรับ
+remote TNER, provider ที่ต้องใช้ credential, provider selection หรือ credential
+store และไม่อ่าน/ส่งต่อค่า credential ของ AI for Thai หรือ provider ใด ๆ
+`fake` อยู่เฉพาะใน conformance support ภายใน
 
-Extension เรียก backend บนเครื่องของคุณโดยตรงเท่านั้น (`http://localhost:8000` หรือ `http://127.0.0.1:8000`) ซึ่งไม่ใช่เซิร์ฟเวอร์ของผู้พัฒนา extension ตัว extension ไม่มี host permission หรือโค้ดที่เรียกปลายทางอื่น แต่ backend จะเรียก AI for Thai หากผู้ใช้ตั้งค่า `AIGUARD_NER_ENGINE=tner` อย่างชัดเจน Source build ปัจจุบันยังไม่ยืนยันตัวตนของ process ที่ครอบครอง port 8000 ดังนั้นควรใช้กับ backend ที่คุณเปิดและเชื่อถือเท่านั้น Source ปัจจุบันมี shared native broker และ Desktop client แล้ว; hardening gate ที่ยังเปิดคือการย้าย Extension ใน Slice 5 ผ่าน Chrome Native Messaging host/adapter พร้อมการลงทะเบียนและ lifecycle ไปยัง broker นั้น
+เมื่อกด Mask หรือ Restore ข้อความและผลลัพธ์อยู่ชั่วคราวในหน่วยความจำของ
+Extension/native adapter/broker/backend ระหว่าง operation เท่านั้น Canonical
+mapping ระหว่างค่าจริงกับ placeholder อยู่ในหน่วยความจำของ private Python
+backend และไม่จงใจเขียนลงดิสก์ Python session ID, mapping, backend address,
+backend credential และ provider credential ไม่ถูกส่งให้ Extension JavaScript
 
-เมื่อคุณกดปุ่ม "Mask PII" (บนแถบลอยในหน้าเว็บแชท AI หรือใน side panel) extension จะอ่านข้อความจากช่องพิมพ์ (หรือข้อความที่คุณเลือก/คำตอบล่าสุดของ AI เมื่อกด "Restore PII") แล้วส่งข้อความนั้นไปยัง backend ผ่าน loopback เพื่อตรวจจับและปกปิด PII ก่อนส่งต่อให้ AI ภายนอก Backend source ปัจจุบันไม่คืนผลที่ปกปิดเมื่อพบ structured FP, text-based TB, เลขติดกันตั้งแต่ 6 หลักจาก detector-independent scan หรือ missing replacement record แต่หลักฐาน browser/store และ backend ที่เผยแพร่ใน Desktop 2.5.0 เกิดก่อนการเปลี่ยนนี้และต้องทดสอบซ้ำ จึงยังห้ามถือว่าเป็น production store package ที่ผ่าน acceptance แล้ว
+Service worker เก็บ broker handles ในหน่วยความจำเท่านั้น โดยแยก scope ต่อ tab
+และต่อ side-panel instance เมื่อ native port หลุด, service worker restart,
+browser restart, tab/panel ปิด หรือ navigation เปลี่ยน origin authority เดิมจะ
+ถูกยกเลิกตามขอบเขต Extension ล้าง stale/legacy session references จาก
+`chrome.storage.session` และไม่ replay operation ที่มี PII การเชื่อมต่อใหม่ต้อง
+เริ่มจาก Mask ที่ผู้ใช้กดใหม่ก่อน Restore
 
-เมื่อใช้ปุ่ม Mask ในหน้าเว็บ ข้อความดิบถูกพิมพ์ลงใน DOM ที่ควบคุมโดยเว็บ AI ก่อน extension ทำงาน โค้ดของเว็บอาจเห็นหรือส่ง draft นั้นได้ก่อนถูกแทนที่ Contract v2 และการย้าย transport ไป Chrome Native Messaging แก้ขอบเขตนี้ไม่ได้ หากต้องการขอบเขตที่เข้มกว่า ให้พิมพ์ข้อความดิบใน side panel แล้วนำเฉพาะผลที่ปกปิดและตรวจแล้วไปวางในเว็บ AI
+### ข้อมูลที่เก็บในเบราว์เซอร์
 
-ตารางหลักที่แปลงค่าจริงกลับไปกลับมากับรหัสปลอม ("vault") อยู่ใน **หน่วยความจำของ backend บนเครื่องคุณ** และไม่มีการจงใจเขียนลงดิสก์ Source ปัจจุบันใช้ HTTP v2 แบบ strict ซึ่งไม่ส่ง explicit mapping DTO และให้ extension เก็บเพียง `session_id` แบบ opaque ซึ่งเป็นรหัสอ้างอิงที่มีความสำคัญด้านความปลอดภัย แต่ backend 2.5.0/v1 ที่เผยแพร่แล้วเกิดก่อนการแก้นี้ และยังไม่มี package/browser acceptance สำหรับ source candidate ปัจจุบัน
-
-### Extension เก็บอะไรไว้ในเบราว์เซอร์ของคุณบ้าง
-
-| ข้อมูล | เก็บไว้ที่ | อายุ | มีข้อมูลส่วนบุคคลไหม |
+| ข้อมูล | ที่เก็บ | อายุ | PII |
 |---|---|---|---|
-| `session_id` (รหัสอ้างอิงเซสชันต่อแท็บ) | `chrome.storage.session` | extension ลบเมื่อ Chrome แจ้งว่าปิดแท็บ; Chrome ล้าง session storage เมื่อจบ browser session | ไม่ใช่ mapping แต่เป็น bearer-like session reference ที่ต้องป้องกัน |
-| ค่าที่เลือกไว้ล่าสุด (token / surrogate) | `chrome.storage.local` | อยู่ถาวรจนกว่าคุณจะลบ extension หรือล้างข้อมูล | ไม่ เป็นค่าตั้งค่า UI |
-| ธีมที่เลือก (system / light / dark) | `localStorage` ของหน้า side panel | อยู่ถาวรจนกว่าคุณจะลบ extension หรือล้างข้อมูล | ไม่ เป็นค่าตั้งค่า UI |
+| โหมด token/surrogate | `chrome.storage.local` | จนกว่าลบ Extension/ล้างข้อมูล | ไม่ใช่ |
+| marker/session state รุ่นเก่าที่อาจค้าง | `chrome.storage.session` | ล้างเมื่อ worker เริ่มและเมื่อ native disconnect | ไม่ใช้เป็น restore authority |
+| ธีม side panel | `localStorage` ของ panel | จนกว่าลบ Extension/ล้างข้อมูล | ไม่ใช่ |
 
-extension ไม่จงใจเก็บข้อความที่คุณพิมพ์, PII หรือ mapping แบบถาวร ข้อมูลและ response object อาจอยู่ชั่วคราวในหน่วยความจำระหว่างประมวลผล; canonical vault อยู่ในหน่วยความจำของ backend
+Extension ไม่จงใจเก็บข้อความดิบ, PII, mapping, Python session ID หรือ broker
+handle แบบถาวร
 
-### Audit log ของ backend
+### ขอบเขต DOM ของหน้า provider
 
-Backend source ปัจจุบันเขียน process/security audit เป็นไฟล์ JSONL ในโฟลเดอร์ log ของ source/packaged app (หรือ stdout เมื่อเปิดโหมด hosted) โดยไม่ใส่ข้อความดิบ, pseudonym หรือ mapping และใช้ operation UUID ใหม่ที่ไม่มีสิทธิ์ restore สำหรับชื่อไฟล์และ entry ของ sanitize/reidentify/roundtrip แต่ชื่อ field เดิมยังเป็น `session_id`; เทส local ครอบคลุมทั้งโหมดไฟล์และ configured stdout `/api/audit-log` ไม่ส่ง field นี้ออกมา ในโหมดไฟล์ แต่ละ operation สร้างไฟล์เฉพาะและไฟล์เหล่านี้ไม่มีการลบตามเวลาอัตโนมัติ ส่วนโหมด stdout ไม่สร้างไฟล์ Backend 2.5.0/v1 ที่เผยแพร่ใน Desktop ยังใช้ live session ID สำหรับ audit event ของ sanitize/reidentify; event ของ roundtrip ใช้ label คงที่ที่ไม่ใช่ session ID และเกิดก่อน outbound-policy change ปัจจุบัน ยังไม่มี package ที่รวมการเปลี่ยนเหล่านี้ผ่าน acceptance
+In-page Mask ทำงานหลังข้อความดิบถูกพิมพ์ลง DOM ที่เว็บ AI ควบคุมแล้ว โค้ดของ
+เว็บอาจเห็นหรือส่ง draft ก่อน Extension แทนที่ Native Messaging ไม่แก้ขอบเขต
+ก่อนหน้านี้ หากต้องการแยกข้อความดิบให้เข้มกว่า ให้พิมพ์ใน side panel และวาง
+เฉพาะผล masked ที่ตรวจแล้วลงเว็บ
 
-### สิทธิ์ (permissions) ที่ขอ และเหตุผล
+### Permissions
 
-- **storage** — เก็บค่าที่เลือก (token/surrogate) และ `session_id` ชั่วคราวตามตารางด้านบน
-- **clipboardWrite** — ใช้เฉพาะตอนคุณกดปุ่ม "คัดลอก" ใน side panel เพื่อคัดลอกข้อความที่ปกปิดแล้วไปยัง clipboard ของคุณ extension ไม่มีการอ่าน clipboard
-- **sidePanel** — เปิดพื้นที่ทำงาน side panel ที่ docked ข้างเบราว์เซอร์
-- **host_permissions** (`http://localhost:8000/*`, `http://127.0.0.1:8000/*`) — ให้ extension เรียก backend บนเครื่องคุณเองข้าม origin ได้ (ไม่ใช่เซิร์ฟเวอร์ภายนอก)
-- **content scripts** บนเว็บแชท AI ที่รองรับ (ChatGPT, Claude, Gemini, Grok, Perplexity, GLM/Z.ai) — ใช้แสดงแถบ Mask/Restore และหา composer/reply ที่น่าจะตรงผ่าน site selector กับ generic fallback เมื่อผู้ใช้กดปุ่ม หากเว็บเปลี่ยน selector fallback อาจเลือก element ที่มองเห็นอื่นซึ่งตรงเงื่อนไข
+- `storage` — เก็บเฉพาะ UI preference และล้าง stale session state
+- `clipboardWrite` — คัดลอก masked text หลังผู้ใช้กด Copy; ไม่อ่าน clipboard
+- `sidePanel` — เปิดพื้นที่ทำงานแบบ docked
+- `nativeMessaging` — เชื่อม service worker กับ native host ที่ลงทะเบียนไว้
+- content-script matches แบบเจาะจง — แสดง Mask/Restore บน ChatGPT, Claude,
+  Gemini, Grok, Perplexity และ GLM/Z.ai
 
-### สิ่งที่ AI Guard ไม่ทำ
-
-- ไม่มี analytics, telemetry หรือ tracking ใด ๆ
-- ไม่ส่ง backend call หรือ telemetry ไปยังเซิร์ฟเวอร์ของผู้พัฒนา; ข้อความที่ผู้ใช้กดส่งในหน้าเว็บจะไปยังบริการ AI ที่ผู้ใช้เลือก
-- AI Guard ไม่ขายข้อมูลหรือส่งข้อมูลให้ผู้พัฒนา; ข้อความที่ผู้ใช้กดส่งจะถูกประมวลผลโดยบริการ AI ที่ผู้ใช้เลือก
-- ไม่เก็บ mapping ระหว่างข้อมูลจริงกับรหัสปลอมไว้ถาวร canonical vault จะถูกทิ้งเมื่อ backend ปิด, session ถูกลบ/evict หรือเมื่อ deadline timer ของ backend ทำให้ session หมดอายุที่ขอบเขต `age >= TTL` โดยไม่รอ operation ครั้งถัดไป
-
-### ติดต่อ
-
-ช่องทางติดต่อผู้ดูแลโปรเจกต์: โปรไฟล์ GitHub ของผู้ดูแล — `https://github.com/Teerapat-Vatpitak`
-
----
+ไม่มี production loopback `host_permissions`, broad host permission,
+analytics, tracking หรือการขายข้อมูล
 
 ## English
 
-### Summary
+### Data processing
 
-The AI Guard extension and backend use a local detector by default. They do not send text to the developer's servers, and there is no analytics or tracking. If the user explicitly selects remote TNER, the backend sends raw pre-mask chunks to AI for Thai. When you submit composer text on an AI chat site, it is sent to the AI service you selected as part of that site's normal operation.
+The Extension sends operations from its MV3 service worker to the registered
+native host `th.ac.psu.aiguard.native_host`, then through the shared broker to
+a private backend on the same device. The Desktop GUI does not need to be
+running. The production manifest has no localhost/`127.0.0.1` host permission,
+HTTP fallback, analytics, or telemetry.
 
-### What AI Guard does with your data
+The installed Extension profile uses only the local `thainer` detector. It
+does not support remote TNER, credential-requiring providers, provider
+selection, or a credential store, and it does not read or forward AI for Thai
+or provider credential values. `fake` remains internal conformance support.
 
-This extension directly talks only to a backend running on your own machine (`http://localhost:8000` or `http://127.0.0.1:8000`), not a server operated by the extension's developer. The extension has no host permissions or code that reach another endpoint. The backend is local by default but calls AI for Thai if the user explicitly configures `AIGUARD_NER_ENGINE=tner`. The current source build does not authenticate which process owns port 8000, so use it only with a backend you started and trust. Current source already contains the shared native broker and Desktop client; the open hardening gate is the Extension's Slice 5 Chrome Native Messaging host/adapter, registration, and lifecycle migration to that broker.
+Mask/Restore input and output exist transiently in process memory while an
+operation runs. The canonical real-value-to-placeholder mapping remains in the
+private Python backend's memory and is not deliberately written to disk.
+Python session IDs, mappings, backend addresses/credentials, and provider
+credentials never reach Extension JavaScript.
 
-When you click "Mask PII" (on the floating bar shown on supported AI chat sites, or in the side panel), the extension reads the likely composer element (or your selection / a likely reply element for Restore) and sends that text to the backend over loopback so it can detect and mask PII before you send it to an external AI. Current backend source returns no masked result when it finds structured FP, text-based TB, detector-independent contiguous 6+ digit residuals, or a missing replacement record. The published Desktop 2.5.0 backend and historical browser/store evidence predate this change and must be rerun, so no production store package containing this behavior has been accepted.
+The service worker keeps broker handles only in memory and uses a separate
+scope for every tab and side-panel instance. Native disconnect, worker or
+browser restart, tab/panel close, and cross-origin navigation invalidate the
+affected authority. The Extension clears stale/legacy session references from
+`chrome.storage.session` and never replays a PII-bearing operation. After a
+new connection, a new user-initiated Mask is required before Restore.
 
-For in-page Mask, raw text is already typed into the AI site's provider-controlled DOM before the extension acts. Site code can observe or transmit that draft before replacement; contract v2 and a Chrome Native Messaging transport migration cannot remove this earlier boundary. For stronger isolation, enter raw text in the side panel and paste only the reviewed masked result into the AI site.
+### Browser storage
 
-The canonical mapping between real values and fake placeholders (the "vault") is kept **in the memory of the backend running on your machine** and is not deliberately written to disk. Current source uses strict HTTP v2, returns no explicit mapping DTO, and leaves the extension with an opaque, security-sensitive `session_id`. The published 2.5.0/v1 backend predates that repair, and the current source candidate has not yet received matching package/browser acceptance.
-
-### What the extension stores in your browser
-
-| Data | Stored in | Lifetime | Contains PII? |
+| Data | Storage | Lifetime | PII |
 |---|---|---|---|
-| `session_id` (per-tab session reference) | `chrome.storage.session` | The extension clears it on Chrome's tab-removed event; Chrome clears session storage when the browser session ends | Not the mapping, but a bearer-like session reference that must be protected |
-| Your last-selected mode (token / surrogate) | `chrome.storage.local` | Persists until you remove the extension or clear its data | No — a UI preference |
-| Your selected theme (system / light / dark) | `localStorage` of the side panel page | Persists until you remove the extension or clear its data | No — a UI preference |
+| token/surrogate mode | `chrome.storage.local` | until removal or data clear | No |
+| stale/legacy session marker state | `chrome.storage.session` | cleared at worker startup and native disconnect | Never used as restore authority |
+| side-panel theme | panel `localStorage` | until removal or data clear | No |
 
-The extension does not deliberately persist the text you type, detected PII, or a mapping. Text and response objects can exist transiently in process memory while a request is handled; the canonical vault remains in backend memory.
+The Extension does not deliberately persist raw text, PII, mappings, Python
+session IDs, or broker handles.
 
-### Backend audit logs
+### Provider-page DOM boundary
 
-The current source backend writes process/security audit JSONL to the source or packaged
-application log directory (or stdout when hosted mode is enabled). It does not
-write request text, pseudonyms, or the mapping. Current source uses a fresh
-non-authorizing operation UUID for sanitize, reidentify, and roundtrip
-filenames and entries, while retaining the legacy `session_id` field name.
-Local tests cover disk and configured stdout, and `/api/audit-log` omits the
-field. In file mode, each operation creates an operation-specific file and
-those files have no timed automatic deletion; configured stdout mode creates no
-file. The backend published with Desktop 2.5.0 still uses the live session ID
-for sanitize/reidentify audit events; its roundtrip event used a fixed
-non-session label and predates the current outbound-policy change. No package
-containing either current change has been accepted.
+In-page Mask acts only after raw text is already in the AI site's
+provider-controlled DOM. Site code may observe or transmit that draft before
+replacement. Native Messaging cannot remove that earlier boundary. For
+stronger raw-entry isolation, type in the side panel and paste only the
+reviewed masked result into the site.
 
-### Permissions requested, and why
+### Permissions
 
-- **storage** — stores the mode preference (token/surrogate) and the temporary `session_id`, per the table above.
-- **clipboardWrite** — used only when you click the "Copy" button in the side panel, to copy the masked text to your clipboard. The extension never reads the clipboard.
-- **sidePanel** — opens the docked side-panel workspace.
-- **host_permissions** (`http://localhost:8000/*`, `http://127.0.0.1:8000/*`) — lets the extension call the backend running on your own machine across origins (not an external server).
-- **content scripts** on supported AI chat sites (ChatGPT, Claude, Gemini, Grok, Perplexity, GLM/Z.ai) — show the Mask/Restore bar and locate a likely composer/reply through site selectors plus generic fallbacks when the user invokes an action. If a site changes, a fallback can select another visible matching element.
+- `storage` — UI preference and fail-closed stale-session cleanup only
+- `clipboardWrite` — copies validated masked text after a user click; never reads
+- `sidePanel` — opens the docked workspace
+- `nativeMessaging` — connects the service worker to the registered local host
+- exact content-script matches — provide Mask/Restore controls on ChatGPT,
+  Claude, Gemini, Grok, Perplexity, and GLM/Z.ai
 
-### What AI Guard does not do
+There is no production loopback `host_permissions`, broad host permission,
+analytics, tracking, or sale of user data.
 
-- No analytics, telemetry, or tracking of any kind.
-- No backend call or telemetry is sent to the developer's servers; composer text you choose to submit is sent by the page to your selected AI service.
-- AI Guard does not sell data or send it to the developer; text you submit is handled by the AI service you selected.
-- No deliberate permanent storage of the mapping. The canonical vault is dropped when the backend stops, the session is deleted/evicted, or the backend-owned deadline timer expires the session at the exact `age >= TTL` boundary without waiting for a later operation.
+## ติดต่อ / Contact
 
-### Contact
-
-Maintainer contact: maintainer's GitHub profile — `https://github.com/Teerapat-Vatpitak`
+Maintainer: `https://github.com/Teerapat-Vatpitak`

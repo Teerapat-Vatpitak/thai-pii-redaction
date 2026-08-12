@@ -24,6 +24,8 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      AIGUARD_EXTENSION_IDENTITY: ${{ github.workspace }}/config/chrome-extension-identity.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -81,6 +83,20 @@ jobs:
       - name: Run the sidecar lifecycle + watchdog smoke check
         run: python scripts/smoke_sidecar.py
 
+      - name: Preserve the exact pre-linuxdeploy AppImage backend
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          source="desktop/src-tauri/binaries/aiguard-$triple"
+          preserved="$RUNNER_TEMP/aiguard-appimage-backend"
+          test -f "$source"
+          test ! -e "$preserved"
+          cp -- "$source" "$preserved"
+          chmod 0755 "$preserved"
+          cmp -- "$source" "$preserved"
+
       - name: Build + stage the native broker
         run: python scripts/build_native_broker.py
 
@@ -112,11 +128,29 @@ jobs:
           test ! -e "$relocated"
           ditto "$app" "$relocated"
           package="$relocated/Contents/MacOS"
+          identity="$AIGUARD_EXTENSION_IDENTITY"
+          cleanup_registration() {
+            "$package/desktop" --unregister-native-host >/dev/null 2>&1 || true
+          }
+          trap cleanup_registration EXIT
+          "$package/desktop" --repair-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state present \
+            --adapter "$package/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-macos/registration-present.json
           python scripts/smoke_desktop_native_package.py "$package" --repetitions 2 > artifacts/desktop-native-macos/smoke-evidence.json
-          (cd "$package" && shasum -a 256 desktop aiguard-native-broker aiguard native-components-v1.json) > artifacts/desktop-native-macos/component-sha256.txt
+          (cd "$package" && shasum -a 256 desktop aiguard-native-broker aiguard-chrome-native-host aiguard-native-host-manager aiguard native-components-v1.json) > artifacts/desktop-native-macos/component-sha256.txt
           archive="$GITHUB_WORKSPACE/artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz"
           tar -C "$(dirname "$relocated")" -czf "$archive" "$(basename "$relocated")"
           (cd artifacts/desktop-native-macos && shasum -a 256 AI-Guard-macos-tested-app.tar.gz) > artifacts/desktop-native-macos/archive-sha256.txt
+          "$package/desktop" --unregister-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state absent \
+            --adapter "$package/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-macos/registration-absent.json
+          trap - EXIT
           cat artifacts/desktop-native-macos/smoke-evidence.json
 
       - name: Upload the exact tested macOS app and value-free evidence
@@ -129,6 +163,8 @@ jobs:
             artifacts/desktop-native-macos/smoke-evidence.json
             artifacts/desktop-native-macos/component-sha256.txt
             artifacts/desktop-native-macos/archive-sha256.txt
+            artifacts/desktop-native-macos/registration-present.json
+            artifacts/desktop-native-macos/registration-absent.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -165,6 +201,7 @@ jobs:
           chmod 0755 "$plugin"
           python scripts/prepare_desktop_native_package.py --finalize-appimage "$appimage" \
             --appdir "$appdir" \
+            --appimage-backend-source "$RUNNER_TEMP/aiguard-appimage-backend" \
             --appimage-plugin "$plugin" \
             --appimage-arch x86_64
 
@@ -179,6 +216,59 @@ jobs:
           test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = "1"
           deb=$(find "$deb_root" -maxdepth 1 -type f -name '*.deb' -print -quit)
           appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          identity="$AIGUARD_EXTENSION_IDENTITY"
+          deb_name=$(dpkg-deb -f "$deb" Package)
+          deb_installed=0
+          appimage_registered=0
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/aiguard-appimage-config"
+          export XDG_DATA_HOME="$RUNNER_TEMP/aiguard-appimage-data"
+          mkdir -p artifacts/desktop-native-linux
+          cleanup_registration() {
+            if [ "$appimage_registered" = 1 ]; then
+              APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host >/dev/null 2>&1 || true
+            fi
+            if [ "$deb_installed" = 1 ]; then
+              sudo dpkg -r "$deb_name" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_registration EXIT
+          sudo dpkg -i "$deb"
+          deb_installed=1
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state present \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-registration-present.json
+          # D-Bus-activated GTK services must inherit the virtual display.
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_native_package.py /usr/bin --repetitions 2 > "$1"' \
+            sh artifacts/desktop-native-linux/deb-smoke-evidence.json
+          sudo dpkg -r "$deb_name"
+          deb_installed=0
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state absent \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-registration-absent.json
+
+          mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --register-native-host
+          appimage_registered=1
+          stable_root="$XDG_DATA_HOME/aiguard/native-host-v1/$(cat VERSION)"
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state present \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-registration-present.json
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host
+          appimage_registered=0
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state absent \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-registration-absent.json
+          test ! -e "$stable_root"
+
           extracted_deb="$RUNNER_TEMP/aiguard-deb"
           extracted_appimage="$RUNNER_TEMP/aiguard-appimage"
           test ! -e "$extracted_deb"
@@ -189,10 +279,7 @@ jobs:
             cd "$extracted_appimage"
             "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
           )
-          dbus-run-session -- xvfb-run -a -e /dev/stderr sh -c \
-            'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 > "$2"' \
-            sh "$extracted_deb/usr/bin" artifacts/desktop-native-linux/deb-smoke-evidence.json
-          dbus-run-session -- xvfb-run -a -e /dev/stderr sh -c \
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
             'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 --finalized-appimage "$3" --appimage-layout "$4" > "$2"' \
             sh "$extracted_appimage/squashfs-root/usr/bin" artifacts/desktop-native-linux/appimage-smoke-evidence.json \
             "$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"
@@ -204,6 +291,7 @@ jobs:
           (cd artifacts/desktop-native-linux && sha256sum AI-Guard-linux-tested-packages.tar.gz) > artifacts/desktop-native-linux/archive-sha256.txt
           cat artifacts/desktop-native-linux/deb-smoke-evidence.json
           cat artifacts/desktop-native-linux/appimage-smoke-evidence.json
+          trap - EXIT
 
       - name: Upload the exact tested Linux packages and value-free evidence
         if: matrix.os == 'ubuntu-latest'
@@ -214,6 +302,10 @@ jobs:
             artifacts/desktop-native-linux/AI-Guard-linux-tested-packages.tar.gz
             artifacts/desktop-native-linux/deb-smoke-evidence.json
             artifacts/desktop-native-linux/appimage-smoke-evidence.json
+            artifacts/desktop-native-linux/deb-registration-present.json
+            artifacts/desktop-native-linux/deb-registration-absent.json
+            artifacts/desktop-native-linux/appimage-registration-present.json
+            artifacts/desktop-native-linux/appimage-registration-absent.json
             artifacts/desktop-native-linux/package-sha256.txt
             artifacts/desktop-native-linux/archive-sha256.txt
           if-no-files-found: error

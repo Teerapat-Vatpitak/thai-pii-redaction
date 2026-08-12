@@ -12,7 +12,7 @@ necessarily one process or transport.
 ```text
 Desktop webview -> typed Tauri commands -> Rust Desktop client
   -> authenticated native IPC -> shared broker -> private HTTP-v2 backend --\
-Browser extension -------------------------------> fixed-port local FastAPI --+
+Browser extension -> Chrome Native Messaging ----> shared broker ------------+
 Office add-in -> HTTPS development proxy --------> fixed-port local FastAPI --+--> pii_redactor core
 Hosted HTTP -----------------------------------------------> hosted adapter --+    detect -> mask
 Demo playground --------------------------------------------> demo/API ------+    -> guard
@@ -27,14 +27,12 @@ The adapters serve four deliberately different lifecycles:
   connection, scope, role, and backend generation; Python session IDs and
   mappings do not cross native IPC. Closing a scope or connection removes its
   authority and requires confirmed cleanup or fail-closed teardown.
-- Extension and Office fixed-port HTTP sessions retain the canonical mapping
-  in backend process memory behind an opaque `session_id`, enabling multi-turn restoration on one
-  device. Clients necessarily handle the user-submitted and returned text, but
-  receive no explicit mapping DTO and retain no mapping collection. Current
-  HTTP v2 projects sanitized/restored text plus safe counts, categories,
-  severities, and sanitized-space highlights; strict first-party validators
-  reject unknown mapping-oriented fields, raw Section 26 matches, and
-  prompt-guard excerpts/rationales.
+- Extension uses connection-owned broker scopes: one `extension_tab` scope per
+  admitted tab/origin/document context and one `extension_panel` scope per
+  panel instance. Only the MV3 service worker owns the Native Messaging port;
+  broker handles remain memory-only there, and Python session IDs/mappings do
+  not reach content or panel JavaScript. Office remains on fixed-port HTTP v2,
+  retaining its opaque `session_id` client boundary.
 - The current main-repository hosted candidate is mixed. `sanitize` plus
   `reidentify` retain an in-process mapping behind `session_id`, while a
   protected `roundtrip` consumes its transient mapping before returning. No
@@ -49,12 +47,12 @@ The adapters serve four deliberately different lifecycles:
 
 ## Trust boundary A - local product
 
-Current source has two local transport boundaries. Desktop uses typed Tauri
-commands and an authenticated native broker connection; the broker alone owns
-the private random-loopback HTTP-v2 backend and its per-boot credentials. The
-Extension and Office paths remain on the separately documented fixed localhost
-service (the Office task pane reaches it through an HTTPS development proxy),
-so Slice 4 does not strengthen those storefronts. Across both boundaries, a
+Current source has two local transport boundaries. Desktop and Extension use
+separate authenticated connections to the same native broker; the broker alone
+owns the private random-loopback HTTP-v2 backend and its per-boot credentials.
+The Office task pane remains on the separately documented fixed localhost
+service through an HTTPS development proxy and stays outside broker v1. Across
+both boundaries, a
 client's retained authority is an opaque session reference rather than an
 explicit mapping or credential, the canonical token-to-original map remains in
 backend memory, and an AI Guard-controlled provider adapter sends only
@@ -103,12 +101,13 @@ provider. Tokenmind performs one HTTP request per `complete()` invocation and
 does not interpret `Retry-After`. Current provider-orchestration evidence is
 source-level automation only. The earlier packaged-backend and Office HTTPS
 proxy preflight predates this change and did not exercise a provider. Fixed-port
-identity remains unauthenticated for Extension and Office. CORS and
+identity remains unauthenticated for Office. CORS and
 `TrustedHost` restrict browser request context and host headers; they do not
-establish server identity. Desktop current source no longer uses that boundary;
-its authenticated package/process and lifecycle evidence is recorded under the
-native broker section. Fresh Extension/Office client and installed-package
-acceptance remain open hardening gates.
+establish server identity. Desktop no longer uses that boundary, and the
+Extension production candidate has no fixed-port path or fallback. Their
+authenticated package/process and lifecycle boundary is recorded below.
+Office real-host acceptance and the Extension's owner-approved identity and
+installed-Web-Store acceptance remain open gates.
 
 ### Native broker boundary
 
@@ -225,7 +224,7 @@ release session authority and admission. Protocol deadlines remain operation-spe
 backend/provider attempt timeouts stay owned by their existing layers.
 Observable disconnect or process loss cancels in-flight transport, and
 post-submission cancellation uses the same uncertain-completion policy. There
-is still no Chrome adapter, Extension change, or Office change.
+is no Office change.
 
 Slice 4 adds the first storefront bridge without changing Slices 1--3. The
 Desktop webview can select only operation-specific Tauri commands, and the Rust
@@ -248,6 +247,44 @@ broker. Non-`fake` Desktop roundtrip requests are rejected before backend
 submission. This closes the identified configuration-ownership P1. Slice 4
 integrated after exact branch full/package gates and independent review passed.
 
+Slice 5 adds the registered Chrome adapter and Extension bridge without
+changing broker protocol v1. Chrome Native Messaging uses bounded native-
+endian stdio frames outside broker framing. The adapter admits only one exact
+build-specific Extension origin plus stable same-user Chrome process context,
+then joins the broker only as role `extension`. It reserves stdout for frames
+and has no provider, detector, restore, mapping, retry, document/PDF,
+credential, or HTTP implementation. Its only operations are health, scope
+open/close, sanitize in the two existing modes, and reidentify.
+
+The MV3 service worker owns one native port and all broker handles. Content
+scripts and panel code never open native transport. Every document replacement,
+including same-origin hard navigation, plus tab/panel close, native disconnect,
+worker/browser restart, uncertain completion, and stale responses invalidates
+authority before any write. Only PII-free startup, hello, and health may retry;
+PII-bearing work is never replayed. The production manifest adds only
+`nativeMessaging` and removes loopback host permissions.
+The installed profile is local `thainer`; `fake` remains internal conformance,
+with no provider/TNER selection or credential boundary.
+
+The Desktop companion package owns the adapter, manifest, and registration.
+Chrome starts or joins the broker without the Desktop GUI. Windows uses exact
+per-user HKCU Chrome/Chromium registry views; macOS uses per-user browser
+discovery files; DEB and AppImage use separate Linux layouts, with AppImage
+components copied from its transient mount into a private stable per-user
+version directory. A transient AppImage Desktop repairs and verifies that
+stable package, then re-executes its manifest-admitted stable Desktop so every
+client uses the same exact component root. Unregistration removes only exact
+product-owned state.
+
+The repository-owned production identity is the owner-approved unpublished
+Chrome Web Store item `kdjmkknedgmfphpkjhjdhmjadaelgggm`; its committed public
+key derives that exact ID, and the host admits only
+`chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/`. Production packaging,
+exact-ID unpacked Chromium, installed NSIS companion, and cross-platform package
+smoke pass. Synthetic identity remains test-only. The Web Store item remains an
+unpublished Draft, so unpacked-browser evidence is not Web Store installation.
+Final exact-head review/CI precedes Slice 5 integration.
+
 Each window label owns its scope within the one Desktop connection. Closing a
 window removes its local authority before requesting scope close; app quit does
 the same for every UI and hotkey scope but does not issue global broker stop.
@@ -267,12 +304,15 @@ feature-gated package harness is wired to run production JavaScript through
 real typed Tauri commands and to check the Desktop, broker, and frozen backend
 against the colocated final-byte manifest. Direct NSIS, macOS, and DEB inputs are
 hashed by the `beforeBundle` hook. AppImage remains invalid while `linuxdeploy`
-changes ELF bytes; afterward, a checksum-pinned output plugin seals the
-completed AppDir. The finalizer parses both little-endian x86-64 ELF64 runtime
+changes ELF bytes and strips the PyInstaller backend overlay. The workflow
+preserves that exact frozen backend outside the build tree before linuxdeploy;
+the finalizer requires its archive cookie, restores it atomically, and hashes
+the restored bytes before a checksum-pinned output plugin seals the completed
+AppDir. The finalizer parses both little-endian x86-64 ELF64 runtime
 prefixes, permits only appimagetool's single non-executable, non-overlapping
 16-byte `.digest_md5` rewrite, and requires every other prefix byte to match
 before executing the repacked runtime, confirming its offset, re-extracting the
-image, and comparing the three native components and manifest before atomic
+image, and comparing the five native components and manifest before atomic
 replacement. Checkpoint `3836024` passed CI but failed that Linux finalization
 stage before package smoke. Checkpoint `73dcca4` contained the narrowed verifier,
 but its harness bypassed the outer runtime and `AppRun`. The current harness
@@ -288,9 +328,7 @@ exact CI run `31349781519` passed 14/14 and exact cross-platform package run
 `31349781518` passed 2/2. Historical dirty-tree Windows NSIS evidence remains
 provisional. The named AppImage path is not normal FUSE/double-click or
 installation evidence, and relocation, upgrade, and uninstall recertification
-remain Slice 6. There is still no Chrome adapter
-or Extension change (Slice 5),
-and Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
+remain Slice 6. Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
 protocol v1. There is no broker `backend` role.
 
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
@@ -326,8 +364,10 @@ launcher or Desktop output forwarding; an unknown access-record shape is
 suppressed fail-closed. Non-sensitive access and application logs remain
 enabled. Desktop does not replay submitted mutations; invalid session authority
 is cleared, and session/scope cleanup is confirmed through the broker or the
-connection is torn down. Extension tab close and Office reset still clear only
-local references; their broker-backed disposal remains open. No JavaScript
+connection is torn down. Extension tab/panel close now removes local authority
+before broker scope disposal; an unconfirmed close tears down the connection.
+Office reset still clears only local references and its broker-backed disposal
+remains open. No JavaScript
 client receives the boot secret or a derived disposal authorization.
 
 The session resource graph is deliberately small: the service owns each
@@ -574,11 +614,11 @@ signals into automatic blocking or redaction.
 | `app/http_v2.py` | Strict HTTP-v2 response and error DTOs shared by the main adapters. |
 | `app/hosted.py` | Generic main-repository hosted candidate with required API-key/provider configuration and a fixed seven-route allowlist; not an official-platform acceptance claim. |
 | `app/worker/` | Stateless job operations plus a provisional transport used for local pre-platform acceptance; not the official HTTP delivery path. |
-| `native-broker/` | Broker-v1 Rust codec, Slice 2 transport/bootstrap, Slice 3 connection-owned data plane, and the typed Slice 4 Desktop client: central admission, Windows named pipe and macOS/Linux filesystem UDS, private authenticated HTTP-v2 forwarding, broker scope/session-handle metadata, deterministic disposal, deadline/cancellation handling, backend-generation invalidation, and no replay. It contains no mapping or duplicate PII/provider/PDF logic. |
+| `native-broker/` | Broker-v1 Rust codec, authenticated transport/bootstrap, connection-owned data plane, typed Desktop/Extension clients, strict Chrome Native Messaging adapter, and build-specific native-host registration. It owns admission, private HTTP-v2 forwarding, broker scope/session metadata, deterministic disposal, generation invalidation, and no replay; it contains no mapping or duplicate PII/provider/PDF logic. |
 | `native_broker_protocol.py` | Transport-free Python reference implementation of the same broker-v1 policy and shared fixture behavior; not a server or packaged runtime path. |
 | `native_broker_backend.py`, `app/private_backend_bootstrap.py` | Broker-private Python bootstrap: receives a prebound listener and one-use in-memory data/control credentials through inherited OS state, then starts the existing HTTP-v2 app. It is not a storefront endpoint or native protocol adapter. |
-| `extension/` | MV3 browser extension and supported-site adapters. |
-| `desktop/` | Tauri shell, static UI, updater, typed allowlisted broker commands, per-window/hotkey scope lifecycle, fixed-error UX, and fail-closed output validation. It has no production direct HTTP or Python-process authority. |
+| `extension/` | MV3 browser extension, supported-site adapters, strict result validators, and service-worker-owned Native Messaging lifecycle with separate tab/panel scopes. Production code has no loopback transport or fallback. |
+| `desktop/` | Tauri shell, static UI, updater, typed allowlisted broker commands, per-window/hotkey scope lifecycle, native-host install/repair/uninstall integration, fixed-error UX, and fail-closed output validation. It has no production direct HTTP or Python-process authority. |
 | `office-addin/` | One TypeScript task pane with Word, Excel, and PowerPoint host adapters. Its retained state is display text plus a security-sensitive `session_id`, with no explicit mapping collection; current source validates strict v2 projections and blocks document writes on malformed, incomplete, or unsafe results. Automated packaged-backend/HTTPS-development-proxy transport composition is verified locally; all eight real-host/package gates remain open. |
 | `demo/` | Opt-in demonstration UI; not a separate production frontend. |
 | `benchmark/` | Diagnostic corpora, scorers, and engine comparisons. |
@@ -633,7 +673,7 @@ is deferred unless a concrete dependency or ownership problem appears.
   future owner-approved ADR covering credential ownership, provisioning,
   permissions, storage, rotation, configuration identity/epoch, broker restart
   or reconfiguration, upgrade, uninstall, attestation, and cross-platform
-  behavior. No credential store is part of Slice 4.
+  behavior. No credential store is part of Slice 4 or Slice 5.
 - `AIGUARD_TOKEN` is local control-plane authority for shutdown and the secret
   from which trusted native/backend code derives target-bound session-disposal
   authorization. Raw boot-token use does not authorize session disposal, and

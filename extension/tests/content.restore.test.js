@@ -27,10 +27,13 @@ function makeSite() {
   };
 }
 
-function makeChrome(dataOverrides = {}) {
+function makeChrome(dataOverrides = {}, lifecycleListeners = []) {
   return {
     runtime: {
       getURL: (p) => "chrome-extension://aiguard/" + p,
+      onMessage: {
+        addListener: (listener) => lifecycleListeners.push(listener),
+      },
       sendMessage: (msg, cb) => {
         if (msg.type === "health") {
           cb({
@@ -43,6 +46,25 @@ function makeChrome(dataOverrides = {}) {
                 control_token_required: true,
                 api_key_required: false,
               },
+            },
+          });
+          return;
+        }
+        if (msg.type === "sanitize") {
+          cb({
+            ok: true,
+            data: {
+              sanitized_text: "[NAME_1]",
+              detected_entity_count: 1,
+              replacement_count: 1,
+              entity_type_counts: { NAME: 1 },
+              highlights: [
+                { start: 0, end: 8, data_type: "NAME", redact_type: "TB" },
+              ],
+              section26_categories: [],
+              guard_findings: [],
+              warnings: [],
+              safety: { status: "pass", residual_count: 0 },
             },
           });
           return;
@@ -77,24 +99,29 @@ function captureAttachShadow() {
   });
 }
 
-async function loadAndRestore(dataOverrides = {}) {
+async function loadAndRestore(dataOverrides = {}, lifecycleListeners = []) {
   const site = makeSite();
   document.documentElement.innerHTML = "<head></head><body></body>";
   document.body.appendChild(site._textarea);
   document.body.appendChild(site._reply);
-  global.chrome = makeChrome(dataOverrides);
+  global.chrome = makeChrome(dataOverrides, lifecycleListeners);
   window.AIGUARD_SITES = site;
   captureAttachShadow();
   vi.resetModules();
   await import("../contract-v2.js");
   await import("../content.js");
   await Promise.resolve();
-  // bar order: logo, Mask PII, Restore PII — Restore is the second button
+  site._textarea.value = "synthetic";
+  // A fresh native connection requires a user-initiated Mask before Restore.
+  document.querySelectorAll("button.aiguard-btn")[0].click();
+  await new Promise((r) => setTimeout(r, 0));
   document.querySelectorAll("button.aiguard-btn")[1].click();
   await new Promise((r) => setTimeout(r, 0));
 }
 
 afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   delete global.chrome;
   delete window.AIGUARD_SITES;
@@ -125,6 +152,57 @@ describe("restore overlay isolation (EXT-4)", () => {
     expect(document.querySelector(".aiguard-overlay-host")).not.toBeNull();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(document.querySelector(".aiguard-overlay-host")).toBeNull();
+  });
+
+  it("recovers Mask after a PII-free reconnect without reviving Restore", async () => {
+    const lifecycleListeners = [];
+    await loadAndRestore({}, lifecycleListeners);
+    expect(document.querySelectorAll("button.aiguard-btn")[1].disabled).toBe(false);
+    expect(document.querySelector(".aiguard-overlay-host")).not.toBeNull();
+
+    lifecycleListeners[0]({
+      type: "aiguard-native-state",
+      state: "session-expired",
+    });
+    expect(document.querySelectorAll("button.aiguard-btn")[0].disabled).toBe(true);
+    expect(document.querySelectorAll("button.aiguard-btn")[1].disabled).toBe(true);
+    expect(document.querySelector(".aiguard-overlay-host")).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(document.querySelectorAll("button.aiguard-btn")[0].disabled).toBe(false);
+    expect(document.querySelectorAll("button.aiguard-btn")[1].disabled).toBe(true);
+  });
+
+  it("keeps retrying PII-free health after the initial backoff is exhausted", async () => {
+    vi.useFakeTimers();
+    const site = makeSite();
+    document.documentElement.innerHTML = "<head></head><body></body>";
+    document.body.appendChild(site._textarea);
+    document.body.appendChild(site._reply);
+    const messages = [];
+    let healthAttempts = 0;
+    global.chrome = makeChrome();
+    const originalSend = global.chrome.runtime.sendMessage;
+    global.chrome.runtime.sendMessage = (message, callback) => {
+      messages.push(message);
+      if (message.type === "health" && healthAttempts < 5) {
+        healthAttempts += 1;
+        callback({ ok: false, status: 503, error: "native-unavailable" });
+        return;
+      }
+      originalSend(message, callback);
+    };
+    window.AIGUARD_SITES = site;
+    vi.resetModules();
+    await import("../contract-v2.js");
+    await import("../content.js");
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(healthAttempts).toBe(5);
+    expect(messages).toHaveLength(6);
+    expect(messages.every((message) => message.type === "health")).toBe(true);
+    expect(document.querySelectorAll("button.aiguard-btn")[0].disabled).toBe(false);
+    expect(document.querySelectorAll("button.aiguard-btn")[1].disabled).toBe(true);
   });
 });
 

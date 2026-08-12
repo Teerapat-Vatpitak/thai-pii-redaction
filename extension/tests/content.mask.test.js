@@ -60,7 +60,6 @@ function makeChrome(resp, sent = []) {
 
 function sanitizeData() {
   return {
-    session_id: "session",
     sanitized_text: "ผมชื่อ [ชื่อ_1] โทร [โทรศัพท์_1]",
     detected_entity_count: 2,
     replacement_count: 2,

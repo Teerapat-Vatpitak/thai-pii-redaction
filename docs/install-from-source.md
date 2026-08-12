@@ -1,9 +1,10 @@
 # Running from source
 
-The installer on the [releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest)
-bundles everything and needs no Python. This page covers two different developer
-paths: the fixed-port HTTP-v2 backend used by the current Extension, Office
-Add-in, API, and demo; and the broker-backed Desktop package.
+The published 2.5.0 installer on the
+[releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest)
+predates the current Native Messaging candidate. This page covers two distinct
+developer paths: the fixed-port HTTP-v2 backend used by Office, API, and demo;
+and the broker-backed Desktop/Extension package candidate.
 
 ## Requirements
 
@@ -27,8 +28,8 @@ cd thai-pii-redaction
 The script creates a virtual environment and installs dependencies on first run
 (a few minutes). The first Thai NER run downloads a ~2 MB model, so it needs
 internet once. The backend then listens on `http://localhost:8000` for the
-Extension, Office Add-in, API, and demo development paths. Current Desktop does
-not connect to this fixed port or make it available to those storefronts. Its
+Office Add-in, API, and demo development paths. Current Desktop and Extension
+do not connect to this fixed port or make it available to those storefronts. Their
 native broker owns a private random loopback listener and its per-boot
 credentials, and transfers the listener plus credentials to the frozen backend
 child through an inherited channel. None of them reaches the webview.
@@ -42,10 +43,10 @@ the matching v2 response header. Interactive API docs are at
 Current source uses strict HTTP contract v2. It removes mapping-oriented
 response fields, separates control- and data-plane capability flags, and
 requires `X-AIGuard-Contract-Version: 2` on every API operation except health.
-The Extension and Office clients validate the matching response header and
-exact DTO before using a result. Those fixed-port clients still do not
-authenticate the localhost process. Desktop instead validates broker protocol
-v1 through typed Tauri commands and has no direct backend HTTP fallback.
+The Office client validates the matching response header and exact DTO before
+using a result. That fixed-port client still does not authenticate the
+localhost process. Desktop and Extension instead validate broker protocol v1
+and have no direct backend HTTP fallback.
 Outbound-capable local sanitization plus CLI, HTTP, and worker
 provider boundaries fail closed on the shared residual policy from source-level
 automated evidence; packaged, real-host, live-provider, and official hosted
@@ -95,18 +96,29 @@ sticky multi-instance routing around this candidate.
 
 ## Browser extension
 
-The current source extension requires the matching fixed-port current-source
-backend started with `run.ps1` or `run.sh`. Launching or building Desktop does
-not supply that endpoint. The extension is not compatible with the published
-Desktop 2.5.0/HTTP-v1 backend, and its Chrome Native Messaging migration to the
-shared broker remains Slice 5.
+Current source uses only Chrome Native Messaging. It requires an Extension
+candidate and Desktop companion built with the same exact public identity,
+component manifest, and version. Starting `run.ps1`/`run.sh` does not supply an
+Extension endpoint, and there is no HTTP fallback.
 
-1. Open `chrome://extensions` in any Chromium browser.
-2. Turn on **Developer mode**.
-3. Click **Load unpacked** and select the `extension/` folder.
-4. Pin the AI Guard extension. Its icon opens the docked side panel; the in-page
-   bar activates on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `grok.com`,
-   `perplexity.ai`, and `chat.z.ai` / `chatglm.cn`.
+Production packaging uses the owner-approved unpublished Chrome Web Store
+identity in `config/chrome-extension-identity.json`. Its public key derives
+Item ID `kdjmkknedgmfphpkjhjdhmjadaelgggm`; no private key is stored or needed.
+The identity fixture under `tests/fixtures/native_host/` is deterministic and
+public-only but classified `synthetic_test_only`; use it only with the explicit
+test-acceptance build flag. It must never be presented as a production or Web
+Store identity.
+
+For the approved production identity:
+
+1. Build the Extension and companion from the same checkout, passing
+   `config/chrome-extension-identity.json` to the package scripts.
+2. Install the companion so its native-host manager registers the exact
+   manifest and origin. Chrome can run the Extension without the Desktop GUI.
+3. Open `chrome://extensions`, enable Developer mode, and load the built
+   candidate directory. Confirm its derived ID exactly matches registration.
+4. Pin the icon for the docked side panel. The in-page bar activates on
+   ChatGPT, Claude, Gemini, Grok, Perplexity, and GLM/Z.ai.
 
 Using it: type a prompt containing PII, click **Mask PII**, review the result,
 send with the site's own Send button, then click **Restore PII** on the reply.
@@ -114,6 +126,13 @@ Raw text typed in the site's composer is already in provider-controlled DOM;
 use the side panel for the stronger raw-entry boundary.
 
 See [extension/README.md](../extension/README.md) for details.
+
+On Linux DEB, native-host registration is owned by the package-manager hooks
+under `/etc`; repair requires reinstalling or repairing that package with the
+same administrative boundary. An ordinary user GUI launch never mutates those
+root-owned files. AppImage registration is per-user and its transient startup
+repairs the staged stable component root. macOS startup repairs its per-user
+registration; Windows registration is owned by the NSIS hooks.
 
 ## Command line
 
@@ -205,18 +224,25 @@ npm run tauri -- build --bundles app --ci --no-sign \
 
 ```bash
 # Linux
+tool_dir=$(mktemp -d)
+trap 'rm -rf "$tool_dir"' EXIT
+triple=$(rustc -vV | sed -n 's/^host: //p')
+backend_source="$tool_dir/aiguard-appimage-backend"
+test -f "src-tauri/binaries/aiguard-$triple"
+test ! -e "$backend_source"
+install -m 0755 "src-tauri/binaries/aiguard-$triple" "$backend_source"
+cmp -- "src-tauri/binaries/aiguard-$triple" "$backend_source"
+
 npm run tauri -- build --bundles deb,appimage --ci --no-sign \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-# Tauri/linuxdeploy changes ELF bytes after beforeBundle. Seal the completed
-# AppDir with the checksum-pinned output tool before using the AppImage.
+# Tauri/linuxdeploy changes ELF bytes and strips the frozen-backend overlay.
+# Restore the preserved backend and seal the completed AppDir before use.
 appimage_root="src-tauri/target/release/bundle/appimage"
 test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = "1"
 test "$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' | wc -l | tr -d ' ')" = "1"
 appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
 appdir=$(find "$appimage_root" -maxdepth 1 -type d -name '*.AppDir' -print -quit)
-tool_dir=$(mktemp -d)
-trap 'rm -rf "$tool_dir"' EXIT
 plugin="$tool_dir/linuxdeploy-plugin-appimage-x86_64.AppImage"
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
   --header 'Accept: application/octet-stream' \
@@ -227,6 +253,7 @@ echo 'a45d3e227bc7f397e9cf6bfa4c9507494efa2293357b6e86690a3de2ca992e79  '"$plugi
 chmod 0755 "$plugin"
 python ../scripts/prepare_desktop_native_package.py --finalize-appimage "$appimage" \
   --appdir "$appdir" \
+  --appimage-backend-source "$backend_source" \
   --appimage-plugin "$plugin" \
   --appimage-arch x86_64
 ```
@@ -236,13 +263,20 @@ allowlisted Tauri resource. The `beforeBundle` hook replaces the relevant
 platform placeholder with `native-components-v1.json`. NSIS, macOS, and DEB
 digests cover their direct bundle inputs, including Tauri's bundle-type patch.
 AppImage deliberately retains `{}` until the finalizer hashes the completed
-post-`linuxdeploy` AppDir and repacks it. For this pinned, scrubbed
+post-`linuxdeploy` AppDir and repacks it. Linux packaging preserves the exact
+pre-`linuxdeploy` frozen backend outside the build tree because linuxdeploy
+otherwise strips its PyInstaller archive overlay. The finalizer rejects a
+preserved source without the frozen-archive cookie, restores it atomically,
+and hashes those restored bytes into the manifest. For this pinned, scrubbed
 no-sign/no-update path, the finalizer parses both little-endian x86-64 ELF64
 runtime prefixes, permits only appimagetool's single non-executable,
 non-overlapping 16-byte `.digest_md5` rewrite, and requires every other prefix
 byte to match before it executes the repacked runtime to confirm its offset,
-re-extracts it, and checks all three native components plus the manifest. An
-invalid placeholder is never accepted by the runtime. Output lands in
+re-extracts it, and checks all five native components plus the manifest. A
+transient AppImage Desktop then repairs and attests the stable per-user copy
+and re-executes the manifest-verified stable Desktop so it shares one exact
+package root with Chrome's registered adapter. An invalid placeholder is never
+accepted by the runtime. Output lands in
 `desktop/src-tauri/target/release/bundle/`. A successful build is package
 evidence only, not an install, upgrade/uninstall, signing/notarization, or
 release-publication result.
@@ -251,8 +285,8 @@ release-publication result.
 
 | Symptom | Fix |
 |---|---|
-| "Backend offline" in the extension | The fixed-port backend is not running — start `run.ps1` or `run.sh`. Desktop does not supply this endpoint. |
-| Port 8000 already in use | Stop the process using it, or a previous fixed-port developer-backend instance. Desktop uses a broker-private random listener instead. |
+| "Companion unavailable" in the Extension | Install or repair the matching Desktop companion and native-host registration. `run.ps1`/`run.sh` does not supply an Extension endpoint. |
+| Port 8000 already in use | Stop the previous fixed-port developer backend if Office/API work needs it. Desktop and Extension use broker-private transport instead. |
 | SmartScreen blocks the installer | Expected for an unsigned build: **More info → Run anyway**. |
 | Extension bar does not appear | Reload the chat tab after loading the extension. |
 | Thai text shows as `?` in the terminal | Set `PYTHONUTF8=1`. |

@@ -1,5 +1,10 @@
 {
   "bundle": {
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/native-host-hooks.nsh"
+      }
+    },
     "resources": {
       "binaries/native-components-v1.nsis.json": "native-components-v1.json"
     }

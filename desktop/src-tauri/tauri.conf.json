@@ -44,7 +44,9 @@
     ],
     "externalBin": [
       "binaries/aiguard",
-      "binaries/aiguard-native-broker"
+      "binaries/aiguard-native-broker",
+      "binaries/aiguard-chrome-native-host",
+      "binaries/aiguard-native-host-manager"
     ],
     "icon": [
       "icons/32x32.png",

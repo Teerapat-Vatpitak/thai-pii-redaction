@@ -37,10 +37,12 @@ def test_find_sidecar_raises_when_missing(monkeypatch):
         smoke.find_sidecar()
 
 
-def test_find_sidecar_excludes_native_broker_and_selects_backend(tmp_path, monkeypatch):
+def test_find_sidecar_excludes_native_components_and_selects_backend(tmp_path, monkeypatch):
     backend = tmp_path / "aiguard-x86_64-unknown-linux-gnu"
     backend.write_bytes(b"backend")
     (tmp_path / "aiguard-native-broker-x86_64-unknown-linux-gnu").write_bytes(b"broker")
+    (tmp_path / "aiguard-chrome-native-host-x86_64-unknown-linux-gnu").write_bytes(b"host")
+    (tmp_path / "aiguard-native-host-manager-x86_64-unknown-linux-gnu").write_bytes(b"manager")
     monkeypatch.setattr(smoke, "BIN_GLOB", str(tmp_path / "aiguard-*"))
 
     assert smoke.find_sidecar() == str(backend)
@@ -55,10 +57,12 @@ def test_find_sidecar_rejects_ambiguous_backends(tmp_path, monkeypatch):
         smoke.find_sidecar()
 
 
-def test_find_windows_sidecar_excludes_native_broker_and_selects_backend(tmp_path, monkeypatch):
+def test_find_windows_sidecar_excludes_native_components_and_selects_backend(tmp_path, monkeypatch):
     backend = tmp_path / "aiguard-x86_64-pc-windows-msvc.exe"
     backend.write_bytes(b"backend")
     (tmp_path / "aiguard-native-broker-x86_64-pc-windows-msvc.exe").write_bytes(b"broker")
+    (tmp_path / "aiguard-chrome-native-host-x86_64-pc-windows-msvc.exe").write_bytes(b"host")
+    (tmp_path / "aiguard-native-host-manager-x86_64-pc-windows-msvc.exe").write_bytes(b"manager")
     monkeypatch.setattr(smoke_exe, "STAGED_GLOB", str(tmp_path / "aiguard-*"))
 
     assert smoke_exe.find_sidecar() == str(backend)

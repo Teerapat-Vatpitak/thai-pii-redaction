@@ -4,7 +4,7 @@
     "description": "Extension name shown in chrome://extensions and the Chrome Web Store listing."
   },
   "appDesc": {
-    "message": "ปกปิด PII ไทยก่อนส่งแชท AI; side panel แยกข้อความดิบได้ดีกว่า Detector ในเครื่องเป็น default; remote TNER ต้องเลือกเอง",
+    "message": "ปกปิด PII ไทยก่อนส่งแชท AI; side panel แยกข้อความดิบได้ดีกว่า รุ่นติดตั้งใช้ thainer ในเครื่องเท่านั้น",
     "description": "Extension description shown in chrome://extensions and the Chrome Web Store listing."
   }
 }

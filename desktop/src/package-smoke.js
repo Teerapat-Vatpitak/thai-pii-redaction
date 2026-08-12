@@ -69,7 +69,13 @@ export async function runPackageSmoke() {
   const workflowStarted = performance.now();
   let stage = "app_ready";
   try {
-    requireResult(await appReadyAfterPageLoad());
+    const appReady = await appReadyAfterPageLoad();
+    if (!appReady) {
+      stage = "health";
+      await health();
+      stage = "app_ready";
+      requireResult(false);
+    }
     stage = "health";
     await measured(evidence, "healthConnectMs", health);
     stage = "ready_signal";

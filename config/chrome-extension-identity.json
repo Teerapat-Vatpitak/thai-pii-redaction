@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "classification": "production_owner_approved",
+  "extension_id": "kdjmkknedgmfphpkjhjdhmjadaelgggm",
+  "origin": "chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/",
+  "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm7CRSgqFxYo/I6g9VtTUEg7KPW088WBkPyARJqIyiEiNsWRCL8fPbxxcgIQ5NWsg0sPTyMZoGuGt6NszQyf8dlRn3HkZ0dXavj4aFIMT1VSv7ERHzMCL5MgyqJjqVZ3U/yoEEz6+5R4mBg4NrFSXoMrHVTZFYbf5DHOLvQ6BE9Wp01ZhuaeakJfpUDWUnyTe0FFbd5ttS1xpGrg3qAv0ggh3tNlqEhXJ9A7jDtYIOJuZgXbvcUszstV0eseoXn8lh7UXe0iCgEbWatN98BDIr3oTgKMiFNywhexCmZMSpzjAjWxdNyn7r9jem2Co0R55lEKNacMHhdURPARvkdP1+QIDAQAB",
+  "provenance": "Owner-approved unpublished Chrome Web Store item created 2026-08-12; Item ID and public key copied from the Chrome Web Store Developer Dashboard."
+}

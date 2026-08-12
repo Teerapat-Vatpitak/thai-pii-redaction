@@ -94,7 +94,7 @@ describe("installed Desktop webview package smoke", () => {
       window.dispatchEvent(new Event("load"));
       await smoke;
 
-      expect(mocks.health).not.toHaveBeenCalled();
+      expect(mocks.health).toHaveBeenCalledOnce();
       expect(invoke).toHaveBeenCalledOnce();
       expect(invoke).toHaveBeenCalledWith("desktop_package_smoke_fail", {
         stage: "app_ready",
@@ -102,6 +102,21 @@ describe("installed Desktop webview package smoke", () => {
       readyState.mockRestore();
     }
   );
+
+  it("projects a persistent readiness health failure without private details", async () => {
+    window.__AIGUARD_APP_READY__ = Promise.resolve(false);
+    mocks.health.mockRejectedValue(new Error("private broker detail"));
+    const { runPackageSmoke } = await import("../src/package-smoke.js");
+
+    await runPackageSmoke();
+
+    expect(mocks.health).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("desktop_package_smoke_fail", {
+      stage: "health",
+    });
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain("private broker detail");
+  });
 
   it("crosses the production API and reports only bounded status/timings", async () => {
     const { runPackageSmoke } = await import("../src/package-smoke.js");

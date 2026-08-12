@@ -1,253 +1,124 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const V2_HEADER = "X-AIGuard-Contract-Version";
+const EXTENSION = path.resolve("extension");
 
-function headers(value = "2") {
+function nativeSanitize(overrides = {}) {
   return {
-    get: (name) => (name.toLowerCase() === V2_HEADER.toLowerCase() ? value : null),
-  };
-}
-
-function response(body, { ok = true, status = 200, version = "2" } = {}) {
-  return {
-    ok,
-    status,
-    headers: headers(version),
-    json: vi.fn().mockResolvedValue(body),
-  };
-}
-
-function healthBody(overrides = {}) {
-  return {
-    status: "ok",
-    version: "2.5.0",
-    contract_version: 2,
-    capabilities: {
-      control_token_required: true,
-      api_key_required: false,
-    },
-    ...overrides,
-  };
-}
-
-function sanitizeBody(overrides = {}) {
-  return {
-    session_id: "session-1",
-    sanitized_text: "😀 [ชื่อ_1]",
     detected_entity_count: 1,
-    replacement_count: 1,
     entity_type_counts: { NAME: 1 },
-    highlights: [{ start: 2, end: 10, data_type: "NAME", redact_type: "TB" }],
-    section26_categories: [],
     guard_findings: [],
+    highlights: [{ data_type: "NAME", end: 8, redact_type: "TB", start: 0 }],
+    replacement_count: 1,
+    safety: { residual_count: 0, status: "pass" },
+    sanitized_text: "[NAME_1]",
+    section26_categories: [],
     warnings: [],
-    safety: { status: "pass", residual_count: 0 },
     ...overrides,
   };
 }
 
-function makeChrome() {
-  const listeners = {};
-  const sessionStore = {};
-  return {
-    _listeners: listeners,
-    _sessionStore: sessionStore,
-    runtime: {
-      onInstalled: { addListener: () => {} },
-      onMessage: { addListener: (cb) => (listeners.message = cb) },
-    },
-    tabs: { onRemoved: { addListener: () => {} } },
-    sidePanel: { setPanelBehavior: () => Promise.resolve() },
-    storage: {
-      session: {
-        get: async (key) => ({ [key]: sessionStore[key] }),
-        set: async (value) => Object.assign(sessionStore, value),
-        remove: async (key) => delete sessionStore[key],
-      },
-      local: { get: async () => ({ mode: "token" }) },
-    },
-  };
-}
-
-function invoke(
-  chrome,
-  message,
-  sender = {
-    tab: { id: 7, url: "https://chatgpt.com/c/synthetic" },
-    frameId: 0,
-    documentId: "doc-1",
-    documentLifecycle: "active",
-    origin: "https://chatgpt.com",
-    url: "https://chatgpt.com/c/synthetic",
-  }
-) {
-  return new Promise((resolve) => chrome._listeners.message(message, sender, resolve));
-}
-
-async function loadWorker(chrome) {
-  global.chrome = chrome;
+beforeEach(async () => {
   vi.resetModules();
   await import("../contract-v2.js");
-  await import("../background.js");
-}
-
-beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn());
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  delete global.chrome;
   delete global.AIGUARD_CONTRACT_V2;
 });
 
-describe("extension HTTP v2 boundary", () => {
-  it("refuses to send PII when exact v2 health has not passed", async () => {
-    fetch.mockResolvedValueOnce(response(healthBody({ contract_version: 1 })));
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic", mode: "token" });
-
-    expect(result.ok).toBe(false);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]).toEqual([
-      expect.stringMatching(/\/api\/health$/),
-      { cache: "no-store" },
+describe("installed Extension native-only boundary", () => {
+  it("retains no loopback permission and adds only nativeMessaging", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION, "manifest.json"), "utf8"));
+    expect(manifest.permissions).toEqual([
+      "storage",
+      "clipboardWrite",
+      "sidePanel",
+      "nativeMessaging",
     ]);
+    expect(manifest).not.toHaveProperty("host_permissions");
   });
 
-  it("asserts v2 on sanitize and returns only a fresh strict DTO", async () => {
-    const backend = sanitizeBody();
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(response(backend));
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic", mode: "token" });
-
-    expect(fetch.mock.calls[1][1].headers).toEqual({
-      "Content-Type": "application/json",
-      [V2_HEADER]: "2",
-    });
-    expect(result).toEqual({ ok: true, status: 200, data: sanitizeBody() });
-    expect(result.data).not.toBe(backend);
-    expect(result.data.safety).not.toBe(backend.safety);
-    expect(chrome._sessionStore.aiguard_sid_7).toEqual({
-      session_id: "session-1",
-      origin: "https://chatgpt.com",
-    });
+  it("has no production HTTP, loopback, credential, backend ID, or provider command", () => {
+    const sources = ["background.js", "content.js", "sidepanel.js", "contract-v2.js"]
+      .map((name) => fs.readFileSync(path.join(EXTENSION, name), "utf8"))
+      .join("\n");
+    for (const forbidden of [
+      "fetch(",
+      "localhost",
+      "127.0.0.1",
+      "AIGUARD_API_KEY",
+      "AIFORTHAI_API_KEY",
+      "backend_url",
+      "backend_port",
+      "session_id",
+      "provider_selection",
+      "remote_tner",
+    ]) {
+      expect(sources).not.toContain(forbidden);
+    }
   });
 
-  it.each([
-    ["missing response assertion", null],
-    ["duplicate response assertion", "2, 2"],
-    ["malformed response assertion", "02"],
-    ["mismatched response assertion", "1"],
-  ])("rejects a %s before publishing the session", async (_label, version) => {
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(response(sanitizeBody(), { version }));
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic" });
-
-    expect(result.ok).toBe(false);
-    expect(chrome._sessionStore.aiguard_sid_7).toBeUndefined();
+  it("allows connectNative only in the service worker", () => {
+    const background = fs.readFileSync(path.join(EXTENSION, "background.js"), "utf8");
+    const content = fs.readFileSync(path.join(EXTENSION, "content.js"), "utf8");
+    const panel = fs.readFileSync(path.join(EXTENSION, "sidepanel.js"), "utf8");
+    expect(background.match(/connectNative\(/g)).toHaveLength(1);
+    expect(content).not.toContain("connectNative");
+    expect(panel).not.toContain("connectNative");
   });
 
-  it("rejects unknown mapping-oriented response fields", async () => {
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(response(sanitizeBody({ original_text: "synthetic" })));
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic" });
-
-    expect(result.ok).toBe(false);
-    expect(result.data).toBeUndefined();
-    expect(chrome._sessionStore.aiguard_sid_7).toBeUndefined();
+  it("uses no inline script that MV3 CSP would reject", () => {
+    const panel = fs.readFileSync(path.join(EXTENSION, "sidepanel.html"), "utf8");
+    expect(panel).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(panel).toContain('<script src="theme-bootstrap.js"></script>');
   });
 
-  it("rejects unsafe safety state", async () => {
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(
-        response(sanitizeBody({ safety: { status: "pass", residual_count: 1 } }))
-      );
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic" });
-
-    expect(result.ok).toBe(false);
-    expect(chrome._sessionStore.aiguard_sid_7).toBeUndefined();
-  });
-
-  it("rejects an empty sanitize result before publishing the session", async () => {
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(
-        response(
-          sanitizeBody({
-            sanitized_text: "",
-            detected_entity_count: 0,
-            replacement_count: 0,
-            entity_type_counts: {},
-            highlights: [],
-          })
-        )
-      );
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic" });
-
-    expect(result.ok).toBe(false);
-    expect(result.data).toBeUndefined();
-    expect(chrome._sessionStore.aiguard_sid_7).toBeUndefined();
-  });
-
-  it("rejects non-canonical Section 26 category order", async () => {
-    fetch
-      .mockResolvedValueOnce(response(healthBody()))
-      .mockResolvedValueOnce(
-        response(
-          sanitizeBody({
-            section26_categories: ["HEALTH", "RACE_ETHNICITY"],
-          })
-        )
-      );
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
-    const result = await invoke(chrome, { type: "sanitize", text: "synthetic" });
-
-    expect(result.ok).toBe(false);
-    expect(chrome._sessionStore.aiguard_sid_7).toBeUndefined();
-  });
-
-  it("rejects nonzero count for a fixed-count safe error", async () => {
-    const chrome = makeChrome();
-    await loadWorker(chrome);
-
+  it("strictly projects native sanitize without a session or unknown field", () => {
+    const projected = global.AIGUARD_CONTRACT_V2.validateNativeSanitize(nativeSanitize());
+    expect(projected).toEqual(nativeSanitize());
     expect(() =>
-      global.AIGUARD_CONTRACT_V2.validateError(
-        {
-          error: {
-            code: "internal_error",
-            category: "internal",
-            count: 1,
-            retryable: false,
-            status: 500,
-          },
-        },
-        500
+      global.AIGUARD_CONTRACT_V2.validateNativeSanitize(
+        nativeSanitize({ original_text: "synthetic" })
       )
-    ).toThrow(/error/i);
+    ).toThrow(/native sanitize/i);
+  });
+
+  it("rejects unsafe, empty, and inconsistent sanitize DTOs", () => {
+    for (const payload of [
+      nativeSanitize({ safety: { residual_count: 1, status: "pass" } }),
+      nativeSanitize({
+        detected_entity_count: 0,
+        entity_type_counts: {},
+        highlights: [],
+        replacement_count: 0,
+        sanitized_text: "",
+      }),
+      nativeSanitize({ replacement_count: 2 }),
+    ]) {
+      expect(() => global.AIGUARD_CONTRACT_V2.validateNativeSanitize(payload)).toThrow();
+    }
+  });
+
+  it("strictly projects only fixed native health metadata", () => {
+    expect(
+      global.AIGUARD_CONTRACT_V2.validateNativeHealth({
+        product_version: "2.5.0",
+        status: "ok",
+      })
+    ).toEqual({
+      status: "ok",
+      version: "2.5.0",
+      contract_version: 2,
+      capabilities: { control_token_required: true, api_key_required: false },
+    });
+    expect(() =>
+      global.AIGUARD_CONTRACT_V2.validateNativeHealth({
+        endpoint: "synthetic",
+        product_version: "2.5.0",
+        status: "ok",
+      })
+    ).toThrow(/native health/i);
   });
 });

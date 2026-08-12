@@ -34,6 +34,11 @@ def _component(path: Path, *, marker: bool = False) -> None:
     path.write_bytes(body)
 
 
+def _frozen_backend(path: Path) -> None:
+    path.write_bytes(b"synthetic frozen backend" + b"MEI\x0c\x0b\x0a\x0b\x0e" + bytes(64))
+    path.chmod(0o755)
+
+
 def _synthetic_appimage_runtime(*, digest: bytes = b"0" * 16) -> bytes:
     assert len(digest) == 16
     section_names = b"\0.shstrtab\0.text\0.digest_md5\0"
@@ -366,16 +371,18 @@ def _final_appdir(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
         "desktop": package_dir / "desktop",
         "broker": package_dir / "aiguard-native-broker",
         "backend": package_dir / "aiguard",
+        "backend_source": tmp_path / "staged-aiguard-backend",
         "manifest": package_dir / package.MANIFEST_NAME,
     }
     _component(paths["desktop"], marker=True)
     _component(paths["broker"], marker=True)
     _component(paths["backend"])
+    _frozen_backend(paths["backend_source"])
     paths["manifest"].write_text("{}\n", encoding="utf-8")
     return appdir, paths
 
 
-def test_finalize_appimage_attests_post_linuxdeploy_bytes_before_atomic_replace(
+def test_finalize_appimage_restores_and_attests_staged_backend_before_atomic_replace(
     tmp_path, monkeypatch
 ):
     appdir, paths = _final_appdir(tmp_path)
@@ -423,6 +430,7 @@ def test_finalize_appimage_attests_post_linuxdeploy_bytes_before_atomic_replace(
     finalized = package.finalize_appimage(
         appimage,
         appdir=appdir,
+        backend_source=paths["backend_source"],
         plugin=plugin,
         arch="x86_64",
         version="2.5.0",
@@ -434,6 +442,7 @@ def test_finalize_appimage_attests_post_linuxdeploy_bytes_before_atomic_replace(
     assert offset_calls[0].name == appimage.name
     assert observed["runtime"] == runtime
     assert observed["arch"] == "x86_64"
+    assert paths["backend"].read_bytes() == paths["backend_source"].read_bytes()
     assert (
         observed["manifest"]["clients"][0]["sha256"]
         == hashlib.sha256(paths["desktop"].read_bytes()).hexdigest()
@@ -444,8 +453,42 @@ def test_finalize_appimage_attests_post_linuxdeploy_bytes_before_atomic_replace(
     )
     assert (
         observed["manifest"]["backend"]["sha256"]
-        == hashlib.sha256(paths["backend"].read_bytes()).hexdigest()
+        == hashlib.sha256(paths["backend_source"].read_bytes()).hexdigest()
     )
+
+
+def test_finalize_appimage_rejects_backend_source_without_frozen_archive(tmp_path, monkeypatch):
+    appdir, paths = _final_appdir(tmp_path)
+    paths["backend_source"].write_bytes(b"stripped PyInstaller bootloader")
+    paths["backend_source"].chmod(0o755)
+    appimage = tmp_path / "AI_Guard_2.5.0_amd64.AppImage"
+    appimage.write_bytes(b"original AppImage")
+    appimage.chmod(0o755)
+    plugin = tmp_path / "linuxdeploy-plugin-appimage-x86_64.AppImage"
+    plugin.write_bytes(b"pinned synthetic plugin")
+    plugin.chmod(0o755)
+    monkeypatch.setitem(
+        package.APPIMAGE_PLUGIN_SHA256,
+        "x86_64",
+        hashlib.sha256(plugin.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(
+        package,
+        "_repack_appimage",
+        lambda **_kwargs: pytest.fail("stripped backend must fail before repack"),
+    )
+
+    with pytest.raises(ValueError, match="invalid frozen backend archive"):
+        package.finalize_appimage(
+            appimage,
+            appdir=appdir,
+            backend_source=paths["backend_source"],
+            plugin=plugin,
+            arch="x86_64",
+            version="2.5.0",
+        )
+
+    assert paths["manifest"].read_text(encoding="utf-8") == "{}\n"
 
 
 def test_finalize_appimage_rejects_repacked_component_drift_without_replacing_candidate(
@@ -486,6 +529,7 @@ def test_finalize_appimage_rejects_repacked_component_drift_without_replacing_ca
         package.finalize_appimage(
             appimage,
             appdir=appdir,
+            backend_source=_paths["backend_source"],
             plugin=plugin,
             arch="x86_64",
             version="2.5.0",
@@ -537,6 +581,7 @@ def test_finalize_appimage_rejects_repacked_runtime_drift_without_replacing_cand
         package.finalize_appimage(
             appimage,
             appdir=appdir,
+            backend_source=_paths["backend_source"],
             plugin=plugin,
             arch="x86_64",
             version="2.5.0",
@@ -586,6 +631,7 @@ def test_finalize_appimage_rejects_repacker_mutating_both_runtime_copies(tmp_pat
         package.finalize_appimage(
             appimage,
             appdir=appdir,
+            backend_source=_paths["backend_source"],
             plugin=plugin,
             arch="x86_64",
             version="2.5.0",
@@ -667,6 +713,7 @@ def test_finalize_appimage_rejects_unpinned_runtime_before_executing_it(tmp_path
         package.finalize_appimage(
             appimage,
             appdir=appdir,
+            backend_source=_paths["backend_source"],
             plugin=plugin,
             arch="x86_64",
             version="2.5.0",
@@ -736,6 +783,7 @@ def test_finalize_appimage_rejects_unpinned_plugin_before_staging_manifest(
         package.finalize_appimage(
             appimage,
             appdir=appdir,
+            backend_source=paths["backend_source"],
             plugin=plugin,
             arch="x86_64",
             version="2.5.0",
@@ -904,12 +952,17 @@ def test_tauri_bundle_configs_place_manifest_beside_native_components():
     assert base["bundle"]["externalBin"] == [
         "binaries/aiguard",
         "binaries/aiguard-native-broker",
+        "binaries/aiguard-chrome-native-host",
+        "binaries/aiguard-native-host-manager",
     ]
     assert base["build"]["beforeBundleCommand"] == (
         "python ../scripts/prepare_desktop_native_package.py --bundle-manifest"
     )
     windows_source = "binaries/native-components-v1.nsis.json"
-    assert windows == {"bundle": {"resources": {windows_source: "native-components-v1.json"}}}
+    assert windows["bundle"]["resources"] == {windows_source: "native-components-v1.json"}
+    assert windows["bundle"]["windows"]["nsis"]["installerHooks"] == (
+        "windows/native-host-hooks.nsh"
+    )
     macos_source = "binaries/native-components-v1.macos.json"
     assert macos == {
         "bundle": {"macOS": {"files": {"MacOS/native-components-v1.json": macos_source}}}
@@ -918,11 +971,13 @@ def test_tauri_bundle_configs_place_manifest_beside_native_components():
         "bundle": {
             "linux": {
                 "deb": {
+                    "postInstallScript": "linux/deb-postinst.sh",
+                    "preRemoveScript": "linux/deb-prerm.sh",
                     "files": {
                         "/usr/bin/native-components-v1.json": (
                             "binaries/native-components-v1.deb.json"
                         )
-                    }
+                    },
                 },
                 "appimage": {
                     "files": {
@@ -934,6 +989,10 @@ def test_tauri_bundle_configs_place_manifest_beside_native_components():
             }
         }
     }
+    postinst = (tauri / "linux" / "deb-postinst.sh").read_text(encoding="utf-8")
+    prerm = (tauri / "linux" / "deb-prerm.sh").read_text(encoding="utf-8")
+    assert postinst == "#!/bin/sh\nset -eu\n\n/usr/bin/aiguard-native-host-manager repair deb\n"
+    assert prerm == "#!/bin/sh\nset -eu\n\n/usr/bin/aiguard-native-host-manager uninstall deb\n"
 
 
 def test_portable_package_rejects_unmarked_or_nonempty_outputs(tmp_path):
@@ -1012,8 +1071,10 @@ def _appimage_smoke_layout(root: Path) -> tuple[Path, dict[str, Path]]:
         path.write_bytes(path.name.encode("ascii"))
         path.chmod(0o755)
     manifest = {
+        "product_version": "2.5.0",
         "clients": [
             {
+                "role": "desktop",
                 "path": paths["desktop"].name,
                 "sha256": hashlib.sha256(paths["desktop"].read_bytes()).hexdigest(),
             }
@@ -1034,6 +1095,46 @@ def _appimage_smoke_layout(root: Path) -> tuple[Path, dict[str, Path]]:
     return package_dir, paths
 
 
+def test_package_smoke_verifies_every_native_host_client_digest(tmp_path):
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    paths = {
+        "desktop": package_dir / "desktop",
+        "extension": package_dir / "aiguard-chrome-native-host",
+        "maintenance": package_dir / "aiguard-native-host-manager",
+        "broker": package_dir / "aiguard-native-broker",
+        "backend": package_dir / "aiguard",
+    }
+    for path in paths.values():
+        path.write_bytes(path.name.encode("ascii"))
+    manifest = {
+        "clients": [
+            {
+                "role": role,
+                "path": paths[role].name,
+                "sha256": hashlib.sha256(paths[role].read_bytes()).hexdigest(),
+            }
+            for role in ("desktop", "extension", "maintenance")
+        ],
+        "broker": {
+            "path": paths["broker"].name,
+            "sha256": hashlib.sha256(paths["broker"].read_bytes()).hexdigest(),
+        },
+        "backend": {
+            "path": paths["backend"].name,
+            "sha256": hashlib.sha256(paths["backend"].read_bytes()).hexdigest(),
+        },
+        "native_host": {},
+    }
+    (package_dir / "native-components-v1.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    smoke_package._manifest_components(package_dir)
+    paths["extension"].write_bytes(b"tampered adapter")
+
+    with pytest.raises(RuntimeError, match="component verification"):
+        smoke_package._manifest_components(package_dir)
+
+
 def test_appimage_smoke_attests_exact_independent_layout_and_candidate(tmp_path):
     layout = tmp_path / "squashfs-root"
     package_dir, paths = _appimage_smoke_layout(layout)
@@ -1050,6 +1151,7 @@ def test_appimage_smoke_attests_exact_independent_layout_and_candidate(tmp_path)
     assert attestation.package == package_dir.resolve()
     assert attestation.layout == layout.resolve()
     assert attestation.candidate == candidate.resolve()
+    assert attestation.product_version == "2.5.0"
     assert attestation.extracted_name == (
         smoke_package.APPIMAGE_EXTRACTED_PREFIX
         + hashlib.md5(candidate.read_bytes(), usedforsecurity=False).hexdigest()
@@ -1213,6 +1315,9 @@ def test_appimage_smoke_environment_is_private_and_scrubs_injection(monkeypatch,
     assert outer["TMPDIR"] == str(root)
     assert outer["NO_CLEANUP"] == "1"
     assert outer["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] == str(directories["evidence"])
+    if smoke_package.sys.platform.startswith("linux"):
+        assert outer["WEBKIT_DISABLE_COMPOSITING_MODE"] == "1"
+        assert outer["WEBKIT_DISABLE_DMABUF_RENDERER"] == "1"
     for name in (
         "APPDIR",
         "APPIMAGE",
@@ -1237,6 +1342,9 @@ def test_appimage_smoke_environment_is_private_and_scrubs_injection(monkeypatch,
     assert warm["TMPDIR"] == outer["TMPDIR"]
     assert warm["HOME"] == outer["HOME"]
     assert warm["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] == outer["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"]
+    if smoke_package.sys.platform.startswith("linux"):
+        assert warm["WEBKIT_DISABLE_COMPOSITING_MODE"] == "1"
+        assert warm["WEBKIT_DISABLE_DMABUF_RENDERER"] == "1"
     assert "NO_CLEANUP" not in warm
 
 
@@ -1305,6 +1413,13 @@ def test_appimage_smoke_outer_then_verified_apprun_uses_one_private_layout(
         launches.append((command, kwargs))
         if len(launches) == 1:
             shutil.copytree(attested_layout, live_layout)
+        stable_package = (
+            directories["data"] / "aiguard" / "native-host-v1" / attestation.product_version
+        )
+        if stable_package.exists():
+            shutil.rmtree(stable_package)
+        stable_package.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(live_layout / "usr" / "bin", stable_package)
         (directories["evidence"] / smoke_package.SMOKE_NATIVE_START).write_bytes(b"started")
         return FakeProcess(1000 + len(launches))
 
@@ -1364,11 +1479,12 @@ def test_appimage_smoke_outer_then_verified_apprun_uses_one_private_layout(
     assert launches[0][1]["env"]["NO_CLEANUP"] == "1"
     assert launches[1][1]["env"]["APPDIR"] == str(live_layout)
     assert launches[1][1]["env"]["APPIMAGE"] == str(candidate.resolve())
-    expected_live_paths = {
-        name: live_layout / "usr" / "bin" / path.name for name, path in _paths.items()
-    }
-    assert [entry[2] for entry in monitored] == [expected_live_paths, expected_live_paths]
-    assert [entry[0] for entry in natural_checks] == [expected_live_paths]
+    stable_package = (
+        directories["data"] / "aiguard" / "native-host-v1" / attestation.product_version
+    )
+    expected_stable_paths = {name: stable_package / path.name for name, path in _paths.items()}
+    assert [entry[2] for entry in monitored] == [expected_stable_paths, expected_stable_paths]
+    assert [entry[0] for entry in natural_checks] == [expected_stable_paths]
     assert recovery_stops == []
     assert zero_checks == []
     assert not root.exists()
@@ -1482,7 +1598,17 @@ def test_packaged_smoke_requires_complete_finite_positive_resource_evidence():
 def test_packaged_smoke_failure_diagnostics_are_a_fixed_nonpayload_enum():
     assert smoke_package.EXPECTED_FAILURE_STAGES == frozenset(
         {
+            "app_build",
+            "app_exit",
             "app_ready",
+            "app_runtime",
+            "appimage_desktop",
+            "appimage_environment",
+            "appimage_executable",
+            "appimage_exec",
+            "appimage_manifest",
+            "appimage_repair",
+            "appimage_root",
             "health",
             "ready_signal",
             "analyze",
@@ -1497,6 +1623,7 @@ def test_packaged_smoke_failure_diagnostics_are_a_fixed_nonpayload_enum():
             "finish",
             "bootstrap_import",
             "bootstrap_eval",
+            "webview_process",
         }
     )
 
@@ -1509,6 +1636,83 @@ def test_packaged_smoke_never_projects_an_untrusted_failure_marker(tmp_path):
 
     marker.write_text("sanitize", encoding="utf-8")
     assert smoke_package._fixed_failure_stage(marker) == "sanitize"
+
+
+def test_packaged_smoke_stops_on_fixed_runtime_failure(tmp_path):
+    marker = tmp_path / smoke_package.SMOKE_FAILURE
+    marker.write_bytes(b"webview_process")
+
+    with pytest.raises(
+        RuntimeError,
+        match="packaged Desktop smoke failed at fixed stage: webview_process",
+    ):
+        smoke_package._raise_for_smoke_failure(marker)
+
+    marker.write_bytes(b"untrusted")
+    with pytest.raises(RuntimeError, match="smoke failure evidence invalid"):
+        smoke_package._raise_for_smoke_failure(marker)
+
+
+@pytest.mark.parametrize(
+    ("returncode", "expected"),
+    [
+        (0, "packaged Desktop smoke evidence unavailable"),
+        (75, "packaged Desktop smoke bootstrap rejected"),
+        (1, "packaged Desktop smoke process failed"),
+        (-11, "packaged Desktop smoke process terminated"),
+    ],
+)
+def test_packaged_smoke_projects_only_fixed_missing_evidence_categories(returncode, expected):
+    assert smoke_package._missing_smoke_evidence_error(returncode) == expected
+
+
+def test_appimage_prestart_waiter_projects_a_fixed_bootstrap_failure(tmp_path):
+    marker_root = tmp_path / "evidence"
+    marker_root.mkdir()
+    (marker_root / smoke_package.SMOKE_FAILURE).write_bytes(b"appimage_manifest")
+
+    class ExitedProcess:
+        @staticmethod
+        def poll():
+            return 75
+
+    with pytest.raises(
+        RuntimeError,
+        match="packaged Desktop smoke failed at fixed stage: appimage_manifest",
+    ):
+        smoke_package._wait_for_live_appimage(
+            tmp_path / "layout",
+            tmp_path / "data",
+            marker_root,
+            None,
+            ExitedProcess(),
+            float("inf"),
+        )
+
+
+def test_appimage_prestart_waiter_rechecks_failure_after_process_exit(tmp_path):
+    marker_root = tmp_path / "evidence"
+    marker_root.mkdir()
+    failure_marker = marker_root / smoke_package.SMOKE_FAILURE
+
+    class ExitsAfterFirstMarkerCheck:
+        @staticmethod
+        def poll():
+            failure_marker.write_bytes(b"app_runtime")
+            return 1
+
+    with pytest.raises(
+        RuntimeError,
+        match="packaged Desktop smoke failed at fixed stage: app_runtime",
+    ):
+        smoke_package._wait_for_live_appimage(
+            tmp_path / "layout",
+            tmp_path / "data",
+            marker_root,
+            None,
+            ExitsAfterFirstMarkerCheck(),
+            float("inf"),
+        )
 
 
 def test_packaged_smoke_scrubs_remote_credentials_and_pins_fake_local_path(monkeypatch):
@@ -1532,6 +1736,9 @@ def test_packaged_smoke_scrubs_remote_credentials_and_pins_fake_local_path(monke
     assert environment["AIGUARD_NER_ENGINE"] == "thainer"
     assert environment["AIGUARD_PROVIDERS"] == "fake"
     assert environment["AIGUARD_DESKTOP_PACKAGE_SMOKE"] == "1"
+    if smoke_package.sys.platform.startswith("linux"):
+        assert environment["WEBKIT_DISABLE_COMPOSITING_MODE"] == "1"
+        assert environment["WEBKIT_DISABLE_DMABUF_RENDERER"] == "1"
     for name in (
         "AIFORTHAI_API_KEY",
         "ANTHROPIC_API_KEY",
@@ -1731,6 +1938,8 @@ def test_windows_process_count_requires_exact_installed_executable_path(tmp_path
 def test_run_desktop_failure_reaps_process_and_removes_markers(tmp_path, monkeypatch, failure):
     package_dir = tmp_path / "package"
     package_dir.mkdir()
+    marker_root = tmp_path / "markers"
+    marker_root.mkdir()
     component_paths = {
         name: package_dir / filename
         for name, filename in {
@@ -1743,7 +1952,7 @@ def test_run_desktop_failure_reaps_process_and_removes_markers(tmp_path, monkeyp
         path.write_bytes(b"synthetic component")
 
     markers = tuple(
-        package_dir / name
+        marker_root / name
         for name in (
             smoke_package.SMOKE_EVIDENCE,
             smoke_package.SMOKE_READY,
@@ -1756,7 +1965,8 @@ def test_run_desktop_failure_reaps_process_and_removes_markers(tmp_path, monkeyp
 
     def fake_popen(*_args, **_kwargs):
         for marker in markers:
-            marker.write_text("health", encoding="utf-8")
+            if marker.name != smoke_package.SMOKE_FAILURE:
+                marker.write_text("health", encoding="utf-8")
         process = real_popen(
             [sys.executable, "-c", "import time; time.sleep(30)"],
             stdin=smoke_package.subprocess.DEVNULL,
@@ -1788,6 +1998,7 @@ def test_run_desktop_failure_reaps_process_and_removes_markers(tmp_path, monkeyp
         smoke_package._run_desktop(
             component_paths["desktop"],
             package_dir,
+            marker_root,
             {},
             component_paths,
             timeout,
@@ -1811,6 +2022,7 @@ def test_packaged_smoke_process_checks_use_attested_component_paths(tmp_path, mo
     manifest = {
         "clients": [
             {
+                "role": "desktop",
                 "path": paths["desktop"].name,
                 "sha256": hashlib.sha256(paths["desktop"].read_bytes()).hexdigest(),
             }
@@ -1832,19 +2044,33 @@ def test_packaged_smoke_process_checks_use_attested_component_paths(tmp_path, mo
         return 0
 
     monkeypatch.setattr(smoke_package, "_process_count", process_count)
-    monkeypatch.setattr(
-        smoke_package,
-        "_run_desktop",
-        lambda *_args, **_kwargs: (
+    runs = []
+
+    def run_desktop(desktop, package, marker_root, environment, component_paths, timeout):
+        runs.append((desktop, package, marker_root, environment, component_paths, timeout))
+        assert marker_root.is_dir()
+        assert marker_root != package
+        assert package not in marker_root.parents
+        assert environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] == str(marker_root)
+        return (
             1.0,
             dict.fromkeys(smoke_package.EXPECTED_SMOKE_METRICS, 1.0),
             dict.fromkeys(smoke_package.EXPECTED_RESOURCE_METRICS, 1.0),
-        ),
-    )
+        )
+
+    monkeypatch.setattr(smoke_package, "_run_desktop", run_desktop)
+    package_before = {
+        path.relative_to(package_dir): path.read_bytes() for path in package_dir.iterdir()
+    }
 
     smoke_package.smoke(package_dir, timeout=1)
 
     assert inspected == [paths["broker"], paths["backend"], paths["broker"], paths["backend"]]
+    assert len(runs) == 1
+    assert not runs[0][2].exists()
+    assert {path.relative_to(package_dir): path.read_bytes() for path in package_dir.iterdir()} == (
+        package_before
+    )
 
 
 def test_packaged_smoke_failure_still_waits_for_native_process_baseline(tmp_path, monkeypatch):
@@ -1860,6 +2086,7 @@ def test_packaged_smoke_failure_still_waits_for_native_process_baseline(tmp_path
     manifest = {
         "clients": [
             {
+                "role": "desktop",
                 "path": paths["desktop"].name,
                 "sha256": hashlib.sha256(paths["desktop"].read_bytes()).hexdigest(),
             }
@@ -1881,16 +2108,20 @@ def test_packaged_smoke_failure_still_waits_for_native_process_baseline(tmp_path
         return 0
 
     monkeypatch.setattr(smoke_package, "_process_count", process_count)
-    monkeypatch.setattr(
-        smoke_package,
-        "_run_desktop",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("forced failure")),
-    )
+    marker_roots = []
+
+    def fail_desktop(_desktop, _package, marker_root, *_args, **_kwargs):
+        marker_roots.append(marker_root)
+        raise RuntimeError("forced failure")
+
+    monkeypatch.setattr(smoke_package, "_run_desktop", fail_desktop)
 
     with pytest.raises(RuntimeError, match="forced failure"):
         smoke_package.smoke(package_dir, timeout=1)
 
     assert inspected == [paths["broker"], paths["backend"], paths["broker"], paths["backend"]]
+    assert len(marker_roots) == 1
+    assert not marker_roots[0].exists()
 
 
 def test_ci_and_release_build_both_tauri_native_components():
@@ -1915,6 +2146,12 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     assert placeholder_index < workflow.index("npm run tauri -- build --bundles app")
     assert placeholder_index < workflow.index("npm run tauri -- build --bundles deb,appimage")
     appimage_build_index = workflow.index("npm run tauri -- build --bundles deb,appimage")
+    backend_preserve_index = workflow.index("Preserve the exact pre-linuxdeploy AppImage backend")
+    assert workflow.index("python scripts/build_sidecar.py") < backend_preserve_index
+    assert backend_preserve_index < appimage_build_index
+    assert 'source="desktop/src-tauri/binaries/aiguard-$triple"' in workflow
+    assert 'preserved="$RUNNER_TEMP/aiguard-appimage-backend"' in workflow
+    assert '--appimage-backend-source "$RUNNER_TEMP/aiguard-appimage-backend"' in workflow
     appimage_finalize = "scripts/prepare_desktop_native_package.py --finalize-appimage"
     assert appimage_finalize in workflow
     appimage_finalize_index = workflow.index(appimage_finalize)
@@ -1932,9 +2169,9 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     assert "dpkg-deb -x" in workflow
     assert "--appimage-extract" in workflow
     assert workflow.count("scripts/smoke_desktop_native_package.py") >= 3
-    linux_smoke_prefix = "dbus-run-session -- xvfb-run -a -e /dev/stderr sh -c"
+    linux_smoke_prefix = "xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c"
     direct_inner_smoke = (
-        '\'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 > "$2"\''
+        "'python scripts/smoke_desktop_native_package.py /usr/bin --repetitions 2 > \"$1\"'"
     )
     appimage_inner_smoke = (
         '\'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 '
@@ -1942,9 +2179,15 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     )
     assert "dbus-daemon" in workflow
     assert workflow.count(linux_smoke_prefix) == 2
+    assert "dbus-run-session -- xvfb-run" not in workflow
     assert workflow.count(direct_inner_smoke) == 1
     assert workflow.count(appimage_inner_smoke) == 1
     assert '"$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"' in workflow
+    assert 'sudo dpkg -i "$deb"' in workflow
+    assert 'sudo dpkg -r "$deb_name"' in workflow
+    assert '"$GITHUB_WORKSPACE/$appimage" --register-native-host' in workflow
+    assert '"$GITHUB_WORKSPACE/$appimage" --unregister-native-host' in workflow
+    assert workflow.count("scripts/verify_native_host_registration.py") == 6
     smoke_source = SMOKE_SCRIPT.read_text(encoding="utf-8")
     assert '[str(attestation.candidate), "--appimage-extract-and-run"]' in smoke_source
     assert '[str(live_layout / "AppRun")]' in smoke_source

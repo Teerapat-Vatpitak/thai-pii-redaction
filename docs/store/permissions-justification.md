@@ -1,118 +1,68 @@
-# AI Guard — Chrome Web Store Permissions Justification
+# AI Guard — Chrome Web Store permissions justification
 
-Single-purpose statement: AI Guard detects and masks Thai personally identifiable
-information (PII) in text before the user sends it to an external AI chat
-service, and restores the original values locally once the AI's reply comes
-back. Every permission below exists only to support that one purpose.
-
-All direct backend calls the extension makes go to a backend the user runs on
-their own machine (`http://localhost:8000` / `http://127.0.0.1:8000`). The
-default detector is local; if the user explicitly configures remote TNER, that
-backend sends raw pre-mask chunks to AI for Thai. See
-`docs/store/privacy-policy.md` for the full data-handling description.
+Single purpose: detect and mask Thai PII before the user sends text to an
+external AI chat service, then restore the original values locally from the
+reply. Current source is not yet an accepted Web Store artifact because its
+owner-approved item remains Draft/unpublished and the exact-ID real-browser run
+loaded the package unpacked rather than through the Web Store.
 
 ## `storage`
 
-Used to persist two small pieces of state. The mode is non-sensitive;
-`session_id` is an opaque but security-sensitive bearer-like restoration
-reference:
+- `chrome.storage.local` keeps the non-sensitive last-selected mask mode
+  (`token` or `surrogate`).
+- `chrome.storage.session` is cleared on native disconnect and service-worker
+  initialization to remove legacy or stale session references. Broker scope
+  and session handles are memory-only and never survive a worker generation.
 
-- The user's last-chosen mask mode (`token` or `surrogate`), in
-  `chrome.storage.local`, so the in-page bar and the side panel agree on the
-  same choice across page loads (`extension/background.js`,
-  `extension/sidepanel.js`).
-- A per-tab `session_id` in `chrome.storage.session`, so a "Restore PII"
-  click can look up the right backend session even after the MV3 service
-  worker has been evicted and restarted by Chrome. `chrome.storage.session`
-  is cleared automatically when the browser closes and is never written to
-  disk (`extension/background.js`). The `session_id` is not the
-  mapping, but it must be protected as session authority. The canonical
-  PII↔placeholder vault
-  remains in backend memory and is not deliberately persisted. Current source
-  uses strict HTTP v2 and returns no explicit mapping DTO; the published
-  2.5.0/v1 artifact predates that repair.
+The Extension does not store the canonical mapping, Python session ID,
+request text, or detected PII in Chrome storage.
 
 ## `clipboardWrite`
 
-Used only for the "Copy" button in the side panel, which copies the masked
-text to the user's clipboard after they click "Mask" (`extension/sidepanel.js`,
-`navigator.clipboard.writeText`). The extension never reads the clipboard
-and requests no `clipboardRead` permission.
+Used only after the user clicks Copy in the side panel to copy the validated
+masked text. The Extension never reads the clipboard and does not request
+`clipboardRead`.
 
 ## `sidePanel`
 
-Used to open AI Guard's docked side-panel workspace (paste text to mask,
-paste an AI reply to restore) via `chrome.sidePanel`
-(`extension/background.js`, `extension/manifest.json` `side_panel`
-key). This is the extension's primary manual-entry UI, alongside the
-in-page floating bar.
+Opens the docked side-panel workspace. Each panel instance has its own
+service-worker-owned broker scope, disposed when that panel's runtime port
+closes.
 
-## `host_permissions`: `http://localhost:8000/*`, `http://127.0.0.1:8000/*`
+## `nativeMessaging`
 
-The extension's masking/restoration request path and default detector run in a
-local backend process that the user starts on their own machine (see project
-`README.md` / `run.ps1`). An explicitly selected TNER engine is the exception:
-the backend sends raw pre-mask chunks to AI for Thai. These two host
-permissions are what let
-the extension's background service worker call that local backend across
-origins from pages like `chatgpt.com` or `claude.ai`
-(`extension/background.js`) — Chrome's default cross-origin
-restrictions would otherwise block a content-script-initiated fetch to
-`localhost` from those sites. No other hosts are ever contacted; there is no
-code path in the extension itself that reaches any domain besides these two.
-The current source extension trusts whichever process owns the fixed localhost
-port; CORS and host permissions do not authenticate that process. It is a
-strict v2 client and rejects mapping-bearing, unknown, malformed, or unsafe
-responses before composer/copy writes. Current backend source also rejects structured FP, text-based TB,
-detector-independent contiguous 6+ digit residuals, and missing replacement
-records instead of returning a warning-only masked result. Historical
-browser/store and published 2.5.0 evidence predates that change, so it does not
-establish an accepted production package. Users should run only a backend they
-started and trust and review high-risk output before submitting it. Packaged
-production operation is intended to move through a Chrome Native Messaging
-host/adapter to the shared broker already present in current source and remove
-direct localhost host permissions. That Extension-specific Slice 5 migration,
-native-host registration/lifecycle, and fresh package/browser acceptance remain
-open; this is not a claim that the broker protocol or Desktop broker client is
-absent.
+Allows the MV3 service worker—the only native transport owner—to connect to
+the exact registered host `th.ac.psu.aiguard.native_host`. Chrome starts the
+thin stdio adapter, which validates the exact Extension origin and browser
+process context before joining the shared broker as role `extension`.
 
-## `content_scripts` matches (6 AI chat providers)
+The adapter and installed profile contain no provider command, remote TNER,
+credential, localhost fallback, document/PDF transfer, mapping logic, or
+detector implementation. The service worker retries only PII-free
+connect/hello/health startup and never replays a PII-bearing request.
 
-The extension injects a small floating "Mask PII / Restore PII" control bar
-and a per-message "Restore" button into the pages of the AI chat services it
-supports, so the user can mask before sending and restore after receiving a
-reply without leaving the chat page:
+## No production `host_permissions`
 
-- `chatgpt.com`, `chat.openai.com` — ChatGPT
-- `claude.ai` — Claude
-- `gemini.google.com` — Gemini
-- `grok.com`, `*.grok.com` — Grok
-- `perplexity.ai`, `*.perplexity.ai` — Perplexity
-- `chat.z.ai`, `*.z.ai`, `chatglm.cn`, `*.chatglm.cn`, `*.bigmodel.cn` — GLM / Z.ai
+The production manifest has no `host_permissions`. It contains no
+`localhost`, `127.0.0.1`, direct HTTP client, port probe, or fallback. The
+existing HTTPS content-script match list is unchanged and grants only content
+script placement on supported AI chat sites; it is not a backend transport
+permission.
 
-Each match is a specific, publicly documented AI chat product domain, not a
-broad or unrelated host. The content script (`extension/content.js`,
-`extension/sites.js`) uses site selectors and broad visible
-contenteditable/textarea or assistant/response fallbacks to locate likely
-composer and reply elements when the user invokes Mask or Restore. On selector
-drift, a fallback can read a different matching visible element; tightening
-that heuristic is an acceptance concern. It writes masked text into the chosen
-composer or restored text into an overlay. It does not talk to the network
-directly; all network calls go through the background service worker described
-above.
+## Content-script matches
 
-The in-page workflow starts after raw text has been entered into the AI site's
-provider-controlled DOM. Page code can observe or transmit that draft before
-Mask replaces it. Users who require the stronger isolation boundary should
-enter raw text in the extension side panel and paste only the reviewed masked
-result into the site.
-`web_accessible_resources` in the same match list only exposes the
-extension's own toolbar icon files (`icons/icon16.png` … `icon128.png`) so
-the injected bar can render its logo; no other extension file is exposed to
-these pages.
+The unchanged exact site list covers ChatGPT, Claude, Gemini, Grok,
+Perplexity, and GLM/Z.ai. The content script renders user-invoked Mask/Restore
+controls and locates likely composer/reply elements. It never opens a native
+port or talks to a network endpoint.
 
-## Summary of what is *not* requested
+Raw text used by in-page Mask has already entered provider-controlled DOM.
+Site code may observe or transmit the draft before replacement. Users needing
+the stronger raw-entry boundary should use the side panel and paste only the
+reviewed masked result.
+
+## Permissions not requested
 
 No `tabs`, `webRequest`, `history`, `cookies`, `downloads`, `geolocation`,
-`identity`, or broad (`<all_urls>`) host permission is requested. The
-extension has no remote-code execution, no analytics SDK, and no telemetry.
+`identity`, `clipboardRead`, broad host permission, or `<all_urls>` permission
+is requested. There is no analytics SDK, telemetry, or remote code execution.

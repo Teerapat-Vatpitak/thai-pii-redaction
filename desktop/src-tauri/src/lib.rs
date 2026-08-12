@@ -1,5 +1,6 @@
 mod broker;
 mod hotkey;
+mod native_host_lifecycle;
 #[cfg(feature = "package-smoke")]
 mod package_smoke;
 mod tray;
@@ -101,6 +102,10 @@ fn register_webview_process_cleanup(window: &tauri::WebviewWindow) -> tauri::Res
         platform
             .inner()
             .connect_web_process_terminated(move |_webview, _reason| {
+                #[cfg(feature = "package-smoke")]
+                package_smoke::desktop_package_smoke_runtime_fail(
+                    package_smoke::PackageSmokeFailure::WebviewProcess,
+                );
                 broker::close_window(&event_app, &event_label);
             });
     })
@@ -152,8 +157,30 @@ pub const WEBVIEW_BROKER_COMMANDS: &[(&str, &str)] = &[
     ("desktop_session_dispose", "session_dispose"),
 ];
 
+pub fn native_host_lifecycle_exit_code() -> Option<i32> {
+    native_host_lifecycle::requested_action(std::env::args_os()).map(|action| {
+        if native_host_lifecycle::run(action).is_ok() {
+            0
+        } else {
+            75
+        }
+    })
+}
+
+pub fn stable_appimage_reexec_exit_code() -> Option<i32> {
+    native_host_lifecycle::stable_appimage_reexec_exit_code()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(feature = "package-smoke")]
+    if package_smoke::requested() {
+        std::panic::set_hook(Box::new(|_| {
+            package_smoke::desktop_package_smoke_bootstrap_fail(
+                package_smoke::PackageSmokeFailure::AppRuntime,
+            );
+        }));
+    }
     let seen_page_loads = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::<
         String,
     >::new()));
@@ -197,6 +224,8 @@ pub fn run() {
         .manage(broker::DesktopBrokerState::default())
         .invoke_handler(desktop_invoke_handler!())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            let _ = native_host_lifecycle::run(native_host_lifecycle::Action::Repair);
             #[cfg(feature = "package-smoke")]
             if package_smoke::requested()
                 && package_smoke::desktop_package_smoke_native_start().is_err()
@@ -219,24 +248,38 @@ pub fn run() {
     let builder = builder.on_web_content_process_terminate(|webview| {
         broker::close_window(webview.app_handle(), webview.label());
     });
-    builder
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::WindowEvent {
-                ref label,
-                ref event,
-                ..
-            } = event
-            {
-                if matches!(event, tauri::WindowEvent::Destroyed) {
-                    broker::close_window(app, label);
-                }
+    let application = match builder.build(tauri::generate_context!()) {
+        Ok(application) => application,
+        Err(error) => {
+            #[cfg(all(feature = "package-smoke", target_os = "linux"))]
+            if package_smoke::requested() {
+                package_smoke::desktop_package_smoke_bootstrap_fail(
+                    package_smoke::PackageSmokeFailure::AppBuild,
+                );
+                std::process::exit(75);
             }
-            if matches!(event, tauri::RunEvent::Exit) {
-                broker::shutdown(app);
+            panic!("error while building tauri application: {error}");
+        }
+    };
+    application.run(|app, event| {
+        if let tauri::RunEvent::WindowEvent {
+            ref label,
+            ref event,
+            ..
+        } = event
+        {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                broker::close_window(app, label);
             }
-        });
+        }
+        if matches!(event, tauri::RunEvent::Exit) {
+            #[cfg(feature = "package-smoke")]
+            package_smoke::desktop_package_smoke_runtime_fail(
+                package_smoke::PackageSmokeFailure::AppExit,
+            );
+            broker::shutdown(app);
+        }
+    });
 }
 
 #[tauri::command]
