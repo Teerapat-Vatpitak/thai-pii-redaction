@@ -86,6 +86,16 @@ impl WindowsEndpoint {
         Ok(PathBuf::from(r"C:\AI-Guard-Native-Broker-v1"))
     }
 
+    pub(crate) fn cleanup_runtime_root(root: &Path) -> Result<(), ProtocolError> {
+        if root.as_os_str().is_empty() || !root.is_absolute() {
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
+        // Windows endpoint and single-instance state are kernel objects. Their
+        // last process handle is the cleanup authority, so there is no file to
+        // remove after a confirmed broker stop.
+        Ok(())
+    }
+
     pub(crate) fn publication_for(root: &Path) -> Result<String, ProtocolError> {
         if root.as_os_str().is_empty() || !root.is_absolute() {
             return Err(ProtocolError::new("broker_unavailable", None));

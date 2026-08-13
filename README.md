@@ -45,8 +45,8 @@ described as if they were the same deployment.
 
 | Context | Privacy boundary |
 |---|---|
-| Local Desktop | The installed webview uses typed commands and authenticated native IPC to a shared broker, which owns the private authenticated HTTP-v2 backend. Mappings, backend endpoint/credentials, provider credentials, and Python session IDs never reach the webview. The installed Desktop/native-broker profile is deliberately credential-free: it fixes detection to local `thainer`, admits only `fake` as internal backend conformance support, and exposes no provider command. Slice 4 is integrated. |
-| Browser Extension candidate | The MV3 service worker owns one registered Chrome Native Messaging port to the same shared broker. Content scripts and side panels never receive mappings, Python session IDs, backend endpoints/credentials, or native transport access. Installed detection is fixed to local `thainer`; no provider, remote TNER, credential, localhost permission, HTTP client, or fallback is exposed. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm`, exact-ID unpacked Chromium, and installed-companion gates pass; the Web Store item remains Draft/unpublished. |
+| Local Desktop | The installed webview uses typed commands and authenticated native IPC to a shared broker, which owns the private authenticated HTTP-v2 backend. Mappings, backend endpoint/credentials, provider credentials, and Python session IDs never reach the webview. The installed Desktop/native-broker profile is deliberately credential-free: it fixes detection to local `thainer`, admits only `fake` as internal backend conformance support, and exposes no provider command. Slice 4 is integrated; the Slice 6 closure candidate completes its installed lifecycle and becomes integrated when this exact tree reaches `main` through the recorded closure protocol. |
+| Browser Extension | The MV3 service worker owns one registered Chrome Native Messaging port to the same shared broker. Content scripts and side panels never receive mappings, Python session IDs, backend endpoints/credentials, or native transport access. Installed detection is fixed to local `thainer`; no provider, remote TNER, credential, localhost permission, HTTP client, or fallback is exposed. Slice 5, owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm`, exact-ID unpacked Chromium, and installed-companion gates pass. The Slice 6 lifecycle closure is merge-conditional as above; the Web Store item remains Draft/unpublished. |
 | Office Add-in | Office remains outside broker protocol v1 and retains its separately documented strict fixed-port HTTP-v2 development path. Explicit remote TNER outside the installed Desktop/Extension boundary sends raw pre-mask chunks to AI for Thai. Fresh Office host/package acceptance and localhost process identity remain open. |
 | Hosted platform service | The raw request reaches the platform-hosted AI Guard container. The selected sibling port is request-stateless, gates business routes with a signed caller cookie, proxies its public aliases to strict contract 2, and returns minimized projections without mapping DTOs. Main's `app.hosted` session routes remain a generic reference, not the selected deployment. The exact sibling commit passes provider-free local check/deploy; exact live-provider, public-proxy, and platform acceptance remain open. |
 
@@ -345,19 +345,19 @@ class named in each record. Current truth is deliberately split as follows:
   packaging-contract tests can establish source behavior. They do not install a
   product or exercise a live host/provider.
 - **Packaged tests:** the Desktop harness uses production package JavaScript,
-  typed Tauri commands, the native broker, and the frozen backend. Its evidence
-  classes are an isolated Windows NSIS installed root, a relocated macOS app
-  layout, a directly extracted DEB layout, independent AppImage byte
-  extraction, and exact outer AppImage `--appimage-extract-and-run` followed by
-  a re-attested warm `AppRun`. They are not interchangeable. The AppImage path
-  does not prove normal FUSE/double-click behavior or an installed lifecycle.
+  typed Tauri commands, the native broker, and the frozen backend. Evidence
+  classes include default-path and isolated Windows NSIS, relocated macOS,
+  extracted DEB, real `dpkg` lifecycle, independent AppImage byte extraction,
+  exact outer AppImage `--appimage-extract-and-run`, and re-attested warm
+  `AppRun`. They are not interchangeable. Normal AppImage FUSE is reported only
+  when the runner can mount it; extract-and-run never substitutes for FUSE.
 - **Installed real-host tests:** the published 2.5.0 Desktop/browser/Office
-  records remain historical pre-broker/HTTP-v2 evidence. Slice 5 now has
+  records remain historical pre-broker/HTTP-v2 evidence. Slice 5 has
   production-keyed unpacked real-Chromium and exact CI NSIS installed-companion
-  evidence. This is production-origin/runtime evidence, not Web Store
-  installation or default-path NSIS evidence. Office-host, package upgrade, and
-  complete installed cross-platform acceptance remain open unless a dated
-  exact-candidate record says otherwise.
+  evidence. The Slice 6 record separately identifies its pre-final local
+  default-path/real-browser artifact and its exact-head workflow artifacts.
+  None is Web Store installation. Office-host and other evidence classes remain
+  open unless a dated exact-candidate record says otherwise.
 - **Live or external tests:** live Pathumma/TNER, official hosted-platform,
   signing/notarization, store submission, release publication, and deployment
   evidence remain separate. A mock, schema check, package build, or local
@@ -367,16 +367,13 @@ Desktop source now crosses broker protocol v1 and has no webview localhost
 fallback. Its installed profile is fixed to local `thainer`; `fake` is the only
 backend provider admitted for internal conformance, and no provider operation is
 exposed to the webview. Unsupported remote/credential-backed configuration
-fails closed, including when a Desktop process finds a warm broker. Slice 4
-integration is complete. The Extension Native Messaging migration has its
-owner-approved production identity, exact-ID unpacked-browser, installed-
-companion, and cross-platform gates; final exact-head review/CI precedes Slice 5
-integration. Office
-remains outside broker v1 on fixed-port HTTP v2. Slice 6 is cross-platform
-package/install/relocation/updater/upgrade,
-interrupted-upgrade, stale-cleanup, and uninstall recertification. New tag
-publication is intentionally preflight-blocked until those delivery gates are
-complete.
+fails closed, including when a Desktop process finds a warm broker. Slices 4--5
+are integrated. The Slice 6 closure candidate covers cross-platform package/
+install/relocation/updater/upgrade, interrupted-upgrade, stale-cleanup, and
+uninstall recertification; it is integrated only when this exact tree reaches
+`main` after all closure gates. Office remains outside broker v1 on fixed-port
+HTTP v2. New tag publication remains intentionally preflight-blocked until a
+separate owner-authorized release-preparation task.
 Detection accuracy remains the declared normal Track A priority; the
 owner-approved hardening campaign is an explicit temporary exception, not
 completion of Track A. Accuracy numbers live in generated benchmark reports

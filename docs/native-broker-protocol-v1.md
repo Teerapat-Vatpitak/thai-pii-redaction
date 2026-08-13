@@ -1,9 +1,9 @@
 # Native broker protocol v1
 
-- Status: normative Slice 1 contract; runtime Slices 2--4 integrated; Slice 5
-  Extension/native-host implementation has its owner-approved production
-  identity and installed-companion evidence, with final exact-head gates before
-  integration
+- Status: normative Slice 1 contract; runtime Slices 2--5 integrated; the Slice
+  6 package/lifecycle closure candidate uses the existing maintenance operation,
+  does not change protocol v1, and becomes integrated only when this exact tree
+  reaches `main` through its closure protocol
 - Protocol version: `1`
 - Product version: independent (`VERSION` remains `2.5.0`)
 - HTTP contract: independent (HTTP v2 remains unchanged)
@@ -468,7 +468,20 @@ Implemented uncertain-completion handling is fixed:
 - broker/backend restart or upgrade: invalidate every handle and create no
   restoration continuity.
 
+Slice 6 package replacement activates a verified local maintenance barrier
+before any executable or manifest byte changes. The barrier is outside the
+wire contract: it rejects new native admission, while only a complete-set-
+admitted `maintenance` client may send `maintenance_drain_stop`. That role has
+no scope kind and cannot sanitize, restore, inspect, or receive a session
+handle. Once drain begins, the broker stops admissions, cancels or boundedly
+terminates in-flight work without replay, disposes known sessions, terminates
+the backend when completion/disposal is uncertain, closes the endpoint, and
+exits. Package repair then starts a new broker generation with new private
+backend credentials and empty state. Neither the barrier nor the component
+manifest contains mapping/session data.
+
 Slice 1 itself implements no retry, disposal, teardown, or backend call. It
 exposes the policy metadata so later slices cannot silently choose weaker
-semantics; integrated Slices 2--3 enforce that policy at the runtime and data
-plane.
+semantics; integrated Slices 2--5 and the merge-conditional Slice 6 closure tree
+enforce that policy at the runtime, data-plane, native-host, and package
+boundaries.

@@ -21,12 +21,15 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 SMOKE_EVIDENCE = "desktop-smoke-evidence.json"
 SMOKE_READY = "desktop-smoke-ready"
 SMOKE_FAILURE = "desktop-smoke-failure"
+SMOKE_INVALIDATED = "desktop-smoke-upgrade-invalidated"
 SMOKE_NATIVE_START = "desktop-smoke-native-start"
+SMOKE_RELEASE = "desktop-smoke-release"
 APPIMAGE_EXTRACTED_PREFIX = "appimage_extracted_"
 APPIMAGE_EXTRACTED_NAME = re.compile(r"appimage_extracted_[0-9a-f]{32}\Z")
 PRODUCT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
@@ -70,6 +73,7 @@ EXPECTED_FAILURE_STAGES = frozenset(
         "audit",
         "cleanup",
         "finish",
+        "upgrade_invalidation",
         "bootstrap_import",
         "bootstrap_eval",
         "webview_process",
@@ -321,7 +325,13 @@ def _attest_appimage_inputs(
             raise ValueError
         component_paths, manifest_digest = _manifest_components(package)
         product_version = _manifest_product_version(package, manifest_digest)
-        for marker in (SMOKE_EVIDENCE, SMOKE_READY, SMOKE_FAILURE, SMOKE_NATIVE_START):
+        for marker in (
+            SMOKE_EVIDENCE,
+            SMOKE_READY,
+            SMOKE_FAILURE,
+            SMOKE_INVALIDATED,
+            SMOKE_NATIVE_START,
+        ):
             if _path_exists(package / marker):
                 raise ValueError
     except (OSError, RuntimeError, ValueError):
@@ -577,15 +587,43 @@ def _validated_resource_peaks(peaks: dict[str, float]) -> dict[str, float]:
     return {name: round(value, 3) for name, value in sorted(peaks.items())}
 
 
-def _marker_paths(root: Path) -> tuple[Path, Path, Path, Path]:
+def _marker_paths(root: Path) -> tuple[Path, Path, Path, Path, Path]:
     return tuple(
-        root / name for name in (SMOKE_EVIDENCE, SMOKE_READY, SMOKE_FAILURE, SMOKE_NATIVE_START)
+        root / name
+        for name in (
+            SMOKE_EVIDENCE,
+            SMOKE_READY,
+            SMOKE_FAILURE,
+            SMOKE_INVALIDATED,
+            SMOKE_NATIVE_START,
+        )
     )
 
 
 def _clear_markers(root: Path) -> None:
-    for path in _marker_paths(root):
+    for path in (*_marker_paths(root), root / SMOKE_RELEASE):
         path.unlink(missing_ok=True)
+
+
+def _publish_release_marker(marker_root: Path) -> None:
+    pending_release: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{SMOKE_RELEASE}.pending-",
+            dir=marker_root,
+            delete=False,
+        ) as release:
+            pending_release = Path(release.name)
+            release.write(b"release")
+            release.flush()
+            os.fsync(release.fileno())
+        os.link(pending_release, marker_root / SMOKE_RELEASE)
+    except OSError:
+        raise RuntimeError("packaged Desktop release marker publication failed") from None
+    finally:
+        if pending_release is not None:
+            pending_release.unlink(missing_ok=True)
 
 
 def _terminate_process(process: subprocess.Popen, *, process_group: bool) -> None:
@@ -626,8 +664,12 @@ def _run_started_process(
     *,
     started: float,
     process_group: bool,
+    ready_callback: Callable[[], None] | None = None,
+    expect_upgrade_invalidation: bool = False,
 ) -> tuple[float, dict[str, float], dict[str, float]]:
-    evidence_path, ready_path, failure_path, native_start_path = _marker_paths(marker_root)
+    evidence_path, ready_path, failure_path, invalidated_path, native_start_path = _marker_paths(
+        marker_root
+    )
     peaks: dict[str, float] = {}
     sample_stop = threading.Event()
     sample_failures: list[Exception] = []
@@ -659,6 +701,10 @@ def _run_started_process(
                 raise RuntimeError("resource sampling unavailable") from None
             if ready_ms is None and _fixed_marker(ready_path, b"ready"):
                 ready_ms = (time.monotonic() - started) * 1000.0
+                if ready_callback is not None:
+                    ready_callback()
+                    _publish_release_marker(marker_root)
+                    ready_callback = None
             if time.monotonic() >= deadline:
                 raise RuntimeError("packaged Desktop smoke timed out")
             time.sleep(0.02)
@@ -670,6 +716,16 @@ def _run_started_process(
         if ready_ms is None and _fixed_marker(ready_path, b"ready"):
             ready_ms = elapsed * 1000.0
         _raise_for_smoke_failure(failure_path)
+        if expect_upgrade_invalidation:
+            if (
+                process.returncode != 0
+                or not _fixed_marker(invalidated_path, b"invalidated")
+                or _path_exists(evidence_path)
+            ):
+                raise RuntimeError("old packaged Desktop invalidation evidence unavailable")
+            if ready_ms is None or not _fixed_marker(native_start_path, b"started"):
+                raise RuntimeError("packaged Desktop readiness evidence unavailable")
+            return elapsed * 1000.0, {}, peaks
         encoded_evidence = _read_regular_marker(evidence_path, 4096)
         if process.returncode != 0 or encoded_evidence is None:
             raise RuntimeError(_missing_smoke_evidence_error(process.returncode))
@@ -705,6 +761,9 @@ def _run_desktop(
     environment: dict[str, str],
     component_paths: dict[str, Path],
     timeout: float,
+    ready_callback: Callable[[], None] | None = None,
+    *,
+    expect_upgrade_invalidation: bool = False,
 ) -> tuple[float, dict[str, float], dict[str, float]]:
     _clear_markers(marker_root)
     process = subprocess.Popen(
@@ -722,6 +781,8 @@ def _run_desktop(
         timeout,
         started=time.monotonic(),
         process_group=False,
+        ready_callback=ready_callback,
+        expect_upgrade_invalidation=expect_upgrade_invalidation,
     )
 
 
@@ -828,6 +889,7 @@ def _appimage_environment(
     *,
     layout: Path | None = None,
     candidate: Path | None = None,
+    retain_outer_layout: bool = True,
 ) -> dict[str, str]:
     environment = {
         name: value
@@ -863,9 +925,9 @@ def _appimage_environment(
     if sys.platform.startswith("linux"):
         environment["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
         environment["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
-    if layout is None or candidate is None:
+    if layout is None and candidate is None and retain_outer_layout:
         environment["NO_CLEANUP"] = "1"
-    else:
+    elif layout is not None and candidate is not None:
         environment.update(
             {
                 "APPDIR": str(layout),
@@ -873,6 +935,8 @@ def _appimage_environment(
                 "ARGV0": str(candidate),
             }
         )
+    elif layout is not None or candidate is not None:
+        raise ValueError("AppImage smoke environment is incomplete")
     return environment
 
 
@@ -913,6 +977,8 @@ def _wait_for_live_appimage(
     attestation: AppImageAttestation,
     process: subprocess.Popen,
     deadline: float,
+    *,
+    verify_live_layout: bool = True,
 ) -> dict[str, Path]:
     marker = marker_root / SMOKE_NATIVE_START
     failure_marker = marker_root / SMOKE_FAILURE
@@ -923,9 +989,10 @@ def _wait_for_live_appimage(
         if _path_exists(failure_marker):
             raise RuntimeError("AppImage bootstrap failure evidence invalid")
         if _fixed_marker(marker, b"started"):
-            _component_paths, verified_layout = _verified_live_appimage(layout, attestation)
-            if verified_layout != layout:
-                raise RuntimeError("live AppImage verification failed")
+            if verify_live_layout:
+                _component_paths, verified_layout = _verified_live_appimage(layout, attestation)
+                if verified_layout != layout:
+                    raise RuntimeError("live AppImage verification failed")
             return _verified_stable_appimage(data_root, attestation)
         try:
             marker.lstat()
@@ -1013,7 +1080,25 @@ def _appimage_host_supported() -> bool:
     return os.name != "nt" and sys.platform.startswith("linux")
 
 
-def _appimage_execution_mode(repetitions: int) -> str:
+def _validate_appimage_outer_mode(outer_mode: str, repetitions: int) -> None:
+    if outer_mode not in {"extract", "fuse"}:
+        raise ValueError("invalid AppImage outer execution mode")
+    if outer_mode == "fuse" and repetitions != 1:
+        raise ValueError("FUSE AppImage smoke requires one repetition")
+
+
+def _appimage_outer_command(candidate: Path, outer_mode: str) -> list[str]:
+    if outer_mode == "extract":
+        return [str(candidate), "--appimage-extract-and-run"]
+    if outer_mode == "fuse":
+        return [str(candidate)]
+    raise ValueError("invalid AppImage outer execution mode")
+
+
+def _appimage_execution_mode(outer_mode: str, repetitions: int) -> str:
+    _validate_appimage_outer_mode(outer_mode, repetitions)
+    if outer_mode == "fuse":
+        return "outer_appimage_fuse"
     if repetitions == 1:
         return "outer_appimage_extract_and_run"
     return "outer_appimage_extract_and_run_then_verified_apprun"
@@ -1023,9 +1108,12 @@ def _run_appimage_smoke(
     attestation: AppImageAttestation,
     timeout: float,
     repetitions: int,
+    *,
+    outer_mode: str = "extract",
 ) -> dict[str, object]:
     if not _appimage_host_supported():
         raise ValueError("AppImage smoke requires Linux")
+    _validate_appimage_outer_mode(outer_mode, repetitions)
     root, identity, directories = _private_appimage_root()
     live_layout = root / attestation.extracted_name
     try:
@@ -1051,9 +1139,13 @@ def _run_appimage_smoke(
         started = time.monotonic()
         try:
             process = subprocess.Popen(
-                [str(attestation.candidate), "--appimage-extract-and-run"],
+                _appimage_outer_command(attestation.candidate, outer_mode),
                 cwd=attestation.candidate.parent,
-                env=_appimage_environment(root, directories),
+                env=_appimage_environment(
+                    root,
+                    directories,
+                    retain_outer_layout=outer_mode == "extract",
+                ),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -1069,6 +1161,7 @@ def _run_appimage_smoke(
             attestation,
             process,
             started + timeout,
+            verify_live_layout=outer_mode == "extract",
         )
         elapsed_ms, evidence, run_peaks = _run_started_process(
             process,
@@ -1142,9 +1235,14 @@ def _run_appimage_smoke(
             ):
                 raise RuntimeError("finalized AppImage changed during smoke")
             if live_paths is not None:
-                _verified_paths, verified_layout = _verified_live_appimage(live_layout, attestation)
+                if outer_mode == "extract":
+                    _verified_paths, verified_layout = _verified_live_appimage(
+                        live_layout, attestation
+                    )
+                    if verified_layout != live_layout:
+                        raise RuntimeError("live AppImage verification failed")
                 verified_stable_paths = _verified_stable_appimage(directories["data"], attestation)
-                if verified_stable_paths != live_paths or verified_layout != live_layout:
+                if verified_stable_paths != live_paths:
                     raise RuntimeError("live AppImage verification failed")
         except OSError:
             cleanup_error = RuntimeError("AppImage smoke verification unavailable")
@@ -1162,8 +1260,63 @@ def _run_appimage_smoke(
         peaks,
         broker_delta=0,
         backend_delta=0,
-        execution_mode=_appimage_execution_mode(repetitions),
+        execution_mode=_appimage_execution_mode(outer_mode, repetitions),
     )
+
+
+def smoke_upgrade_invalidation(
+    package: Path,
+    timeout: float,
+    *,
+    ready_callback: Callable[[], None],
+) -> dict[str, object]:
+    package = package.resolve(strict=True)
+    component_paths, _manifest_digest = _manifest_components(package)
+    desktop = component_paths["desktop"]
+    broker = component_paths["broker"]
+    backend = component_paths["backend"]
+    baseline_broker = _process_count(broker)
+    baseline_backend = _process_count(backend)
+    marker_root, marker_identity = _private_package_smoke_root()
+    environment = _acceptance_environment()
+    environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] = str(marker_root)
+    environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_RELEASE"] = str(marker_root / SMOKE_RELEASE)
+    try:
+        elapsed_ms, _evidence, peaks = _run_desktop(
+            desktop,
+            package,
+            marker_root,
+            environment,
+            component_paths,
+            timeout,
+            ready_callback=ready_callback,
+            expect_upgrade_invalidation=True,
+        )
+    finally:
+        cleanup_error: Exception | None = None
+        try:
+            broker_count, backend_count = _wait_for_native_baseline(
+                broker,
+                backend,
+                baseline_broker=baseline_broker,
+                baseline_backend=baseline_backend,
+            )
+        except (OSError, RuntimeError) as error:
+            cleanup_error = error
+        try:
+            _cleanup_private_package_smoke_root(marker_root, marker_identity)
+        except RuntimeError as error:
+            cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise cleanup_error
+    return {
+        "execution_mode": "old_desktop_upgrade_invalidation",
+        "broker_process_delta": broker_count - baseline_broker,
+        "backend_process_delta": backend_count - baseline_backend,
+        "old_process_elapsed_ms": round(elapsed_ms, 3),
+        "resource_peaks": _validated_resource_peaks(peaks),
+        "stale_session_invalidated": True,
+    }
 
 
 def smoke(
@@ -1173,9 +1326,15 @@ def smoke(
     *,
     finalized_appimage: Path | None = None,
     appimage_layout: Path | None = None,
+    appimage_outer_mode: str = "extract",
+    ready_callback: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     if not 1 <= repetitions <= 20:
         raise ValueError("repetitions must be between 1 and 20")
+    if ready_callback is not None and repetitions != 1:
+        raise ValueError("ready callback requires exactly one repetition")
+    if ready_callback is not None:
+        raise ValueError("ready callback requires upgrade invalidation smoke")
     if (finalized_appimage is None) != (appimage_layout is None):
         raise ValueError("AppImage smoke requires both finalized image and layout")
     if finalized_appimage is not None and appimage_layout is not None:
@@ -1184,7 +1343,14 @@ def smoke(
             appimage_layout=appimage_layout,
             finalized_appimage=finalized_appimage,
         )
-        return _run_appimage_smoke(attestation, timeout, repetitions)
+        return _run_appimage_smoke(
+            attestation,
+            timeout,
+            repetitions,
+            outer_mode=appimage_outer_mode,
+        )
+    if appimage_outer_mode != "extract":
+        raise ValueError("AppImage outer mode requires finalized image and layout")
 
     package = package.resolve(strict=True)
     component_paths, _manifest_digest = _manifest_components(package)
@@ -1196,6 +1362,8 @@ def smoke(
     marker_root, marker_identity = _private_package_smoke_root()
     environment = _acceptance_environment()
     environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT"] = str(marker_root)
+    if ready_callback is not None:
+        environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_RELEASE"] = str(marker_root / SMOKE_RELEASE)
     runs = []
     peaks: dict[str, float] = {}
     try:
@@ -1207,6 +1375,7 @@ def smoke(
                 environment,
                 component_paths,
                 timeout,
+                ready_callback=ready_callback,
             )
             runs.append({"process_elapsed_ms": round(elapsed_ms, 3), **evidence})
             for name, value in run_peaks.items():
@@ -1244,6 +1413,7 @@ def main() -> int:
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--finalized-appimage", type=Path)
     parser.add_argument("--appimage-layout", type=Path)
+    parser.add_argument("--appimage-outer-mode", choices=("extract", "fuse"), default="extract")
     args = parser.parse_args()
     evidence = smoke(
         args.package,
@@ -1251,6 +1421,7 @@ def main() -> int:
         args.repetitions,
         finalized_appimage=args.finalized_appimage,
         appimage_layout=args.appimage_layout,
+        appimage_outer_mode=args.appimage_outer_mode,
     )
     print(json.dumps(evidence, sort_keys=True))
     return 0

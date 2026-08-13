@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../src/errors.js";
 
 const mocks = vi.hoisted(() => ({
   analyze: vi.fn(),
@@ -151,6 +152,104 @@ describe("installed Desktop webview package smoke", () => {
     expect(mocks.copyMasked).toHaveBeenCalledOnce();
     expect(mocks.disposeSession).toHaveBeenCalledWith("opaque-broker-handle");
     expect(mocks.resetScope).toHaveBeenCalledOnce();
+  });
+
+  it("attests old-process invalidation without running the new-package workflow", async () => {
+    invoke.mockImplementation(async (command) =>
+      command === "desktop_package_smoke_ready" ? true : undefined
+    );
+    mocks.sanitize
+      .mockReset()
+      .mockResolvedValueOnce({
+        session_id: "opaque-broker-handle",
+        sanitized_text: "[PHONE_1]",
+      })
+      .mockRejectedValueOnce(
+        new ApiError("broker_unavailable", {
+          restartRequired: true,
+        })
+      );
+    mocks.reidentify.mockRejectedValueOnce(
+      new ApiError("broker_unauthorized", {
+        sessionInvalidated: true,
+        restartRequired: true,
+      })
+    );
+    const { runPackageSmoke } = await import("../src/package-smoke.js");
+
+    await runPackageSmoke();
+
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.sanitize).toHaveBeenCalledTimes(2);
+    expect(mocks.reidentify).toHaveBeenCalledWith(
+      "opaque-broker-handle",
+      "[PHONE_1]"
+    );
+    expect(invoke).toHaveBeenNthCalledWith(1, "desktop_package_smoke_ready");
+    expect(invoke).toHaveBeenNthCalledWith(
+      2,
+      "desktop_package_smoke_upgrade_invalidated"
+    );
+    expect(invoke).not.toHaveBeenCalledWith(
+      "desktop_package_smoke_finish",
+      expect.anything()
+    );
+  });
+
+  it("withholds upgrade evidence until the stopped lifecycle invalidates the session", async () => {
+    invoke.mockImplementation(async (command) =>
+      command === "desktop_package_smoke_ready" ? true : undefined
+    );
+    mocks.sanitize
+      .mockReset()
+      .mockResolvedValueOnce({
+        session_id: "opaque-broker-handle",
+        sanitized_text: "[PHONE_1]",
+      })
+      .mockRejectedValueOnce(
+        new ApiError("broker_unavailable", {
+          restartRequired: true,
+        })
+      );
+    mocks.reidentify.mockRejectedValueOnce(
+      new ApiError("broker_unavailable", {
+        restartRequired: true,
+      })
+    );
+    const { runPackageSmoke } = await import("../src/package-smoke.js");
+
+    await runPackageSmoke();
+
+    expect(invoke).not.toHaveBeenCalledWith("desktop_package_smoke_upgrade_invalidated");
+    expect(invoke).toHaveBeenLastCalledWith("desktop_package_smoke_fail", {
+      stage: "reidentify",
+    });
+  });
+
+  it("withholds upgrade evidence if the old session can be revived", async () => {
+    invoke.mockImplementation(async (command) =>
+      command === "desktop_package_smoke_ready" ? true : undefined
+    );
+    mocks.sanitize
+      .mockReset()
+      .mockResolvedValueOnce({
+        session_id: "opaque-broker-handle",
+        sanitized_text: "[PHONE_1]",
+      })
+      .mockRejectedValueOnce(
+        new ApiError("broker_unavailable", {
+          sessionInvalidated: true,
+          restartRequired: true,
+        })
+      );
+    const { runPackageSmoke } = await import("../src/package-smoke.js");
+
+    await runPackageSmoke();
+
+    expect(invoke).not.toHaveBeenCalledWith("desktop_package_smoke_upgrade_invalidated");
+    expect(invoke).toHaveBeenLastCalledWith("desktop_package_smoke_fail", {
+      stage: "reidentify",
+    });
   });
 
   it("never continues or reports private failure details after a rejected mutation", async () => {

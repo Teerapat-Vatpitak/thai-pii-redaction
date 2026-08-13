@@ -1653,7 +1653,7 @@ fn validate_reidentify(body: Value) -> Result<Value, ProtocolError> {
 fn validate_guard(body: Value) -> Result<Value, ProtocolError> {
     let object = object_owned(body, &["flagged", "guard_findings"])?;
     let findings = validate_guard_findings(&object["guard_findings"])?;
-    if boolean(&object["flagged"])? != !findings.is_empty() {
+    if boolean(&object["flagged"])? == findings.is_empty() {
         return Err(ProtocolError::new("operation_failed", None));
     }
     Ok(Value::Object(object))

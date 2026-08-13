@@ -55,6 +55,11 @@ tabs or panel contexts.
   Mask, Restore, and any possibly completed operation are never replayed.
 - A fresh connection never revives an old mapping; a new user-initiated Mask
   is required before Restore is available again.
+- Install, repair, update, and removal activate a verified companion-owned
+  maintenance barrier before component replacement. New native admission is
+  rejected, the least-authority maintenance role drains broker/backend state,
+  and every tab/panel handle becomes unusable. The barrier and package bytes
+  contain no mapping; upgrade never migrates or replays a session.
 
 Strict result validators run before composer, closed-shadow overlay,
 side-panel, or clipboard writes. Unknown, malformed, oversized, stale,
@@ -106,7 +111,15 @@ acceptance.
   restore through the new connection.
 - **In-page controls missing**: use the side panel while the site selector is
   reviewed.
+- **Upgrade or repair in progress**: wait for the companion to finish, then
+  start a fresh Mask. Do not expect pre-upgrade Restore to recover.
 
 The exact Slice 5 production-identity, installed-companion, and remaining
 unpublished-Web-Store evidence classifications are recorded in
 `docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md`.
+Slice 6 upgrade, restart, wrong-origin, uninstall/reinstall, Desktop
+coexistence, and empty-state evidence is recorded separately in
+`docs/acceptance/2026-08-12-phase-8-native-broker-package-recertification.md`.
+The real-browser path uses an exact production-keyed unpacked candidate in
+Google Chrome for Testing; it is not Chrome Web Store installation. The item
+remains Draft/unpublished.

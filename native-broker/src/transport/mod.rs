@@ -380,6 +380,21 @@ impl PlatformEndpoint {
         PlatformEndpointInner::default_runtime_root(install_root)
     }
 
+    pub fn cleanup_default_runtime_root(install_root: &Path) -> Result<(), ProtocolError> {
+        let root = Self::default_runtime_root(install_root)?;
+        PlatformEndpointInner::cleanup_runtime_root(&root)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn cleanup_deb_runtime_roots() -> Result<(), ProtocolError> {
+        PlatformEndpointInner::cleanup_deb_runtime_roots()
+    }
+
+    #[doc(hidden)]
+    pub fn cleanup_runtime_root_for_test(root: &Path) -> Result<(), ProtocolError> {
+        PlatformEndpointInner::cleanup_runtime_root(root)
+    }
+
     pub fn publication_for(root: &Path) -> Result<String, ProtocolError> {
         validate_production_root(root)?;
         PlatformEndpointInner::publication_for(root)

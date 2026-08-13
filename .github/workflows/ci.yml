@@ -449,7 +449,8 @@ jobs:
   windows-exe-smoke:
     # Build the PyInstaller sidecar and boot it end-to-end for the direct-v2
     # compatibility preflight, then build a fresh package-smoke Desktop NSIS,
-    # install it into an isolated root, and drive the installed webview path.
+    # install it through the ordinary per-user default path, and drive the
+    # install/repair/upgrade/uninstall/reinstall lifecycle from exact bytes.
     # A clean runner has no trusted Office development certificate, so the
     # runner records the HTTPS proxy leg as pending without changing trust.
     # A machine with an already trusted certificate runs that leg too.
@@ -518,91 +519,393 @@ jobs:
           npm ci
           npm run tauri -- build --bundles nsis --features package-smoke --ci --no-sign --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-      - name: Install the exact NSIS candidate into an isolated root
+      - name: Certify the exact NSIS candidate through its default-path lifecycle
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $bundleRoot = "desktop/src-tauri/target/release/bundle/nsis"
           $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe" -File)
           if ($installers.Count -ne 1) {
             throw "expected exactly one NSIS installer, found $($installers.Count)"
           }
-
-          $installRoot = Join-Path $env:RUNNER_TEMP "aiguard-desktop-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $installer = $installers[0].FullName
+          $installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"
+          $packageLockPath = Join-Path $env:LOCALAPPDATA "AI Guard.aiguard-package-lifecycle-v1.lock"
+          $customLockProbeRoot = Join-Path $env:RUNNER_TEMP "aiguard-lock-probe"
+          $installLocationKey = "HKCU:\Software\Teerapat Vatpitak\AI Guard"
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AI Guard"
+          $initialInstallLocationPresent = Test-Path -LiteralPath $installLocationKey
+          $initialRememberedRoot = if ($initialInstallLocationPresent) {
+            (Get-Item -LiteralPath $installLocationKey).GetValue("")
+          } else {
+            $null
+          }
           if (Test-Path -LiteralPath $installRoot) {
-            throw "isolated Desktop install root already exists"
+            throw "default Desktop install root was not clean"
           }
-          $installerProcess = Start-Process `
-            -FilePath $installers[0].FullName `
-            -ArgumentList @("/S", "/D=$installRoot") `
-            -Wait `
-            -PassThru
-          if ($installerProcess.ExitCode -ne 0) {
-            throw "NSIS installer failed with exit code $($installerProcess.ExitCode)"
+          if (Test-Path -LiteralPath $uninstallKey) {
+            throw "default Desktop product registration was not clean"
           }
-          if (-not (Test-Path -LiteralPath (Join-Path $installRoot "native-components-v1.json") -PathType Leaf)) {
-            throw "installed native-component manifest is missing"
+          if (Test-Path -LiteralPath $installLocationKey) {
+            $rememberedRoot = (Get-Item -LiteralPath $installLocationKey).GetValue("")
+            if ($rememberedRoot -and $rememberedRoot -ne $installRoot) {
+              throw "remembered Desktop install root would redirect the default-path install"
+            }
           }
-          "AIGUARD_DESKTOP_INSTALL_ROOT=$installRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "AIGUARD_NATIVE_HOST_ADAPTER=$(Join-Path $installRoot 'aiguard-chrome-native-host.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
           $artifactRoot = "artifacts/desktop-native-nsis"
           New-Item -ItemType Directory -Path $artifactRoot | Out-Null
           $artifactInstaller = Join-Path $artifactRoot "AI-Guard-windows-x64-setup.exe"
-          Copy-Item -LiteralPath $installers[0].FullName -Destination $artifactInstaller
-          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installers[0].FullName).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactInstaller).Hash) {
+          Copy-Item -LiteralPath $installer -Destination $artifactInstaller
+          $installerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($installerHash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactInstaller).Hash.ToLowerInvariant()) {
             throw "copied NSIS artifact digest mismatch"
           }
+          "$installerHash  AI-Guard-windows-x64-setup.exe" | Set-Content -LiteralPath "$artifactRoot/installer-sha256.txt" -Encoding utf8
+          $processIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          @{
+            token_owner_differs_from_user = -not $processIdentity.Owner.Equals($processIdentity.User)
+          } | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/process-owner-classification.json" -Encoding utf8
 
-          $registration = python scripts/verify_native_host_registration.py `
-            --shape nsis --state present `
-            --adapter "$installRoot\aiguard-chrome-native-host.exe" `
-            --identity "$env:AIGUARD_EXTENSION_IDENTITY"
-          if ($LASTEXITCODE -ne 0) {
-            throw "installed native-host registration verification failed"
-          }
-          $registration | Set-Content -LiteralPath "$artifactRoot/registration-present.json" -Encoding utf8
+          $nativeProcessNames = @(
+            "aiguard.exe",
+            "aiguard-native-broker.exe",
+            "aiguard-chrome-native-host.exe",
+            "aiguard-native-host-manager.exe",
+            "desktop.exe"
+          )
 
-      - name: Run the authenticated smoke from the installed root
-        shell: pwsh
-        env:
-          PYTHONUTF8: "1"
-        run: |
-          $evidence = python scripts/smoke_desktop_native_package.py "$env:AIGUARD_DESKTOP_INSTALL_ROOT" --repetitions 2
-          if ($LASTEXITCODE -ne 0) {
-            throw "installed Desktop smoke failed"
+          function Invoke-ExactInstaller {
+            $process = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru
+            if ($process.ExitCode -ne 0) {
+              throw "NSIS installer failed with exit code $($process.ExitCode)"
+            }
+            if (-not (Test-Path -LiteralPath $uninstallKey)) {
+              throw "NSIS installer did not publish product registration"
+            }
+            $registeredRoot = (Get-ItemProperty -LiteralPath $uninstallKey).InstallLocation.Trim('"')
+            $rememberedRoot = (Get-Item -LiteralPath $installLocationKey).GetValue("")
+            if ($registeredRoot -ne $installRoot -or $rememberedRoot -ne $installRoot) {
+              throw "NSIS installer did not use the default Desktop install root"
+            }
+            if (Test-Path -LiteralPath $packageLockPath) {
+              throw "NSIS installer left the cross-session package lock"
+            }
           }
-          $evidence | Set-Content -LiteralPath "artifacts/desktop-native-nsis/smoke-evidence.json" -Encoding utf8
-          Write-Output $evidence
 
-      - name: Uninstall and verify product-owned native-host registration removal
-        shell: pwsh
-        run: |
-          $uninstallers = @(Get-ChildItem -LiteralPath $env:AIGUARD_DESKTOP_INSTALL_ROOT -Filter "uninstall*.exe" -File)
-          if ($uninstallers.Count -ne 1) {
-            throw "expected exactly one Desktop uninstaller, found $($uninstallers.Count)"
+          function Assert-InstalledSet([string]$evidenceName) {
+            $manifestPath = Join-Path $installRoot "native-components-v1.json"
+            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+              throw "installed native component manifest is absent"
+            }
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $entries = @($manifest.broker, $manifest.backend) + @($manifest.clients)
+            $declared = @($entries | ForEach-Object { $_.path })
+            $expectedFiles = @(
+              $declared
+              "native-components-v1.json"
+              "th.ac.psu.aiguard.native_host.json"
+              "uninstall.exe"
+            ) | Sort-Object -Unique
+            $observedFiles = @(
+              Get-ChildItem -LiteralPath $installRoot -Force -File |
+                Select-Object -ExpandProperty Name | Sort-Object -Unique
+            )
+            if (Compare-Object -ReferenceObject $expectedFiles -DifferenceObject $observedFiles) {
+              throw "installed native component inventory differs from the package contract"
+            }
+            $rows = foreach ($entry in $entries) {
+              $path = Join-Path $installRoot $entry.path
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw "installed native component set is incomplete"
+              }
+              $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+              if ($hash -ne $entry.sha256) {
+                throw "installed native component digest differs from the package contract"
+              }
+              "$hash  $($entry.path)"
+            }
+            $manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
+            $rows += "$manifestHash  native-components-v1.json"
+            $rows | Set-Content -LiteralPath "$artifactRoot/component-sha256-$evidenceName.txt" -Encoding utf8
           }
-          $uninstaller = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList @("/S") -Wait -PassThru
-          if ($uninstaller.ExitCode -ne 0) {
-            throw "NSIS uninstaller failed with exit code $($uninstaller.ExitCode)"
+
+          function Write-RegistrationEvidence([string]$state, [string]$name) {
+            $registration = python scripts/verify_native_host_registration.py `
+              --shape nsis --state $state `
+              --adapter "$installRoot\aiguard-chrome-native-host.exe" `
+              --identity "$env:AIGUARD_EXTENSION_IDENTITY"
+            if ($LASTEXITCODE -ne 0) {
+              throw "native-host registration verification failed"
+            }
+            $registration | Set-Content -LiteralPath "$artifactRoot/$name.json" -Encoding utf8
           }
-          $registration = python scripts/verify_native_host_registration.py `
-            --shape nsis --state absent `
-            --adapter "$env:AIGUARD_NATIVE_HOST_ADAPTER" `
-            --identity "$env:AIGUARD_EXTENSION_IDENTITY"
-          if ($LASTEXITCODE -ne 0) {
-            throw "native-host registration removal verification failed"
+
+          function Invoke-Smoke([string]$name) {
+            $evidence = python scripts/smoke_desktop_native_package.py "$installRoot" --repetitions 2
+            if ($LASTEXITCODE -ne 0) {
+              throw "installed Desktop smoke failed"
+            }
+            $evidence | Set-Content -LiteralPath "$artifactRoot/$name-smoke-evidence.json" -Encoding utf8
           }
-          $registration | Set-Content -LiteralPath "artifacts/desktop-native-nsis/registration-absent.json" -Encoding utf8
+
+          function Assert-NoOwnedProcesses {
+            $ownedPaths = @($nativeProcessNames | ForEach-Object { Join-Path $installRoot $_ })
+            $deadline = (Get-Date).AddSeconds(40)
+            do {
+              $live = @(Get-Process | Where-Object {
+                try { $_.Path -and $ownedPaths -contains $_.Path } catch { $false }
+              })
+              if ($live.Count -eq 0) { return }
+              Start-Sleep -Milliseconds 200
+            } while ((Get-Date) -lt $deadline)
+            throw "installed native processes did not stop"
+          }
+
+          function Invoke-ExactUninstaller {
+            $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter "uninstall*.exe" -File)
+            if ($uninstallers.Count -ne 1) {
+              throw "expected exactly one Desktop uninstaller"
+            }
+            $process = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList @("/S") -Wait -PassThru
+            if ($process.ExitCode -ne 0) {
+              throw "NSIS uninstaller failed with exit code $($process.ExitCode)"
+            }
+            $deadline = (Get-Date).AddSeconds(15)
+            while ((Test-Path -LiteralPath $installRoot) -and (Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 100
+            }
+            Assert-NoOwnedProcesses
+            if (Test-Path -LiteralPath $installRoot) {
+              throw "NSIS uninstall left the product install root"
+            }
+            if (Test-Path -LiteralPath $uninstallKey) {
+              throw "NSIS uninstall left the product registration"
+            }
+            if (Test-Path -LiteralPath $packageLockPath) {
+              throw "NSIS uninstaller left the cross-session package lock"
+            }
+          }
+
+          function Assert-PackageLockEnforced {
+            $lockPath = $packageLockPath
+            if (Test-Path -LiteralPath $customLockProbeRoot) {
+              throw "distinct-root package-lock probe was not clean"
+            }
+            $customRootState = "absent"
+            $lock = [System.IO.File]::Open(
+              $lockPath,
+              [System.IO.FileMode]::OpenOrCreate,
+              [System.IO.FileAccess]::ReadWrite,
+              [System.IO.FileShare]::None
+            )
+            try {
+              $blocked = Start-Process -FilePath $installer -ArgumentList @("/S") -PassThru
+              $blockedCustom = Start-Process -FilePath $installer -ArgumentList @(
+                "/S",
+                "/D=$customLockProbeRoot"
+              ) -PassThru
+              $blocked.WaitForExit()
+              $blockedCustom.WaitForExit()
+              if ($blocked.ExitCode -eq 0) {
+                throw "concurrent NSIS package transaction was not rejected"
+              }
+              if ($blockedCustom.ExitCode -eq 0) {
+                throw "distinct-root NSIS package transaction was not rejected"
+              }
+              if (Test-Path -LiteralPath $customLockProbeRoot) {
+                $probe = Get-Item -LiteralPath $customLockProbeRoot -Force
+                $probeChildren = @(Get-ChildItem -LiteralPath $customLockProbeRoot -Force)
+                if (
+                  -not $probe.PSIsContainer -or
+                  ($probe.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                  $probeChildren.Count -ne 0
+                ) {
+                  throw "blocked distinct-root NSIS transaction created package state"
+                }
+                $customRootState = "empty_directory"
+              }
+              @{
+                default_transaction_rejected = $true
+                distinct_root_transaction_rejected = $true
+                custom_root_state = $customRootState
+              } | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/package-lock-contention.json" -Encoding utf8
+            }
+            finally {
+              $lock.Dispose()
+              Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+              if ($customRootState -eq "empty_directory" -and (Test-Path -LiteralPath $customLockProbeRoot)) {
+                $probe = Get-Item -LiteralPath $customLockProbeRoot -Force
+                $probeChildren = @(Get-ChildItem -LiteralPath $customLockProbeRoot -Force)
+                if (
+                  $probe.PSIsContainer -and
+                  ($probe.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0 -and
+                  $probeChildren.Count -eq 0
+                ) {
+                  [System.IO.Directory]::Delete($customLockProbeRoot, $false)
+                } else {
+                  throw "distinct-root package-lock probe cleanup was unsafe"
+                }
+              }
+            }
+          }
+
+          $lifecycle = @()
+          $primaryFailure = $null
+          $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+          Write-RegistrationEvidence "absent" "initial-registration-absent"
+          try {
+            $lifecycle += "clean-install"
+            Invoke-ExactInstaller
+            Assert-InstalledSet "install"
+            Write-RegistrationEvidence "present" "registration-present"
+            Invoke-Smoke "install"
+
+            $lifecycle += "concurrent-transaction-rejected"
+            Assert-PackageLockEnforced
+            Assert-InstalledSet "lock-rejection"
+            Write-RegistrationEvidence "present" "lock-rejection-registration-present"
+            if (
+              -not (Test-Path -LiteralPath $uninstallKey) -or
+              (Get-ItemProperty -LiteralPath $uninstallKey).InstallLocation.Trim('"') -ne $installRoot -or
+              (Get-Item -LiteralPath $installLocationKey).GetValue("") -ne $installRoot
+            ) {
+              throw "blocked package transactions changed default product registration"
+            }
+
+            $lifecycle += "foreign-repair-rejected"
+            $transactionToken = (& "$installRoot\aiguard-native-host-manager.exe" drain nsis)
+            if ($LASTEXITCODE -ne 0) { throw "native-host drain failed" }
+            if ($transactionToken -notmatch '^[0-9a-f]{64}$') {
+              throw "native-host transaction receipt was invalid"
+            }
+            & "$installRoot\aiguard-native-host-manager.exe" repair nsis
+            if ($LASTEXITCODE -eq 0) { throw "repair cleared an installer-owned barrier" }
+            & "$installRoot\aiguard-native-host-manager.exe" uninstall nsis
+            if ($LASTEXITCODE -eq 0) { throw "uninstall cleared an installer-owned barrier" }
+            $marker = Join-Path $installRoot ".aiguard-component-maintenance-v1"
+            $receipt = Join-Path $installRoot ".aiguard-component-transaction-v1"
+            if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+              throw "failed repair did not preserve the replacement barrier"
+            }
+            if (-not (Test-Path -LiteralPath $receipt -PathType Leaf)) {
+              throw "failed ordinary action did not preserve the transaction receipt"
+            }
+            & "$installRoot\aiguard-native-host-manager.exe" complete nsis ("0" * 64)
+            if ($LASTEXITCODE -eq 0) { throw "wrong transaction receipt completed replacement" }
+            $lifecycle += "interrupted-package-retry"
+            Remove-Item -LiteralPath "$installRoot\aiguard-native-host-manager.exe" -Force
+            $transactionToken = $null
+            Invoke-ExactInstaller
+            if (
+              (Test-Path -LiteralPath $marker) -or
+              (Test-Path -LiteralPath $receipt)
+            ) {
+              throw "fresh installer process did not complete the retained transaction"
+            }
+            Assert-InstalledSet "interrupted-install-retry"
+            Write-RegistrationEvidence "present" "interrupted-install-registration-present"
+
+            $lifecycle += "repair"
+            & "$installRoot\aiguard-native-host-manager.exe" repair nsis
+            if ($LASTEXITCODE -ne 0) { throw "native-host repair failed" }
+            Assert-InstalledSet "repair"
+            Write-RegistrationEvidence "present" "repair-registration-present"
+            Invoke-Smoke "repair"
+
+            # VERSION stays 2.5.0. Exercise NSIS's real upgrade branch by
+            # lowering only this product-owned installed-version registry
+            # fixture; the on-disk component set and candidate bytes remain
+            # the exact 2.5.0 package under test.
+            $installed = Get-ItemProperty -LiteralPath $uninstallKey
+            if ($installed.DisplayVersion -ne "2.5.0" -or $installed.InstallLocation.Trim('"') -ne $installRoot) {
+              throw "installed upgrade fixture identity mismatch"
+            }
+            Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value "2.4.999"
+            $lifecycle += "deterministic-predecessor-upgrade"
+            Invoke-ExactInstaller
+            if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne "2.5.0") {
+              throw "NSIS upgrade did not publish the candidate version"
+            }
+            Assert-InstalledSet "upgrade"
+            Write-RegistrationEvidence "present" "upgrade-registration-present"
+            Invoke-Smoke "upgrade"
+
+            $lifecycle += "interrupted-uninstall-retry"
+            $uninstallToken = (& "$installRoot\aiguard-native-host-manager.exe" remove nsis)
+            if ($LASTEXITCODE -ne 0 -or $uninstallToken -notmatch '^[0-9a-f]{64}$') {
+              throw "native-host uninstall transaction did not start"
+            }
+            Remove-Item -LiteralPath "$installRoot\aiguard-native-host-manager.exe" -Force
+            Invoke-ExactUninstaller
+            Write-RegistrationEvidence "absent" "registration-absent"
+
+            $lifecycle += "reinstall"
+            Invoke-ExactInstaller
+            Assert-InstalledSet "reinstall"
+            Write-RegistrationEvidence "present" "reinstall-registration-present"
+            Invoke-Smoke "reinstall"
+          }
+          catch {
+            $primaryFailure = $_.Exception.Message
+          }
+          finally {
+            $lifecycle += "final-cleanup"
+            if (Test-Path -LiteralPath $installRoot) {
+              try { Invoke-ExactUninstaller } catch { $cleanupFailures.Add("uninstall") }
+            }
+            try { Write-RegistrationEvidence "absent" "final-registration-absent" } catch { $cleanupFailures.Add("native-host-registration") }
+            try { Assert-NoOwnedProcesses } catch { $cleanupFailures.Add("processes") }
+            if (Test-Path -LiteralPath $installRoot) {
+              @(Get-ChildItem -LiteralPath $installRoot -Force -Recurse | ForEach-Object {
+                [PSCustomObject]@{
+                  relative_path = [IO.Path]::GetRelativePath($installRoot, $_.FullName)
+                  kind = if ($_.PSIsContainer) { "directory" } else { "file" }
+                  size = if ($_.PSIsContainer) { 0 } else { $_.Length }
+                }
+              }) | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/residual-install-tree.json" -Encoding utf8
+            }
+            $finalPreferencePresent = Test-Path -LiteralPath $installLocationKey
+            $finalRememberedRoot = if ($finalPreferencePresent) {
+              (Get-Item -LiteralPath $installLocationKey).GetValue("")
+            } else {
+              $null
+            }
+            if ($finalPreferencePresent -and $finalRememberedRoot -ne $installRoot) {
+              $cleanupFailures.Add("install-location-value")
+            }
+            @{
+              classification = if ($finalPreferencePresent) { "retained_default_path_preference" } else { "removed" }
+              native_host_registration = "absent"
+              uninstall_registration = "absent"
+            } | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/final-registry-state.json" -Encoding utf8
+            if (-not $initialInstallLocationPresent -and $finalPreferencePresent) {
+              Remove-Item -LiteralPath $installLocationKey -Force
+            }
+            if ((Test-Path -LiteralPath $installLocationKey) -ne $initialInstallLocationPresent) {
+              $cleanupFailures.Add("install-location-presence")
+            }
+            if ($initialInstallLocationPresent -and (Get-Item -LiteralPath $installLocationKey).GetValue("") -ne $initialRememberedRoot) {
+              $cleanupFailures.Add("install-location-restore")
+            }
+          }
+          $lifecycle | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/lifecycle.json" -Encoding utf8
+          if ($primaryFailure -or $cleanupFailures.Count) {
+            @{
+              primary = if ($primaryFailure) { "failed" } else { "passed" }
+              cleanup = @($cleanupFailures)
+            } | ConvertTo-Json | Set-Content -LiteralPath "$artifactRoot/failure-classification.json" -Encoding utf8
+            throw "NSIS lifecycle failed; inspect value-free evidence artifact"
+          }
 
       - name: Upload the exact tested NSIS candidate and value-free evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-native-nsis-windows-${{ github.sha }}
           path: |
             artifacts/desktop-native-nsis/AI-Guard-windows-x64-setup.exe
-            artifacts/desktop-native-nsis/smoke-evidence.json
-            artifacts/desktop-native-nsis/registration-present.json
-            artifacts/desktop-native-nsis/registration-absent.json
-          if-no-files-found: error
+            artifacts/desktop-native-nsis/*.json
+            artifacts/desktop-native-nsis/*.txt
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 7

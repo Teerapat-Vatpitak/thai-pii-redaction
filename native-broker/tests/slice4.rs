@@ -598,7 +598,8 @@ fn rejected_remote_tner_attach_does_not_poison_a_warm_supported_broker() {
         PRODUCT_VERSION,
         Duration::from_secs(5),
     );
-    let supported_health = supported.map(|mut client| client.health());
+    let supported_health =
+        supported.map(|mut client| health_until_ready(&mut client, Duration::from_secs(5)));
     owner.disconnect();
     drop(owner);
     drop(environment);
@@ -1132,7 +1133,20 @@ fn simultaneous_start_live_operations_restart_and_resource_cycles_are_fail_close
         .as_str()
         .unwrap()
         .starts_with("JVBER"));
-    let audit = primary.audit_log(&first_scope, Some(100), Some(0)).unwrap();
+    let audit = primary
+        .audit_log(&first_scope, Some(100), Some(0))
+        .unwrap_or_else(|error| {
+            let statuses = children
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .map(|child| child.try_wait().unwrap().and_then(|status| status.code()))
+                .collect::<Vec<_>>();
+            panic!(
+                "audit failed with fixed code {}; broker statuses: {statuses:?}",
+                error.code()
+            );
+        });
     assert_eq!(audit["status"], "ok");
     let mut roundtrip_samples = Vec::new();
     for _ in 0..3 {

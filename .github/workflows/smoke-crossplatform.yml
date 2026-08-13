@@ -33,7 +33,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y dbus-daemon libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+          sudo apt-get install -y dbus-daemon libfuse2t64 libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -133,6 +133,9 @@ jobs:
             "$package/desktop" --unregister-native-host >/dev/null 2>&1 || true
           }
           trap cleanup_registration EXIT
+
+          # Relocation is the supported unsigned macOS package path here; this
+          # does not claim installation, signing, or notarization.
           "$package/desktop" --repair-native-host
           python scripts/verify_native_host_registration.py \
             --shape macos --state present \
@@ -140,18 +143,48 @@ jobs:
             --identity "$identity" \
             > artifacts/desktop-native-macos/registration-present.json
           python scripts/smoke_desktop_native_package.py "$package" --repetitions 2 > artifacts/desktop-native-macos/smoke-evidence.json
+
+          "$package/desktop" --repair-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state present \
+            --adapter "$package/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-macos/repair-registration-present.json
+          python scripts/smoke_desktop_native_package.py "$package" --repetitions 2 > artifacts/desktop-native-macos/repair-smoke-evidence.json
           (cd "$package" && shasum -a 256 desktop aiguard-native-broker aiguard-chrome-native-host aiguard-native-host-manager aiguard native-components-v1.json) > artifacts/desktop-native-macos/component-sha256.txt
-          archive="$GITHUB_WORKSPACE/artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz"
-          tar -C "$(dirname "$relocated")" -czf "$archive" "$(basename "$relocated")"
-          (cd artifacts/desktop-native-macos && shasum -a 256 AI-Guard-macos-tested-app.tar.gz) > artifacts/desktop-native-macos/archive-sha256.txt
+
           "$package/desktop" --unregister-native-host
           python scripts/verify_native_host_registration.py \
             --shape macos --state absent \
             --adapter "$package/aiguard-chrome-native-host" \
             --identity "$identity" \
             > artifacts/desktop-native-macos/registration-absent.json
+          test ! -e "/tmp/aiguard-native-broker-$(id -u)-v1"
+
+          # Reinstall for a relocatable app means restoring the exact per-user
+          # registration from the still-present exact bundle.
+          "$package/desktop" --repair-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state present \
+            --adapter "$package/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-macos/reinstall-registration-present.json
+          python scripts/smoke_desktop_native_package.py "$package" --repetitions 2 > artifacts/desktop-native-macos/macos-reinstall-smoke-evidence.json
+          "$package/desktop" --unregister-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state absent \
+            --adapter "$package/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-macos/final-registration-absent.json
+          test ! -e "/tmp/aiguard-native-broker-$(id -u)-v1"
+          printf '%s\n' '["relocation","repair","registration-cleanup","registration-reinstall","final-cleanup"]' > artifacts/desktop-native-macos/lifecycle.json
+
+          archive="$GITHUB_WORKSPACE/artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz"
+          tar -C "$(dirname "$relocated")" -czf "$archive" "$(basename "$relocated")"
+          (cd artifacts/desktop-native-macos && shasum -a 256 AI-Guard-macos-tested-app.tar.gz) > artifacts/desktop-native-macos/archive-sha256.txt
           trap - EXIT
           cat artifacts/desktop-native-macos/smoke-evidence.json
+          cat artifacts/desktop-native-macos/macos-reinstall-smoke-evidence.json
 
       - name: Upload the exact tested macOS app and value-free evidence
         if: matrix.os == 'macos-latest'
@@ -160,11 +193,8 @@ jobs:
           name: desktop-native-macos-${{ github.sha }}
           path: |
             artifacts/desktop-native-macos/AI-Guard-macos-tested-app.tar.gz
-            artifacts/desktop-native-macos/smoke-evidence.json
-            artifacts/desktop-native-macos/component-sha256.txt
-            artifacts/desktop-native-macos/archive-sha256.txt
-            artifacts/desktop-native-macos/registration-present.json
-            artifacts/desktop-native-macos/registration-absent.json
+            artifacts/desktop-native-macos/*.json
+            artifacts/desktop-native-macos/*.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -223,7 +253,20 @@ jobs:
           export XDG_CONFIG_HOME="$RUNNER_TEMP/aiguard-appimage-config"
           export XDG_DATA_HOME="$RUNNER_TEMP/aiguard-appimage-data"
           mkdir -p artifacts/desktop-native-linux
+          phase_file="artifacts/desktop-native-linux/last-started-phase.json"
+          record_phase() {
+            printf '{"phase":"%s"}\n' "$1" > "$phase_file"
+          }
+          lease_holder_pid=""
+          lease_fifo=""
+          lease_ready=""
           cleanup_registration() {
+            if [ -n "$lease_holder_pid" ] && kill -0 "$lease_holder_pid" 2>/dev/null; then
+              kill "$lease_holder_pid" >/dev/null 2>&1 || true
+              wait "$lease_holder_pid" >/dev/null 2>&1 || true
+            fi
+            [ -z "$lease_fifo" ] || rm -f -- "$lease_fifo"
+            [ -z "$lease_ready" ] || rm -f -- "$lease_ready"
             if [ "$appimage_registered" = 1 ]; then
               APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host >/dev/null 2>&1 || true
             fi
@@ -232,6 +275,11 @@ jobs:
             fi
           }
           trap cleanup_registration EXIT
+
+          # Real dpkg install, same-candidate upgrade, removal, reinstall, and
+          # final removal. Package hooks own the global drain and exact stale
+          # runtime cleanup; every smoke must return to zero native processes.
+          record_phase deb-install
           sudo dpkg -i "$deb"
           deb_installed=1
           python scripts/verify_native_host_registration.py \
@@ -243,6 +291,19 @@ jobs:
           xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
             'python scripts/smoke_desktop_native_package.py /usr/bin --repetitions 2 > "$1"' \
             sh artifacts/desktop-native-linux/deb-smoke-evidence.json
+
+          record_phase deb-live-upgrade
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_live_deb_upgrade.py /usr/bin "$1" > "$2"' \
+            sh "$GITHUB_WORKSPACE/$deb" artifacts/desktop-native-linux/deb-upgrade-smoke-evidence.json
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state present \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-upgrade-registration-present.json
+          (cd /usr/bin && sha256sum desktop aiguard-native-broker aiguard-chrome-native-host aiguard-native-host-manager aiguard native-components-v1.json) > artifacts/desktop-native-linux/deb-component-sha256.txt
+
+          record_phase deb-remove
           sudo dpkg -r "$deb_name"
           deb_installed=0
           python scripts/verify_native_host_registration.py \
@@ -250,7 +311,67 @@ jobs:
             --adapter /usr/bin/aiguard-chrome-native-host \
             --identity "$identity" \
             > artifacts/desktop-native-linux/deb-registration-absent.json
+          for component in desktop aiguard-native-broker aiguard-chrome-native-host aiguard-native-host-manager aiguard native-components-v1.json; do
+            test ! -e "/usr/bin/$component"
+          done
 
+          record_phase deb-reinstall
+          sudo dpkg -i "$deb"
+          deb_installed=1
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state present \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-reinstall-registration-present.json
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_native_package.py /usr/bin --repetitions 2 > "$1"' \
+            sh artifacts/desktop-native-linux/deb-reinstall-smoke-evidence.json
+
+          # Simulate process loss after current-manager removal has published
+          # its exact receipt and an early unlink has begun. Repeated prerm
+          # must finish the partial set, and the exact DEB must recover it.
+          record_phase deb-interrupted-remove-manager
+          sudo timeout --signal=TERM --kill-after=5s 60s \
+            /usr/bin/aiguard-native-host-manager remove deb > "$RUNNER_TEMP/deb-remove-token"
+          grep -Eq '^[0-9a-f]{64}$' "$RUNNER_TEMP/deb-remove-token"
+          sudo rm -f -- /usr/bin/desktop
+          record_phase deb-interrupted-remove-first-prerm
+          sudo timeout --signal=TERM --kill-after=5s 60s \
+            sh "$GITHUB_WORKSPACE/desktop/src-tauri/linux/deb-prerm.sh" remove
+          record_phase deb-interrupted-remove-second-prerm
+          sudo timeout --signal=TERM --kill-after=5s 60s \
+            sh "$GITHUB_WORKSPACE/desktop/src-tauri/linux/deb-prerm.sh" remove
+          for component in desktop aiguard-native-broker aiguard-chrome-native-host aiguard-native-host-manager aiguard; do
+            test ! -e "/usr/bin/$component"
+          done
+          test -f /usr/bin/.aiguard-component-maintenance-v1
+          test -f /usr/bin/.aiguard-component-transaction-v1
+          if compgen -G '/tmp/aiguard-native-broker-*-v1' > /dev/null; then
+            echo "interrupted DEB retry left a product runtime root" >&2
+            exit 1
+          fi
+          record_phase deb-interrupted-remove-reinstall
+          sudo dpkg -i "$deb"
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state present \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-interrupted-remove-recovery-registration-present.json
+          record_phase deb-interrupted-remove-final-remove
+          sudo dpkg -r "$deb_name"
+          deb_installed=0
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state absent \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/deb-final-registration-absent.json
+          if compgen -G '/tmp/aiguard-native-broker-*-v1' > /dev/null; then
+            echo "DEB cleanup left a product runtime root" >&2
+            exit 1
+          fi
+          printf '%s\n' '["package-install","same-candidate-upgrade","package-remove","package-reinstall","interrupted-prerm-recovery","final-package-remove"]' > artifacts/desktop-native-linux/deb-lifecycle.json
+
+          record_phase appimage-register
           mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
           APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --register-native-host
           appimage_registered=1
@@ -260,6 +381,91 @@ jobs:
             --adapter "$stable_root/aiguard-chrome-native-host" \
             --identity "$identity" \
             > artifacts/desktop-native-linux/appimage-registration-present.json
+
+          # Hold the same shared-root flock as the product-wide lease. The real
+          # manager must reject the contender promptly with its fixed status,
+          # leave the package unchanged, then succeed after release.
+          record_phase appimage-lease-contention
+          shared_root=$(dirname "$stable_root")
+          lease_fifo="$RUNNER_TEMP/aiguard-appimage-lease-release"
+          lease_ready="$RUNNER_TEMP/aiguard-appimage-lease-held"
+          test ! -e "$lease_fifo"
+          test ! -e "$lease_ready"
+          mkfifo "$lease_fifo"
+          (
+            exec 8< "$shared_root"
+            flock -n 8
+            printf 'held\n' > "$lease_ready"
+            IFS= read -r release < "$lease_fifo"
+            test "$release" = release
+          ) &
+          lease_holder_pid=$!
+          lease_observed=0
+          for _attempt in $(seq 1 200); do
+            if [ -f "$lease_ready" ]; then
+              lease_observed=1
+              break
+            fi
+            kill -0 "$lease_holder_pid" 2>/dev/null
+            sleep 0.05
+          done
+          test "$lease_observed" = 1
+          fingerprint_stable_root() {
+            (
+              cd "$stable_root"
+              {
+                find . -mindepth 1 -maxdepth 1 -printf '%P %y %m %s\0' | sort -z
+                find . -mindepth 1 -maxdepth 1 -type f -print0 | \
+                  sort -z | xargs -0 -r sha256sum
+              } | sha256sum
+            )
+          }
+          before_contention=$(fingerprint_stable_root)
+          set +e
+          timeout --signal=TERM --kill-after=5s 60s \
+            "$stable_root/aiguard-native-host-manager" repair appimage \
+            >/dev/null 2>&1
+          contender_status=$?
+          set -e
+          test "$contender_status" = 75
+          after_contention=$(fingerprint_stable_root)
+          test "$after_contention" = "$before_contention"
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state present \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-contention-registration-present.json
+          printf '{"registration_unchanged":true,"stable_root_unchanged":true,"contender_exit":75}\n' \
+            > artifacts/desktop-native-linux/appimage-lease-contention.json
+          timeout --signal=TERM --kill-after=2s 10s \
+            sh -c 'printf "release\n" > "$1"' sh "$lease_fifo"
+          lease_released=0
+          for _attempt in $(seq 1 200); do
+            if ! kill -0 "$lease_holder_pid" 2>/dev/null; then
+              lease_released=1
+              break
+            fi
+            sleep 0.05
+          done
+          test "$lease_released" = 1
+          wait "$lease_holder_pid"
+          lease_holder_pid=""
+          rm -f -- "$lease_fifo" "$lease_ready"
+          lease_fifo=""
+          lease_ready=""
+          timeout --signal=TERM --kill-after=5s 120s env APPIMAGE_EXTRACT_AND_RUN=1 \
+            "$GITHUB_WORKSPACE/$appimage" --repair-native-host
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state present \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-repair-registration-present.json
+          record_phase appimage-stable-smoke
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 > "$2"' \
+            sh "$stable_root" artifacts/desktop-native-linux/appimage-stable-smoke-evidence.json
+
+          record_phase appimage-stable-cleanup
           APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host
           appimage_registered=0
           python scripts/verify_native_host_registration.py \
@@ -268,7 +474,35 @@ jobs:
             --identity "$identity" \
             > artifacts/desktop-native-linux/appimage-registration-absent.json
           test ! -e "$stable_root"
+          if compgen -G '/tmp/aiguard-native-broker-*-v1' > /dev/null; then
+            echo "AppImage cleanup left a product runtime root" >&2
+            exit 1
+          fi
 
+          record_phase appimage-stable-reinstall
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --register-native-host
+          appimage_registered=1
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state present \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-reinstall-registration-present.json
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 > "$2"' \
+            sh "$stable_root" artifacts/desktop-native-linux/appimage-reinstall-smoke-evidence.json
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host
+          appimage_registered=0
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state absent \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-final-registration-absent.json
+          test ! -e "$stable_root"
+          if compgen -G '/tmp/aiguard-native-broker-*-v1' > /dev/null; then
+            echo "AppImage final cleanup left a product runtime root" >&2
+            exit 1
+          fi
+          record_phase appimage-outer-modes
           extracted_deb="$RUNNER_TEMP/aiguard-deb"
           extracted_appimage="$RUNNER_TEMP/aiguard-appimage"
           test ! -e "$extracted_deb"
@@ -279,35 +513,69 @@ jobs:
             cd "$extracted_appimage"
             "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
           )
+          appimage_registered=1
           xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
             'python scripts/smoke_desktop_native_package.py "$1" --repetitions 2 --finalized-appimage "$3" --appimage-layout "$4" > "$2"' \
             sh "$extracted_appimage/squashfs-root/usr/bin" artifacts/desktop-native-linux/appimage-smoke-evidence.json \
             "$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"
+
+          # Normal FUSE execution is a distinct evidence class. Hosted runners
+          # without a usable /dev/fuse record the limitation instead of
+          # relabeling extract-and-run evidence.
+          if [ -c /dev/fuse ] && [ -r /dev/fuse ] && [ -w /dev/fuse ]; then
+            xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+              'python scripts/smoke_desktop_native_package.py "$1" --repetitions 1 --finalized-appimage "$3" --appimage-layout "$4" --appimage-outer-mode fuse > "$2"' \
+              sh "$extracted_appimage/squashfs-root/usr/bin" artifacts/desktop-native-linux/appimage-fuse-smoke-evidence.json \
+              "$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"
+          else
+            printf '%s\n' '{"execution_mode":"outer_appimage_fuse","status":"unavailable_on_runner"}' > artifacts/desktop-native-linux/appimage-fuse-smoke-evidence.json
+          fi
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host
+          appimage_registered=0
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state absent \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$identity" \
+            > artifacts/desktop-native-linux/appimage-outer-final-registration-absent.json
+          test ! -e "$stable_root"
+          if compgen -G '/tmp/aiguard-native-broker-*-v1' > /dev/null; then
+            echo "AppImage outer smoke cleanup left a product runtime root" >&2
+            exit 1
+          fi
+          printf '%s\n' '["stable-register","lease-contention-rejection","repair-after-release","stable-cleanup","stable-reinstall","outer-modes","final-cleanup"]' > artifacts/desktop-native-linux/appimage-lifecycle.json
           : > artifacts/desktop-native-linux/package-sha256.txt
           (cd "$deb_root" && sha256sum "$(basename "$deb")") >> artifacts/desktop-native-linux/package-sha256.txt
           (cd "$appimage_root" && sha256sum "$(basename "$appimage")") >> artifacts/desktop-native-linux/package-sha256.txt
           archive="$GITHUB_WORKSPACE/artifacts/desktop-native-linux/AI-Guard-linux-tested-packages.tar.gz"
           tar -czf "$archive" -C "$deb_root" "$(basename "$deb")" -C "$GITHUB_WORKSPACE/$appimage_root" "$(basename "$appimage")"
           (cd artifacts/desktop-native-linux && sha256sum AI-Guard-linux-tested-packages.tar.gz) > artifacts/desktop-native-linux/archive-sha256.txt
+          record_phase complete
           cat artifacts/desktop-native-linux/deb-smoke-evidence.json
+          cat artifacts/desktop-native-linux/deb-upgrade-smoke-evidence.json
+          cat artifacts/desktop-native-linux/deb-reinstall-smoke-evidence.json
           cat artifacts/desktop-native-linux/appimage-smoke-evidence.json
+          cat artifacts/desktop-native-linux/appimage-fuse-smoke-evidence.json
           trap - EXIT
 
+      - name: Require complete exact Linux evidence on success
+        if: success() && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="artifacts/desktop-native-linux"
+          test -s "$evidence/AI-Guard-linux-tested-packages.tar.gz"
+          test -s "$evidence/archive-sha256.txt"
+          grep -Fxq '{"phase":"complete"}' "$evidence/last-started-phase.json"
+
       - name: Upload the exact tested Linux packages and value-free evidence
-        if: matrix.os == 'ubuntu-latest'
+        if: always() && matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-native-linux-${{ github.sha }}
           path: |
             artifacts/desktop-native-linux/AI-Guard-linux-tested-packages.tar.gz
-            artifacts/desktop-native-linux/deb-smoke-evidence.json
-            artifacts/desktop-native-linux/appimage-smoke-evidence.json
-            artifacts/desktop-native-linux/deb-registration-present.json
-            artifacts/desktop-native-linux/deb-registration-absent.json
-            artifacts/desktop-native-linux/appimage-registration-present.json
-            artifacts/desktop-native-linux/appimage-registration-absent.json
-            artifacts/desktop-native-linux/package-sha256.txt
-            artifacts/desktop-native-linux/archive-sha256.txt
-          if-no-files-found: error
+            artifacts/desktop-native-linux/*.json
+            artifacts/desktop-native-linux/*.txt
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 7

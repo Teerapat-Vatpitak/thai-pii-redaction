@@ -43,6 +43,22 @@ impl UnixEndpoint {
         )))
     }
 
+    pub(crate) fn cleanup_runtime_root(root: &Path) -> Result<(), ProtocolError> {
+        cleanup_inactive_runtime_root(root, current_uid())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn cleanup_deb_runtime_roots() -> Result<(), ProtocolError> {
+        if current_uid() != 0 {
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
+        cleanup_deb_runtime_roots_at(
+            Path::new("/tmp"),
+            cleanup_inactive_runtime_root,
+            verified_runtime_root_active,
+        )
+    }
+
     pub(crate) fn publication_for(root: &Path) -> Result<String, ProtocolError> {
         if root.as_os_str().is_empty() || !root.is_absolute() {
             return Err(ProtocolError::new("broker_unavailable", None));
@@ -121,6 +137,86 @@ impl UnixEndpoint {
     pub(crate) fn filesystem_path(&self) -> Option<&Path> {
         Some(&self.socket_path)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn cleanup_deb_runtime_roots_at(
+    parent: &Path,
+    mut cleanup: impl FnMut(&Path, u32) -> Result<(), ProtocolError>,
+    mut is_active: impl FnMut(&Path, u32) -> Result<bool, ProtocolError>,
+) -> Result<(), ProtocolError> {
+    let entries = std::fs::read_dir(parent)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    for entry in entries {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(uid_text) = name
+            .strip_prefix("aiguard-native-broker-")
+            .and_then(|value| value.strip_suffix("-v1"))
+        else {
+            continue;
+        };
+        let Some(uid) = uid_text
+            .parse::<u32>()
+            .ok()
+            .filter(|uid| uid.to_string() == uid_text)
+        else {
+            continue;
+        };
+        if cleanup(&entry.path(), uid).is_err()
+            && is_active(&entry.path(), uid).is_ok_and(|active| active)
+        {
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn verified_runtime_root_active(root: &Path, expected_uid: u32) -> Result<bool, ProtocolError> {
+    let metadata = std::fs::symlink_metadata(root)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != expected_uid
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    let lock_path = root.join("broker.lock");
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&lock_path)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    let opened = lock
+        .metadata()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    let named = std::fs::symlink_metadata(&lock_path)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if !opened.file_type().is_file()
+        || named.file_type().is_symlink()
+        || opened.uid() != expected_uid
+        || opened.dev() != named.dev()
+        || opened.ino() != named.ino()
+        || opened.nlink() != 1
+        || opened.mode() & 0o777 != 0o600
+    {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    // SAFETY: lock is a live owned descriptor and the operation is nonblocking.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        return Ok(false);
+    }
+    if std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK) {
+        return Ok(true);
+    }
+    Err(ProtocolError::new("broker_unavailable", None))
 }
 
 impl UnixEndpointReservation {
@@ -658,6 +754,119 @@ fn remove_stale_socket_while_locked(path: &Path) -> Result<(), ProtocolError> {
     Ok(())
 }
 
+fn cleanup_inactive_runtime_root(root: &Path, expected_uid: u32) -> Result<(), ProtocolError> {
+    match std::fs::symlink_metadata(root) {
+        Ok(metadata)
+            if metadata.file_type().is_dir()
+                && !metadata.file_type().is_symlink()
+                && metadata.uid() == expected_uid
+                && metadata.mode() & 0o777 == 0o700 => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        _ => return Err(ProtocolError::new("broker_unavailable", None)),
+    }
+    let lock_path = root.join("broker.lock");
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&lock_path)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    let opened_lock = lock
+        .metadata()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    let named_lock = std::fs::symlink_metadata(&lock_path)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if !opened_lock.file_type().is_file()
+        || named_lock.file_type().is_symlink()
+        || opened_lock.uid() != expected_uid
+        || opened_lock.dev() != named_lock.dev()
+        || opened_lock.ino() != named_lock.ino()
+        || opened_lock.nlink() != 1
+        || opened_lock.mode() & 0o777 != 0o600
+    {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    // SAFETY: lock is a live owned descriptor and remains held through rename.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    let socket_path = root.join("broker.sock");
+    match std::fs::symlink_metadata(&socket_path) {
+        Ok(metadata)
+            if metadata.file_type().is_socket()
+                && !metadata.file_type().is_symlink()
+                && metadata.uid() == expected_uid
+                && metadata.mode() & 0o777 == 0o600
+                && socket_is_proven_stale(&socket_path)? =>
+        {
+            std::fs::remove_file(&socket_path)
+                .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Err(ProtocolError::new("broker_unavailable", None)),
+    }
+    let entries = std::fs::read_dir(root)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if entries.len() != 1 || entries[0].file_name() != "broker.lock" {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    let lock_metadata = lock
+        .metadata()
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    let path_metadata = std::fs::symlink_metadata(&lock_path)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if lock_metadata.dev() != path_metadata.dev()
+        || lock_metadata.ino() != path_metadata.ino()
+        || path_metadata.nlink() != 1
+        || path_metadata.uid() != expected_uid
+        || path_metadata.mode() & 0o777 != 0o600
+    {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    let parent = root
+        .parent()
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| ProtocolError::new("broker_unavailable", None))?;
+    let mut renamed = None;
+    for _ in 0..16 {
+        let mut random = [0_u8; 8];
+        getrandom::fill(&mut random).map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+        let suffix = random
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let candidate = parent.join(format!(
+            ".aiguard-native-broker-clean-{}-{suffix}",
+            expected_uid
+        ));
+        if candidate.exists() {
+            continue;
+        }
+        match std::fs::rename(root, &candidate) {
+            Ok(()) => {
+                renamed = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err(ProtocolError::new("broker_unavailable", None)),
+        }
+    }
+    let renamed = renamed.ok_or_else(|| ProtocolError::new("broker_unavailable", None))?;
+    let renamed_lock = renamed.join("broker.lock");
+    let renamed_metadata = std::fs::symlink_metadata(&renamed_lock)
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))?;
+    if renamed_metadata.dev() != lock_metadata.dev()
+        || renamed_metadata.ino() != lock_metadata.ino()
+    {
+        return Err(ProtocolError::new("broker_unavailable", None));
+    }
+    std::fs::remove_file(&renamed_lock)
+        .and_then(|()| std::fs::remove_dir(&renamed))
+        .map_err(|_| ProtocolError::new("broker_unavailable", None))
+}
+
 fn socket_is_proven_stale(path: &Path) -> Result<bool, ProtocolError> {
     let path_bytes = path.as_os_str().as_bytes();
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
@@ -930,6 +1139,68 @@ mod tests {
 
         let mut byte = [0_u8; 1];
         assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn deb_cleanup_preserves_unsafe_user_root_and_continues() {
+        let parent = std::env::temp_dir().join(format!(
+            "aiguard-deb-cleanup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let unsafe_root = parent.join("aiguard-native-broker-100-v1");
+        let safe_root = parent.join("aiguard-native-broker-101-v1");
+        std::fs::create_dir_all(&unsafe_root).unwrap();
+        std::fs::create_dir(&safe_root).unwrap();
+        let mut visited = Vec::new();
+
+        cleanup_deb_runtime_roots_at(
+            &parent,
+            |path, uid| {
+                visited.push(uid);
+                if path == unsafe_root {
+                    return Err(ProtocolError::new("broker_unavailable", None));
+                }
+                std::fs::remove_dir(path)
+                    .map_err(|_| ProtocolError::new("broker_unavailable", None))
+            },
+            |_, _| Ok(false),
+        )
+        .unwrap();
+
+        visited.sort_unstable();
+        assert_eq!(visited, vec![100, 101]);
+        assert!(unsafe_root.is_dir());
+        assert!(!safe_root.exists());
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn deb_cleanup_refuses_a_verified_active_product_root() {
+        let parent = std::env::temp_dir().join(format!(
+            "aiguard-deb-active-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let active_root = parent.join("aiguard-native-broker-102-v1");
+        std::fs::create_dir_all(&active_root).unwrap();
+
+        assert!(cleanup_deb_runtime_roots_at(
+            &parent,
+            |_, _| Err(ProtocolError::new("broker_unavailable", None)),
+            |path, uid| Ok(path == active_root && uid == 102),
+        )
+        .is_err());
+        assert!(active_root.is_dir());
+        std::fs::remove_dir_all(parent).unwrap();
     }
 }
 

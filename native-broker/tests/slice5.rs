@@ -290,7 +290,7 @@ fn one_connection_keeps_tab_and_panel_scopes_and_broker_sessions_internal() {
         .all(|response| response.get("scope_id").is_none()));
     assert!(responses
         .iter()
-        .all(|response| response.to_string().find("session-").is_none()));
+        .all(|response| !response.to_string().contains("session-")));
     assert_eq!(responses[6]["result"]["restored_text"], "restored:masked-a");
     assert_eq!(responses[7]["result"]["restored_text"], "restored:masked-b");
     assert_eq!(responses[9]["result"]["restored_text"], "restored:masked-c");

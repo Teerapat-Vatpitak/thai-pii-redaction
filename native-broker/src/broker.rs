@@ -1,6 +1,6 @@
 //! Authenticated native broker runtime and private HTTP-v2 data forwarding.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::thread::JoinHandle;
@@ -12,7 +12,9 @@ use crate::backend::{managed_backend_executor, BackendTimeouts, ManagedBackend};
 use crate::control::{ControlAction, Slice2ControlPlane};
 use crate::data_plane::DataPlane;
 use crate::manifest::ComponentManifest;
-use crate::transport::{AcceptedConnection, ConnectionLimiter, PlatformEndpoint};
+use crate::transport::{
+    AcceptedConnection, ConnectionLimiter, NativeStreamAbortHandle, PlatformEndpoint,
+};
 use crate::{
     default_message_bytes, error_message, max_frame_bytes, max_hello_bytes, negotiate_hello,
     response_message_bytes, success_message, validate_request, ProtocolError,
@@ -53,8 +55,14 @@ pub struct BrokerRuntime {
     backend: Arc<Mutex<ManagedBackend>>,
     data_plane: DataPlane,
     product_version: String,
+    component_root: Option<PathBuf>,
     config: BrokerRuntimeConfig,
     stop: Arc<AtomicBool>,
+}
+
+struct ConnectionWorker {
+    join: JoinHandle<()>,
+    abort: NativeStreamAbortHandle,
 }
 
 impl std::fmt::Debug for BrokerRuntime {
@@ -76,12 +84,27 @@ impl BrokerRuntime {
     ) -> Result<Self, ProtocolError> {
         crate::installed_product::validate_requested_configuration()?;
         validate_config(config)?;
-        let manifest = Arc::new(ComponentManifest::load(manifest_path, product_version)?);
         let current_executable =
             std::env::current_exe().map_err(|_| ProtocolError::new("broker_unavailable", None))?;
-        manifest.verify_broker_executable(&current_executable)?;
+        let component_root = current_executable
+            .parent()
+            .filter(|path| path.is_absolute())
+            .ok_or_else(|| ProtocolError::new("broker_unavailable", None))?;
+        // Hold the endpoint reservation across package verification. A maintenance
+        // transaction cannot prove the broker inactive while this admission is in
+        // progress, and a marker created before the reservation is held fails here.
         let endpoint_reservation = PlatformEndpoint::reserve(endpoint_root)?;
+        if crate::lifecycle::component_replacement_active(component_root)? {
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
+        let manifest = Arc::new(ComponentManifest::load(manifest_path, product_version)?);
+        manifest.verify_broker_executable(&current_executable)?;
         let verified_backend = manifest.verify_backend()?;
+        // Verification can be slow. Recheck before starting the backend so a
+        // replacement that began while the reservation was held remains closed.
+        if crate::lifecycle::component_replacement_active(component_root)? {
+            return Err(ProtocolError::new("broker_unavailable", None));
+        }
         let backend = Arc::new(Mutex::new(ManagedBackend::spawn_verified(
             &verified_backend,
             product_version,
@@ -95,6 +118,7 @@ impl BrokerRuntime {
             backend,
             data_plane,
             product_version: product_version.to_owned(),
+            component_root: Some(component_root.to_owned()),
             config,
             stop: Arc::new(AtomicBool::new(false)),
         })
@@ -120,6 +144,7 @@ impl BrokerRuntime {
             backend,
             data_plane,
             product_version: product_version.to_owned(),
+            component_root: None,
             config,
             stop: Arc::new(AtomicBool::new(false)),
         })
@@ -158,11 +183,24 @@ impl BrokerRuntime {
         let stop = Arc::clone(&self.stop);
         let backend_failed = Arc::new(AtomicBool::new(false));
         let maintenance_stop = Arc::new(AtomicBool::new(false));
-        let mut workers: Vec<JoinHandle<()>> = Vec::new();
+        let mut workers: Vec<ConnectionWorker> = Vec::new();
         let mut idle_since = Instant::now();
         let mut was_active = false;
 
         loop {
+            if let Some(component_root) = self.component_root.as_deref() {
+                match crate::lifecycle::component_replacement_active(component_root) {
+                    Ok(true) => {
+                        maintenance_stop.store(true, Ordering::Release);
+                        stop.store(true, Ordering::Release);
+                    }
+                    Ok(false) => {}
+                    Err(_) => {
+                        backend_failed.store(true, Ordering::Release);
+                        stop.store(true, Ordering::Release);
+                    }
+                }
+            }
             if reap_finished_workers(&mut workers) {
                 backend_failed.store(true, Ordering::Release);
                 stop.store(true, Ordering::Release);
@@ -198,6 +236,11 @@ impl BrokerRuntime {
             match self.endpoint.accept(self.config.accept_poll) {
                 Ok(Some(connection)) => {
                     let mut connection = connection;
+                    if replacement_blocks_admission(self.component_root.as_deref()) {
+                        maintenance_stop.store(true, Ordering::Release);
+                        stop.store(true, Ordering::Release);
+                        continue;
+                    }
                     let permit = match limiter.try_acquire() {
                         Ok(permit) => permit,
                         Err(_) => {
@@ -211,6 +254,14 @@ impl BrokerRuntime {
                             continue;
                         }
                     };
+                    let abort = match connection.stream().abort_handle() {
+                        Ok(abort) => abort,
+                        Err(_) => {
+                            backend_failed.store(true, Ordering::Release);
+                            stop.store(true, Ordering::Release);
+                            continue;
+                        }
+                    };
                     let manifest = Arc::clone(&self.manifest);
                     let backend = Arc::clone(&self.backend);
                     let data_plane = self.data_plane.clone();
@@ -219,22 +270,27 @@ impl BrokerRuntime {
                     let backend_failed = Arc::clone(&backend_failed);
                     let maintenance_stop = Arc::clone(&maintenance_stop);
                     let product_version = self.product_version.clone();
+                    let component_root = self.component_root.clone();
                     let config = self.config;
-                    workers.push(std::thread::spawn(move || {
-                        let _permit = permit;
-                        handle_connection(
-                            connection,
-                            &manifest,
-                            &broker_context,
-                            &backend,
-                            &data_plane,
-                            &stop,
-                            &backend_failed,
-                            &maintenance_stop,
-                            &product_version,
-                            config,
-                        );
-                    }));
+                    workers.push(ConnectionWorker {
+                        abort,
+                        join: std::thread::spawn(move || {
+                            let _permit = permit;
+                            handle_connection(
+                                connection,
+                                &manifest,
+                                &broker_context,
+                                &backend,
+                                &data_plane,
+                                &stop,
+                                &backend_failed,
+                                &maintenance_stop,
+                                &product_version,
+                                component_root.as_deref(),
+                                config,
+                            );
+                        }),
+                    });
                 }
                 Ok(None) => {}
                 Err(error) if error.code() == "broker_unauthorized" => {}
@@ -247,6 +303,7 @@ impl BrokerRuntime {
         }
 
         stop.store(true, Ordering::Release);
+        abort_workers(&workers);
         if drain_workers(&mut workers, self.config.drain_timeout) {
             backend_failed.store(true, Ordering::Release);
         }
@@ -275,6 +332,15 @@ impl BrokerRuntime {
     }
 }
 
+fn replacement_blocks_admission(component_root: Option<&Path>) -> bool {
+    component_root.is_some_and(|root| {
+        !matches!(
+            crate::lifecycle::component_replacement_active(root),
+            Ok(false)
+        )
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_connection(
     mut connection: AcceptedConnection,
@@ -286,8 +352,14 @@ fn handle_connection(
     backend_failed: &AtomicBool,
     maintenance_stop: &AtomicBool,
     product_version: &str,
+    component_root: Option<&Path>,
     config: BrokerRuntimeConfig,
 ) {
+    if replacement_blocks_admission(component_root) {
+        maintenance_stop.store(true, Ordering::Release);
+        stop.store(true, Ordering::Release);
+        return;
+    }
     let Some(hello_deadline) = Instant::now().checked_add(config.hello_timeout) else {
         return;
     };
@@ -296,6 +368,11 @@ fn handle_connection(
         Err(_) => return,
     };
     if connection.ensure_peer_stable().is_err() {
+        return;
+    }
+    if replacement_blocks_admission(component_root) {
+        maintenance_stop.store(true, Ordering::Release);
+        stop.store(true, Ordering::Release);
         return;
     }
     let hello_raw = match connection
@@ -359,6 +436,11 @@ fn handle_connection(
         );
         return;
     }
+    if replacement_blocks_admission(component_root) {
+        maintenance_stop.store(true, Ordering::Release);
+        stop.store(true, Ordering::Release);
+        return;
+    }
     if connection
         .stream_mut()
         .write_value_until(
@@ -376,6 +458,11 @@ fn handle_connection(
     } else {
         default_message_bytes()
     };
+    if replacement_blocks_admission(component_root) {
+        maintenance_stop.store(true, Ordering::Release);
+        stop.store(true, Ordering::Release);
+        return;
+    }
     let mut data_connection = match admission.admitted_role() {
         "desktop" | "extension" => match data_plane.open_connection(admission.admitted_role()) {
             Ok(connection) => Some(connection),
@@ -394,6 +481,11 @@ fn handle_connection(
     };
     let control = Slice2ControlPlane::new();
     loop {
+        if replacement_blocks_admission(component_root) {
+            maintenance_stop.store(true, Ordering::Release);
+            stop.store(true, Ordering::Release);
+            return;
+        }
         if stop.load(Ordering::Acquire) {
             return;
         }
@@ -430,6 +522,11 @@ fn handle_connection(
                 return;
             }
         };
+        if replacement_blocks_admission(component_root) {
+            maintenance_stop.store(true, Ordering::Release);
+            stop.store(true, Ordering::Release);
+            return;
+        }
         let request = match validate_request(&raw, &mut state, false) {
             Ok(request) => request,
             Err(error) => {
@@ -558,6 +655,7 @@ fn handle_connection(
             };
             let cancelled = || {
                 stop.load(Ordering::Acquire)
+                    || replacement_blocks_admission(component_root)
                     || connection.ensure_peer_stable().is_err()
                     || !connection.stream().peer_connected().unwrap_or(false)
             };
@@ -615,6 +713,11 @@ fn handle_connection(
             );
             return;
         };
+        if replacement_blocks_admission(component_root) {
+            maintenance_stop.store(true, Ordering::Release);
+            stop.store(true, Ordering::Release);
+            return;
+        }
         let response_limit = response_message_bytes(admission.admitted_role(), &request.operation)
             .unwrap_or(default_message_bytes());
         if connection
@@ -669,13 +772,19 @@ fn send_fixed_error_until(
     false
 }
 
-fn reap_finished_workers(workers: &mut Vec<JoinHandle<()>>) -> bool {
+fn abort_workers(workers: &[ConnectionWorker]) {
+    for worker in workers {
+        worker.abort.abort();
+    }
+}
+
+fn reap_finished_workers(workers: &mut Vec<ConnectionWorker>) -> bool {
     let mut panicked = false;
     let mut index = 0;
     while index < workers.len() {
-        if workers[index].is_finished() {
+        if workers[index].join.is_finished() {
             let worker = workers.swap_remove(index);
-            panicked |= worker.join().is_err();
+            panicked |= worker.join.join().is_err();
         } else {
             index += 1;
         }
@@ -683,7 +792,7 @@ fn reap_finished_workers(workers: &mut Vec<JoinHandle<()>>) -> bool {
     panicked
 }
 
-fn drain_workers(workers: &mut Vec<JoinHandle<()>>, timeout: Duration) -> bool {
+fn drain_workers(workers: &mut Vec<ConnectionWorker>, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     let mut panicked = false;
     while !workers.is_empty() && Instant::now() < deadline {
@@ -711,4 +820,73 @@ fn validate_config(config: BrokerRuntimeConfig) -> Result<(), ProtocolError> {
         return Err(ProtocolError::new("broker_unavailable", None));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::replacement_blocks_admission;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn every_live_admission_check_fails_closed_during_replacement() {
+        let root =
+            std::env::temp_dir().join(format!("aiguard-broker-admission-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        assert!(!replacement_blocks_admission(Some(&root)));
+        crate::lifecycle::begin_component_replacement(&root).unwrap();
+        assert!(replacement_blocks_admission(Some(&root)));
+        std::fs::remove_file(root.join(crate::lifecycle::COMPONENT_MAINTENANCE_FILE)).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn marker_created_after_accept_check_blocks_worker_admission() {
+        let root = Arc::new(
+            std::env::temp_dir().join(format!("aiguard-broker-accept-race-{}", std::process::id())),
+        );
+        let _ = std::fs::remove_dir_all(root.as_path());
+        std::fs::create_dir(root.as_path()).unwrap();
+        let accepted = Arc::new(Barrier::new(2));
+        let admit = Arc::new(Barrier::new(2));
+        let worker = {
+            let root = Arc::clone(&root);
+            let accepted = Arc::clone(&accepted);
+            let admit = Arc::clone(&admit);
+            std::thread::spawn(move || {
+                assert!(!replacement_blocks_admission(Some(root.as_path())));
+                accepted.wait();
+                admit.wait();
+                replacement_blocks_admission(Some(root.as_path()))
+            })
+        };
+        accepted.wait();
+        crate::lifecycle::begin_component_replacement(root.as_path()).unwrap();
+        admit.wait();
+        assert!(worker.join().unwrap());
+        std::fs::remove_file(root.join(crate::lifecycle::COMPONENT_MAINTENANCE_FILE)).unwrap();
+        std::fs::remove_dir(root.as_path()).unwrap();
+    }
+
+    #[test]
+    fn startup_reservation_blocks_inactive_proof_across_marker_creation() {
+        let endpoint_root =
+            std::env::temp_dir().join(format!("aiguard-broker-start-race-{}", std::process::id()));
+        let component_root = std::env::temp_dir().join(format!(
+            "aiguard-broker-start-components-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&endpoint_root);
+        let _ = std::fs::remove_dir_all(&component_root);
+        std::fs::create_dir(&component_root).unwrap();
+        let startup = crate::transport::PlatformEndpoint::reserve_for_test(&endpoint_root).unwrap();
+        crate::lifecycle::begin_component_replacement(&component_root).unwrap();
+        assert!(crate::transport::PlatformEndpoint::reserve_for_test(&endpoint_root).is_err());
+        assert!(replacement_blocks_admission(Some(&component_root)));
+        drop(startup);
+        crate::transport::PlatformEndpoint::cleanup_runtime_root_for_test(&endpoint_root).unwrap();
+        std::fs::remove_file(component_root.join(crate::lifecycle::COMPONENT_MAINTENANCE_FILE))
+            .unwrap();
+        std::fs::remove_dir(component_root).unwrap();
+    }
 }

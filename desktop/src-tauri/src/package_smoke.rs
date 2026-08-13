@@ -7,8 +7,12 @@ use tauri::AppHandle;
 const PACKAGE_SMOKE_EVIDENCE: &str = "desktop-smoke-evidence.json";
 const PACKAGE_SMOKE_READY: &str = "desktop-smoke-ready";
 const PACKAGE_SMOKE_FAILURE: &str = "desktop-smoke-failure";
+const PACKAGE_SMOKE_INVALIDATED: &str = "desktop-smoke-upgrade-invalidated";
 const PACKAGE_SMOKE_NATIVE_START: &str = "desktop-smoke-native-start";
+const PACKAGE_SMOKE_RELEASE: &str = "desktop-smoke-release";
 const PACKAGE_SMOKE_ROOT: &str = "AIGUARD_DESKTOP_PACKAGE_SMOKE_ROOT";
+const PACKAGE_SMOKE_RELEASE_ENV: &str = "AIGUARD_DESKTOP_PACKAGE_SMOKE_RELEASE";
+const PACKAGE_SMOKE_RELEASE_WAIT_SECONDS: u64 = 90;
 const MAX_METRIC_MS: f64 = 900_000.0;
 static MARKER_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -16,6 +20,7 @@ static MARKER_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 enum PackageSmokeMarker {
     Evidence,
     Failure,
+    Invalidated,
     NativeStart,
     Ready,
 }
@@ -25,6 +30,7 @@ impl PackageSmokeMarker {
         match self {
             Self::Evidence => PACKAGE_SMOKE_EVIDENCE,
             Self::Failure => PACKAGE_SMOKE_FAILURE,
+            Self::Invalidated => PACKAGE_SMOKE_INVALIDATED,
             Self::NativeStart => PACKAGE_SMOKE_NATIVE_START,
             Self::Ready => PACKAGE_SMOKE_READY,
         }
@@ -63,6 +69,7 @@ pub enum PackageSmokeFailure {
     Audit,
     Cleanup,
     Finish,
+    UpgradeInvalidation,
     BootstrapImport,
     BootstrapEval,
     WebviewProcess,
@@ -94,6 +101,7 @@ impl PackageSmokeFailure {
             Self::Audit => "audit",
             Self::Cleanup => "cleanup",
             Self::Finish => "finish",
+            Self::UpgradeInvalidation => "upgrade_invalidation",
             Self::BootstrapImport => "bootstrap_import",
             Self::BootstrapEval => "bootstrap_eval",
             Self::WebviewProcess => "webview_process",
@@ -290,6 +298,48 @@ fn write_marker(marker: PackageSmokeMarker, value: &[u8]) -> Result<(), &'static
     write_marker_at(&smoke_root()?, marker, value)
 }
 
+fn wait_for_optional_release_at(
+    root: &Path,
+    requested: Option<std::ffi::OsString>,
+) -> Result<(), &'static str> {
+    let Some(requested) = requested else {
+        return Ok(());
+    };
+    let release = root.join(PACKAGE_SMOKE_RELEASE);
+    if Path::new(&requested) != release {
+        return Err("operation_failed");
+    }
+    let deadline = std::time::Instant::now()
+        .checked_add(std::time::Duration::from_secs(
+            PACKAGE_SMOKE_RELEASE_WAIT_SECONDS,
+        ))
+        .ok_or("operation_failed")?;
+    loop {
+        match std::fs::symlink_metadata(&release) {
+            Ok(metadata)
+                if metadata.file_type().is_file()
+                    && !metadata.file_type().is_symlink()
+                    && !is_reparse(&metadata)
+                    && metadata.len() == b"release".len() as u64
+                    && std::fs::read(&release).ok().as_deref() == Some(b"release") =>
+            {
+                return Ok(())
+            }
+            Ok(_) => return Err("operation_failed"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("operation_failed"),
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("operation_failed");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn wait_for_optional_release(root: &Path) -> Result<(), &'static str> {
+    wait_for_optional_release_at(root, std::env::var_os(PACKAGE_SMOKE_RELEASE_ENV))
+}
+
 fn published_evidence_at(root: &Path) -> bool {
     let path = root.join(PACKAGE_SMOKE_EVIDENCE);
     let Ok(metadata) = std::fs::symlink_metadata(&path) else {
@@ -302,8 +352,21 @@ fn published_evidence_at(root: &Path) -> bool {
         && metadata.len() <= 4096
 }
 
+fn fixed_marker_at(root: &Path, name: &str, expected: &[u8]) -> bool {
+    let path = root.join(name);
+    let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        return false;
+    };
+    metadata.file_type().is_file()
+        && !is_reparse(&metadata)
+        && metadata.len() == expected.len() as u64
+        && std::fs::read(path).ok().as_deref() == Some(expected)
+}
+
 fn write_failure_unless_finished_at(root: &Path, stage: PackageSmokeFailure) {
-    if !published_evidence_at(root) {
+    if !published_evidence_at(root)
+        && !fixed_marker_at(root, PACKAGE_SMOKE_INVALIDATED, b"invalidated")
+    {
         let _ = write_marker_at(root, PackageSmokeMarker::Failure, stage.as_str().as_bytes());
     }
 }
@@ -337,11 +400,30 @@ async fn shutdown_and_exit(app: AppHandle, code: i32) {
 }
 
 #[tauri::command]
-pub fn desktop_package_smoke_ready() -> Result<(), &'static str> {
-    if !requested() || write_marker(PackageSmokeMarker::Ready, b"ready").is_err() {
+pub fn desktop_package_smoke_ready() -> Result<bool, &'static str> {
+    let root = smoke_root()?;
+    let upgrade = std::env::var_os(PACKAGE_SMOKE_RELEASE_ENV).is_some();
+    if !requested()
+        || write_marker_at(&root, PackageSmokeMarker::Ready, b"ready").is_err()
+        || wait_for_optional_release(&root).is_err()
+    {
         return Err("operation_failed");
     }
-    Ok(())
+    Ok(upgrade)
+}
+
+#[tauri::command]
+pub async fn desktop_package_smoke_upgrade_invalidated(app: AppHandle) {
+    let succeeded = smoke_root().ok().is_some_and(|root| {
+        let release = root.join(PACKAGE_SMOKE_RELEASE);
+        requested()
+            && std::env::var_os(PACKAGE_SMOKE_RELEASE_ENV)
+                .is_some_and(|requested| Path::new(&requested) == release)
+            && fixed_marker_at(&root, PACKAGE_SMOKE_READY, b"ready")
+            && fixed_marker_at(&root, PACKAGE_SMOKE_RELEASE, b"release")
+            && write_marker_at(&root, PackageSmokeMarker::Invalidated, b"invalidated").is_ok()
+    });
+    shutdown_and_exit(app, if succeeded { 0 } else { 75 }).await;
 }
 
 #[tauri::command]
@@ -570,6 +652,7 @@ mod tests {
         for marker in [
             PackageSmokeMarker::Evidence,
             PackageSmokeMarker::Failure,
+            PackageSmokeMarker::Invalidated,
             PackageSmokeMarker::NativeStart,
         ] {
             write_marker_at(&root, marker, b"fixed").unwrap();
@@ -583,6 +666,7 @@ mod tests {
             [
                 PACKAGE_SMOKE_EVIDENCE,
                 PACKAGE_SMOKE_FAILURE,
+                PACKAGE_SMOKE_INVALIDATED,
                 PACKAGE_SMOKE_NATIVE_START,
                 PACKAGE_SMOKE_READY,
             ]
@@ -639,11 +723,57 @@ mod tests {
         for name in [
             PACKAGE_SMOKE_EVIDENCE,
             PACKAGE_SMOKE_FAILURE,
+            PACKAGE_SMOKE_INVALIDATED,
             PACKAGE_SMOKE_NATIVE_START,
         ] {
             std::fs::remove_file(root.join(name)).unwrap();
         }
         std::fs::remove_dir(&*root).unwrap();
+    }
+
+    #[test]
+    fn live_upgrade_hold_accepts_only_the_exact_private_release_marker() {
+        let root = std::env::temp_dir().join(format!(
+            "aiguard-package-release-{}-{}",
+            std::process::id(),
+            MARKER_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        assert_eq!(wait_for_optional_release_at(&root, None), Ok(()));
+        assert_eq!(
+            wait_for_optional_release_at(&root, Some(root.join("wrong-release").into_os_string())),
+            Err("operation_failed")
+        );
+        let release = root.join(PACKAGE_SMOKE_RELEASE);
+        let writer = {
+            let release = release.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                let pending = release.with_extension(format!(
+                    "pending-{}-{}",
+                    std::process::id(),
+                    MARKER_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+                ));
+                let mut output = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&pending)
+                    .unwrap();
+                output.write_all(b"rel").unwrap();
+                output.flush().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                output.write_all(b"ease").unwrap();
+                output.flush().unwrap();
+                drop(output);
+                std::fs::hard_link(&pending, &release).unwrap();
+                std::fs::remove_file(pending).unwrap();
+            })
+        };
+        wait_for_optional_release_at(&root, Some(release.clone().into_os_string())).unwrap();
+        assert!(fixed_marker_at(&root, PACKAGE_SMOKE_RELEASE, b"release"));
+        writer.join().unwrap();
+        std::fs::remove_file(release).unwrap();
+        std::fs::remove_dir(root).unwrap();
     }
 
     #[test]
@@ -692,6 +822,10 @@ mod tests {
         assert_eq!(PACKAGE_SMOKE_READY, "desktop-smoke-ready");
         assert_eq!(PACKAGE_SMOKE_EVIDENCE, "desktop-smoke-evidence.json");
         assert_eq!(PACKAGE_SMOKE_FAILURE, "desktop-smoke-failure");
+        assert_eq!(
+            PACKAGE_SMOKE_INVALIDATED,
+            "desktop-smoke-upgrade-invalidated"
+        );
     }
 
     #[test]
@@ -720,6 +854,10 @@ mod tests {
         assert!(!root.join(PACKAGE_SMOKE_FAILURE).exists());
 
         std::fs::remove_file(root.join(PACKAGE_SMOKE_EVIDENCE)).unwrap();
+        write_marker_at(&root, PackageSmokeMarker::Invalidated, b"invalidated").unwrap();
+        write_failure_unless_finished_at(&root, PackageSmokeFailure::AppExit);
+        assert!(!root.join(PACKAGE_SMOKE_FAILURE).exists());
+        std::fs::remove_file(root.join(PACKAGE_SMOKE_INVALIDATED)).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
 }

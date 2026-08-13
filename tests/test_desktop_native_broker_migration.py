@@ -102,6 +102,7 @@ def test_webview_command_allowlist_is_exact_and_has_no_generic_escape_hatch():
     ]
     smoke_only = {
         "desktop_package_smoke_ready",
+        "desktop_package_smoke_upgrade_invalidated",
         "desktop_package_smoke_finish",
         "desktop_package_smoke_fail",
     }

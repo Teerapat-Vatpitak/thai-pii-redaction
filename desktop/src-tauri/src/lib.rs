@@ -49,6 +49,7 @@ macro_rules! desktop_invoke_handler {
             updater::update_check,
             updater::update_install,
             package_smoke::desktop_package_smoke_ready,
+            package_smoke::desktop_package_smoke_upgrade_invalidated,
             package_smoke::desktop_package_smoke_finish,
             package_smoke::desktop_package_smoke_fail
         ]

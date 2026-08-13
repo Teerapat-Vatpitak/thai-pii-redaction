@@ -34,6 +34,26 @@ pub(crate) struct AuthenticatedClientParts {
     pub hello_request_id: String,
 }
 
+pub(crate) struct PreparedExistingControlClient {
+    prepared: PreparedClient,
+}
+
+impl PreparedExistingControlClient {
+    pub(crate) fn connect_until(
+        &self,
+        outer_deadline: Instant,
+    ) -> Result<BrokerControlClient, ProtocolError> {
+        let (handshake_timeout, deadline) =
+            handshake_window_after_preparation(Duration::from_secs(5), Some(outer_deadline))?;
+        BrokerControlClient::connect_prepared(
+            &self.prepared,
+            handshake_timeout,
+            deadline,
+            handshake_timeout,
+        )
+    }
+}
+
 #[doc(hidden)]
 pub struct SealedBrokerProcess {
     #[cfg(unix)]
@@ -91,13 +111,16 @@ impl BrokerControlClient {
         if timeout.is_zero() {
             return unavailable();
         }
-        let handshake_timeout = control_timeout(timeout);
-        let deadline = Instant::now()
-            .checked_add(handshake_timeout)
-            .ok_or_else(unavailable_error)?;
-        let prepared =
-            PreparedClient::new(endpoint_root, manifest_path, role, product_version, false)?;
-        Self::connect_prepared(&prepared, handshake_timeout, deadline, handshake_timeout)
+        let (prepared, handshake_timeout, deadline) =
+            prepare_then_handshake_window(timeout, None, || {
+                Self::prepare_existing(endpoint_root, manifest_path, role, product_version)
+            })?;
+        Self::connect_prepared(
+            &prepared.prepared,
+            handshake_timeout,
+            deadline,
+            handshake_timeout,
+        )
     }
 
     #[doc(hidden)]
@@ -111,13 +134,50 @@ impl BrokerControlClient {
         if timeout.is_zero() {
             return unavailable();
         }
-        let handshake_timeout = control_timeout(timeout);
-        let deadline = Instant::now()
-            .checked_add(handshake_timeout)
-            .ok_or_else(unavailable_error)?;
-        let prepared =
-            PreparedClient::new(endpoint_root, manifest_path, role, product_version, true)?;
-        Self::connect_prepared(&prepared, handshake_timeout, deadline, handshake_timeout)
+        let (prepared, handshake_timeout, deadline) =
+            prepare_then_handshake_window(timeout, None, || {
+                Self::prepare_existing_for_test(endpoint_root, manifest_path, role, product_version)
+            })?;
+        Self::connect_prepared(
+            &prepared.prepared,
+            handshake_timeout,
+            deadline,
+            handshake_timeout,
+        )
+    }
+
+    pub(crate) fn prepare_existing(
+        endpoint_root: &Path,
+        manifest_path: &Path,
+        role: &str,
+        product_version: &str,
+    ) -> Result<PreparedExistingControlClient, ProtocolError> {
+        Ok(PreparedExistingControlClient {
+            prepared: PreparedClient::new(
+                endpoint_root,
+                manifest_path,
+                role,
+                product_version,
+                false,
+            )?,
+        })
+    }
+
+    pub(crate) fn prepare_existing_for_test(
+        endpoint_root: &Path,
+        manifest_path: &Path,
+        role: &str,
+        product_version: &str,
+    ) -> Result<PreparedExistingControlClient, ProtocolError> {
+        Ok(PreparedExistingControlClient {
+            prepared: PreparedClient::new(
+                endpoint_root,
+                manifest_path,
+                role,
+                product_version,
+                true,
+            )?,
+        })
     }
 
     pub fn connect_or_start(
@@ -230,12 +290,24 @@ impl BrokerControlClient {
     }
 
     pub fn maintenance_drain_stop(&mut self) -> Result<(), ProtocolError> {
+        let deadline = request_deadline(self.timeout, None)?;
+        self.maintenance_drain_stop_until(deadline)
+    }
+
+    pub(crate) fn maintenance_drain_stop_until(
+        &mut self,
+        outer_deadline: Instant,
+    ) -> Result<(), ProtocolError> {
         if self.role != "maintenance" {
             return Err(ProtocolError::new("broker_unauthorized", None));
         }
         let request_id = random_request_id("stop")?;
-        let response =
-            self.send_request("maintenance_drain_stop", &request_id, serde_json::json!({}))?;
+        let response = self.send_request_until(
+            "maintenance_drain_stop",
+            &request_id,
+            serde_json::json!({}),
+            outer_deadline,
+        )?;
         if response["result"] != serde_json::json!({"accepted": true}) {
             return unavailable();
         }
@@ -325,15 +397,24 @@ impl BrokerControlClient {
         request_id: &str,
         payload: Value,
     ) -> Result<Value, ProtocolError> {
+        let deadline = request_deadline(self.timeout, None)?;
+        self.send_request_until(operation, request_id, payload, deadline)
+    }
+
+    fn send_request_until(
+        &mut self,
+        operation: &str,
+        request_id: &str,
+        payload: Value,
+        outer_deadline: Instant,
+    ) -> Result<Value, ProtocolError> {
         let request = serde_json::json!({
             "broker_protocol_version": self.protocol_version,
             "operation": operation,
             "payload": payload,
             "request_id": request_id,
         });
-        let deadline = Instant::now()
-            .checked_add(self.timeout)
-            .ok_or_else(unavailable_error)?;
+        let deadline = request_deadline(self.timeout, Some(outer_deadline))?;
         self.stream
             .write_value_until(&request, default_message_bytes(), deadline)?;
         let raw = self
@@ -367,6 +448,50 @@ fn read_pre_hello_response(
 fn control_timeout(requested: Duration) -> Duration {
     let protocol = Duration::from_millis(deadline_ms("broker_health", false).unwrap_or(5000));
     requested.min(protocol)
+}
+
+fn request_deadline(
+    timeout: Duration,
+    outer_deadline: Option<Instant>,
+) -> Result<Instant, ProtocolError> {
+    let now = Instant::now();
+    let protocol_deadline = now.checked_add(timeout).ok_or_else(unavailable_error)?;
+    let deadline = outer_deadline
+        .map(|outer| outer.min(protocol_deadline))
+        .unwrap_or(protocol_deadline);
+    if deadline.saturating_duration_since(now).is_zero() {
+        return Err(ProtocolError::new("operation_timeout", None));
+    }
+    Ok(deadline)
+}
+
+fn prepare_then_handshake_window<T>(
+    requested_timeout: Duration,
+    outer_deadline: Option<Instant>,
+    prepare: impl FnOnce() -> Result<T, ProtocolError>,
+) -> Result<(T, Duration, Instant), ProtocolError> {
+    let prepared = prepare()?;
+    let (handshake_timeout, deadline) =
+        handshake_window_after_preparation(requested_timeout, outer_deadline)?;
+    Ok((prepared, handshake_timeout, deadline))
+}
+
+fn handshake_window_after_preparation(
+    requested_timeout: Duration,
+    outer_deadline: Option<Instant>,
+) -> Result<(Duration, Instant), ProtocolError> {
+    let now = Instant::now();
+    let available = outer_deadline
+        .map(|deadline| deadline.saturating_duration_since(now))
+        .unwrap_or(requested_timeout);
+    let handshake_timeout = control_timeout(requested_timeout.min(available));
+    if handshake_timeout.is_zero() {
+        return unavailable();
+    }
+    let deadline = now
+        .checked_add(handshake_timeout)
+        .ok_or_else(unavailable_error)?;
+    Ok((handshake_timeout, deadline))
 }
 
 struct PreparedClient {
@@ -542,7 +667,9 @@ fn unavailable_error() -> ProtocolError {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_hello_response;
+    use std::time::{Duration, Instant};
+
+    use super::{prepare_then_handshake_window, request_deadline, validate_hello_response};
     use crate::{canonical_json_bytes, error_message};
 
     #[test]
@@ -563,5 +690,33 @@ mod tests {
                 .code(),
             "request_invalid"
         );
+    }
+
+    #[test]
+    fn strict_preparation_keeps_handshake_budget_but_consumes_outer_deadline() {
+        let requested = Duration::from_millis(100);
+        let (preparation_finished, timeout, deadline) =
+            prepare_then_handshake_window(requested, None, || {
+                std::thread::sleep(Duration::from_millis(125));
+                Ok(Instant::now())
+            })
+            .unwrap();
+        assert_eq!(timeout, requested);
+        assert!(deadline >= preparation_finished.checked_add(requested).unwrap());
+
+        let outer = Instant::now() + Duration::from_millis(25);
+        let expired = prepare_then_handshake_window(requested, Some(outer), || {
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(())
+        })
+        .unwrap_err();
+        assert_eq!(expired.code(), "broker_unavailable");
+
+        let request_outer = Instant::now() + Duration::from_millis(200);
+        std::thread::sleep(Duration::from_millis(25));
+        let request = request_deadline(Duration::from_secs(5), Some(request_outer)).unwrap();
+        assert_eq!(request, request_outer);
+        let expired_request = request_deadline(requested, Some(Instant::now())).unwrap_err();
+        assert_eq!(expired_request.code(), "operation_timeout");
     }
 }

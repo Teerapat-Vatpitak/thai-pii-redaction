@@ -101,10 +101,26 @@ fn package_shape(executable: &Path) -> Result<&'static str, ()> {
         {
             return Ok("appimage");
         }
+        if aiguard_native_broker_protocol::native_host_registration::appimage_component_root()
+            .is_ok_and(|root| executable.parent() == Some(root.as_path()))
+        {
+            return Ok("appimage");
+        }
         if executable == Path::new("/usr/bin/desktop") {
             return Ok("deb");
         }
         Err(())
+    }
+}
+
+pub fn in_app_update_supported() -> bool {
+    #[cfg(windows)]
+    {
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        false
     }
 }
 

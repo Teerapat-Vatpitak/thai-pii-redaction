@@ -2,8 +2,10 @@
   "bundle": {
     "linux": {
       "deb": {
+        "preInstallScript": "linux/deb-preinst.sh",
         "postInstallScript": "linux/deb-postinst.sh",
         "preRemoveScript": "linux/deb-prerm.sh",
+        "postRemoveScript": "linux/deb-postrm.sh",
         "files": {
           "/usr/bin/native-components-v1.json": "binaries/native-components-v1.deb.json"
         }

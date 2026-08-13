@@ -30,11 +30,12 @@ This document describes the intended process and preserves the procedure used
 for historical releases. It is not currently an instruction to push a new tag.
 Every new tag intentionally fails `.github/workflows/release.yml` in the
 `release metadata preflight` job before any build or publishing job can run.
-That stop remains until Slice 5 packages and registers the Extension Chrome
-Native Messaging host against the shared broker and every Slice 6 gate in the
-roadmap is complete, including cross-platform package/install, relocation,
-updater, upgrade, interrupted-upgrade, stale-cleanup, and uninstall lifecycle
-recertification.
+Slices 5 and 6 supply the Native Messaging package and lifecycle evidence, but
+Slice 6 is not release authorization. The stop remains intentionally in place
+until the owner separately starts release preparation and that task reviews the
+integrated evidence, version choice, changelog, signing/notarization posture,
+updater assets/channels, and publication targets. Do not remove or bypass it as
+part of package recertification.
 
 `python scripts/check_release_readiness.py` is a metadata-consistency check
 only: it verifies synchronized version targets plus the changelog, and with
@@ -48,7 +49,10 @@ paths. Those jobs do not create or publish a GitHub Release. Current branch
 package commands explicitly use `--no-sign`; macOS app relocation and Linux
 package extraction are package-layout evidence, not signing/notarization or a
 native installer lifecycle result. Treat every result according to the exact
-evidence class recorded for it. A distributable AppImage must pass the
+evidence class recorded for it. The separate Slice 6 workflow exercises real
+`dpkg` install/upgrade/remove/reinstall; that stronger package-manager result
+does not turn a directly extracted DEB into installation evidence. A
+distributable AppImage must pass the
 checksum-pinned post-`linuxdeploy` finalizer before smoke, hashing, signing, or
 upload. For the pinned no-sign/no-update build, that gate permits only the
 single non-executable, non-overlapping 16-byte `.digest_md5` rewrite defined by
@@ -58,8 +62,10 @@ components and manifest. The raw Tauri AppImage intentionally carries an
 invalid manifest and is not a release candidate. Automated AppImage smoke must
 independently attest the extracted bytes, start the exact finalized outer file
 with `--appimage-extract-and-run`, re-attest the retained root, and exercise its
-verified `AppRun` warm. Record that separately from normal FUSE/double-click,
-which this branch gate does not certify.
+verified `AppRun` warm. Record that separately from normal FUSE/double-click.
+The Slice 6 package workflow attempts normal FUSE only when the runner can
+mount it and otherwise records the exact unavailable condition; extract-and-run
+never substitutes for FUSE evidence.
 
 ## Semantic version policy
 

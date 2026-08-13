@@ -25,6 +25,7 @@ pub mod data_plane;
 pub mod desktop_client;
 pub mod extension_client;
 mod installed_product;
+pub mod lifecycle;
 pub mod manifest;
 pub mod native_host_registration;
 pub mod native_messaging;

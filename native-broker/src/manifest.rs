@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs::File;
-use std::io::{Read, Take};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
@@ -115,6 +115,38 @@ pub struct ComponentManifest {
     clients: Vec<RawClient>,
     backend: RawBackend,
     native_host: Option<RawNativeHost>,
+    file_policy: PackageFilePolicy,
+    allow_incomplete_removal: bool,
+}
+
+#[derive(Clone, Copy)]
+struct PackageFilePolicy {
+    strict_installed_set: bool,
+    #[cfg(unix)]
+    owner: u32,
+}
+
+impl PackageFilePolicy {
+    fn for_manifest(path: &Path, strict_installed_set: bool) -> Result<Self, ProtocolError> {
+        #[cfg(unix)]
+        let owner = {
+            use std::os::unix::fs::MetadataExt;
+
+            let metadata = std::fs::symlink_metadata(path).map_err(|_| unavailable_error())?;
+            let owner = metadata.uid();
+            if strict_installed_set && owner != 0 && owner != unsafe { libc::geteuid() } {
+                return Err(unavailable_error());
+            }
+            owner
+        };
+        let policy = Self {
+            strict_installed_set,
+            #[cfg(unix)]
+            owner,
+        };
+        verify_file_security(path, false, policy)?;
+        Ok(policy)
+    }
 }
 
 impl fmt::Debug for ComponentManifest {
@@ -163,7 +195,35 @@ impl fmt::Debug for VerifiedBackend {
 
 impl ComponentManifest {
     pub fn load(path: &Path, expected_product_version: &str) -> Result<Self, ProtocolError> {
-        if !valid_version(expected_product_version) || path.as_os_str().is_empty() {
+        Self::load_inner(path, Some(expected_product_version), true)
+    }
+
+    #[doc(hidden)]
+    pub fn load_declared(path: &Path) -> Result<Self, ProtocolError> {
+        Self::load_inner(path, None, true)
+    }
+
+    #[doc(hidden)]
+    pub fn load_incomplete_for_removal(
+        path: &Path,
+        expected_product_version: &str,
+    ) -> Result<Self, ProtocolError> {
+        Self::load_inner(path, Some(expected_product_version), false)
+    }
+
+    #[doc(hidden)]
+    pub fn valid_declared_product_version(value: &str) -> bool {
+        valid_version(value)
+    }
+
+    fn load_inner(
+        path: &Path,
+        expected_product_version: Option<&str>,
+        verify_complete_set: bool,
+    ) -> Result<Self, ProtocolError> {
+        if expected_product_version.is_some_and(|value| !valid_version(value))
+            || path.as_os_str().is_empty()
+        {
             return unavailable();
         }
         let metadata = std::fs::symlink_metadata(path).map_err(|_| unavailable_error())?;
@@ -193,6 +253,13 @@ impl ComponentManifest {
         if raw.schema_version != 1 {
             return unavailable();
         }
+        let validation_version = expected_product_version
+            .map(str::to_owned)
+            .unwrap_or_else(|| raw.product_version.clone());
+        if !valid_version(&validation_version) {
+            return unavailable();
+        }
+        let file_policy = PackageFilePolicy::for_manifest(path, raw.native_host.is_some())?;
         let root = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -206,8 +273,10 @@ impl ComponentManifest {
             clients: raw.clients,
             backend: raw.backend,
             native_host: raw.native_host,
+            file_policy,
+            allow_incomplete_removal: !verify_complete_set,
         };
-        manifest.validate(expected_product_version)?;
+        manifest.validate(&validation_version, verify_complete_set)?;
         Ok(manifest)
     }
 
@@ -222,8 +291,17 @@ impl ComponentManifest {
         let observed = observed_path
             .canonicalize()
             .map_err(|_| unauthorized_error())?;
+        let allow_missing_siblings = self.allow_incomplete_removal;
         for client in &self.clients {
-            let expected = self.resolve_component_path(&client.path, "broker_unauthorized")?;
+            if allow_missing_siblings && Path::new(&client.path).file_name() != observed.file_name()
+            {
+                continue;
+            }
+            let expected = match self.resolve_component_path(&client.path, "broker_unauthorized") {
+                Ok(path) => path,
+                Err(_) if allow_missing_siblings => continue,
+                Err(error) => return Err(error),
+            };
             if expected != observed {
                 continue;
             }
@@ -232,6 +310,8 @@ impl ComponentManifest {
                 &client.sha256,
                 Some(&client.build_id),
                 "broker_unauthorized",
+                self.file_policy,
+                true,
             )?;
             return Ok(PackageConsistencyEvidence {
                 component_id: client.component_id.clone(),
@@ -259,6 +339,8 @@ impl ComponentManifest {
             &client.sha256,
             Some(&client.build_id),
             "broker_unauthorized",
+            self.file_policy,
+            true,
         )?;
         Ok(expected)
     }
@@ -271,6 +353,66 @@ impl ComponentManifest {
             allowed_origin: policy.allowed_origin.clone(),
             identity_classification: policy.identity_classification.clone(),
         })
+    }
+
+    #[doc(hidden)]
+    pub fn declared_component_paths_for_removal(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::with_capacity(self.clients.len() + 2);
+        paths.push(self.root.join(&self.broker.path));
+        paths.extend(
+            self.clients
+                .iter()
+                .map(|client| self.root.join(&client.path)),
+        );
+        paths.push(self.root.join(&self.backend.path));
+        paths
+    }
+
+    #[doc(hidden)]
+    pub fn verify_present_component_for_removal(&self, path: &Path) -> Result<bool, ProtocolError> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return unavailable(),
+        }
+        if path == self.root.join(&self.broker.path) {
+            verify_component_bytes(
+                path,
+                &self.broker.sha256,
+                Some(&self.broker.build_id),
+                "broker_unavailable",
+                self.file_policy,
+                true,
+            )?;
+            return Ok(true);
+        }
+        if let Some(client) = self
+            .clients
+            .iter()
+            .find(|client| path == self.root.join(&client.path))
+        {
+            verify_component_bytes(
+                path,
+                &client.sha256,
+                Some(&client.build_id),
+                "broker_unavailable",
+                self.file_policy,
+                true,
+            )?;
+            return Ok(true);
+        }
+        if path == self.root.join(&self.backend.path) {
+            verify_component_bytes(
+                path,
+                &self.backend.sha256,
+                None,
+                "broker_unavailable",
+                self.file_policy,
+                true,
+            )?;
+            return Ok(true);
+        }
+        unavailable()
     }
 
     pub fn verify_broker_executable(&self, observed_path: &Path) -> Result<(), ProtocolError> {
@@ -291,6 +433,8 @@ impl ComponentManifest {
             &self.broker.sha256,
             Some(&self.broker.build_id),
             "broker_unauthorized",
+            self.file_policy,
+            true,
         )?;
         Ok(expected)
     }
@@ -302,6 +446,8 @@ impl ComponentManifest {
             &self.backend.sha256,
             None,
             "broker_unavailable",
+            self.file_policy,
+            true,
         )?;
         Ok(VerifiedBackend {
             component_id: self.backend.component_id.clone(),
@@ -311,7 +457,11 @@ impl ComponentManifest {
         })
     }
 
-    fn validate(&self, expected_product_version: &str) -> Result<(), ProtocolError> {
+    fn validate(
+        &self,
+        expected_product_version: &str,
+        verify_complete_set: bool,
+    ) -> Result<(), ProtocolError> {
         if self.product_version != expected_product_version
             || !valid_version(&self.product_version)
             || self.clients.is_empty()
@@ -341,18 +491,95 @@ impl ComponentManifest {
         }
         if let Some(native_host) = &self.native_host {
             validate_native_host(native_host)?;
-            if !self.clients.iter().any(|client| client.role == "extension") {
+            let exact_clients = BTreeSet::from([
+                ("desktop", "desktop"),
+                ("extension", "chrome-native-host"),
+                ("maintenance", "native-host-manager"),
+            ]);
+            let actual_clients = self
+                .clients
+                .iter()
+                .map(|client| (client.role.as_str(), client.component_id.as_str()))
+                .collect::<BTreeSet<_>>();
+            if self.broker.component_id != "native-broker"
+                || self.backend.component_id != "python-backend"
+                || actual_clients != exact_clients
+                || !self.has_exact_installed_paths()
+            {
                 return unavailable();
             }
         }
-        let mut resolved_paths = BTreeSet::new();
-        for path in paths {
-            let resolved = self.resolve_component_path(path, "broker_unavailable")?;
-            if !resolved_paths.insert(resolved) {
-                return unavailable();
+        if verify_complete_set {
+            let mut resolved_paths = BTreeSet::new();
+            for path in paths {
+                let resolved = self.resolve_component_path(path, "broker_unavailable")?;
+                if !resolved_paths.insert(resolved) {
+                    return unavailable();
+                }
+            }
+            if self.native_host.is_some() {
+                self.verify_complete_installed_set()?;
             }
         }
         Ok(())
+    }
+
+    fn has_exact_installed_paths(&self) -> bool {
+        #[cfg(windows)]
+        let expected = [
+            ("broker", "aiguard-native-broker.exe"),
+            ("backend", "aiguard.exe"),
+            ("desktop", "desktop.exe"),
+            ("extension", "aiguard-chrome-native-host.exe"),
+            ("maintenance", "aiguard-native-host-manager.exe"),
+        ];
+        #[cfg(not(windows))]
+        let expected = [
+            ("broker", "aiguard-native-broker"),
+            ("backend", "aiguard"),
+            ("desktop", "desktop"),
+            ("extension", "aiguard-chrome-native-host"),
+            ("maintenance", "aiguard-native-host-manager"),
+        ];
+        self.broker.path == expected[0].1
+            && self.backend.path == expected[1].1
+            && expected[2..].iter().all(|(role, path)| {
+                self.clients
+                    .iter()
+                    .any(|client| client.role == *role && client.path == *path)
+            })
+    }
+
+    fn verify_complete_installed_set(&self) -> Result<(), ProtocolError> {
+        let broker = self.resolve_component_path(&self.broker.path, "broker_unavailable")?;
+        verify_component_bytes(
+            &broker,
+            &self.broker.sha256,
+            Some(&self.broker.build_id),
+            "broker_unavailable",
+            self.file_policy,
+            true,
+        )?;
+        for client in &self.clients {
+            let path = self.resolve_component_path(&client.path, "broker_unavailable")?;
+            verify_component_bytes(
+                &path,
+                &client.sha256,
+                Some(&client.build_id),
+                "broker_unavailable",
+                self.file_policy,
+                true,
+            )?;
+        }
+        let backend = self.resolve_component_path(&self.backend.path, "broker_unavailable")?;
+        verify_component_bytes(
+            &backend,
+            &self.backend.sha256,
+            None,
+            "broker_unavailable",
+            self.file_policy,
+            true,
+        )
     }
 
     fn resolve_component_path(
@@ -504,17 +731,18 @@ fn verify_component_bytes(
     expected_digest: &str,
     expected_build_id: Option<&str>,
     error_code: &str,
+    file_policy: PackageFilePolicy,
+    executable: bool,
 ) -> Result<(), ProtocolError> {
-    let file = File::open(path).map_err(|_| ProtocolError::new(error_code, None))?;
-    let metadata = file
+    let mut file = File::open(path).map_err(|_| ProtocolError::new(error_code, None))?;
+    let before = file
         .metadata()
         .map_err(|_| ProtocolError::new(error_code, None))?;
-    if !metadata.file_type().is_file()
-        || metadata.len() == 0
-        || metadata.len() > COMPONENT_MAX_BYTES
-    {
+    if !before.file_type().is_file() || before.len() == 0 || before.len() > COMPONENT_MAX_BYTES {
         return Err(ProtocolError::new(error_code, None));
     }
+    verify_file_security(path, executable, file_policy)
+        .map_err(|_| ProtocolError::new(error_code, None))?;
     let marker = expected_build_id.map(|build_id| {
         let mut value = Vec::with_capacity(BUILD_MARKER_PREFIX.len() + build_id.len() + 1);
         value.extend_from_slice(BUILD_MARKER_PREFIX);
@@ -523,16 +751,260 @@ fn verify_component_bytes(
         value
     });
     let (digest, marker_found) =
-        digest_and_find(file.take(COMPONENT_MAX_BYTES + 1), marker.as_deref())
+        digest_and_find((&mut file).take(COMPONENT_MAX_BYTES + 1), marker.as_deref())
             .map_err(|_| ProtocolError::new(error_code, None))?;
-    if digest != expected_digest || marker.is_some() && !marker_found {
+    let after = std::fs::metadata(path).map_err(|_| ProtocolError::new(error_code, None))?;
+    if !same_file_identity(&file, &before, path, &after)
+        || digest != expected_digest
+        || marker.is_some() && !marker_found
+    {
         return Err(ProtocolError::new(error_code, None));
     }
     Ok(())
 }
 
+fn verify_file_security(
+    path: &Path,
+    executable: bool,
+    policy: PackageFilePolicy,
+) -> Result<(), ProtocolError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| unavailable_error())?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(unavailable_error());
+    }
+    if !policy.strict_installed_set {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let mode = metadata.mode() & 0o7777;
+        if metadata.uid() != policy.owner
+            || metadata.nlink() != 1
+            || mode != if executable { 0o755 } else { 0o644 }
+        {
+            return Err(unavailable_error());
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || windows_file_identity_for_path(path).is_none_or(|identity| identity.links != 1)
+            || !windows_owner_is_current_user(path)
+        {
+            return Err(unavailable_error());
+        }
+        let _ = executable;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_file_identity(
+    _file: &File,
+    before: &std::fs::Metadata,
+    _path: &Path,
+    after: &std::fs::Metadata,
+) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.len() == after.len()
+        && before.nlink() == after.nlink()
+}
+
+#[cfg(windows)]
+fn same_file_identity(
+    file: &File,
+    _before: &std::fs::Metadata,
+    path: &Path,
+    _after: &std::fs::Metadata,
+) -> bool {
+    windows_file_identity(file)
+        .zip(windows_file_identity_for_path(path))
+        .is_some_and(|(before, after)| before == after)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_file_identity(
+    _file: &File,
+    before: &std::fs::Metadata,
+    _path: &Path,
+    after: &std::fs::Metadata,
+) -> bool {
+    before.len() == after.len()
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct WindowsFileIdentity {
+    volume: u32,
+    index: u64,
+    links: u32,
+    size: u64,
+}
+
+#[cfg(windows)]
+fn windows_file_identity_for_path(path: &Path) -> Option<WindowsFileIdentity> {
+    windows_file_identity(&File::open(path).ok()?)
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_file_has_one_link(path: &Path) -> bool {
+    windows_file_identity_for_path(path).is_some_and(|identity| identity.links == 1)
+}
+
+#[cfg(windows)]
+fn windows_file_identity(file: &File) -> Option<WindowsFileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle().cast(), &mut information) } == 0 {
+        return None;
+    }
+    Some(WindowsFileIdentity {
+        volume: information.dwVolumeSerialNumber,
+        index: (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+        links: information.nNumberOfLinks,
+        size: (u64::from(information.nFileSizeHigh) << 32) | u64::from(information.nFileSizeLow),
+    })
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_owner_is_current_user(path: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, ERROR_SUCCESS};
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        EqualSid, GetTokenInformation, TokenUser, OWNER_SECURITY_INFORMATION, TOKEN_QUERY,
+        TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if path.is_empty() || path.contains(&0) {
+        return false;
+    }
+    path.push(0);
+    let mut owner = std::ptr::null_mut();
+    let mut descriptor = std::ptr::null_mut();
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS || owner.is_null() || descriptor.is_null() {
+        if !descriptor.is_null() {
+            unsafe { LocalFree(descriptor) };
+        }
+        return false;
+    }
+    let mut token = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        unsafe { LocalFree(descriptor) };
+        return false;
+    }
+    let mut required = 0_u32;
+    unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut required) };
+    let mut buffer = vec![0_u8; required as usize];
+    let loaded = required >= std::mem::size_of::<TOKEN_USER>() as u32
+        && unsafe {
+            GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } != 0;
+    let matches = if loaded {
+        let user = unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast::<TOKEN_USER>()) };
+        unsafe { EqualSid(owner, user.User.Sid) != 0 }
+    } else {
+        false
+    };
+    unsafe {
+        CloseHandle(token);
+        LocalFree(descriptor);
+    }
+    matches
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_set_owner_to_current_user(path: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS};
+    use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenUser, OWNER_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if path.is_empty() || path.contains(&0) {
+        return false;
+    }
+    path.push(0);
+    let mut token = std::ptr::null_mut();
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return false;
+    }
+    let mut required = 0_u32;
+    unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut required) };
+    let mut buffer = vec![0_u8; required as usize];
+    let loaded = required >= std::mem::size_of::<TOKEN_USER>() as u32
+        && unsafe {
+            GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } != 0;
+    let status = if loaded {
+        let user = unsafe { std::ptr::read_unaligned(buffer.as_ptr().cast::<TOKEN_USER>()) };
+        unsafe {
+            SetNamedSecurityInfoW(
+                path.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
+                user.User.Sid,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        }
+    } else {
+        u32::MAX
+    };
+    unsafe { CloseHandle(token) };
+    status == ERROR_SUCCESS
+}
+
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn windows_set_owner_to_current_user_for_test(path: &Path) -> bool {
+    windows_set_owner_to_current_user(path)
+}
+
 fn digest_and_find(
-    mut reader: Take<File>,
+    mut reader: impl Read,
     marker: Option<&[u8]>,
 ) -> std::io::Result<(String, bool)> {
     let mut hasher = Sha256::new();

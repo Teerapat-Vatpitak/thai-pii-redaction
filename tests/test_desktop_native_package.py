@@ -9,7 +9,9 @@ import os
 import shutil
 import stat
 import struct
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -971,8 +973,10 @@ def test_tauri_bundle_configs_place_manifest_beside_native_components():
         "bundle": {
             "linux": {
                 "deb": {
+                    "preInstallScript": "linux/deb-preinst.sh",
                     "postInstallScript": "linux/deb-postinst.sh",
                     "preRemoveScript": "linux/deb-prerm.sh",
+                    "postRemoveScript": "linux/deb-postrm.sh",
                     "files": {
                         "/usr/bin/native-components-v1.json": (
                             "binaries/native-components-v1.deb.json"
@@ -989,10 +993,835 @@ def test_tauri_bundle_configs_place_manifest_beside_native_components():
             }
         }
     }
+    preinst = (tauri / "linux" / "deb-preinst.sh").read_text(encoding="utf-8")
     postinst = (tauri / "linux" / "deb-postinst.sh").read_text(encoding="utf-8")
     prerm = (tauri / "linux" / "deb-prerm.sh").read_text(encoding="utf-8")
-    assert postinst == "#!/bin/sh\nset -eu\n\n/usr/bin/aiguard-native-host-manager repair deb\n"
-    assert prerm == "#!/bin/sh\nset -eu\n\n/usr/bin/aiguard-native-host-manager uninstall deb\n"
+    postrm = (tauri / "linux" / "deb-postrm.sh").read_text(encoding="utf-8")
+    assert '"$manager" complete deb "$transaction"' in postinst
+    assert '"$manager" complete-legacy deb' in postinst
+    assert '[ "$(wc -c < "$receipt")" -eq 65 ]' in postinst
+    assert '"$manager" drain deb' in preinst
+    assert "wait_for_component_exit" in preinst
+    assert "adapter=/usr/bin/aiguard-chrome-native-host" in preinst
+    assert 'adapter_identity=$(component_identity "$adapter")' in preinst
+    assert "/proc/[0-9]*/exe" in preinst
+    assert "kill " not in preinst
+    assert preinst.rindex("wait_for_component_exit") < preinst.index(
+        'rm -f -- "$desktop" "$adapter" "$broker" "$backend" "$manager"'
+    )
+    assert (
+        'wait_for_component_exit "$broker_identity" "$backend_identity" "$adapter_identity" "" 1'
+        in preinst
+    )
+    assert "quarantine_legacy_launchers" in preinst
+    assert "restore_legacy_launchers" in preinst
+    assert "restore_legacy_registration" in preinst
+    assert "remove_legacy_registration_quarantine" in preinst
+    assert "restore_legacy_state" in preinst
+    assert "flock -n 9" in preinst
+    assert '"$manager" remove deb' in prerm
+    assert '"$manager" cleanup deb' in prerm
+    assert 'adapter_identity=$(component_identity "$adapter")' in prerm
+    assert '[ "${1:-}" = remove ] && identity_is_running "$desktop_identity"' in prerm
+    assert prerm.index('"$manager" cleanup deb') < prerm.rindex(
+        'rm -f -- "$desktop" "$adapter" "$broker" "$backend" "$manager"'
+    )
+    assert prerm.index('while [ "$clear_attempts" -lt 10 ]') < prerm.index(
+        'rm -f -- "$desktop" "$adapter" "$broker" "$backend" "$manager"'
+    )
+    assert "flock -n 9" in prerm
+    assert "/proc/[0-9]*/exe" in prerm
+    assert 'if [ "$partial" -eq 1 ]' in prerm
+    assert "validate_receipt" in prerm
+    assert "validate_marker" in prerm
+    assert '[ ! -e "$registration" ]' in prerm
+    assert '"$manager" cleanup deb' in prerm
+    assert "The manager is the final rm operand" in prerm
+    assert "kill " not in prerm
+    assert "remove|purge)" in postrm
+    assert 'rm -f -- "$marker"' in postrm
+    assert 'rm -f -- "$receipt"' in postrm
+    assert '[ "$(wc -c < "$marker")" -eq 33 ]' in preinst
+    assert '[ "$(wc -c < "$marker")" -eq 33 ]' in postrm
+    assert "printf 'AIGUARD_COMPONENT_MAINTENANCE_V1\\n' | cmp -s - \"$marker\"" in preinst
+    assert "printf 'AIGUARD_COMPONENT_MAINTENANCE_V1\\n' | cmp -s - \"$marker\"" in postrm
+    assert '$(cat "$marker")' not in preinst
+    assert '$(cat "$marker")' not in postrm
+
+
+def test_deb_marker_contract_distinguishes_terminal_newline_from_nul(tmp_path):
+    expected = b"AIGUARD_COMPONENT_MAINTENANCE_V1\n"
+    malformed = b"AIGUARD_COMPONENT_MAINTENANCE_V1\0"
+    assert len(expected) == len(malformed) == 33
+    assert expected != malformed
+    if os.name != "nt":
+        marker = tmp_path / "marker"
+        marker.write_bytes(malformed)
+        rejected = subprocess.run(
+            [
+                "sh",
+                "-c",
+                "printf 'AIGUARD_COMPONENT_MAINTENANCE_V1\\n' | cmp -s - \"$1\"",
+                "sh",
+                str(marker),
+            ],
+            check=False,
+        )
+        assert rejected.returncode != 0
+        marker.write_bytes(expected)
+        accepted = subprocess.run(
+            [
+                "sh",
+                "-c",
+                "printf 'AIGUARD_COMPONENT_MAINTENANCE_V1\\n' | cmp -s - \"$1\"",
+                "sh",
+                str(marker),
+            ],
+            check=False,
+        )
+        assert accepted.returncode == 0
+
+
+def test_live_upgrade_smoke_callback_is_single_run_and_private_marker_scoped(tmp_path):
+    with pytest.raises(ValueError, match="exactly one repetition"):
+        smoke_package.smoke(tmp_path, 1.0, repetitions=2, ready_callback=lambda: None)
+    with pytest.raises(ValueError, match="requires upgrade invalidation smoke"):
+        smoke_package.smoke(tmp_path, 1.0, ready_callback=lambda: None)
+    marker_root = tmp_path / "marker-root"
+    marker_root.mkdir()
+    smoke_package._publish_release_marker(marker_root)
+    assert (marker_root / smoke_package.SMOKE_RELEASE).read_bytes() == b"release"
+    assert not any(".pending-" in path.name for path in marker_root.iterdir())
+    with pytest.raises(RuntimeError, match="release marker publication failed"):
+        smoke_package._publish_release_marker(marker_root)
+    assert (marker_root / smoke_package.SMOKE_RELEASE).read_bytes() == b"release"
+    assert not any(".pending-" in path.name for path in marker_root.iterdir())
+    source = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    live_upgrade = (ROOT / "scripts" / "smoke_live_deb_upgrade.py").read_text(encoding="utf-8")
+    package_smoke = (ROOT / "desktop" / "src-tauri" / "src" / "package_smoke.rs").read_text(
+        encoding="utf-8"
+    )
+    assert "AIGUARD_DESKTOP_PACKAGE_SMOKE_RELEASE" in source
+    assert "os.link(pending_release, marker_root / SMOKE_RELEASE)" in source
+    assert "ready_callback()" in source
+    assert '["sudo", "dpkg", "-i", str(deb)]' in live_upgrade
+    assert live_upgrade.index("smoke_upgrade_invalidation(") < live_upgrade.index(
+        "installed = smoke(package"
+    )
+    assert "live_nonroot_deb_upgrade" in live_upgrade
+    assert "wait_for_optional_release" in package_smoke
+    assert 'Some(b"release")' in package_smoke
+    assert "PACKAGE_SMOKE_RELEASE_WAIT_SECONDS: u64 = 90" in package_smoke
+
+
+def test_live_deb_upgrade_invalidates_old_desktop_before_smoking_new_install(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    monkeypatch.setitem(sys.modules, "smoke_desktop_native_package", smoke_package)
+    live_script = ROOT / "scripts" / "smoke_live_deb_upgrade.py"
+    spec = importlib.util.spec_from_file_location("smoke_live_deb_upgrade_test", live_script)
+    assert spec and spec.loader
+    live_upgrade = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(live_upgrade)
+    events = []
+    package_root = tmp_path / "installed"
+    package_root.mkdir()
+    deb = tmp_path / "candidate.deb"
+    deb.write_bytes(b"synthetic DEB")
+
+    def upgrade_invalidation(package, timeout, *, ready_callback):
+        assert package == package_root
+        assert timeout == live_upgrade.OLD_DESKTOP_INVALIDATION_TIMEOUT_SECONDS
+        events.append("old-ready")
+        ready_callback()
+        events.append("old-invalidated")
+        return {"stale_session_invalidated": True}
+
+    def installed_smoke(package, timeout):
+        assert package == package_root
+        assert timeout == live_upgrade.NEW_DESKTOP_SMOKE_TIMEOUT_SECONDS
+        assert events == ["old-ready", "upgrade", "old-invalidated"]
+        events.append("new-attested")
+        return {"execution_mode": "direct_install"}
+
+    def run_upgrade(command, **kwargs):
+        assert command == ["sudo", "dpkg", "-i", str(deb)]
+        assert kwargs["timeout"] == live_upgrade.DEB_UPGRADE_TIMEOUT_SECONDS
+        events.append("upgrade")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(live_upgrade, "smoke_upgrade_invalidation", upgrade_invalidation)
+    monkeypatch.setattr(live_upgrade, "smoke", installed_smoke)
+    monkeypatch.setattr(live_upgrade.subprocess, "run", run_upgrade)
+
+    evidence = live_upgrade.smoke_live_upgrade(package_root, deb)
+
+    assert events == ["old-ready", "upgrade", "old-invalidated", "new-attested"]
+    assert evidence == {
+        "lifecycle": "live_nonroot_deb_upgrade",
+        "old_desktop": {"stale_session_invalidated": True},
+        "new_desktop": {"execution_mode": "direct_install"},
+    }
+
+
+def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostics():
+    tauri = ROOT / "desktop" / "src-tauri"
+    nsis = (tauri / "windows" / "native-host-hooks.nsh").read_text(encoding="utf-8")
+    updater = (tauri / "src" / "updater.rs").read_text(encoding="utf-8")
+    manager = (ROOT / "native-broker" / "src" / "bin" / "native_host_manager.rs").read_text(
+        encoding="utf-8"
+    )
+    adapter = (ROOT / "native-broker" / "src" / "bin" / "chrome_native_host.rs").read_text(
+        encoding="utf-8"
+    )
+
+    assert nsis.index("!macro NSIS_HOOK_PREINSTALL") < nsis.index("!macro NSIS_HOOK_POSTINSTALL")
+    assert nsis.index(
+        "nsExec::ExecToStack '\"$INSTDIR\\aiguard-native-host-manager.exe\" drain nsis'"
+    ) < nsis.index('complete nsis "$AIGUARD_TRANSACTION_TOKEN"')
+    assert updater.index(".download(") < updater.index("update.install(bytes)")
+    assert updater.index("in_app_update_supported") < updater.index(".updater()")
+    assert "UPDATE_INSTALL_ACTIVE" in updater
+    assert "Action::Drain" not in updater
+    assert "Action::Complete" not in updater
+    assert updater.index("update.install(bytes)") < updater.index("app.restart()")
+    assert "UpdateInstallGuard::acquire()" in updater
+    desktop_lifecycle = (tauri / "src" / "native_host_lifecycle.rs").read_text(encoding="utf-8")
+    assert "#[cfg(windows)]" in desktop_lifecycle
+    assert "#[cfg(not(windows))]" in desktop_lifecycle
+    assert "release_appimage_update_handoff" not in desktop_lifecycle
+    for operation in (
+        '"capability"',
+        '"install"',
+        '"repair"',
+        '"complete"',
+        '"complete-legacy"',
+        '"resume-package"',
+        '"uninstall"',
+        '"remove"',
+        '"drain"',
+        '"cleanup"',
+    ):
+        assert operation in manager
+    assert "PackageShape::Nsis | PackageShape::Deb | PackageShape::AppImage" in manager
+    assert "operation_supports_shape(operation, shape)" in manager
+    assert "capability nsis" in nsis
+    assert "AIGUARD_ACQUIRE_PACKAGE_LOCK" in nsis
+    assert "CreateFileW" in nsis
+    assert "$LOCALAPPDATA\\AI Guard.aiguard-package-lifecycle-v1.lock" in nsis
+    assert "0x04200002" in nsis  # hidden, open-reparse-point, delete-on-close
+    assert "CreateMutexW" not in nsis
+    assert "Local\\th.ac.psu.aiguard.package-lifecycle-v1" not in nsis
+    assert nsis.count("$INSTDIR\\th.ac.psu.aiguard.native_host.json") == 8
+    assert (
+        nsis.count(
+            'DeleteRegKey HKCU "Software\\Google\\Chrome\\NativeMessagingHosts\\th.ac.psu.aiguard.native_host"'
+        )
+        == 4
+    )
+    assert (
+        nsis.count(
+            'DeleteRegKey HKCU "Software\\Chromium\\NativeMessagingHosts\\th.ac.psu.aiguard.native_host"'
+        )
+        == 4
+    )
+    assert "$INSTDIR\\native-host-manifest.json" not in nsis
+    drain_script = (tauri / "windows" / "native-component-drain.ps1").read_text(encoding="utf-8")
+    assert "Get-CimInstance Win32_Process" in drain_script
+    assert drain_script.count("-Filter $processFilter") == 2
+    for name in (
+        "desktop.exe",
+        "aiguard-chrome-native-host.exe",
+        "aiguard-native-broker.exe",
+        "aiguard.exe",
+        "aiguard-native-host-manager.exe",
+    ):
+        assert f"Name = '{name}'" in drain_script
+    assert "-OperationTimeoutSec 2" in drain_script
+    assert '$ErrorActionPreference = "Stop"' in drain_script
+    assert "[Diagnostics.Stopwatch]::StartNew()" in drain_script
+    assert "Elapsed.TotalSeconds -lt 30" in drain_script
+    assert "clearSamples -ge 10" in drain_script
+    assert "[IO.File]::Move" in drain_script
+    assert "[IO.File]::Delete" in drain_script
+    assert "Get-NormalizedProcessPath" in drain_script
+    assert "Substring(8)" in drain_script
+    assert "return '\\\\' + $path.Substring(8)" in drain_script
+    assert "Substring(4)" in drain_script
+    assert "Keep every completed quarantine in place" in drain_script
+    assert drain_script.count("Stop-Process -Id $process.ProcessId -Force") == 2
+    assert "$INSTDIR" not in drain_script
+    assert "AIGUARD_INTERNAL_INSTALL_ROOT" in nsis
+    assert "AIGUARD_INTERNAL_INSTALL_ROOT" in drain_script
+    assert "IsPathFullyQualified" not in drain_script
+    assert "driveAbsolute" in drain_script
+    assert "uncAbsolute" in drain_script
+    assert "AiGuardPackageFileIdentity" in drain_script
+    assert "GetFileInformationByHandle" in drain_script
+    assert "NumberOfLinks == 1" in drain_script
+    assert "BytesEqual(byte[] left, byte[] right)" in drain_script
+    assert "IsOwnedByCurrentUser(string path)" in drain_script
+    assert "SetOwnerToCurrentUser(string path)" in drain_script
+    assert "NormalizePayloadOwners(string[] paths)" in drain_script
+    assert "private const int TokenOwner = 4" in drain_script
+    assert "SetSecurityInfo(" in drain_script
+    assert "FileShareRead" in drain_script
+    assert "-not (Test-Path -LiteralPath $receipt)" in drain_script
+    assert "File.GetAccessControl" in drain_script
+    assert "SequenceEqual[byte]" not in drain_script
+    assert "Get-Acl" not in drain_script
+    assert "AIGUARD_COMPONENT_MAINTENANCE_V1`n" in drain_script
+    drain_macro = nsis.split("!macro AIGUARD_WAIT_AND_REMOVE_LAUNCHERS", 1)[1].split(
+        "!macroend", 1
+    )[0]
+    assert drain_macro.index('SetOutPath "$PLUGINSDIR"') < drain_macro.index(
+        "File /oname=aiguard-native-component-drain.ps1"
+    )
+    assert drain_macro.index("File /oname=aiguard-native-component-drain.ps1") < (
+        drain_macro.index('SetOutPath "$INSTDIR"')
+    )
+    assert drain_macro.index('SetOutPath "$INSTDIR"') < drain_macro.index("ExecWait")
+    assert "NSIS System.dll" in drain_macro
+    assert ".aiguard-component-transaction-v1" in nsis
+    assert "resume-package nsis" in nsis
+    assert "AIGUARD_NORMALIZE_PACKAGE_PAYLOAD" in nsis
+    postinstall = nsis.split("!macro NSIS_HOOK_POSTINSTALL", 1)[1].split("!macroend", 1)[0]
+    assert postinstall.index("AIGUARD_NORMALIZE_PACKAGE_PAYLOAD") < postinstall.index(
+        "resume-package nsis"
+    )
+    assert "-Mode NormalizePayload" in nsis
+    assert "ExecutionPolicy" not in nsis
+    assert "aiguard_recover_remove" in nsis
+    assert 'StrCmp $5 "f" aiguard_uninstall_token_character' in nsis
+    assert nsis.count("!insertmacro AIGUARD_WAIT_AND_REMOVE_LAUNCHERS") == 2
+    preuninstall = nsis.split("!macro NSIS_HOOK_PREUNINSTALL", 1)[1]
+    assert preuninstall.index("remove nsis") < preuninstall.index(
+        "AIGUARD_WAIT_AND_REMOVE_LAUNCHERS"
+    )
+    postuninstall = nsis.split("!macro NSIS_HOOK_POSTUNINSTALL", 1)[1]
+    assert postuninstall.index('SetOutPath "$PLUGINSDIR"') < postuninstall.index('RMDir "$INSTDIR"')
+    assert "AI Guard native component cleanup failed." in postuninstall
+    assert "isolate_legacy_registration" in (tauri / "linux" / "deb-preinst.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "aiguard-chrome-native-host.exe" in drain_script
+    assert "component_replacement_active" in adapter
+    assert "start_component_replacement_monitor" in adapter
+    for source in (nsis, updater, manager, adapter):
+        assert "AIFORTHAI_API_KEY" not in source
+        assert "TOKENMIND_API_KEY" not in source
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
+def test_native_component_drain_executes_in_windows_powershell_51(request):
+    from ctypes import wintypes
+
+    class Trustee(ctypes.Structure):
+        pass
+
+    Trustee._fields_ = [
+        ("multiple_trustee", ctypes.POINTER(Trustee)),
+        ("multiple_trustee_operation", ctypes.c_int),
+        ("trustee_form", ctypes.c_int),
+        ("trustee_type", ctypes.c_int),
+        ("name", ctypes.c_void_p),
+    ]
+
+    class ExplicitAccess(ctypes.Structure):
+        pass
+
+    ExplicitAccess._fields_ = [
+        ("permissions", wintypes.DWORD),
+        ("access_mode", ctypes.c_int),
+        ("inheritance", wintypes.DWORD),
+        ("trustee", Trustee),
+    ]
+
+    tmp_path = Path(
+        tempfile.mkdtemp(
+            prefix="aiguard-ps5-drain-",
+            dir=Path(os.environ["LOCALAPPDATA"]).resolve(strict=True),
+        )
+    )
+    request.addfinalizer(lambda: shutil.rmtree(tmp_path, ignore_errors=True))
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    advapi32.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    advapi32.EqualSid.restype = wintypes.BOOL
+    advapi32.SetEntriesInAclW.argtypes = [
+        wintypes.ULONG,
+        ctypes.POINTER(ExplicitAccess),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    advapi32.SetEntriesInAclW.restype = wintypes.DWORD
+
+    def set_current_access(path: Path, *, change_owner: bool) -> None:
+        token = wintypes.HANDLE()
+        assert advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token))
+        try:
+            required = wintypes.DWORD()
+            advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(required))
+            assert required.value > 0
+            token_user = ctypes.create_string_buffer(required.value)
+            assert advapi32.GetTokenInformation(
+                token,
+                1,
+                token_user,
+                required,
+                ctypes.byref(required),
+            )
+            user_sid = ctypes.cast(token_user, ctypes.POINTER(ctypes.c_void_p))[0]
+            access = ExplicitAccess(
+                0x001F01FF,
+                2,
+                0,
+                Trustee(None, 0, 0, 1, user_sid),
+            )
+            acl = ctypes.c_void_p()
+            assert advapi32.SetEntriesInAclW(1, ctypes.byref(access), None, ctypes.byref(acl)) == 0
+            try:
+                assert (
+                    advapi32.SetNamedSecurityInfoW(
+                        str(path),
+                        1,
+                        0x00000004 | (0x00000001 if change_owner else 0),
+                        user_sid if change_owner else None,
+                        None,
+                        acl,
+                        None,
+                    )
+                    == 0
+                )
+            finally:
+                kernel32.LocalFree(acl)
+        finally:
+            kernel32.CloseHandle(token)
+
+    def is_current_owner(path: Path) -> bool:
+        owner = ctypes.c_void_p()
+        descriptor = ctypes.c_void_p()
+        assert (
+            advapi32.GetNamedSecurityInfoW(
+                str(path),
+                1,
+                0x00000001,
+                ctypes.byref(owner),
+                None,
+                None,
+                None,
+                ctypes.byref(descriptor),
+            )
+            == 0
+        )
+        token = wintypes.HANDLE()
+        assert advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token))
+        try:
+            required = wintypes.DWORD()
+            advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(required))
+            token_user = ctypes.create_string_buffer(required.value)
+            assert advapi32.GetTokenInformation(
+                token,
+                1,
+                token_user,
+                required,
+                ctypes.byref(required),
+            )
+            user_sid = ctypes.cast(token_user, ctypes.POINTER(ctypes.c_void_p))[0]
+            return bool(advapi32.EqualSid(owner, user_sid))
+        finally:
+            kernel32.CloseHandle(token)
+            kernel32.LocalFree(descriptor)
+
+    def token_owner_matches_user() -> bool:
+        token = wintypes.HANDLE()
+        assert advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token))
+        try:
+            buffers = []
+            sids = []
+            for information_class in (1, 4):
+                required = wintypes.DWORD()
+                advapi32.GetTokenInformation(
+                    token,
+                    information_class,
+                    None,
+                    0,
+                    ctypes.byref(required),
+                )
+                buffer = ctypes.create_string_buffer(required.value)
+                assert advapi32.GetTokenInformation(
+                    token,
+                    information_class,
+                    buffer,
+                    required,
+                    ctypes.byref(required),
+                )
+                buffers.append(buffer)
+                sids.append(ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0])
+            return bool(advapi32.EqualSid(sids[0], sids[1]))
+        finally:
+            kernel32.CloseHandle(token)
+
+    def set_current_owner(path: Path) -> None:
+        set_current_access(path, change_owner=True)
+
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32"
+        / "WindowsPowerShell"
+        / "v1.0"
+        / "powershell.exe"
+    )
+    environment = os.environ.copy()
+    environment["AIGUARD_INTERNAL_INSTALL_ROOT"] = str(tmp_path)
+    command = [
+        str(powershell),
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-File",
+        str(ROOT / "desktop" / "src-tauri" / "windows" / "native-component-drain.ps1"),
+    ]
+    normalize_command = [*command, "-Mode", "NormalizePayload"]
+
+    def run_marker_only(
+        label: str,
+        marker_bytes: bytes = b"AIGUARD_COMPONENT_MAINTENANCE_V1\n",
+        *,
+        hardlink: bool = False,
+        reparse: bool = False,
+        command_cwd: Path | None = None,
+        use_install_root_cwd: bool = False,
+    ):
+        root = tmp_path / label
+        root.mkdir()
+        marker = root / ".aiguard-component-maintenance-v1"
+        if reparse:
+            target = root / "marker-target"
+            target.write_bytes(marker_bytes)
+            os.symlink(target, marker)
+        else:
+            marker.write_bytes(marker_bytes)
+        if hardlink:
+            os.link(marker, root / "marker-hardlink-probe")
+        environment["AIGUARD_INTERNAL_INSTALL_ROOT"] = str(root)
+        return (
+            subprocess.run(
+                command,
+                cwd=root if use_install_root_cwd else (command_cwd or ROOT),
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            ),
+            marker,
+        )
+
+    def run_with_controls(
+        label: str,
+        receipt_bytes: bytes,
+        *,
+        hardlink_marker: bool = False,
+        hardlink_receipt: bool = False,
+    ):
+        root = tmp_path / label
+        root.mkdir()
+        marker = root / ".aiguard-component-maintenance-v1"
+        receipt = root / ".aiguard-component-transaction-v1"
+        marker.write_bytes(b"AIGUARD_COMPONENT_MAINTENANCE_V1\n")
+        receipt.write_bytes(receipt_bytes)
+        set_current_owner(marker)
+        set_current_owner(receipt)
+        if hardlink_marker:
+            os.link(marker, root / "marker-hardlink-probe")
+        if hardlink_receipt:
+            os.link(receipt, root / "receipt-hardlink-probe")
+        environment["AIGUARD_INTERNAL_INSTALL_ROOT"] = str(root)
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    payload_bytes = {
+        "desktop.exe": b"desktop-package-fixture",
+        "aiguard-chrome-native-host.exe": b"adapter-package-fixture",
+        "aiguard-native-broker.exe": b"broker-package-fixture",
+        "aiguard.exe": b"backend-package-fixture",
+        "aiguard-native-host-manager.exe": b"manager-package-fixture",
+        "native-components-v1.json": b'{"schema_version":1}',
+        "uninstall.exe": b"uninstaller-package-fixture",
+    }
+
+    def run_payload_normalization(
+        label: str,
+        *,
+        missing: str | None = None,
+        empty: str | None = None,
+        hardlink: str | None = None,
+        reparse: str | None = None,
+        marker_present: bool = True,
+        receipt_bytes: bytes | None = None,
+        receipt_current_owner: bool = True,
+    ):
+        root = tmp_path / label
+        root.mkdir()
+        marker = root / ".aiguard-component-maintenance-v1"
+        if marker_present:
+            marker.write_bytes(b"AIGUARD_COMPONENT_MAINTENANCE_V1\n")
+        if receipt_bytes is not None:
+            assert marker_present
+            set_current_owner(marker)
+            receipt = root / ".aiguard-component-transaction-v1"
+            receipt.write_bytes(receipt_bytes)
+            if receipt_current_owner:
+                set_current_owner(receipt)
+        for name, content in payload_bytes.items():
+            if name == missing:
+                continue
+            path = root / name
+            if name == reparse:
+                target = root / f"{name}.target"
+                target.write_bytes(content)
+                set_current_access(target, change_owner=False)
+                os.symlink(target, path)
+            else:
+                path.write_bytes(b"" if name == empty else content)
+                set_current_access(path, change_owner=False)
+        if hardlink is not None:
+            os.link(root / hardlink, root / f"{hardlink}.hardlink-probe")
+        owner_probe = next(
+            root / name for name in payload_bytes if name != missing and name != reparse
+        )
+        source_owner_mismatch = not is_current_owner(owner_probe)
+        before = {
+            name: (root / name).read_bytes()
+            for name in payload_bytes
+            if name != missing and name != reparse
+        }
+        environment["AIGUARD_INTERNAL_INSTALL_ROOT"] = str(root)
+        result = subprocess.run(
+            normalize_command,
+            cwd=root,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return result, root, before, source_owner_mismatch
+
+    valid = run_with_controls("valid", (b"0" * 64) + b"\n")
+    assert valid.returncode == 0, valid.stderr
+    assert (
+        run_with_controls(
+            "hardlink-marker",
+            (b"0" * 64) + b"\n",
+            hardlink_marker=True,
+        ).returncode
+        == 1
+    )
+    assert (
+        run_with_controls(
+            "hardlink-receipt",
+            (b"0" * 64) + b"\n",
+            hardlink_receipt=True,
+        ).returncode
+        == 1
+    )
+    for label, malformed in (
+        ("extra-lf", (b"0" * 64) + b"\n\n"),
+        ("crlf", (b"0" * 64) + b"\r\n"),
+        ("nul-byte", (b"0" * 64) + b"\x00"),
+        ("uppercase", (b"A" * 64) + b"\n"),
+    ):
+        assert run_with_controls(label, malformed).returncode == 1
+
+    marker_only, normalized_marker = run_marker_only("marker-only")
+    assert marker_only.returncode == 0, marker_only.stderr
+    assert normalized_marker.read_bytes() == b"AIGUARD_COMPONENT_MAINTENANCE_V1\n"
+    assert is_current_owner(normalized_marker)
+
+    normalized, payload_root, payload_before, source_owner_mismatch = run_payload_normalization(
+        "payload-normalization"
+    )
+    assert normalized.returncode == 0, normalized.stderr
+    assert source_owner_mismatch == (not token_owner_matches_user())
+    for name, expected in payload_before.items():
+        path = payload_root / name
+        assert path.read_bytes() == expected
+        assert is_current_owner(path)
+    assert (payload_root / ".aiguard-component-maintenance-v1").is_file()
+
+    resumed, resumed_root, resumed_before, _ = run_payload_normalization(
+        "payload-resume",
+        receipt_bytes=(b"1" * 64) + b"\n",
+    )
+    assert resumed.returncode == 0, resumed.stderr
+    for name, expected in resumed_before.items():
+        assert (resumed_root / name).read_bytes() == expected
+
+    assert run_payload_normalization("payload-missing", missing="desktop.exe")[0].returncode == 1
+    assert (
+        run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode == 1
+    )
+    assert run_payload_normalization("payload-empty", empty="aiguard.exe")[0].returncode == 1
+    assert (
+        run_payload_normalization(
+            "payload-malformed-receipt",
+            receipt_bytes=(b"A" * 64) + b"\n",
+        )[0].returncode
+        == 1
+    )
+    assert (
+        run_payload_normalization(
+            "payload-hardlink",
+            hardlink="aiguard-native-host-manager.exe",
+        )[0].returncode
+        == 1
+    )
+    if not token_owner_matches_user():
+        assert (
+            run_payload_normalization(
+                "payload-wrong-receipt-owner",
+                receipt_bytes=(b"2" * 64) + b"\n",
+                receipt_current_owner=False,
+            )[0].returncode
+            == 1
+        )
+    try:
+        payload_reparse = run_payload_normalization(
+            "payload-reparse",
+            reparse="aiguard-native-broker.exe",
+        )[0]
+    except OSError:
+        pass
+    else:
+        assert payload_reparse.returncode == 1
+
+    collision_directory = tmp_path / "nsis-plugin-collision"
+    collision_directory.mkdir()
+    shutil.copy2(
+        Path(os.environ["SystemRoot"]) / "System32" / "kernel32.dll",
+        collision_directory / "System.dll",
+    )
+    collision_result, _ = run_marker_only(
+        "plugin-system-collision",
+        command_cwd=collision_directory,
+    )
+    assert collision_result.returncode == 1
+    isolated_result, _ = run_marker_only(
+        "plugin-system-isolated",
+        use_install_root_cwd=True,
+    )
+    assert isolated_result.returncode == 0, isolated_result.stderr
+
+    assert run_marker_only("marker-hardlink", hardlink=True)[0].returncode == 1
+    for label, malformed in (
+        ("marker-extra-lf", b"AIGUARD_COMPONENT_MAINTENANCE_V1\n\n"),
+        ("marker-altered", b"AIGUARD_COMPONENT_MAINTENANCE_V2\n"),
+    ):
+        assert run_marker_only(label, malformed)[0].returncode == 1
+    try:
+        reparse_result, _ = run_marker_only("marker-reparse", reparse=True)
+    except OSError:
+        pass
+    else:
+        assert reparse_result.returncode == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
+def test_native_component_drain_normalizes_extended_drive_and_unc_paths():
+    script = (ROOT / "desktop" / "src-tauri" / "windows" / "native-component-drain.ps1").read_text(
+        encoding="utf-8"
+    )
+    start = script.index("function Get-NormalizedProcessPath")
+    end = script.index("$deadline =", start)
+    normalize_function = script[start:end]
+    command = f"""
+{normalize_function}
+@(
+    $env:AIGUARD_TEST_EXTENDED_DRIVE,
+    $env:AIGUARD_TEST_EXTENDED_UNC,
+    $env:AIGUARD_TEST_PLAIN_UNC
+) | ForEach-Object {{ Get-NormalizedProcessPath $_ }}
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AIGUARD_TEST_EXTENDED_DRIVE": r"\\?\C:\AI Guard\desktop.exe",
+            "AIGUARD_TEST_EXTENDED_UNC": (r"\\?\UNC\server\share\AI Guard\desktop.exe"),
+            "AIGUARD_TEST_PLAIN_UNC": r"\\server\share\AI Guard\desktop.exe",
+        }
+    )
+    result = subprocess.run(
+        [
+            str(
+                Path(os.environ["SystemRoot"])
+                / "System32"
+                / "WindowsPowerShell"
+                / "v1.0"
+                / "powershell.exe"
+            ),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        r"C:\AI Guard\desktop.exe",
+        r"\\server\share\AI Guard\desktop.exe",
+        r"\\server\share\AI Guard\desktop.exe",
+    ]
 
 
 def test_portable_package_rejects_unmarked_or_nonempty_outputs(tmp_path):
@@ -1347,13 +2176,27 @@ def test_appimage_smoke_environment_is_private_and_scrubs_injection(monkeypatch,
         assert warm["WEBKIT_DISABLE_DMABUF_RENDERER"] == "1"
     assert "NO_CLEANUP" not in warm
 
+    fuse_outer = smoke_package._appimage_environment(root, directories, retain_outer_layout=False)
+    assert "NO_CLEANUP" not in fuse_outer
+    assert "APPIMAGE_EXTRACT_AND_RUN" not in fuse_outer
+
 
 def test_appimage_smoke_execution_mode_describes_the_paths_actually_run():
-    assert smoke_package._appimage_execution_mode(1) == "outer_appimage_extract_and_run"
+    assert smoke_package._appimage_execution_mode("extract", 1) == "outer_appimage_extract_and_run"
     assert (
-        smoke_package._appimage_execution_mode(2)
+        smoke_package._appimage_execution_mode("extract", 2)
         == "outer_appimage_extract_and_run_then_verified_apprun"
     )
+    assert smoke_package._appimage_execution_mode("fuse", 1) == "outer_appimage_fuse"
+    assert smoke_package._appimage_outer_command(Path("candidate.AppImage"), "fuse") == [
+        "candidate.AppImage"
+    ]
+    assert smoke_package._appimage_outer_command(Path("candidate.AppImage"), "extract") == [
+        "candidate.AppImage",
+        "--appimage-extract-and-run",
+    ]
+    with pytest.raises(ValueError, match="FUSE AppImage smoke requires one repetition"):
+        smoke_package._validate_appimage_outer_mode("fuse", 2)
 
 
 @pytest.mark.parametrize("invalid", ["link", "nonregular", "oversized", "malformed"])
@@ -1621,6 +2464,7 @@ def test_packaged_smoke_failure_diagnostics_are_a_fixed_nonpayload_enum():
             "audit",
             "cleanup",
             "finish",
+            "upgrade_invalidation",
             "bootstrap_import",
             "bootstrap_eval",
             "webview_process",
@@ -1957,6 +2801,7 @@ def test_run_desktop_failure_reaps_process_and_removes_markers(tmp_path, monkeyp
             smoke_package.SMOKE_EVIDENCE,
             smoke_package.SMOKE_READY,
             smoke_package.SMOKE_FAILURE,
+            smoke_package.SMOKE_INVALIDATED,
             smoke_package.SMOKE_NATIVE_START,
         )
     )
@@ -2046,8 +2891,17 @@ def test_packaged_smoke_process_checks_use_attested_component_paths(tmp_path, mo
     monkeypatch.setattr(smoke_package, "_process_count", process_count)
     runs = []
 
-    def run_desktop(desktop, package, marker_root, environment, component_paths, timeout):
+    def run_desktop(
+        desktop,
+        package,
+        marker_root,
+        environment,
+        component_paths,
+        timeout,
+        **kwargs,
+    ):
         runs.append((desktop, package, marker_root, environment, component_paths, timeout))
+        assert kwargs == {"ready_callback": None}
         assert marker_root.is_dir()
         assert marker_root != package
         assert package not in marker_root.parents
@@ -2071,6 +2925,84 @@ def test_packaged_smoke_process_checks_use_attested_component_paths(tmp_path, mo
     assert {path.relative_to(package_dir): path.read_bytes() for path in package_dir.iterdir()} == (
         package_before
     )
+
+
+def test_upgrade_invalidation_smoke_attests_old_paths_and_uses_a_separate_result(
+    tmp_path, monkeypatch
+):
+    package_dir = tmp_path / "package"
+    package_dir.mkdir()
+    paths = {
+        "desktop": package_dir / "desktop",
+        "broker": package_dir / "aiguard-native-broker",
+        "backend": package_dir / "aiguard",
+    }
+    for path in paths.values():
+        path.write_bytes(path.name.encode("utf-8"))
+    manifest = {
+        "clients": [
+            {
+                "role": "desktop",
+                "path": paths["desktop"].name,
+                "sha256": hashlib.sha256(paths["desktop"].read_bytes()).hexdigest(),
+            }
+        ],
+        "broker": {
+            "path": paths["broker"].name,
+            "sha256": hashlib.sha256(paths["broker"].read_bytes()).hexdigest(),
+        },
+        "backend": {
+            "path": paths["backend"].name,
+            "sha256": hashlib.sha256(paths["backend"].read_bytes()).hexdigest(),
+        },
+    }
+    (package_dir / "native-components-v1.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(smoke_package, "_process_count", lambda _path: 0)
+    callbacks = []
+    marker_roots = []
+
+    def run_desktop(
+        desktop,
+        package,
+        marker_root,
+        environment,
+        component_paths,
+        timeout,
+        **kwargs,
+    ):
+        assert desktop == paths["desktop"]
+        assert package == package_dir
+        assert component_paths == paths
+        assert timeout == 120
+        assert kwargs["expect_upgrade_invalidation"] is True
+        callbacks.append(kwargs["ready_callback"])
+        marker_roots.append(marker_root)
+        assert environment["AIGUARD_DESKTOP_PACKAGE_SMOKE_RELEASE"] == str(
+            marker_root / smoke_package.SMOKE_RELEASE
+        )
+        kwargs["ready_callback"]()
+        return (
+            7.0,
+            {},
+            dict.fromkeys(smoke_package.EXPECTED_RESOURCE_METRICS, 1.0),
+        )
+
+    monkeypatch.setattr(smoke_package, "_run_desktop", run_desktop)
+    callback_calls = []
+
+    evidence = smoke_package.smoke_upgrade_invalidation(
+        package_dir,
+        120,
+        ready_callback=lambda: callback_calls.append("upgrade"),
+    )
+
+    assert len(callbacks) == 1
+    assert callback_calls == ["upgrade"]
+    assert len(marker_roots) == 1 and not marker_roots[0].exists()
+    assert evidence["execution_mode"] == "old_desktop_upgrade_invalidation"
+    assert evidence["stale_session_invalidated"] is True
+    assert evidence["broker_process_delta"] == 0
+    assert evidence["backend_process_delta"] == 0
 
 
 def test_packaged_smoke_failure_still_waits_for_native_process_baseline(tmp_path, monkeypatch):
@@ -2131,6 +3063,70 @@ def test_ci_and_release_build_both_tauri_native_components():
         assert "python scripts/build_native_broker.py" in workflow
 
 
+def test_windows_ci_uses_default_path_and_full_install_upgrade_reinstall_lifecycle():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    windows = workflow.split("  windows-exe-smoke:", 1)[1]
+
+    assert '$installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"' in windows
+    assert '$installLocationKey = "HKCU:\\Software\\Teerapat Vatpitak\\AI Guard"' in windows
+    assert (
+        '$uninstallKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\AI Guard"'
+        in windows
+    )
+    assert "if (Test-Path -LiteralPath $uninstallKey)" in windows
+    assert '(Get-Item -LiteralPath $installLocationKey).GetValue("")' in windows
+    assert "if ($rememberedRoot -and $rememberedRoot -ne $installRoot)" in windows
+    assert "InstallLocation.Trim('\"')" in windows
+    assert "if ($registeredRoot -ne $installRoot -or $rememberedRoot -ne $installRoot)" in windows
+    assert "NSIS installer did not use the default Desktop install root" in windows
+    assert '"/D=$customLockProbeRoot"' in windows
+    assert '"clean-install"' in windows
+    assert '"repair"' in windows
+    assert '"deterministic-predecessor-upgrade"' in windows
+    assert (
+        'Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value "2.4.999"'
+        in windows
+    )
+    assert '"uninstall"' in windows
+    assert '"reinstall"' in windows
+    assert '"final-cleanup"' in windows
+    assert '"concurrent-transaction-rejected"' in windows
+    assert '"foreign-repair-rejected"' in windows
+    assert '"interrupted-package-retry"' in windows
+    assert '"interrupted-uninstall-retry"' in windows
+    assert "function Assert-PackageLockEnforced" in windows
+    assert "[System.IO.FileShare]::None" in windows
+    assert "$packageLockPath = Join-Path $env:LOCALAPPDATA" in windows
+    assert "distinct-root NSIS package transaction was not rejected" in windows
+    assert "blocked distinct-root NSIS transaction created package state" in windows
+    assert "custom_root_state = $customRootState" in windows
+    assert '"empty_directory"' in windows
+    assert "[System.IO.Directory]::Delete($customLockProbeRoot, $false)" in windows
+    assert "distinct-root package-lock probe cleanup was unsafe" in windows
+    assert "package-lock-contention.json" in windows
+    assert 'Write-RegistrationEvidence "present" "lock-rejection-registration-present"' in windows
+    assert "blocked package transactions changed default product registration" in windows
+    assert "fresh installer process did not complete the retained transaction" in windows
+    assert windows.count("Invoke-ExactInstaller") == 5  # declaration + four lifecycle calls
+    assert windows.count("Invoke-ExactUninstaller") == 3  # declaration + two lifecycle calls
+    assert "NSIS uninstall left the product registration" in windows
+    assert "NSIS installer left the cross-session package lock" in windows
+    assert "NSIS uninstaller left the cross-session package lock" in windows
+    assert '"retained_default_path_preference"' in windows
+    assert "final-registry-state.json" in windows
+    assert '$cleanupFailures.Add("install-location-presence")' in windows
+    assert '$cleanupFailures.Add("install-location-restore")' in windows
+    assert "residual-install-tree.json" in windows
+    assert "failure-classification.json" in windows
+    assert "if: always()" in windows
+    assert "installer-sha256.txt" in windows
+    assert "process-owner-classification.json" in windows
+    assert "token_owner_differs_from_user" in windows
+    assert "component-sha256" in windows
+    assert 'Invoke-Smoke "reinstall"' in windows
+    assert 'Write-RegistrationEvidence "absent" "final-registration-absent"' in windows
+
+
 def test_cross_platform_workflow_builds_and_smokes_native_packages():
     workflow = (ROOT / ".github" / "workflows" / "smoke-crossplatform.yml").read_text(
         encoding="utf-8"
@@ -2168,7 +3164,8 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     assert "Contents/MacOS" in workflow
     assert "dpkg-deb -x" in workflow
     assert "--appimage-extract" in workflow
-    assert workflow.count("scripts/smoke_desktop_native_package.py") >= 3
+    assert workflow.count("scripts/smoke_desktop_native_package.py") >= 2
+    assert "scripts/smoke_live_deb_upgrade.py" in workflow
     linux_smoke_prefix = "xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c"
     direct_inner_smoke = (
         "'python scripts/smoke_desktop_native_package.py /usr/bin --repetitions 2 > \"$1\"'"
@@ -2178,19 +3175,61 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
         '--finalized-appimage "$3" --appimage-layout "$4" > "$2"\''
     )
     assert "dbus-daemon" in workflow
-    assert workflow.count(linux_smoke_prefix) == 2
+    assert workflow.count(linux_smoke_prefix) >= 6
     assert "dbus-run-session -- xvfb-run" not in workflow
-    assert workflow.count(direct_inner_smoke) == 1
+    assert workflow.count(direct_inner_smoke) >= 2
     assert workflow.count(appimage_inner_smoke) == 1
     assert '"$GITHUB_WORKSPACE/$appimage" "$extracted_appimage/squashfs-root"' in workflow
-    assert 'sudo dpkg -i "$deb"' in workflow
-    assert 'sudo dpkg -r "$deb_name"' in workflow
+    assert workflow.count('sudo dpkg -i "$deb"') >= 2
+    assert workflow.count('sudo dpkg -r "$deb_name"') >= 2
+    assert "aiguard-native-host-manager remove deb" in workflow
+    assert workflow.count('deb-prerm.sh" remove') == 2
+    assert "interrupted-prerm-recovery" in workflow
+    for phase in (
+        "deb-interrupted-remove-manager",
+        "deb-interrupted-remove-first-prerm",
+        "deb-interrupted-remove-second-prerm",
+        "deb-interrupted-remove-reinstall",
+        "deb-interrupted-remove-final-remove",
+    ):
+        assert f"record_phase {phase}" in workflow
+    interrupted_remove = workflow.split("record_phase deb-interrupted-remove-manager", 1)[1].split(
+        "record_phase appimage-register", 1
+    )[0]
+    assert interrupted_remove.count("timeout --signal=TERM --kill-after=5s 60s") == 3
+    assert "interrupted DEB retry left a product runtime root" in workflow
     assert '"$GITHUB_WORKSPACE/$appimage" --register-native-host' in workflow
     assert '"$GITHUB_WORKSPACE/$appimage" --unregister-native-host' in workflow
-    assert workflow.count("scripts/verify_native_host_registration.py") == 6
+    assert "appimage-lease-contention" in workflow
+    assert '"$stable_root/aiguard-native-host-manager" repair appimage' in workflow
+    assert 'test "$contender_status" = 75' in workflow
+    assert "fingerprint_stable_root" in workflow
+    assert "stable_root_unchanged" in workflow
+    assert "registration_unchanged" in workflow
+    assert "timeout --signal=TERM --kill-after=5s 60s" in workflow
+    assert "timeout --signal=TERM --kill-after=2s 10s" in workflow
+    assert "repair_one" not in workflow
+    assert "repair_two" not in workflow
+    assert "last-started-phase.json" in workflow
+    assert "Require complete exact Linux evidence on success" in workflow
+    assert 'grep -Fxq \'{"phase":"complete"}\'' in workflow
+    assert "if: always() && matrix.os == 'ubuntu-latest'" in workflow
+    assert workflow.count("scripts/verify_native_host_registration.py") >= 12
     smoke_source = SMOKE_SCRIPT.read_text(encoding="utf-8")
-    assert '[str(attestation.candidate), "--appimage-extract-and-run"]' in smoke_source
+    assert '[str(candidate), "--appimage-extract-and-run"]' in smoke_source
     assert '[str(live_layout / "AppRun")]' in smoke_source
+    assert "--appimage-outer-mode fuse" in workflow
+    assert '"status":"unavailable_on_runner"' in workflow
+    assert "appimage-fuse-smoke-evidence.json" in workflow
+    assert "macos-reinstall-smoke-evidence.json" in workflow
+    assert "deb-reinstall-smoke-evidence.json" in workflow
+    assert "appimage-reinstall-smoke-evidence.json" in workflow
+    assert "appimage-outer-final-registration-absent.json" in workflow
+    outer_smoke = workflow.index("--appimage-outer-mode fuse")
+    outer_cleanup = workflow.index("appimage-outer-final-registration-absent.json")
+    assert outer_smoke < outer_cleanup
+    assert workflow.count('test ! -e "/tmp/aiguard-native-broker-$(id -u)-v1"') >= 2
+    assert "AppImage outer smoke cleanup left a product runtime root" in workflow
     assert "xvfb-run -a python" not in workflow
     assert "AI-Guard-macos-tested-app.tar.gz" in workflow
     assert "AI-Guard-linux-tested-packages.tar.gz" in workflow
@@ -2206,10 +3245,11 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     assert "--no-bundle" not in workflow
 
 
-def test_tagged_installer_publication_is_fail_closed_until_slice6_recertification():
+def test_tagged_installer_publication_is_fail_closed_until_owner_release_preparation():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    assert "blocked-until-phase-8-slice-6" in workflow
-    assert "native-messaging registration and upgrade lifecycle are not certified" in workflow
+    assert "blocked-until-owner-release-preparation" in workflow
+    assert "release preparation has not been authorized" in workflow
+    assert "blocked-until-phase-8-slice-6" not in workflow
     assert "native component manifest is not installed" not in workflow
     assert "build:\n    needs: preflight" in workflow
     assert "checksums-and-attest:\n" in workflow

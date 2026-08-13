@@ -49,8 +49,8 @@ Credential-requiring providers and remote TNER for installed Desktop are
 deferred. Adding them requires a separate owner-approved ADR covering credential
 ownership, provisioning, permissions, storage, rotation, configuration
 identity/epoch, broker restart/reconfiguration semantics, upgrade, uninstall,
-attestation, and cross-platform behavior. No credential store is added by Slice
-4 or Slice 5, and broader core, CLI, HTTP, hosted, and worker capabilities are
+attestation, and cross-platform behavior. No credential store is added by
+Slices 4--6, and broader core, CLI, HTTP, hosted, and worker capabilities are
 unchanged.
 
 The webview can invoke only the typed commands registered in
@@ -91,6 +91,21 @@ close, or broker invalidation.
 The UI shows only fixed safe guidance. It does not display socket names, pipe
 paths, ports, credentials, internal IDs, or Rust/Python exception strings.
 
+Before package replacement, a verified fixed-name maintenance barrier rejects
+new Desktop and Extension admission. Only the manifest-admitted maintenance
+binary can request a bounded global drain; it cannot open a data scope or call
+sanitize/restore. Drain terminates the backend, closes the broker endpoint, and
+invalidates every mapping and handle. NSIS and DEB hooks wait for only the exact
+installed process paths before replacement/removal. AppImage repairs one
+private stable version root under a shared component transaction lease plus its repair lock,
+stages verified components atomically, publishes the manifest last, migrates
+only strictly verified prior product roots/registration, and removes only an
+owned inactive root. Ordinary repair or unregister cannot consume another live
+component transaction's barrier. In-app update is enabled only on Windows,
+where Tauri verifies the artifact and NSIS owns drain/replacement; macOS, DEB,
+and AppImage reject updater access. A repaired or upgraded runtime always starts with empty session state;
+mappings are never serialized, migrated, or replayed.
+
 ## Develop and compile
 
 Run frontend commands from the repository root:
@@ -110,6 +125,7 @@ cargo clippy --locked --manifest-path desktop\src-tauri\Cargo.toml `
   --all-targets --all-features -- -D warnings
 cargo test --locked --manifest-path desktop\src-tauri\Cargo.toml --all-features
 cargo test --locked --manifest-path native-broker\Cargo.toml --test slice4
+cargo test --locked --manifest-path native-broker\Cargo.toml --test slice6
 ```
 
 The native runtime requires `native-components-v1.json` beside the installed
@@ -141,6 +157,13 @@ bytes, then launches the exact finalized outer file with
 live root and launches its `AppRun`. That is executable-package evidence, not a
 normal FUSE/double-click launch, an installation, a raw inner-binary launch, or
 two outer-AppImage launches.
+
+The Slice 6 cross-platform workflow additionally uses real `dpkg` lifecycle
+operations and attempts the finalized outer AppImage through normal FUSE. If
+the runner cannot mount FUSE, the workflow records that limitation explicitly;
+it never labels extract-and-run as FUSE evidence. Windows CI installs at the
+normal per-user default path, repairs, upgrades from a deterministic
+predecessor-version fixture, removes, reinstalls, and performs final cleanup.
 
 The `package-smoke` feature is absent from default builds. When explicitly
 compiled, it adds a native-start marker plus bounded readiness/success/failure
@@ -203,13 +226,18 @@ Current evidence is deliberately split:
 | predecessor `73dcca4` workflows | [CI run 31345691672](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691672) passed 14/14 including installed Windows NSIS; [cross-platform package run 31345691667](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691667) is red: relocated macOS and extracted DEB passed, but the AppImage harness bypassed the outer runtime/`AppRun` and produced no marker, so it supplies no AppImage or full-Linux pass |
 | predecessor `8194c23` CI and installed Windows NSIS | [CI run 31348501253](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501253) is red, 10/14: four Rust jobs failed only because the new canonical-root unit test used non-portable path spellings; the installed-NSIS job `93334827088` nevertheless passed two direct-layout launches with zero broker/backend process delta and uploaded artifact `9048319122`; its published digest is the GitHub artifact-wrapper digest, not an installer SHA-256 |
 | predecessor `8194c23` macOS/Linux package smoke | [run 31348501256](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501256) passed 2/2: relocated macOS artifact `9048238724` has tested archive SHA-256 `48881bf929258fe980ff43b2dc4fa948b0a122e55cbb1508bdf9e817a533a624`; Linux artifact `9048343920` contains the directly smoked DEB (SHA-256 `5f6dde7aed7335ccb6944560fc4aecc993c09a6c6f5cbd18964b0ae2074ca127`) and the finalized AppImage (SHA-256 `0b139d9f03d88d1a2984445de8d2e08d29fe42ce6120072524dd9ed5ed8cc17d`) whose outer `--appimage-extract-and-run` launch plus verified warm `AppRun` passed with `execution_mode=outer_appimage_extract_and_run_then_verified_apprun` |
-| current executable checkpoint `492dad3` local verification | retains the `8194c23` production marker-root/AppImage contract and repairs only portable canonical-path test construction; focused package/workflow Python tests pass 100 with one expected Windows Unix-mode skip; full local Rust runs of 19 default and 26 all-feature tests preceded the final portability-only edit, after which the exact private-root test passed on Windows and real WSL; exact CI confirms all 26 Desktop tests on Ubuntu, Windows, and macOS; Ruff, Python format, rustfmt, strict Clippy, and diff-check pass |
-| current executable checkpoint `492dad3` installed Windows NSIS | [CI run 31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519) passed 14/14, including two direct-layout launches from the exact isolated NSIS installation with zero broker/backend process delta; artifact `9048710352`; exact tested installer 70,500,529 bytes, SHA-256 `6ca6f5dc3fcdfc3dfc51c210ace1734bcede7f77298d1e3ea7019d9d8b5a425c`; the separate `961f9e8e25e150e0e5ad7e7124d56569b100e4fb671adfa7f5c51b3f4f8ab4ee` digest and 70,501,963-byte size describe the GitHub artifact ZIP |
-| current executable checkpoint `492dad3` cross-platform packages | [run 31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518) passed 2/2. Relocated macOS artifact `9048609980` has tested archive SHA-256 `15a64e25af00f30e288f62c837725cccb9e9588fc0f90d668a57d6d1164f0de8`. Linux artifact `9048696066` contains the directly smoked DEB, SHA-256 `7411b1c976d66a7e4e4a48f757ad751eb69ac0a8a4105d318559ab64fc30bfb7`, and finalized AppImage, SHA-256 `915d4ebb139ee69a1d9514d6fdb306ab7e2bbd02e12a858bb4deaedcf5a1f5f7`; both ran twice with zero broker/backend process delta, and AppImage recorded `execution_mode=outer_appimage_extract_and_run_then_verified_apprun` |
+| historical Slice 4 checkpoint `492dad3` local verification | retains the `8194c23` production marker-root/AppImage contract and repairs only portable canonical-path test construction; focused package/workflow Python tests pass 100 with one expected Windows Unix-mode skip; full local Rust runs of 19 default and 26 all-feature tests preceded the final portability-only edit, after which the exact private-root test passed on Windows and real WSL; exact CI confirms all 26 Desktop tests on Ubuntu, Windows, and macOS; Ruff, Python format, rustfmt, strict Clippy, and diff-check pass |
+| historical Slice 4 checkpoint `492dad3` installed Windows NSIS | [CI run 31349781519](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781519) passed 14/14, including two direct-layout launches from the exact isolated NSIS installation with zero broker/backend process delta; artifact `9048710352`; exact tested installer 70,500,529 bytes, SHA-256 `6ca6f5dc3fcdfc3dfc51c210ace1734bcede7f77298d1e3ea7019d9d8b5a425c`; the separate `961f9e8e25e150e0e5ad7e7124d56569b100e4fb671adfa7f5c51b3f4f8ab4ee` digest and 70,501,963-byte size describe the GitHub artifact ZIP |
+| historical Slice 4 checkpoint `492dad3` cross-platform packages | [run 31349781518](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31349781518) passed 2/2. Relocated macOS artifact `9048609980` has tested archive SHA-256 `15a64e25af00f30e288f62c837725cccb9e9588fc0f90d668a57d6d1164f0de8`. Linux artifact `9048696066` contains the directly smoked DEB, SHA-256 `7411b1c976d66a7e4e4a48f757ad751eb69ac0a8a4105d318559ab64fc30bfb7`, and finalized AppImage, SHA-256 `915d4ebb139ee69a1d9514d6fdb306ab7e2bbd02e12a858bb4deaedcf5a1f5f7`; both ran twice with zero broker/backend process delta, and AppImage recorded `execution_mode=outer_appimage_extract_and_run_then_verified_apprun` |
+| Slice 6 pre-final local Windows artifact | Executable checkpoint `d1ee42557c2b620d37a07504aea9e33047599746`; NSIS is 141,103,791 bytes with SHA-256 `92b6840b53cbda6ee567a560dea70fbc59e651199391b94260b0797a313d8faa`; normal `%LOCALAPPDATA%\AI Guard` install, strict component verification, repair, actual `a6318d8` predecessor/same-candidate/live Desktop + Extension upgrades, interruption recovery regressions, uninstall/reinstall, and final candidate cleanup all passed. The pre-existing July install was restored byte-for-byte afterward; Slice 6 native registration stayed absent and the candidate process delta was zero. Exact-final source workflow evidence is recorded separately because recovery closed two clean-runner lifecycle races after this artifact was built. |
 
-No row establishes live provider/TNER behavior, manual visual acceptance,
-updater check/install, supported-path relocation, upgrade/drain, interrupted
-upgrade, stale cleanup, uninstall, signing/notarization, release, or deployment.
+No row establishes live provider/TNER behavior, a public updater install,
+signing/notarization, release, deployment, or Web Store installation. Slice 6
+uses the strongest offline signed-updater seam without changing a release or
+channel. Only Windows in-app update is enabled; macOS, DEB, and AppImage reject
+updater access. External `dpkg` and user-managed bundle/image replacement are
+the supported non-Windows lifecycle paths.
+A public updater install remains a separate release gate.
 
 The owner-selected local-only configuration boundary is integrated. The Slice
 5 branch packages the Chrome adapter and registration manager, registers exact
@@ -222,12 +250,18 @@ Web Store installation.
 DEB registration remains package-manager/root-owned rather than pretending an
 ordinary GUI launch can repair `/etc`; macOS and AppImage use their documented
 per-user repair paths, and Windows uses the NSIS hooks.
-Slice 6 has not started and still owns manual visual, installer/relocation,
-updater, upgrade/interruption/stale-cleanup, and broad uninstall recertification.
-Tag-triggered publication remains fail-closed until those gates pass.
+Slice 6 completes automated installer lifecycle,
+updater ordering, upgrade/interruption/stale cleanup, and broad uninstall/
+reinstall recertification. The repeated final pixel-level UI pass was
+unavailable at the Windows lock screen and is not claimed. Exact reviews and
+branch/post-main workflows are mandatory integration evidence, recorded by the
+Slice 6 closure protocol. Tag-triggered publication remains
+fail-closed and requires a separate owner-authorized release task.
 
 See
 [`docs/acceptance/2026-08-09-phase-8-native-broker-desktop.md`](../docs/acceptance/2026-08-09-phase-8-native-broker-desktop.md)
 for the exact migration boundary, fault matrix, performance evidence, and
 remaining Slice 4 gates. The Slice 5 candidate evidence is in
 [`docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md`](../docs/acceptance/2026-08-11-phase-8-slice-5-native-messaging.md).
+The current package/lifecycle record is
+[`docs/acceptance/2026-08-12-phase-8-native-broker-package-recertification.md`](../docs/acceptance/2026-08-12-phase-8-native-broker-package-recertification.md).

@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-11
+Updated: 2026-08-13
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -115,10 +115,14 @@ generic native protocol, authenticated admission/bootstrap, private backend,
 and connection/scope/session-owned data plane. Slice 4 routes current Desktop
 source through that boundary with broker-backed disposal and no direct
 backend/data-plane HTTP or Python lifecycle authority. Slice 5 implements the
-Extension's broker-backed disposal and Native Messaging boundary on a
-preserved branch; Office remains unchanged and outside broker v1.
+Extension's broker-backed disposal and Native Messaging boundary. Slice 6
+completes installed package admission, maintenance drain, atomic replacement,
+and cleanup. Slices 1--5 are integrated; Slice 6 becomes integrated when this
+exact closure tree reaches `main` through the protocol recorded below. Office
+remains unchanged and outside broker v1.
 
-Phase 7 integration status: **merged; main CI green; Phase 8 deferred**. The
+Historical Phase 7 handoff status: **merged; main CI green; Phase 8 was then
+deferred**. The
 first independent merge review rejected original commit `f968833` with six
 confirmed blockers: failed restore renewed retention, managed service/vault TTL
 decisions could conflict, noncanonical base64url bypassed replay identity,
@@ -224,7 +228,178 @@ platform package smoke 31554602814 (2/2), including exact Windows, Linux, and
 macOS production-origin manifests. The exact evidence and remaining Web Store
 classification limitation are in the
 [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md).
-Slice 6 has not started.
+
+The Phase 8 Slice 6 source closure repair is locally complete in its affected
+scopes; a replacement exact-head review and workflow candidate remains pending.
+It was recovered from
+preserved branch `codex/phase-8-native-broker-package-recertification`; exact
+checkpoint `d1ee42557c2b620d37a07504aea9e33047599746` remains the pre-final local
+executable/package record. Every installed client now admits only one complete
+manifest-matched five-executable set. Admission verifies the fixed component IDs,
+roles, relative names, SHA-256 digests, owner/mode/link state, Rust executable
+build markers, and the identity of the already-opened executable before any PII
+operation. The frozen Python backend is digest/file-identity bound rather than
+claiming a Rust embedded marker.
+A product-owned maintenance barrier stops new Desktop and Extension admission,
+the least-authority maintenance client drains the broker and backend without
+serializing or replaying mappings, and the repaired runtime starts with empty
+scope/session state. Windows NSIS hooks, external Linux `dpkg`, and AppImage
+stable-root transactions use that barrier/drain boundary before component
+replacement or cleanup. The only enabled in-app updater path is Windows: Tauri
+verifies the artifact and launches NSIS, which owns the transaction. macOS
+relocation repair verifies the complete relocated set and repairs registration;
+it is not component-replacement evidence. In-app macOS, DEB, and AppImage
+updates are rejected before updater access; external/user package replacement
+remains the supported path on those platforms.
+
+Pre-final `d1ee425` installed evidence includes the production-keyed Extension in
+Google Chrome for Testing 145, a normal-default-path NSIS companion,
+Desktop-only, Extension-only, and simultaneous Desktop + Extension operation,
+live upgrade, repair, interruption recovery, uninstall/reinstall, wrong-origin
+rejection, restart invalidation, zero final candidate registration/process
+delta, and real WSL lifecycle tests. That NSIS is 141,103,791 bytes with
+SHA-256
+`92b6840b53cbda6ee567a560dea70fbc59e651199391b94260b0797a313d8faa`.
+The actual `a6318d8` predecessor also passed fail-closed live-Extension
+transition and first-retry recovery. The pre-existing July installation was
+restored byte-for-byte afterward. macOS relocation, real
+DEB package-manager lifecycle, finalized AppImage extract-and-run/warm stable
+`AppRun`, and normal FUSE when the runner supports it remain separately
+classified workflow evidence. Recovery of the preserved exact head exposed a
+shutdown-response race and an over-broad Windows process query. The final tree
+accepts only boundedly proven endpoint inactivity after unavailable/timeout
+drain results and queries only the five fixed package process names before exact
+path validation. Review then closed AppImage drain reachability, extended-UNC
+normalization, product-wide cross-session Windows transaction locking, fresh-
+process NSIS receipt recovery with Windows PowerShell 5.1-compatible control-
+file validation, and retry-idempotent partial DEB removal. The latest preserved-
+head failures are also closed locally without weakening production checks:
+Windows test copies explicitly receive destination ownership; the smoke release
+marker is published only after complete pending-file write and flush; receipts
+must be exactly 64 case-sensitive lower-hex bytes plus one LF; and the bounded
+Linux lifecycle fixture nests a 45-second drain inside 55-second process and
+75-second signal
+deadlines. A later invalidated head exposed the separate Slice 6 full-package
+fixture, uppercase PowerShell matching, and a live DEB harness that expected the
+drained old Desktop to run the new package workflow. Those are closed locally by
+setting every fixture destination owner, requiring case-sensitive receipt
+matching, proving old-session invalidation in a bounded first phase, and then
+re-attesting and fully smoking the newly installed Desktop. The earlier
+obsolete run's NSIS tool download disconnected externally and still requires a
+green exact-head replacement job. Later obsolete heads were invalidated when a
+DEB assertion could overstate structured invalidation and when exact-head
+execution exposed a bounded startup-busy transition, a maintenance handshake
+deadline consumed by strict component hashing, and a Windows package failure
+whose post-cleanup artifact retained only the exact marker without locating the
+failing phase. A later final review invalidated its candidate because a late
+maintenance connection could reset the request deadline and pre-request
+operation timeouts were not retried. The current source requires explicit
+second-operation invalidation, accepts startup busy only through bounded
+readiness, prepares strict maintenance identity once, retries only pre-request
+transient connections while the endpoint proves active, and threads one
+absolute outer deadline through connect/hello, the single drain request, and
+inactivity proof.
+
+Candidate `854b6aba84cd7728cb0801fe4ed24b5cd206f783` was then invalidated:
+CI run `31694499510` passed 13 of 14 jobs but failed the Windows installed
+package, while cross-platform run `31694499478` passed macOS and failed Ubuntu.
+Neither failed run is closure evidence. Local reproduction proved one real
+pre-extraction failure mechanism: PowerShell 5.1 `Add-Type` resolved NSIS's
+native `$PLUGINSDIR\System.dll` because that plugin directory was also the child
+working directory. The hook now changes to `$INSTDIR` before executing the
+embedded script. The executable regression reproduces the collision and the
+corrected working directory, and an ordinary local Tauri NSIS candidate passed
+the affected lifecycle. That evidence did not locate the hosted failure phase.
+The Ubuntu log also lacked its final command, but review confirmed that the
+workflow incorrectly required two concurrent AppImage repairs to both succeed
+despite the deliberate nonblocking product lease. The replacement workflow
+proves fixed status 75 and no component or registration mutation under a held
+lease, then releases it and requires bounded release and repair. Once the Linux
+package-layout step initializes its phase tracker, the `always()` artifact step
+is configured to upload the latest-started coarse phase and any value-free
+partial evidence; it does not guarantee an artifact for earlier failures or
+runner loss.
+
+Candidate `ea8eb7725bf6d31a95e4db03f99bca6bf46ef2e2` then passed all three
+read-only reviews but was invalidated by exact-head execution. CI run
+`31705549161` passed 13 of 14 jobs and failed only Windows installed-package
+job `94465065578`; artifact `9183413143` records a full extracted payload plus
+marker and uninstaller, absent registration, and failed primary/uninstall
+cleanup, but no ACL or exact failing subcommand. Cross-platform run
+`31705549230` passed macOS job `94465065913` and failed Ubuntu job
+`94465065907`; artifact `9183764469` records
+`deb-interrupted-remove-recovery` as the latest-started phase after completed
+initial DEB, upgrade, remove, reinstall, and reinstall-smoke evidence, with no
+AppImage evidence. Neither red run counts as closure evidence.
+
+Source-path recovery found that elevated NSIS extraction can create the fixed
+payload with process `TokenOwner` while strict installed admission requires
+personal `TokenUser`; the obsolete artifact did not retain ACLs, so this is a
+mechanism-consistent diagnosis rather than a retroactive ACL claim. The
+post-install PowerShell 5.1 bootstrap now handle-validates only the marker,
+optional exact receipt, fixed five components, component manifest, and
+uninstaller; permits source ownership only from exact `TokenUser` or exact
+process `TokenOwner`; rejects empty, reparse, or linked files; changes every
+payload owner to `TokenUser`; and rechecks identity and owner before the
+unchanged strict manager revalidates schema/build IDs/digests. Receipt-bearing
+authority is never normalized, and ordinary admission still rejects group
+ownership. The exact-head job records a privacy-safe owner-difference boolean.
+
+The Ubuntu source path independently showed that `cleanup deb` required a
+complete manifest before dispatch even though interrupted `prerm` had already
+unlinked Desktop. Only that cleanup/shape pair now uses incomplete-removal
+loading while still verifying the exact manager digest, build marker, path,
+mode, owner, link, and identity; all other operations keep complete-set
+admission. Fine-grained phase-start markers and 60-second bounds now surround
+the manager and both retry calls. Actual PowerShell 5.1, WSL manager 22/22,
+WSL Slice 6 10 active/4 expected ignores, both Windows native 167-active/14-
+ignore matrices, and a fresh isolated local NSIS install/smoke/uninstall are
+green. The affected Python selection collected 124 tests: 121 passed and three
+platform checks skipped. These changes have local affected-lane evidence only
+until the replacement head passes the protocol. Three exact-head read-only
+reviews, branch and post-main CI/cross-platform smoke, reviewed-tree
+equality, and deletion of only the integrated branch form the enforced closure
+protocol. This text describes integrated truth only when that exact tree is on
+`main` after those gates. See the
+[Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md).
+
+Candidate `097d41d4d7c141f0e001ded1cbb868c0c45ae7d7`, tree
+`9d74a768814d18d064da11300de2da0e1428fe48`, passed its independent
+correctness/security and package/deployment reviews but was invalidated by
+exact-head execution. CI run `31713219318` passed 13 of 14 jobs; only Windows
+package job `94491279795` failed. Artifact `9186697047` proves that the hosted
+token had distinct `TokenOwner` and `TokenUser`, yet clean install, exact
+inventory, four registrations, two-run installed smoke, and final cleanup all
+succeeded. Failure occurred in the concurrent-lock phase. The generated Tauri
+installer creates `$INSTDIR` through `SetOutPath` before the product preinstall
+hook. The artifact did not retain each contender's exit status. Source ordering
+and a local held-lock run of the exact custom-root artifact reproduced nonzero
+exit plus only that empty directory, which the workflow incorrectly treated as
+package state.
+
+Cross-platform run `31713219299` passed macOS job `94491279822` and failed
+Ubuntu job `94491280004`. Artifact `9186746050` contains complete DEB lifecycle
+evidence and complete AppImage stable, contention, repair, reinstall, and
+extract-and-run evidence. The job then emitted fixed failure stage
+`appimage_repair` during normal FUSE launch. The pinned AppImage tool produces
+root-owned SquashFS bytes; an exact pinned-runtime WSL probe confirmed that
+normal FUSE presents them as UID 0 on a read-only mount, while extracted bytes
+are effective-user-owned. Transient staging's additional effective-user-only
+predicate therefore contradicted its already strict manifest admission. Both
+failed workflows and their partial artifacts are historical diagnostics, not
+closure evidence.
+
+The replacement changes neither the production Windows lock nor workflow
+success criteria. The lock probe accepts only an absent or exact empty,
+non-reparse synthetic directory, still requires both installer exits to be
+nonzero, re-attests installed digests and registrations, and deletes only that
+verified-empty probe. AppImage transient staging accepts UID 0 only for the
+exact canonical `$APPDIR/usr/bin` source on a read-only filesystem; it still
+requires one owner/device, regular non-symlink one-link files, exact modes, and
+the existing digest/build-ID checks. Stable published components remain
+strictly effective-user-owned. Focused workflow checks and the updated 22-test
+WSL manager suite pass. A replacement immutable head still requires all three
+reviews and exact-head/post-main workflows before Slice 6 is integrated.
 
 Authoritative PDF source-to-box
 intervals are tracked as the separate third Phase 8 unit below.
@@ -299,9 +474,9 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR and Slices 1--3 integrated; Slice 4 local-only installed configuration
-implemented in the current working candidate; exact-head gates and integration
-pending**. The owner
+**ADR and Slices 1--5 integrated; the Slice 6 package/lifecycle closure
+candidate is complete and becomes integrated only through its exact-tree
+closure protocol**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -431,8 +606,10 @@ closes the identified configuration-ownership P1 in source without adding a
 credential store or changing broader core, CLI, HTTP/hosted, or worker
 capabilities. Exact branch full/package gates and independent review passed
 before Slice 4 integration. Slice 5 now has its owner-approved production
-identity plus exact-ID real-browser and installed-companion evidence; final
-exact-head review/CI precedes integration. Slice 6 has not started.
+identity plus exact-ID real-browser and installed-companion evidence. Slice 6
+completes complete-set admission, maintenance drain, package replacement, and
+owned cleanup; its exact-head review/CI, cross-platform, integration, and
+post-main evidence classes are tracked in the current Slice 6 acceptance record.
 
 Every Desktop product operation, including PDF, still runs through the Slice 3
 private HTTP-v2 executor and shared Python core. Submitted requests are never
@@ -605,11 +782,11 @@ The AppImage passed exact outer `--appimage-extract-and-run` plus verified warm
 The package harness pins the offline `thainer` engine and fake provider and
 does not exercise live provider or live TNER because the installed product
 supports neither. It also does not establish manual
-visual behavior, updater check/install, supported-path relocation, upgrade or
-drain, interrupted-upgrade recovery, stale cleanup, or broad uninstall
-recertification. Those remain Slice 6. Slice 5 now has its owner-approved
-identity and production installed-companion acceptance. Release publication
-remains blocked until Slice 6 certifies the complete lifecycle and a separately
+visual behavior or a public updater install. Slice 6 separately completes
+supported-path relocation, upgrade/drain, interrupted-upgrade recovery, stale
+cleanup, broad uninstall/reinstall recertification, and exact package-manager
+evidence. Slice 5 has its owner-approved identity and production installed-
+companion acceptance. Release publication remains blocked until a separately
 authorized store/release action occurs. The detailed fault and evidence map is
 in the
 [Slice 4 record](acceptance/2026-08-09-phase-8-native-broker-desktop.md).
@@ -762,7 +939,7 @@ applicable trade. The baseline was not moved.
 | Thai PDPA PDF report | Verified | Whitelisted PII-free renderer and end-to-end tests. A second Windows font defect was found and fixed on 2026-07-29: `FONT_CANDIDATES` carried exactly one Windows entry, a Sarabun path no Windows edition ships, so every Windows machine except the developer's fell through to Helvetica and rendered Thai as black boxes — the packaged exe bundles no font at all, so that was every packaged user. Leelawadee UI (shipped with every Windows edition) is now a second candidate, which in turn exposed a reportlab defect: `PDFTextObject.setRise`'s "optimize out r0 Ts r1 Ts" branch rewrites the emitted operator without storing the new rise, stranding runs of text above the baseline for any font that positions marks by offset rather than glyph substitution. Repaired in `thai_pdf_text._install_rise_fix()`, applied conditionally via a behavioural probe so an upstream fix stops the patch cleanly. Measured on "รายงานความเสี่ยงข้อมูลส่วนบุคคล" at 26pt: 15 distinct glyph baselines before, 11 after, and the visible span "ยงข้อมูลส" returns to the baseline. The underlying exposure — that the product shipped no font and depended on whatever the machine had — is closed: `pii_redactor/fonts/IBMPlexSansThaiLooped-Regular.ttf` (OFL-1.1, converted from the WOFF2 already vendored for the UI, container change only) is now the first candidate and ships in both the wheel and the exe, so a report renders identically wherever it was produced. Thai text shaping had been broken from the renderer's introduction until earlier the same day: reportlab draws glyphs in code-point order unless HarfBuzz shaping is enabled, so every tone mark stacking on an upper vowel was dropped or misplaced — 23 literals in this report, including its own title and the `ADDRESS` label. Fixed by enabling reportlab's built-in shaping (`uharfbuzz`, now a core dependency) and drawing through `pii_redactor/thai_pdf_text.draw_text`, which pairs an invisible real-character layer with the visible shaped glyphs so the page stays searchable. Verified against headless Chrome as a reference renderer: mark positions match on every test word. Two accepted limitations: copying a whole page repeats each shaped line, and `pdfminer`/`pdfplumber` cannot reconstruct stacked Thai marks from any producer (measured — headless Chrome output fails the same way), so extraction-based tooling should use the `.txt` export instead. |
 | PDF redaction and preview | Hardening open; authoritative mapping verified locally | Every returned PDF `WordBbox` now carries an exact half-open source interval assigned by the pdfplumber character map, pdfium character stream, or hybrid/OCR assembly and shifted with page separators. Redaction consumes `Entity.span`, selects only intersecting boxes, checks length-preserving Thai-digit equivalence plus non-whitespace coverage/page/geometry consistency, and fails before output on missing or unsafe provenance. Adversarial tests cover same-value and cross-page isolation, independent/overlapping/adjacent/multi-box entities, Thai combining characters, whitespace/CRLF/page joins, malformed/uncovered intervals, fixed safe errors, negative pixels, and existing flattening/padding. No value-search fallback or one-character exclusion remains. Current-source regressions also clear swallowed and translated extraction/mapping exception graphs. Historical optional OCR evidence predates this composition; physical scans, handwriting, broader real-form accuracy, browser/installed-host evidence, and hosted PDF resource/timeouts remain open. |
 | Prompt-injection signals | Verified | Thai/English explicit rules plus a bounded normalization/intent layer; the five previously recorded bypasses are now passing regressions with ordinary-language negative controls. Canonical behavior remains warn-only. |
-| Local HTTP authentication | Desktop integrated; Extension candidate broker-backed; Office hardening open | Current v2 separates optional data-plane API-key authority from the boot/control boundary. Target-bound single-use session disposal remains internal and is never given to storefront JavaScript. Desktop and current Extension source use authenticated broker connections, scoped handles, confirmed cleanup or generation teardown, and a broker-private backend; neither has a fixed-port fallback. Office still uses fixed-port HTTP and does not authenticate the process owning localhost port 8000 when its optional API key is unset. Installed Desktop/Extension construct safe child environments without querying provider/TNER credential values and pin local `thainer`/internal `fake`. OS peer and installed path/build/digest checks establish user/process context and package consistency, not publisher attestation. The Extension additionally requires the owner-approved exact Chrome origin and browser-process admission; exact-ID unpacked Chromium plus installed-companion evidence passes, while the unpublished Draft is not Web Store installation. Hosted caller authentication is separate. |
+| Local HTTP authentication | Desktop and Extension broker-backed; Office hardening open | Current v2 separates optional data-plane API-key authority from the boot/control boundary. Target-bound single-use session disposal remains internal and is never given to storefront JavaScript. Desktop and current Extension source use authenticated broker connections, scoped handles, confirmed cleanup or generation teardown, and a broker-private backend; neither has a fixed-port fallback. Office still uses fixed-port HTTP and does not authenticate the process owning localhost port 8000 when its optional API key is unset. Installed Desktop/Extension construct safe child environments without querying provider/TNER credential values and pin local `thainer`/internal `fake`. OS peer and installed path/build/digest checks establish user/process context and package consistency, not publisher attestation. The Extension additionally requires the owner-approved exact Chrome origin and browser-process admission; exact-ID unpacked Chromium plus installed-companion evidence passes, while the unpublished Draft is not Web Store installation. Slice 6 lifecycle status follows the exact-tree closure condition above. Hosted caller authentication is separate. |
 | Public errors and audit logs | Hardening open | Current-source API process-audit callers use fresh non-authorizing operation UUIDs for sanitize, reidentify, and roundtrip; local disk/stdout regressions reject live session IDs, originals, and pseudonyms. Bounded real-Uvicorn regressions send actual successful and rejected disposal requests through both launcher-configured and default CLI logging. They prove session IDs, derived authorization, control secret, request PII, and query authority are absent from captured stdout/stderr while a health access row and fixed `/api/session/[redacted]` row remain useful. Recognized access records discard queries; unknown record shapes are suppressed fail-closed. Desktop forwarding preserves backend redaction without reconstructing removed values. Successful sanitize records `prepared` before publication, while a safe blocked-attempt record may remain after rejection. HTTP endpoint and pre-response-start JSON-render containment, fixed request-validation responses, direct stateless/local-session sanitize and restore translation, provider translation, PDF/OCR swallowed-error disposal, and worker handler/runner barriers sever retained ordinary exception graphs and common mutable payload fields before emitting fixed failures or continuing a fallback. Ordinary `ExceptionGroup` members are recursively scrubbed, while the read-only group shell is dropped without logging/export rather than corrupted; direct or grouped process signals may propagate. Otherwise-unhandled downstream HTTP exceptions that reach the endpoint decorator become a fixed 500 rather than exporting their detail; provider and PDF boundaries retain their explicit safe 5xx/422 translations. Internal seed audit rows use opaque `seed:<uuid4>` entity IDs, exact replay adds no row, and conflict errors carry no values; retained rows remain structural after `clear()`. Current HTTP v2 uses exact stable-code envelopes without exception messages, provider bodies, excerpts, mappings, or credentials. Protected worker provider failures use fixed v1 errors after discarding the shared-call graph; some generic worker poison-envelope/log paths still expose reduced exception type names, so their cleanup remains separate hardening work. The process-audit schema retains the legacy `session_id` field name, operation-specific files still have no timed retention policy, and published 2.5.0 predates these current hardening changes. Official platform-visible logging remains open. |
 
 ## Compliance documents
@@ -777,8 +954,8 @@ applicable trade. The baseline was not moved.
 |---|---|---|
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
 | AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain skip-and-continue behavior; the separate fine-tuned offset engine is outside this change. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
-| Browser extension | Slice 5 production-qualified Native Messaging | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, uninstall, CI 31554602630, and cross-platform smoke 31554602814. The Web Store item remains unpublished Draft; unpacked real-browser evidence is not Web Store installation, and default-path NSIS remains outside this slice. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md). |
-| Desktop app | Slice 4 integrated; Slice 5 package production-qualified | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Slice 4 routes webview operations through typed Tauri commands and hotkeys through the typed Rust client under the authenticated `desktop` role, with per-window/hotkey scopes, broker handles, fixed uncertainty/no-replay behavior, fail-closed cleanup, and no direct backend/data-plane HTTP, Python lifecycle, or provider implementation. The installed boundary supports only local `thainer`; `fake` is internal conformance, unsupported selectors fail before broker use, and child environments never query provider/TNER credential values. Slice 5 adds the production-keyed Chrome adapter, registration manager, exact native-host manifest, and platform hooks to the same companion package without making the GUI a runtime dependency. Exact production-origin Windows/macOS/DEB/AppImage CI artifacts and installed NSIS acceptance are green; historical evidence classes remain distinct. Manual visual, updater, relocation-install, upgrade, interrupted-upgrade, stale-cleanup, broad uninstall, signing/notarization, release, and deployment evidence remain Slice 6/open. |
+| Browser extension | Slice 5 integrated; Slice 6 lifecycle closure candidate | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, and uninstall in Slice 5. Slice 6 adds live upgrade, old-scope invalidation, restart, repair, uninstall/reinstall, and simultaneous Desktop + Extension operation against a pre-final installed artifact, followed by exact-head workflow certification. The Web Store item remains unpublished Draft; unpacked real-browser evidence is not Web Store installation. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. Slice 6 is integrated only under the exact-tree closure condition above. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md) and [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md). |
+| Desktop app | Slice 4 integrated; Slice 6 lifecycle closure candidate | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Slice 4 routes webview operations through typed Tauri commands and hotkeys through the authenticated `desktop` role. Slice 5 adds the production-keyed Chrome adapter and package registration. Slice 6 adds strict complete-set admission, maintenance drain, updater ordering, atomic AppImage stable-root repair, DEB/NSIS lifecycle hooks, safe stale-endpoint cleanup, and package install/upgrade/remove/reinstall workflows. Pre-final installed NSIS/real-browser evidence and exact-head CI/cross-platform package evidence are kept distinct in the Slice 6 record. Slice 6 becomes integrated only under the exact-tree closure condition above. Signing, notarization, release, deployment, and Web Store publication remain outside this slice. |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. Office is outside broker v1; its web-add-in architecture is unchanged, and any future native host/bridge requires a separate ADR. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |
 | CLI | Verified | Sanitize/report/receipt and end-to-end pipeline tests pass. Current source uses the shared protected-provider policy, rescans before every actual attempt, caps retries at three, and preserves its stateful snapshot/rollback semantics. This has automated evidence, while the changed provider path still needs the fresh live run tracked under Protected provider roundtrip. |
 | Demo playground | Hardening open | The exact 2026-07-23 browser candidate passed token/surrogate roundtrip, protected Pathumma, guard warning, responsive layouts, report download/open, and positive PDF preview/download checks; that dated evidence remains historical and predates the current backend residual/v2/token changes. Current source validates strict v2 health/operation responses, fails residual or malformed results closed, reaches providers through the shared orchestration layer, and uses authoritative PDF source intervals behind the redaction route. Fresh browser/live PDF evidence remains open. |
@@ -799,7 +976,7 @@ applicable trade. The baseline was not moved.
 | Platform LLM endpoint | Acceptance pending | The platform issued an endpoint, model identifier, and secret out of band. No secret or account identifier is stored here. A dated pre-final sibling protected roundtrip passed and a two-worker 60-second live soak recorded 50 successes and no failures. The credential was later exposed in agent transcript output by a read-only Compose expansion and must be rotated/reissued before any further use; the residual ignored `.env` file was removed without reading it. Exact final-candidate live acceptance and a roundtrip originating from platform infrastructure remain open, together with quota, acceptable-use, logging policy, and timeout ownership. The model was separately scored as a detector on gold v4 ([ADR](decisions/2026-07-28-tokenmind-detector-and-aift-port.md)). |
 | Retry/failure emulator | Verified locally | The repeatable local runner passes duplicate/conflict, failed submit, same-process provider idempotency, malformed/version/size, provider-timeout, handler-crash, concurrency, and honeytoken cases. It does not claim cross-process exactly-once or official ack/nack semantics. |
 | Load/soak and official failure acceptance | Hardening open; official acceptance externally gated | Dated local current-core fake-provider and live-provider soaks are green, including restart recovery and zero observed failures in the recorded runs. Independent review, final local image identification, and exact provider-free check/deploy are complete. Exact live acceptance waits for credential rotation. Core PDF source-to-box correctness now has local automated evidence; public HTTPS/browser behavior, proxy-aware login limiting, sibling composition, and the red PDF resource/capability decision remain pre-push gates. Cold-build timing, outbound connectivity, platform-visible logs/resources, real proxy behavior, and sign-off require the owner-gated GitLab project creation/push and platform evidence. |
-| Version/tag/release pipeline | Historical v2.5.0 verified; current publishing blocked | v2.5.0 is published as Latest from exact merge commit `24914ab`. Its main CI, cross-platform smoke, metadata preflight, Windows/macOS/Linux builds, checksums, provenance, and Windows upgrade/runtime checks passed for that pre-broker artifact. Slice 4 maps `native-components-v1.json` beside the native executables; Slice 5 extends it with the Chrome adapter/manager and exact production origin policy. The owner-approved unpublished Web Store identity now passes package and installed-companion acceptance, but unpacked Chromium is still not Web Store installation and no submission/publication was performed. No new tag is created. Publishing remains blocked by Slice 6 manual visual/updater/relocation/upgrade/interruption/stale-cleanup/uninstall recertification and the separately authorized store/release steps. The superseded unpublished v2.4.1 draft/tag is not moved or reused. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md)). |
+| Version/tag/release pipeline | Historical v2.5.0 verified; current publishing blocked | v2.5.0 is published as Latest from exact merge commit `24914ab`. Its main CI, cross-platform smoke, metadata preflight, Windows/macOS/Linux builds, checksums, provenance, and Windows upgrade/runtime checks passed for that pre-broker artifact. Slices 4--6 define the broker-enabled component set and lifecycle, but Slice 6 is certification work, not a release. `VERSION` remains `2.5.0`; no tag, release, signing/notarization, updater channel, Web Store submission, or publication changes in this slice. The intentional release-workflow stop remains until a separate owner-authorized release-preparation task evaluates the integrated evidence. The superseded unpublished v2.4.1 draft/tag is not moved or reused. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md)). |
 
 ## Internal-plan differences resolved here
 

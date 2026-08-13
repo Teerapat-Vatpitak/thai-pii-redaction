@@ -2,9 +2,11 @@
 
 The published 2.5.0 installer on the
 [releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest)
-predates the current Native Messaging candidate. This page covers two distinct
+predates the current broker-backed Desktop/Extension package. This page covers two distinct
 developer paths: the fixed-port HTTP-v2 backend used by Office, API, and demo;
-and the broker-backed Desktop/Extension package candidate.
+and the broker-backed Desktop/Extension package source path. Slice 6's closure
+candidate becomes integrated only through its recorded exact-tree protocol;
+these developer commands are not installed-package acceptance.
 
 ## Requirements
 
@@ -133,6 +135,21 @@ same administrative boundary. An ordinary user GUI launch never mutates those
 root-owned files. AppImage registration is per-user and its transient startup
 repairs the staged stable component root. macOS startup repairs its per-user
 registration; Windows registration is owned by the NSIS hooks.
+
+Install, repair, update, and remove must go through the owning package path.
+The package first activates a fixed verified maintenance barrier, then its
+manifest-admitted manager drains the broker/backend before bytes are replaced.
+Do not copy individual native executables between installs: every runtime
+requires the exact complete manifest set, fixed owner/mode/link state, and
+matching embedded build markers/digests. An interrupted repair either restores
+one complete set or remains fail-closed; it never restores an old mapping.
+Windows uses the NSIS installer/uninstaller, DEB uses `dpkg`, and AppImage uses
+its transient `AppRun` or explicit unregister path. Manually calling the
+manager is an internal package/test operation, not a supported substitute for
+those owners. The in-app updater is enabled only on Windows, where Tauri
+verifies the artifact and launches NSIS. macOS, DEB, and AppImage reject update
+check/install before updater access; use an external/user-owned package
+replacement followed by the documented repair path.
 
 ## Command line
 
@@ -275,8 +292,10 @@ byte to match before it executes the repacked runtime to confirm its offset,
 re-extracts it, and checks all five native components plus the manifest. A
 transient AppImage Desktop then repairs and attests the stable per-user copy
 and re-executes the manifest-verified stable Desktop so it shares one exact
-package root with Chrome's registered adapter. An invalid placeholder is never
-accepted by the runtime. Output lands in
+package root with Chrome's registered adapter. Repair is serialized by a
+private lock, stages verified components atomically, publishes the manifest
+last, and removes only a verified owned inactive stable root. An invalid
+placeholder or partial staged root is never accepted by the runtime. Output lands in
 `desktop/src-tauri/target/release/bundle/`. A successful build is package
 evidence only, not an install, upgrade/uninstall, signing/notarization, or
 release-publication result.

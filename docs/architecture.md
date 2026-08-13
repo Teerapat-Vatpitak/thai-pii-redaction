@@ -276,6 +276,33 @@ stable package, then re-executes its manifest-admitted stable Desktop so every
 client uses the same exact component root. Unregistration removes only exact
 product-owned state.
 
+Slice 6 makes that component root an atomic runtime boundary. The manifest has
+one broker, one backend, and exactly the `desktop`, `extension`, and
+`maintenance` clients with fixed component IDs, roles, relative file names,
+and SHA-256 digests. Rust broker/client executables also carry embedded build
+markers; the frozen Python backend is bound by its fixed manifest identity and
+digest. Admission also verifies owner, executable or manifest mode, absence of
+symbolic/reparse and hard-link substitution, and the identity of the
+already-opened executable. A fixed, owner/mode/link-checked maintenance barrier
+rejects new storefront admission before replacement. Endpoint reservation and
+live connection/response checks linearize that barrier with admission. Only
+the manifest-admitted maintenance executable may drain the broker; it cannot
+open a data scope, sanitize, restore, or receive a session handle. Drain
+terminates the backend, closes the endpoint, invalidates every handle and
+mapping, and never serializes or replays PII-bearing work. Windows NSIS holds
+one exclusive per-user product file across the full transaction, so every
+supported install root and console/RDP session shares one lock; Linux DEB relies on package-manager
+serialization. Both hooks create the barrier before replacement/removal and wait only for
+the exact admitted process paths. AppImage uses a shared component transaction
+lease plus a private per-version repair lock, atomic component staging,
+manifest-last publication, verified cross-version stable-root migration, and
+verified owned cleanup. In-app AppImage replacement is disabled. Unix
+cleanup removes an owned inactive runtime root and rejects wrong-owner,
+permissive, linked, or live state. macOS relocation repair changes registration
+only. Windows NSIS is the only enabled in-app update path; macOS, DEB, and
+AppImage reject updater access, while external/user package ownership drives
+those lifecycle paths.
+
 The repository-owned production identity is the owner-approved unpublished
 Chrome Web Store item `kdjmkknedgmfphpkjhjdhmjadaelgggm`; its committed public
 key derives that exact ID, and the host admits only
@@ -283,7 +310,10 @@ key derives that exact ID, and the host admits only
 exact-ID unpacked Chromium, installed NSIS companion, and cross-platform package
 smoke pass. Synthetic identity remains test-only. The Web Store item remains an
 unpublished Draft, so unpacked-browser evidence is not Web Store installation.
-Final exact-head review/CI precedes Slice 5 integration.
+Slice 5 is integrated. The Slice 6 closure candidate completes package
+transaction ownership, live drain, and installed lifecycle recertification
+without changing protocol v1; it becomes integrated only when this exact tree
+reaches `main` through the recorded review/workflow protocol.
 
 Each window label owns its scope within the one Desktop connection. Closing a
 window removes its local authority before requesting scope close; app quit does
@@ -325,11 +355,14 @@ passed that separate cross-platform package workflow, although its main CI
 failed a non-portable canonical-path test. Last fully gated checkpoint
 `492dad34361b09d7ffa58fa192a2447de7414418` repairs the test construction;
 exact CI run `31349781519` passed 14/14 and exact cross-platform package run
-`31349781518` passed 2/2. Historical dirty-tree Windows NSIS evidence remains
-provisional. The named AppImage path is not normal FUSE/double-click or
-installation evidence, and relocation, upgrade, and uninstall recertification
-remain Slice 6. Office, CLI, hosted HTTP, worker v1, and the demo remain outside broker
-protocol v1. There is no broker `backend` role.
+`31349781518` passed 2/2. Those remain historical Slice 4 evidence. Slice 6
+separates normal FUSE, outer extract-and-run, warm stable `AppRun`, real DEB,
+relocated macOS, custom-root NSIS, and default-path NSIS evidence rather than
+promoting one class into another. Its exact local, branch, and post-main
+workflow evidence is tracked in the current acceptance record. Office, CLI,
+hosted HTTP, worker
+v1, and the demo remain outside broker protocol v1. There is no broker
+`backend` role.
 
 `SessionService` is the sole TTL authority for its managed vaults. It owns one
 earliest-deadline timer and expires every due session at the exact half-open TTL
@@ -673,7 +706,7 @@ is deferred unless a concrete dependency or ownership problem appears.
   future owner-approved ADR covering credential ownership, provisioning,
   permissions, storage, rotation, configuration identity/epoch, broker restart
   or reconfiguration, upgrade, uninstall, attestation, and cross-platform
-  behavior. No credential store is part of Slice 4 or Slice 5.
+  behavior. No credential store is part of Slices 4--6.
 - `AIGUARD_TOKEN` is local control-plane authority for shutdown and the secret
   from which trusted native/backend code derives target-bound session-disposal
   authorization. Raw boot-token use does not authorize session disposal, and

@@ -195,10 +195,9 @@ reviewed, independently revertible integration units in this order:
    authentication/secrecy reviewers found no blocker on that exact head. Main
    integrated the branch with history-preserving merge `eb0c45c`; post-merge
    CI passed 11/11 and cross-platform smoke passed 2/2. Slice 4 Desktop
-   broker-backed session/scope disposal is integrated. Slice 5 implements the
-   Extension equivalent on a preserved branch; its owner-approved production
-   identity and installed-companion gates now pass, with final exact-head
-   review/CI preceding integration. Office is outside broker v1
+   broker-backed session/scope disposal is integrated. Slice 5 integrates the
+   Extension equivalent; its owner-approved production identity, installed-
+   companion gates, exact-head review, and CI pass. Office is outside broker v1
    under the accepted native-broker ADR, and all eight Office real-host/package
    gates remain open under the unchanged web-add-in architecture.
 8. **Converge longer-term choke points — in progress.** The first separately
@@ -280,7 +279,8 @@ reviewed, independently revertible integration units in this order:
    identified configuration-ownership P1. Exact branch CI, cross-platform
    package smoke, and independent review passed before Slice 4 integration.
 
-   Slice 5 is implemented on `codex/phase-8-native-broker-extension`. The MV3
+   Slice 5 is integrated. Its source branch was
+   `codex/phase-8-native-broker-extension`. The MV3
    service worker owns one Native Messaging port and separate broker scopes for
    each tab and panel instance; every document replacement, including same-
    origin hard navigation, gets a fresh tab scope. The strict adapter validates
@@ -311,8 +311,134 @@ reviewed, independently revertible integration units in this order:
    macOS package smoke all pass with zero final product registration/process
    delta. The Web Store item remains Draft/unpublished; this is exact-ID
    unpacked-browser evidence, not Web Store installation or default-path NSIS
-   evidence. Final exact-head review/CI precedes integration. Slice 6 has not
-   started.
+   evidence. Slice 5 is integrated.
+
+   The Slice 6 source closure repair is locally complete in its affected scopes;
+   a replacement exact-head review and workflow candidate remains pending. It
+   was recovered from preserved
+   branch `codex/phase-8-native-broker-package-recertification`; exact checkpoint
+   `d1ee42557c2b620d37a07504aea9e33047599746` remains the pre-final local
+   executable/package artifact record. When this exact tree reaches `main`
+   through the closure protocol below, the integrated tree requires one
+   complete five-executable manifest set before
+   installed native admission, rechecks the opened executable identity, and
+   rejects mixed build IDs, roles, names, digests, modes, owners, or links with
+   fixed value-free failure. A verified product-owned maintenance barrier
+   stops new data admission while the least-authority maintenance client drains
+   broker/backend state. Package replacement never serializes mappings or
+   replays an uncertain operation; repaired/restarted clients receive fresh
+   credentials and empty scopes. Windows NSIS, external Linux `dpkg`, and
+   AppImage stable-root transactions use the same drain-before-replacement
+   contract. The only enabled in-app updater is Windows, where verified bytes
+   are handed to NSIS. macOS relocation repair verifies the complete set and
+   repairs registration without claiming component replacement; in-app macOS,
+   DEB, and AppImage updates are rejected before updater access. Local installed
+   NSIS plus exact-ID Chrome evidence,
+   real WSL tests, deterministic interruption/crash/stale-state fixtures, and
+   package contract tests are green. Recovery and review also closed bounded
+   shutdown-response, AppImage drain reachability, extended-UNC normalization,
+   product-wide cross-session Windows transaction-locking, fresh-process NSIS
+   receipt recovery with Windows PowerShell 5.1-compatible validation, retry-
+   idempotent partial DEB removal, and clean-runner process-query races without
+   weakening inactivity or exact-path proof. The final recovery also makes
+   Windows fixture ownership deterministic, requires the exact 65-byte receipt,
+   publishes the Desktop smoke release marker atomically, and nests the bounded
+   Linux drain/parent/signal deadlines with explicit margin. The obsolete
+   replacement also exposed case-insensitive PowerShell matching, the separate
+   Slice 6 fixture owner, and a live DEB harness that asked the invalidated old
+   Desktop to run the new package workflow. The current recovery requires
+   case-sensitive receipts and splits DEB upgrade evidence into old-session
+   invalidation followed by re-attestation and full smoke of the new install.
+   The earlier candidate's independent NSIS tool-download disconnect is not
+   code evidence and must be replaced by a green exact-head package job. Later
+   obsolete heads were invalidated by an overstated structured-invalidation
+   assertion and exact-head failures in bounded startup readiness, control-
+   handshake deadline ownership, and a marker-only Windows package failure
+   whose artifact did not preserve its failing phase. The current source
+   requires explicit second-operation invalidation and accepts startup busy
+   only through bounded readiness. A later final
+   review invalidated its candidate because a late connection reset the request
+   deadline and a pre-request operation timeout was not retried. The current
+   source reuses one strict maintenance preparation, retries pre-request
+   transients only while the endpoint proves active, and threads one absolute
+   outer deadline through connect/hello, the single drain request, and
+   inactivity proof. Candidate `854b6aba` then failed Windows installed-package
+   CI and Ubuntu cross-platform smoke; neither run counts as evidence. Local
+   reproduction proved a real PowerShell 5.1 `Add-Type` collision with NSIS's
+   native `$PLUGINSDIR\System.dll`; changing the child working directory to
+   `$INSTDIR` closes that mechanism, but did not prove the hosted failure phase.
+   The Ubuntu log did not preserve its final command, but the workflow also
+   contradicted the nonblocking AppImage lease by requiring two concurrent
+   repairs to succeed. It now proves fixed contention status 75 with no state
+   mutation, releases the lease, and retries within a finite bound. After the
+   package-layout step initializes its tracker, the `always()` artifact can
+   upload only the latest-started coarse phase and available value-free partial
+   evidence; it cannot guarantee an artifact for earlier failure or runner loss.
+
+   Candidate `ea8eb772` passed all three read-only reviews but was invalidated
+   by exact-head CI `31705549161` (13/14; only Windows installed-package job
+   `94465065578` failed) and cross-platform smoke `31705549230` (macOS passed;
+   Ubuntu failed). The Windows artifact retained the full extracted payload,
+   manifest, uninstaller, and marker with no registration; the Linux artifact
+   identified only the latest-started `deb-interrupted-remove-recovery` phase
+   after earlier DEB phases completed. Neither artifact preserved the exact
+   failing command; the Windows artifact also preserved no ACL. Neither run is
+   closure evidence.
+
+   The current repair preserves `TokenUser` as the installed trust boundary.
+   Before post-install manager admission, actual PowerShell 5.1 handle-validates
+   the exact fixed payload, permits bootstrap source ownership only from exact
+   `TokenUser` or the process's exact `TokenOwner`, rejects empty/reparse/linked
+   state, normalizes the payload to `TokenUser`, and rechecks identity and owner.
+   It never normalizes receipt-bearing authority; the unchanged strict manager
+   then verifies manifest schema, paths, build IDs, and digests. This addresses
+   the mechanism-consistent elevated-NSIS owner mismatch without admitting an
+   administrator group in ordinary operation. The exact-head job records a
+   value-free owner-difference boolean and remains the authoritative transition
+   proof. Separately, only manager `cleanup deb` may load the incomplete set
+   left after interrupted `prerm`; it still verifies the exact manager and
+   manifest authority, while all other operations require the complete set.
+   Fine-grained phase starts and 60-second manager/retry bounds narrow a later
+   Linux failure to its latest-started step without proving that command or
+   phase completed. Current actual PS5.1, WSL manager/Slice 6, both Windows
+   native matrices, affected Python,
+   format/lint/version, and isolated NSIS lifecycle gates are green.
+   Receipt-bearing state remains strict. Three read-only
+   exact-head reviews, branch CI/package smoke, squash integration, post-main
+   workflows, tree equality, and branch cleanup are required by the closure
+   protocol recorded in the Slice 6 acceptance document.
+   Evidence is recorded in the
+   [Slice 6 acceptance document](docs/acceptance/2026-08-12-phase-8-native-broker-package-recertification.md).
+
+   Candidate `097d41d4d7c141f0e001ded1cbb868c0c45ae7d7`, tree
+   `9d74a768814d18d064da11300de2da0e1428fe48`, passed its independent
+   correctness/security and package/deployment reviews but was invalidated by
+   both exact-head workflows and therefore was not integrated. CI run
+   `31713219318` passed 13/14 jobs; Windows package job `94491279795` failed
+   after a distinct-`TokenOwner` clean install, four registrations, and two-run
+   installed smoke. The artifact did not retain per-contender statuses. Source
+   ordering and a local held-lock run of the exact custom-root artifact prove
+   rejection with only an empty directory left by Tauri's pre-hook `SetOutPath`;
+   the workflow incorrectly treated that directory as package state.
+   Cross-platform run `31713219299`
+   passed macOS job `94491279822` and failed Ubuntu job `94491280004` only at
+   normal AppImage FUSE repair after all DEB and extracted/stable AppImage
+   phases had completed. Artifact `9186746050`, the fixed failure stage, and a
+   pinned-runtime WSL mount prove that immutable FUSE files are root-owned on a
+   read-only mount, whereas the staging predicate previously required the
+   effective user. Neither failed run counts as closure evidence.
+
+   The replacement leaves the production Windows lock unchanged. Its workflow
+   requires both contenders to fail, accepts only an absent or exact empty
+   non-reparse synthetic directory, re-attests the installed digests and
+   registrations, and removes only that verified-empty probe. AppImage staging
+   now permits root ownership only for the exact canonical `$APPDIR/usr/bin`
+   transient source on a read-only filesystem, with one owner/device, regular
+   non-symlink one-link files, exact modes, and the existing digest/build-ID
+   checks. Extracted sources may remain effective-user-owned; stable published
+   components remain strictly effective-user-owned. The focused workflow tests
+   and the resulting 22-test WSL manager suite pass without changing any
+   deadline or downgrading normal FUSE evidence.
 
    Evidence remains separated by exact path. Prior local source/native tests
    pass on Windows and real WSL2 Linux. The 12-launch Windows NSIS result and
@@ -410,12 +536,16 @@ reviewed, independently revertible integration units in this order:
    owner-decision correction has focused source regressions for selector
    rejection, child-environment isolation, warm-broker attachment, and Desktop
    provider admission, plus green exact branch CI and package smoke. Slice 5 is
-   implemented but blocked as described above. Slice 6 has not started and still
-   owns manual visual, updater check/install, supported-path relocation,
-   upgrade/drain, interrupted-upgrade recovery, stale cleanup, uninstall, and
-   installed cross-platform recertification. Tag-triggered installer publishing
-   stays blocked until Slices 4--6 package and certify native messaging plus the
-   complete lifecycle. Office remains
+   integrated. Slice 6 completes automated
+   package/runtime behavior, updater ordering, supported-path relocation,
+   upgrade/drain, interrupted-
+   upgrade recovery, stale cleanup, uninstall/reinstall, and installed lifecycle
+   recertification. The repeated final pixel-level UI pass was unavailable at
+   the Windows lock screen and is not claimed. Exact branch/post-main workflow
+   evidence is a mandatory integration condition, not a release claim.
+   Tag-triggered installer publishing stays blocked until a separate
+   owner-authorized release-preparation task evaluates the completed Slices 4--6
+   evidence. Office remains
    outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into

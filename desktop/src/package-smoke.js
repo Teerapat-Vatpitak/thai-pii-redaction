@@ -10,6 +10,7 @@ import {
   resetScope,
   sanitize,
 } from "./api.js";
+import { ApiError } from "./errors.js";
 
 const SOURCE = "Synthetic contact 081-234-5678";
 const CONTINUATION = "Synthetic follow-up 089-876-5432";
@@ -53,6 +54,31 @@ function requireResult(condition) {
   if (!condition) throw new Error("package smoke validation failed");
 }
 
+const UPGRADE_CONNECTION_FAILURES = new Set([
+  "broker_unauthorized",
+  "broker_unavailable",
+]);
+
+async function requireUpgradeInvalidation(
+  operation,
+  requireSessionInvalidated = false
+) {
+  let failure;
+  try {
+    await operation();
+  } catch (error) {
+    failure = error;
+  }
+  requireResult(
+    failure instanceof ApiError &&
+      failure.restartRequired === true &&
+      (!requireSessionInvalidated || failure.sessionInvalidated === true) &&
+      (UPGRADE_CONNECTION_FAILURES.has(failure.code) ||
+        (failure.code === "operation_timeout" &&
+          failure.sessionInvalidated === true))
+  );
+}
+
 async function appReadyAfterPageLoad() {
   if (document.readyState !== "complete") {
     await new Promise((resolve) => {
@@ -78,16 +104,31 @@ export async function runPackageSmoke() {
     }
     stage = "health";
     await measured(evidence, "healthConnectMs", health);
+    stage = "sanitize";
+    const first = await measured(evidence, "sanitizeMs", () => sanitize(SOURCE));
+    requireResult(first.session_id && first.sanitized_text !== SOURCE);
     stage = "ready_signal";
-    await invoke("desktop_package_smoke_ready");
+    const liveUpgrade = (await invoke("desktop_package_smoke_ready")) === true;
+
+    if (liveUpgrade) {
+      stage = "continuation";
+      await requireUpgradeInvalidation(
+        () => sanitize(CONTINUATION, "token", first.session_id)
+      );
+      stage = "reidentify";
+      await requireUpgradeInvalidation(
+        () => reidentify(first.session_id, first.sanitized_text),
+        true
+      );
+      stage = "upgrade_invalidation";
+      await invoke("desktop_package_smoke_upgrade_invalidated");
+      return;
+    }
 
     stage = "analyze";
     const analysis = await measured(evidence, "analyzeMs", () => analyze(SOURCE));
     requireResult(analysis.direct_pii_count > 0);
 
-    stage = "sanitize";
-    const first = await measured(evidence, "sanitizeMs", () => sanitize(SOURCE));
-    requireResult(first.session_id && first.sanitized_text !== SOURCE);
     stage = "continuation";
     const continuation = await measured(evidence, "continuationMs", () =>
       sanitize(CONTINUATION, "token", first.session_id)

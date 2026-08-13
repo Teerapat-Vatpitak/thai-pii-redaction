@@ -5,8 +5,12 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
+use serde::Deserialize;
 use serde::Serialize;
 
+#[cfg(target_os = "linux")]
+use crate::manifest::ComponentManifest;
 use crate::manifest::NativeHostPolicy;
 use crate::native_messaging::NATIVE_HOST_NAME;
 
@@ -97,6 +101,25 @@ struct NativeHostManifest<'a> {
     path: &'a str,
     #[serde(rename = "type")]
     host_type: &'static str,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnedNativeHostManifest {
+    allowed_origins: Vec<String>,
+    description: String,
+    name: String,
+    path: String,
+    #[serde(rename = "type")]
+    host_type: String,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviousAppImageRegistration {
+    pub component_root: PathBuf,
+    pub product_version: String,
 }
 
 pub fn manifest_bytes(
@@ -237,6 +260,142 @@ pub fn unregister(
         remove_owned_file(&path, &bytes)?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn isolate_appimage_registration_for_replacement(
+    target_adapter: &Path,
+    policy: &NativeHostPolicy,
+) -> Result<Vec<PreviousAppImageRegistration>, RegistrationError> {
+    let (_, config_root) = production_roots(PackageShape::AppImage, target_adapter)?;
+    isolate_appimage_registration_for_replacement_at(target_adapter, policy, &config_root)
+}
+
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub fn isolate_appimage_registration_for_replacement_at_for_test(
+    target_adapter: &Path,
+    policy: &NativeHostPolicy,
+    config_root: &Path,
+) -> Result<Vec<PreviousAppImageRegistration>, RegistrationError> {
+    isolate_appimage_registration_for_replacement_at(target_adapter, policy, config_root)
+}
+
+#[cfg(target_os = "linux")]
+fn isolate_appimage_registration_for_replacement_at(
+    target_adapter: &Path,
+    policy: &NativeHostPolicy,
+    config_root: &Path,
+) -> Result<Vec<PreviousAppImageRegistration>, RegistrationError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let target_root = target_adapter
+        .parent()
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| RegistrationError::new("registration_invalid"))?;
+    let shared_root = target_root
+        .parent()
+        .ok_or_else(|| RegistrationError::new("registration_invalid"))?
+        .canonicalize()
+        .map_err(|_| RegistrationError::new("registration_failed"))?;
+    let paths = registration_paths(
+        RegistrationPlatform::Linux,
+        PackageShape::AppImage,
+        config_root,
+        target_root,
+    )?;
+    let target_bytes = manifest_bytes(target_adapter, policy)?;
+    let mut validated = Vec::new();
+    let mut previous: Option<PreviousAppImageRegistration> = None;
+    let mut observed_bytes: Option<Vec<u8>> = None;
+
+    for path in &paths {
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(RegistrationError::new("registration_failed")),
+        };
+        if !metadata.file_type().is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.nlink() != 1
+            || metadata.mode() & 0o7777 != 0o644
+            || metadata.len() == 0
+            || metadata.len() > 16 * 1024
+        {
+            return Err(RegistrationError::new("registration_failed"));
+        }
+        let bytes =
+            std::fs::read(path).map_err(|_| RegistrationError::new("registration_failed"))?;
+        if bytes.len() as u64 != metadata.len() {
+            return Err(RegistrationError::new("registration_failed"));
+        }
+        if let Some(first) = &observed_bytes {
+            if first != &bytes {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+        } else {
+            observed_bytes = Some(bytes.clone());
+        }
+        if bytes != target_bytes {
+            let native: OwnedNativeHostManifest = serde_json::from_slice(&bytes)
+                .map_err(|_| RegistrationError::new("registration_failed"))?;
+            if native.allowed_origins.as_slice() != [policy.allowed_origin()]
+                || native.description != "AI Guard Chrome Native Messaging adapter"
+                || native.name != policy.name()
+                || native.host_type != "stdio"
+            {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+            let registered_adapter = PathBuf::from(native.path);
+            let canonical_adapter = registered_adapter
+                .canonicalize()
+                .map_err(|_| RegistrationError::new("registration_failed"))?;
+            if !registered_adapter.is_absolute()
+                || registered_adapter != canonical_adapter
+                || registered_adapter.file_name() != target_adapter.file_name()
+            {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+            let registered_root = registered_adapter
+                .parent()
+                .ok_or_else(|| RegistrationError::new("registration_failed"))?;
+            if registered_root.parent() != Some(shared_root.as_path())
+                || registered_root == target_root
+            {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+            let manifest_path = registered_root.join("native-components-v1.json");
+            let manifest = ComponentManifest::load_declared(&manifest_path)
+                .map_err(|_| RegistrationError::new("registration_failed"))?;
+            if manifest
+                .native_host_policy()
+                .map_err(|_| RegistrationError::new("registration_failed"))?
+                != *policy
+                || manifest
+                    .verified_client_executable_for_role("extension")
+                    .map_err(|_| RegistrationError::new("registration_failed"))?
+                    != registered_adapter
+                || manifest_bytes(&registered_adapter, policy)? != bytes
+            {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+            let candidate = PreviousAppImageRegistration {
+                component_root: registered_root.to_owned(),
+                product_version: manifest.product_version().to_owned(),
+            };
+            if previous.as_ref().is_some_and(|value| value != &candidate) {
+                return Err(RegistrationError::new("registration_failed"));
+            }
+            previous = Some(candidate);
+        }
+        validated.push((path.clone(), bytes));
+    }
+
+    for (path, bytes) in validated {
+        remove_owned_file(&path, &bytes)?;
+    }
+    Ok(previous.into_iter().collect())
 }
 
 fn production_roots(

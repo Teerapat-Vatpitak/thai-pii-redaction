@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-12 Phase 8 native-broker package/lifecycle recertification](2026-08-12-phase-8-native-broker-package-recertification.md)
 - [2026-08-11 Phase 8 Chrome Native Messaging candidate](2026-08-11-phase-8-slice-5-native-messaging.md)
 - [2026-08-09 Phase 8 native-broker Desktop migration](2026-08-09-phase-8-native-broker-desktop.md)
 - [2026-08-08 Phase 8 native-broker data plane, ownership, and disposal](2026-08-08-phase-8-native-broker-data-plane.md)
@@ -56,13 +57,14 @@ The open hardening recertification boundaries are:
   mismatch;
 - no composer, clipboard, document, or provider write after any residual-PII
   signal;
-- a broker-admitted local backend boundary before a PII-bearing broker-v1
-  installed-client request, within the accepted unsigned-distribution limits;
+- authenticated local-process ownership remains open for Office's fixed-port
+  path; Desktop/Extension use the broker-admitted boundary within the accepted
+  unsigned-distribution limits;
 - no live restoration session ID or other bearer authority in audit filenames,
   entries, stdout, public audit/log projections, or retained evidence; local
   operation responses may return the opaque `session_id` needed for restoration;
-- packaged eager backend expiry, session continuity, and broker-backed client
-  disposal;
+- packaged Office expiry/session continuity/disposal remains open; broker-
+  backed Desktop/Extension disposal is covered by their exact Slice records;
 - fresh live certification of current-source whole-request failure for any
   failed or incomplete explicitly selected TNER chunk;
 - fresh live/package certification of the current shared provider guards,
@@ -90,8 +92,9 @@ remain open.
 The F-09 record closes current-source automated outbound residual blocking and
 generic sidecar smoke checks only. Current unreleased source now implements
 HTTP v2 response minimization and strict first-party client schemas; matching
-packaged/installed, real-host, live-provider, authenticated local-process,
-broker-backed client lifecycle, and official-platform evidence remains open.
+packaged/installed Office, real-host, live-provider, Office local-process, and
+official-platform evidence remains open. Desktop/Extension broker lifecycle is
+tracked separately by the Slice 4--6 records.
 
 The 2026-08-08 Slice 2 native-broker record covers authenticated platform IPC,
 single-instance bootstrap, broker-owned private-backend startup, protocol-v1
@@ -178,15 +181,15 @@ are distinct evidence classes. The last three are not interchangeable
 installation evidence, and this AppImage mode is not normal FUSE/double-click
 evidence.
 
-The owner-decision correction after clean branch head `fcdbeed` implements a
+Historical checkpoint `fcdbeed` first implemented the owner-decision correction:
 credential-free installed Desktop/native-broker profile: local `thainer`, a
 `fake`-only backend allowlist for internal conformance, no webview provider
 command, stable pre-launch rejection of unsupported selectors, and safe
-name-allowlisted child environments with a fixed profile at both seams. Focused source regressions cover
+name-allowlisted child environments with a fixed profile at both seams. Its focused source regressions cover
 inherited environment, warm-broker attach, unsupported remote/credential-backed
-selection, backend startup, and pre-backend Desktop provider rejection. This is
-provisional working-candidate evidence; exact-head full CI, package smoke, and
-independent review remain pending.
+selection, backend startup, and pre-backend Desktop provider rejection. That
+checkpoint was provisional; the following paragraph records the later exact-
+head review, workflow, and integration disposition.
 
 The earlier configuration-ownership P1 is closed and Slice 4 is integrated
 after exact branch CI, package smoke, and independent review. The 2026-08-11
@@ -199,9 +202,18 @@ exact-origin, exact-ID unpacked Chromium, installed-companion, and cross-
 platform gates. The deterministic identity remains test-only. The isolated-
 root NSIS run is installed-companion evidence, but not default-path or Web Store
 installation evidence; the item remains Draft/unpublished. Final exact-head
-review/CI precedes integration. Slice 6 has not started.
-Neither record establishes Office broker support, live-provider/TNER evidence,
-a release, deployment, or official hosted acceptance.
+review/CI preceded Slice 5 integration. The 2026-08-12 Slice 6 record keeps its
+package evidence classes separate while covering complete-set admission,
+maintenance drain, live upgrade, interruption/recovery, stale cleanup,
+Windows updater ordering plus explicit non-Windows in-app update rejection,
+uninstall/reinstall, exact-ID real-browser operation, and final
+registration/process cleanup. Slice 6 reaches main only through three exact-
+head independent reviews, branch CI/cross-platform smoke, reviewed-tree
+equality, and green post-main workflows; immutable identifiers are supplied in
+the closure handoff so recording them cannot change the reviewed head. None of
+these records establishes Office broker support,
+live-provider/TNER evidence, signing/notarization, a release, deployment, Web
+Store installation, or official hosted acceptance.
 
 The F-06 record now has status **merged; main CI green; Phase 8 deferred**. The
 first merge review rejected `f968833` with six lifecycle, authorization,

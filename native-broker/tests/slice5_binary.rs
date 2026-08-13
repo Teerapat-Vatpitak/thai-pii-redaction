@@ -1,3 +1,4 @@
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,6 +20,24 @@ fn digest(path: &Path) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+fn copy_component(source: &Path, destination_path: &Path) {
+    let mut source = File::open(source).unwrap();
+    let mut destination = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(destination_path)
+        .unwrap();
+    std::io::copy(&mut source, &mut destination).unwrap();
+    destination.sync_all().unwrap();
+    drop(destination);
+    #[cfg(windows)]
+    assert!(
+        aiguard_native_broker_protocol::manifest::windows_set_owner_to_current_user_for_test(
+            destination_path,
+        )
+    );
+}
+
 fn package(adapter_digest: Option<&str>) -> (TempPackage, PathBuf, PathBuf) {
     let token = format!(
         "aiguard-slice5-binary-{}-{}",
@@ -36,19 +55,44 @@ fn package(adapter_digest: Option<&str>) -> (TempPackage, PathBuf, PathBuf) {
     } else {
         "aiguard-chrome-native-host"
     });
-    std::fs::copy(source, &adapter).unwrap();
+    copy_component(source, &adapter);
     let broker_name = if cfg!(windows) {
-        "broker.exe"
+        "aiguard-native-broker.exe"
     } else {
-        "broker"
+        "aiguard-native-broker"
     };
     let backend_name = if cfg!(windows) {
-        "backend.exe"
+        "aiguard.exe"
     } else {
-        "backend"
+        "aiguard"
     };
-    std::fs::write(root.join(broker_name), b"synthetic broker fixture").unwrap();
-    std::fs::write(root.join(backend_name), b"synthetic backend fixture").unwrap();
+    let desktop_name = if cfg!(windows) {
+        "desktop.exe"
+    } else {
+        "desktop"
+    };
+    let manager_name = if cfg!(windows) {
+        "aiguard-native-host-manager.exe"
+    } else {
+        "aiguard-native-host-manager"
+    };
+    for name in [broker_name, backend_name, desktop_name, manager_name] {
+        copy_component(source, &root.join(name));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for name in [
+            adapter.file_name().unwrap().to_str().unwrap(),
+            broker_name,
+            backend_name,
+            desktop_name,
+            manager_name,
+        ] {
+            std::fs::set_permissions(root.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+    }
     let manifest = serde_json::json!({
         "schema_version": 1,
         "product_version": PRODUCT_VERSION,
@@ -58,13 +102,29 @@ fn package(adapter_digest: Option<&str>) -> (TempPackage, PathBuf, PathBuf) {
             "sha256": digest(&root.join(broker_name)),
             "build_id": PRODUCT_VERSION
         },
-        "clients": [{
-            "component_id": "chrome-native-host",
-            "role": "extension",
-            "path": adapter.file_name().unwrap().to_str().unwrap(),
-            "sha256": adapter_digest.map(str::to_owned).unwrap_or_else(|| digest(&adapter)),
-            "build_id": PRODUCT_VERSION
-        }],
+        "clients": [
+            {
+                "component_id": "desktop",
+                "role": "desktop",
+                "path": desktop_name,
+                "sha256": digest(&root.join(desktop_name)),
+                "build_id": PRODUCT_VERSION
+            },
+            {
+                "component_id": "chrome-native-host",
+                "role": "extension",
+                "path": adapter.file_name().unwrap().to_str().unwrap(),
+                "sha256": adapter_digest.map(str::to_owned).unwrap_or_else(|| digest(&adapter)),
+                "build_id": PRODUCT_VERSION
+            },
+            {
+                "component_id": "native-host-manager",
+                "role": "maintenance",
+                "path": manager_name,
+                "sha256": digest(&root.join(manager_name)),
+                "build_id": PRODUCT_VERSION
+            }
+        ],
         "backend": {
             "component_id": "python-backend",
             "path": backend_name,
@@ -84,6 +144,17 @@ fn package(adapter_digest: Option<&str>) -> (TempPackage, PathBuf, PathBuf) {
         serde_json::to_vec_pretty(&manifest).unwrap(),
     )
     .unwrap();
+    #[cfg(windows)]
+    assert!(
+        aiguard_native_broker_protocol::manifest::windows_set_owner_to_current_user_for_test(
+            &manifest_path,
+        )
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&manifest_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
     (TempPackage(root), adapter, manifest_path)
 }
 

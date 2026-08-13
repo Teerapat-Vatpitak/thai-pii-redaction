@@ -1,12 +1,10 @@
-# Release workflow retained for historical artifacts and Slice 6 completion.
-# Current native-broker source fails preflight before any publishing job because
-# Slice 5 native-messaging distribution and Slice 6 upgrade/uninstall
-# recertification are not complete.
+# Release workflow retained for historical artifacts and future owner-authorized
+# release preparation. It fails preflight before every publishing job because
+# acceptance work alone never authorizes a tag, release, or installer upload.
 #
 # STATUS: the full Windows/macOS/Linux matrix and checksums/attestation path ran
 # successfully for v2.3.0, v2.4.0, and v2.5.0. That evidence is historical;
-# every new tag remains blocked until Slices 5--6 certify the complete installed
-# product and lifecycle.
+# every new tag remains blocked until a separate release-preparation instruction.
 #
 # Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
 # hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
@@ -62,15 +60,13 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: python scripts/check_release_readiness.py --expect-tag "$TAG"
 
-      # Slice 4 places the manifest beside the installed Desktop, broker, and
-      # backend. Publishing still waits for the Slice 5 native-messaging host and
-      # registration plus Slice 6 upgrade/uninstall recertification. Both
-      # publishing jobs depend on this preflight.
-      - name: Block native-broker installer publication until Slice 6
+      # Acceptance does not authorize publication. Both publishing jobs remain
+      # behind this fail-closed owner-controlled release boundary.
+      - name: Block publication until owner-authorized release preparation
         env:
-          NATIVE_INSTALLER_GATE: blocked-until-phase-8-slice-6
+          NATIVE_INSTALLER_GATE: blocked-until-owner-release-preparation
         run: |
-          echo "::error::$NATIVE_INSTALLER_GATE: native-messaging registration and upgrade lifecycle are not certified"
+          echo "::error::$NATIVE_INSTALLER_GATE: release preparation has not been authorized"
           exit 1
 
   build:

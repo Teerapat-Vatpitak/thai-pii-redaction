@@ -140,8 +140,8 @@ boundary, not a claim that every storefront shares one process or transport:
 The single machine-readable broker-v1 policy is
 `native-broker/protocol-v1.json`; `native_broker_protocol.py` and the Rust
 library under `native-broker/` share its serialization, framing, negotiation,
-policy, and conformance. Integrated Phase 8 Slices 1--4 and the production-
-qualified Slice 5 branch provide the protocol,
+policy, and conformance. Integrated Phase 8 Slices 1--5 plus the merge-
+conditional Slice 6 closure tree provide the protocol,
 the Rust broker executable, control-only client, strict component manifest,
 Windows named pipe, macOS/Linux filesystem UDS, OS peer/process inspection,
 atomic per-user/logon ownership, broker-owned private-backend bootstrap,
@@ -158,6 +158,11 @@ existing FastAPI app only from a broker-prebound listener and inherited one-use
 credentials. `src/native_messaging.rs`, `src/extension_client.rs`, and
 `src/native_host_registration.rs`, plus the two native-host binaries under
 `src/bin/`, implement the strict Chrome adapter and package-owned registration.
+`src/lifecycle.rs` owns the verified maintenance barrier, package transaction
+receipt, drain/inactivity proof, and safe runtime-root cleanup. `src/manifest.rs` admits only the complete
+five-executable component set and rechecks the opened file identity;
+`src/bin/native_host_manager.rs` owns NSIS/DEB registration plus atomic
+AppImage stable-root repair and removal.
 
 `native-broker/src/installed_product.rs` owns the installed Desktop/native
 configuration profile. It rejects any explicit detector other than `thainer`
@@ -190,7 +195,10 @@ stable Desktop so Chrome and Desktop never present different exact paths to
 one broker. The four fixed marker files use
 create-new semantics, and an invalid supplied marker root fails without a cwd
 fallback. This is exact outer-runtime and verified-`AppRun` evidence, not normal
-FUSE/double-click or installation evidence. A discovery or unfinalized AppImage
+FUSE/double-click or installation evidence. Slice 6 adds a separately
+classified normal-FUSE attempt when the runner can mount the image, real
+`dpkg` install/upgrade/remove/reinstall, default-path NSIS lifecycle, and
+relocated macOS registration repair. A discovery or unfinalized AppImage
 placeholder is never a valid runtime manifest.
 
 The broker exposes protocol-v1 operations only after authenticated,
@@ -206,8 +214,11 @@ scope lifecycle, and Windows/macOS/Linux registration in the Desktop package.
 Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm`, its exact
 origin, production ZIP, exact-ID unpacked Chromium, installed NSIS companion,
 and cross-platform artifacts pass; synthetic identity remains test-only. The
-unpublished Draft is not Web Store installation evidence. Office is unchanged
-and outside broker v1. The pipe/UDS plus path/build/digest checks establish OS peer context
+unpublished Draft is not Web Store installation evidence. The Slice 6 closure
+tree adds strict complete-set admission, least-authority drain, empty-state restart, Windows
+NSIS updater handoff, explicit non-Windows in-app update rejection, and package
+lifecycle cleanup without changing protocol v1. Office is
+unchanged and outside broker v1. The pipe/UDS plus path/build/digest checks establish OS peer context
 and package consistency only, not publisher attestation or protection from
 arbitrary malicious code already running as the same OS user.
 
@@ -565,7 +576,7 @@ green" is not a statement about OCR.
 
 - **Recall > Precision**: prefer false positives over missed PII
 - **Intended local mapping boundary**: the canonical pseudonym → original map is in-memory only (`SessionVault` — per-session via `SessionService` on the web path, per-run on the CLI path). HTTP Office may keep only an opaque `session_id`; broker-backed Desktop/Extension clients receive only scoped broker handles, and Extension content/panel JavaScript receives none. The published 2.5.0/v1 artifact violated the projection half by returning direct or reconstructable mapping fields; current unreleased source implements strict projections. Slice 5 has production-identity and installed-companion evidence; the unpublished Draft has no Web Store installation evidence.
-- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. CLI, HTTP/hosted, and worker provider attempts use one shared orchestration layer, with a fresh scan immediately before each actual invocation, one immutable masked input, no fallback, at most three 60-second attempts, and fixed 1/2-second delays only for timeout, network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request per invocation. Packaged/live-provider acceptance remains open. Native-broker Slices 1--4 are integrated; Slice 5 has its owner-approved production identity plus exact-ID browser and installed-companion gates, with final exact-head review/CI preceding integration. Installed Desktop/Extension stay credential-free and local-only.
+- **Fail-closed outbound policy**: local-session and stateless sanitization reject structured FP, text-based TB, detector-independent contiguous 6+ digit, anonymization, and missing-replacement failures. Caller seeds are not trusted merely by declaration, and unsafe identity/embedded/pre-existing values are not reused. CLI, HTTP/hosted, and worker provider attempts use one shared orchestration layer, with a fresh scan immediately before each actual invocation, one immutable masked input, no fallback, at most three 60-second attempts, and fixed 1/2-second delays only for timeout, network, HTTP 429, and HTTP 5xx failures. Tokenmind performs one HTTP request per invocation. Packaged/live-provider acceptance remains open. Native-broker Slices 1--5 are integrated; Slice 6 becomes integrated only when its exact closure tree reaches `main` after the recorded reviews and workflows. Installed Desktop/Extension stay credential-free and local-only.
 - **PDPA Section 26 sensitive categories**: flagged/reported only (`report.scan_section26` keyword + optional `sensitive_detector` semantic), never auto-redacted.
 - **Non-generative sensitive detection**: `sensitive_detector` flags only spans present in the source (embedding similarity), so it cannot hallucinate PII.
 - **NER span filter**: reject any entity span < 2 characters before it reaches redaction.

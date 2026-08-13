@@ -162,13 +162,41 @@ def test_windows_packaged_smoke_uses_exact_installed_nsis_candidate():
     assert "npm run tauri -- build --bundles nsis" in packaged_job
     assert '"createUpdaterArtifacts":false' in packaged_job
     assert 'Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe"' in packaged_job
-    assert "Start-Process `" in packaged_job
-    assert '"/S", "/D=$installRoot"' in packaged_job
-    assert 'scripts/smoke_desktop_native_package.py "$env:AIGUARD_DESKTOP_INSTALL_ROOT"' in (
-        packaged_job
+    assert '$installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"' in packaged_job
+    assert '$installLocationKey = "HKCU:\\Software\\Teerapat Vatpitak\\AI Guard"' in packaged_job
+    assert "remembered Desktop install root would redirect the default-path install" in packaged_job
+    assert "InstallLocation.Trim('\"')" in packaged_job
+    assert (
+        "if ($registeredRoot -ne $installRoot -or $rememberedRoot -ne $installRoot)" in packaged_job
     )
+    assert "function Invoke-ExactInstaller" in packaged_job
+    assert packaged_job.count("Invoke-ExactInstaller") == 5
+    assert (
+        'Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru' in packaged_job
+    )
+    assert "function Invoke-ExactUninstaller" in packaged_job
+    assert packaged_job.count("Invoke-ExactUninstaller") == 3
+    assert "NSIS uninstall left the product registration" in packaged_job
+    assert "NSIS installer left the cross-session package lock" in packaged_job
+    assert "NSIS uninstaller left the cross-session package lock" in packaged_job
+    assert "function Assert-PackageLockEnforced" in packaged_job
+    assert "[System.IO.FileShare]::None" in packaged_job
+    assert "concurrent NSIS package transaction was not rejected" in packaged_job
+    assert "distinct-root NSIS package transaction was not rejected" in packaged_job
+    assert "blocked distinct-root NSIS transaction created package state" in packaged_job
+    assert "package-lock-contention.json" in packaged_job
+    assert "[System.IO.Directory]::Delete($customLockProbeRoot, $false)" in packaged_job
+    assert "blocked package transactions changed default product registration" in packaged_job
+    assert "interrupted-package-retry" in packaged_job
+    assert "interrupted-uninstall-retry" in packaged_job
+    assert "repair cleared an installer-owned barrier" in packaged_job
+    assert "if ($process.ExitCode -ne 0)" in packaged_job
+    assert "function Invoke-Smoke" in packaged_job
+    assert 'scripts/smoke_desktop_native_package.py "$installRoot" --repetitions 2' in packaged_job
     assert "artifacts/desktop-native-nsis/AI-Guard-windows-x64-setup.exe" in packaged_job
-    assert "artifacts/desktop-native-nsis/smoke-evidence.json" in packaged_job
+    for lifecycle in ("install", "repair", "upgrade", "reinstall"):
+        assert f'Invoke-Smoke "{lifecycle}"' in packaged_job
+    assert '"$artifactRoot/$name-smoke-evidence.json"' in packaged_job
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in packaged_job
     assert "--no-bundle" not in packaged_job
 
