@@ -20,39 +20,42 @@ contract.
 Release assets are the distribution surface. The repository carries no package-
 manager manifest, so nothing downstream needs a version bump after publication.
 The automated tag workflow publishes Desktop artifacts only. The browser
-extension remains source/unpacked distribution unless the owner explicitly adds
-its zip as a release asset; it is not published to the Chrome Web Store. The
-Office add-in is likewise outside the automated GitHub Release asset set.
+extension remains outside the GitHub Release asset set: branch CI builds the
+exact production-ID ZIP as a retained workflow artifact for separate Chrome Web
+Store review/submission. The Office add-in is likewise outside the automated
+GitHub Release asset set.
 
-## Current publication block
+## Current release authorization
 
-This document describes the intended process and preserves the procedure used
-for historical releases. It is not currently an instruction to push a new tag.
-Every new tag intentionally fails `.github/workflows/release.yml` in the
-`release metadata preflight` job before any build or publishing job can run.
-Slices 5 and 6 supply the Native Messaging package and lifecycle evidence, but
-Slice 6 is not release authorization. The stop remains intentionally in place
-until the owner separately starts release preparation and that task reviews the
-integrated evidence, version choice, changelog, signing/notarization posture,
-updater assets/channels, and publication targets. Do not remove or bypass it as
-part of package recertification.
+The owner authorized the `3.0.0` release-preparation task on 2026-08-14 after
+Slices 5 and 6 reached `main`. That task removed the earlier intentional
+preflight stop through a tested release-workflow change. A version tag now
+creates only a draft release; it does not bypass exact-candidate review,
+installed-package evidence, OS signing/notarization classification, updater
+signature verification, Chrome Web Store review, or the publish gate below.
+Future releases still require a separate owner-authorized preparation task.
 
 `python scripts/check_release_readiness.py` is a metadata-consistency check
 only: it verifies synchronized version targets plus the changelog, and with
 `--expect-tag` also checks tag identity and an empty `Unreleased` section. A
 green result does not certify architecture, security, packages, installed
-hosts, signing, notarization, or release readiness, and it does not bypass the
-workflow stop above.
+hosts, signing, notarization, or release readiness.
 
 Branch CI can build unpublished package candidates and exercise bounded smoke
-paths. Those jobs do not create or publish a GitHub Release. Current branch
-package commands explicitly use `--no-sign`; macOS app relocation and Linux
-package extraction are package-layout evidence, not signing/notarization or a
-native installer lifecycle result. Treat every result according to the exact
-evidence class recorded for it. The separate Slice 6 workflow exercises real
-`dpkg` install/upgrade/remove/reinstall; that stronger package-manager result
-does not turn a directly extracted DEB into installation evidence. A
-distributable AppImage must pass the
+paths. Those jobs do not create or publish a GitHub Release. The Release
+workflow also has a manual pre-tag mode: it accepts only an exact 40-character
+commit SHA, checks out and verifies that commit, builds the same updater-signed
+production artifact set on all three platforms, and retains the packages plus a
+closed machine-readable source/tree/run-bound manifest as workflow artifacts. It does not create a
+tag or Release. The same build jobs now black-box the non-feature-gated final
+packages before staging them: NSIS is silently installed and removed, DEB is
+installed and removed with `dpkg`, both macOS payload forms are launched, and
+the finalized AppImage is launched through extract-and-run plus FUSE when the
+runner exposes it. Each launch must observe the manifest-matched production
+Desktop, broker, and backend process chain and clean it up. These bounded
+release checks complement, rather than replace, the deeper feature-gated Slice
+6 install/repair/upgrade/interruption lifecycle. Treat every result according
+to the exact evidence class recorded for it. A distributable AppImage must pass the
 checksum-pinned post-`linuxdeploy` finalizer before smoke, hashing, signing, or
 upload. For the pinned no-sign/no-update build, that gate permits only the
 single non-executable, non-overlapping 16-byte `.digest_md5` rewrite defined by
@@ -87,8 +90,7 @@ the current sibling port inherits the product version. See
 ## Release preparation branch
 
 1. Freeze the intended scope, ensure every item meets the roadmap definition of
-   done, and confirm that the intentional Slice 5/Slice 6 release-workflow block
-   has been removed through reviewed implementation rather than bypassed.
+   done, and confirm that the release has explicit owner authorization.
 2. Pull the latest `main` and create a short-lived release-preparation branch.
 3. Run `python scripts/bump_version.py X.Y.Z` rather than editing version strings.
 4. Move the relevant `Unreleased` entries into
@@ -100,13 +102,16 @@ the current sibling port inherits the product version. See
    wait for every GitHub Actions job to pass.
 7. Review the diff for installer names, updater configuration, API contract,
    documentation, and the release notes - not only tests.
-8. Squash the reviewed branch into `main` as one commit, push `main`, and wait
+8. Push the immutable branch commit and run `.github/workflows/release.yml`
+   manually with that exact full SHA as `candidate_sha`. Download its exact
+   candidate manifest and platform artifacts for review before tagging.
+9. Squash the reviewed branch into `main` as one commit, push `main`, and wait
    for every `main` CI job to pass before tagging.
 
 ## Tag and build
 
-The commands below apply only after the current publication block has been
-removed and the release-preparation branch is squashed into a green `main`:
+The commands below apply only after the release-preparation branch is squashed
+into a green `main`:
 
 ```bash
 git switch main
@@ -122,19 +127,37 @@ Rules:
 - A failed release is fixed with a new commit and new version, not a retag.
 - Do not create the GitHub Release by hand before the tag workflow runs.
 
-The release workflow verifies the tag/version/changelog relationship (including
-an empty `Unreleased` section), builds each platform artifact, creates a draft
-release, checks a minimum cross-platform asset set, publishes `SHA256SUMS`, and
-attaches GitHub build provenance. The automated minimum-set check does not prove
-that every updater signature file expected by the current Tauri configuration
-is present; that remains a manual publish gate.
+In tag mode, the release workflow verifies the tag/version/changelog
+relationship (including an empty `Unreleased` section), builds each platform
+artifact, production-smokes it, and creates a draft release. The checksums job
+downloads the nine Desktop files from the same workflow run, binds their names,
+sizes, SHA-256 digests, source commit/tree, run ID, and attempt in a closed build
+manifest, then resolves exactly one draft by tag. It regenerates `latest.json`
+from that draft's exact asset IDs, rejects every extra or missing asset, and
+requires the downloaded draft bytes to match the current-run manifest before
+and after uploading `SHA256SUMS`. Only that redownloaded closed set receives
+GitHub provenance. A same-version filename or reused draft is not evidence.
+
+On Linux, five Tauri bundling helpers are fetched through immutable URLs,
+verified by size and SHA-256, normalized for Tauri's documented three-byte
+`linuxdeploy` header patch, and preseeded into a closed cache. The cache must be
+unchanged after bundling. The action then runs through
+`scripts/release_tauri_build.py`: it preserves the pre-`linuxdeploy` backend,
+finalizes the post-`linuxdeploy` AppDir with the pinned output plugin, deletes
+the raw AppImage signature, and signs the exact finalized AppImage before the
+action can discover or upload it. Release notes come from the exact dated
+`CHANGELOG.md` section.
 
 ## Publish gate
 
 The draft remains unpublished until the maintainer verifies:
 
 - all expected Windows/macOS/Linux assets and every expected updater/signature
-  file are present;
+  file are present, with no additional draft asset outside the closed set;
+- the tag workflow's current-run build manifest matches every downloadable
+  Desktop byte and canonical `latest.json` matches the uploaded copy;
+- the exact final NSIS, both macOS payloads, DEB, and AppImage extract-and-run
+  production-package smoke checks pass (with FUSE status recorded separately);
 - every AppImage was finalized from the post-`linuxdeploy` AppDir and the exact
   finalized file, not the raw Tauri output, was hashed and exercised through
   the recorded outer-AppImage/verified-`AppRun` path;
@@ -143,6 +166,11 @@ The draft remains unpublished until the maintainer verifies:
 - `gh attestation verify` succeeds for representative artifacts;
 - release notes match the changelog and make no unsupported claim; and
 - an install/launch smoke has passed on the maintainer's primary platform.
+
+The Chrome Web Store candidate has a separate gate: download the exact branch-CI
+artifact, verify its SHA-256 and production extension ID, complete the listing
+and privacy review, and submit those unchanged ZIP bytes. A Web Store review or
+publication state is never inferred from unpacked Chromium acceptance.
 
 Only then publish the draft and mark it Latest. Delete stale duplicate **drafts**
 after verifying a published release for that tag already exists; never delete a
@@ -153,7 +181,9 @@ published release as routine cleanup.
 1. Verify README's Latest link and updater `latest.json` resolve correctly.
 2. Update wherever the installer is linked for download; the repository
    publishes release assets and does not push to any package manager.
-3. Return new work to `CHANGELOG.md` under `Unreleased`.
+3. Record the Chrome Web Store submission/publication state separately and link
+   the live listing only after the store reports it available.
+4. Return new work to `CHANGELOG.md` under `Unreleased`.
 
 ## Hotfix
 

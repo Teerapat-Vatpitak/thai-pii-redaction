@@ -703,3 +703,16 @@ installation, release creation, and deployment remain outside Slice 6. Office
 stays outside broker v1. The installed boundary remains local `thainer`; remote
 TNER and credential-requiring providers remain unsupported. The provider-
 controlled in-page DOM limitation remains unchanged.
+
+## Closure disposition (2026-08-13)
+
+The immutable final branch candidate was
+`1b4760a2065883c89393d3bb1a799678b2922b7f`, tree
+`a701eacfdbfce21a14e2c67c5bb492a0e5c7cb4c`. All three independent read-only
+reviews passed. Branch CI `31716919702` passed 14/14 and branch cross-platform
+smoke `31716919706` passed 2/2. The reviewed tree was integrated on `main` as
+`21f921aa8edb7415551b76f6633ce52fc5e323c6` with exact tree equality. Post-main
+CI `31719493359` passed 14/14 and post-main cross-platform smoke `31719492934`
+passed 2/2. Slice 6 is therefore integrated. This closes the source/package
+Slice; it does not retroactively establish signing, notarization, Web Store
+installation/publication, a public updater install, or a 3.0.0 release.

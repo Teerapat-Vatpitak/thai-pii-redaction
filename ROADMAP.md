@@ -38,6 +38,13 @@ release rules live in [docs/release-process.md](docs/release-process.md).
 - `v2.5.0` is released with checksums and build provenance. The release
   pipeline (tag, CI, cross-platform builds, attestation) has run end to end on
   a real tag.
+- Phase 8 native-broker Slices 1--6 are integrated on `main` at
+  `21f921aa8edb7415551b76f6633ce52fc5e323c6`; exact branch and post-main CI and
+  cross-platform package smoke are green. Owner-authorized 3.0.0 certification
+  is in progress on `codex/3.0.0-release-certification`. The source metadata and
+  changelog now identify 3.0.0, but no `v3.0.0` tag or release has been created
+  and the Chrome Web Store item remains unpublished until exact-artifact review
+  and submission.
 - Dated feature acceptance exists for the exact extension, desktop, CLI, API,
   container, and demo candidates named in those records. It remains historical
   evidence for those artifacts, not acceptance of later hardening changes.
@@ -541,11 +548,11 @@ reviewed, independently revertible integration units in this order:
    upgrade/drain, interrupted-
    upgrade recovery, stale cleanup, uninstall/reinstall, and installed lifecycle
    recertification. The repeated final pixel-level UI pass was unavailable at
-   the Windows lock screen and is not claimed. Exact branch/post-main workflow
-   evidence is a mandatory integration condition, not a release claim.
-   Tag-triggered installer publishing stays blocked until a separate
-   owner-authorized release-preparation task evaluates the completed Slices 4--6
-   evidence. Office remains
+   the Windows lock screen and is not claimed. Exact Slice 6 branch/post-main
+   workflow evidence is green at integrated main `21f921aa`; this is integration
+   evidence, not yet a 3.0.0 release claim. The separately owner-authorized
+   3.0.0 certification now evaluates the completed Slices 4--6 evidence,
+   release workflow, and exact artifacts. Office remains
    outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
@@ -564,10 +571,9 @@ evidence only for their affected paths. Fresh automated, packaged, real-host,
 live-provider, or official-platform evidence must match the strength of the
 changed path. Shared provider orchestration has current-source automated
 evidence, while its packaged, live-provider, real-host, and official-platform
-recertification remains open. `VERSION` remains
-`2.5.0` during development; a release containing the breaking HTTP contract is
-expected to be prepared as `3.0.0`, but release work requires separate
-authorization.
+recertification remains open. The owner-authorized release candidate now sets
+`VERSION` and synchronized package metadata to `3.0.0`; certification, exact
+artifact review, tag creation, and publication remain distinct gates.
 
 The browser in-page flow cannot guarantee that provider page code did not
 observe raw text typed into its composer before Mask. This campaign can protect

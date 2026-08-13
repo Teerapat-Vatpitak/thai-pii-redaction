@@ -232,6 +232,26 @@ def test_check_version_tracks_native_broker_crate_metadata(tmp_path):
     assert "native-broker" in result.stdout
 
 
+def test_check_version_tracks_broker_path_package_in_desktop_lock(tmp_path):
+    repo = _copy_repo_slice(tmp_path)
+    cargo_lock = repo / "desktop" / "src-tauri" / "Cargo.lock"
+    text = cargo_lock.read_text(encoding="utf-8")
+    drifted = text.replace(
+        f'name = "aiguard-native-broker-protocol"\nversion = "{_version_file_contents()}"',
+        'name = "aiguard-native-broker-protocol"\nversion = "1.2.3"',
+        1,
+    )
+    assert drifted != text
+    cargo_lock.write_text(drifted, encoding="utf-8")
+
+    result = _run_check(repo)
+
+    assert result.returncode == 1
+    assert "desktop" in result.stdout
+    assert "Cargo.lock" in result.stdout
+    assert "1.2.3" in result.stdout
+
+
 def test_check_version_fails_when_required_file_is_unparseable(tmp_path):
     # A getter returning None on a REQUIRED file means the parser no longer
     # understands the file's structure -- the drift gate must fail loudly,
@@ -329,6 +349,7 @@ def test_bump_version_writes_every_tracked_file(tmp_path):
 
     cargo_lock = (repo / "desktop" / "src-tauri" / "Cargo.lock").read_text(encoding="utf-8")
     assert 'name = "desktop"\nversion = "9.9.9"' in cargo_lock
+    assert 'name = "aiguard-native-broker-protocol"\nversion = "9.9.9"' in cargo_lock
 
     broker_cargo_toml = (repo / "native-broker" / "Cargo.toml").read_text(encoding="utf-8")
     assert 'version = "9.9.9"' in broker_cargo_toml

@@ -17,6 +17,13 @@ use aiguard_native_broker_protocol::ProtocolError;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_MARKER: &str = concat!(
+    "AIGUARD_NATIVE_COMPONENT_BUILD_ID=",
+    env!("CARGO_PKG_VERSION"),
+    "\0"
+);
+
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -114,35 +121,34 @@ impl ManifestFixture {
         let broker_path = directory.join(&broker_name);
         let backend_path = directory.join(&backend_name);
         let manifest_path = directory.join(&manifest_name);
-        let marker = b"AIGUARD_NATIVE_COMPONENT_BUILD_ID=2.5.0\0";
-        std::fs::write(&broker_path, marker).unwrap();
+        std::fs::write(&broker_path, BUILD_MARKER.as_bytes()).unwrap();
         std::fs::write(&backend_path, b"synthetic backend component").unwrap();
         let manifest = serde_json::json!({
             "schema_version": 1,
-            "product_version": "2.5.0",
+            "product_version": PRODUCT_VERSION,
             "broker": {
                 "component_id": "native-broker",
                 "path": broker_name,
                 "sha256": digest_file(&broker_path),
-                "build_id": "2.5.0"
+                "build_id": PRODUCT_VERSION
             },
             "clients": [{
                 "component_id": format!("{role}-fixture"),
                 "role": role,
                 "path": executable.file_name().unwrap().to_string_lossy(),
                 "sha256": digest_file(&executable),
-                "build_id": "2.5.0"
+                "build_id": PRODUCT_VERSION
             }],
             "backend": {
                 "component_id": "python-backend",
                 "path": backend_name,
                 "sha256": digest_file(&backend_path),
-                "build_id": "2.5.0",
+                "build_id": PRODUCT_VERSION,
                 "arguments": ["--native-broker-backend"]
             }
         });
         std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
-        let loaded = ComponentManifest::load(&manifest_path, "2.5.0").unwrap();
+        let loaded = ComponentManifest::load(&manifest_path, PRODUCT_VERSION).unwrap();
         loaded.verify_client_executable(&executable).unwrap();
         Self {
             manifest: Some(loaded),
@@ -170,7 +176,7 @@ fn launch_backend() -> ManagedBackend {
         &python,
         &arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_secs(20),
             request: Duration::from_secs(2),
@@ -219,7 +225,7 @@ fn hello(stream: &mut NativeStream, role: &str, versions: serde_json::Value) -> 
         stream,
         serde_json::json!({
             "claimed_role": role,
-            "client_product_version": "2.5.0",
+            "client_product_version": PRODUCT_VERSION,
             "request_id": format!("hello-{role}"),
             "supported_protocol_versions": versions,
         }),
@@ -280,7 +286,7 @@ fn live_sessions_are_cleaned_on_eof_malformed_frame_and_broker_shutdown() {
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         runtime_config(),
     )
     .unwrap();
@@ -337,7 +343,7 @@ fn authenticated_desktop_health_and_slice3_data_are_live_while_global_stop_stays
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         runtime_config(),
     )
     .unwrap();
@@ -347,7 +353,7 @@ fn authenticated_desktop_health_and_slice3_data_are_live_while_global_stop_stays
         .write_value(
             &serde_json::json!({
                 "claimed_role": "desktop",
-                "client_product_version": "2.5.0",
+                "client_product_version": PRODUCT_VERSION,
                 "request_id": "pipelined-hello",
                 "supported_protocol_versions": [1],
             }),
@@ -534,7 +540,7 @@ fn admitted_idle_connection_survives_the_partial_frame_deadline() {
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         BrokerRuntimeConfig {
             accept_poll: Duration::from_millis(10),
             hello_timeout: Duration::from_secs(1),
@@ -580,7 +586,7 @@ fn transient_backend_lock_busy_keeps_the_health_connection_live() {
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         runtime_config(),
     )
     .unwrap();
@@ -629,7 +635,7 @@ fn maintenance_can_health_and_stop_but_cannot_request_data() {
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         runtime_config(),
     )
     .unwrap();
@@ -691,7 +697,7 @@ fn backend_crash_after_runtime_construction_closes_endpoint_and_returns_fixed_ex
         endpoint,
         fixture.manifest.take().unwrap(),
         launch_backend(),
-        "2.5.0",
+        PRODUCT_VERSION,
         runtime_config(),
     )
     .unwrap();
@@ -1062,7 +1068,7 @@ fn expired_on_demand_deadline_never_launches_a_late_broker() {
         &endpoint_root,
         &fixture.paths[0],
         "desktop",
-        "2.5.0",
+        PRODUCT_VERSION,
         Duration::from_nanos(1),
         || {
             launched.store(true, Ordering::Release);
@@ -1077,25 +1083,25 @@ fn expired_on_demand_deadline_never_launches_a_late_broker() {
 fn write_control_client_manifest(path: &Path, broker: &Path, client: &Path, backend: &Path) {
     let manifest = serde_json::json!({
         "schema_version": 1,
-        "product_version": "2.5.0",
+        "product_version": PRODUCT_VERSION,
         "broker": {
             "component_id": "native-broker",
             "path": broker.file_name().unwrap().to_string_lossy(),
             "sha256": digest_file(broker),
-            "build_id": "2.5.0"
+            "build_id": PRODUCT_VERSION
         },
         "clients": [{
             "component_id": "desktop-fixture",
             "role": "desktop",
             "path": client.file_name().unwrap().to_string_lossy(),
             "sha256": digest_file(client),
-            "build_id": "2.5.0"
+            "build_id": PRODUCT_VERSION
         }],
         "backend": {
             "component_id": "python-backend",
             "path": backend.file_name().unwrap().to_string_lossy(),
             "sha256": digest_file(backend),
-            "build_id": "2.5.0",
+            "build_id": PRODUCT_VERSION,
             "arguments": ["--native-broker-backend"]
         }
     });
@@ -1149,7 +1155,7 @@ fn control_client_broker_fixture() {
         return;
     };
     let endpoint_root = PathBuf::from(std::env::var_os("AIGUARD_SLICE2_ENDPOINT_ROOT").unwrap());
-    let manifest = ComponentManifest::load(Path::new(&manifest_path), "2.5.0").unwrap();
+    let manifest = ComponentManifest::load(Path::new(&manifest_path), PRODUCT_VERSION).unwrap();
     manifest
         .verify_broker_executable(&std::env::current_exe().unwrap())
         .unwrap();
@@ -1171,7 +1177,7 @@ fn control_client_broker_fixture() {
         endpoint,
         manifest,
         backend,
-        "2.5.0",
+        PRODUCT_VERSION,
         BrokerRuntimeConfig {
             idle_timeout: std::env::var("AIGUARD_SLICE2_IDLE_MS")
                 .ok()
@@ -1223,7 +1229,7 @@ fn control_client_client_fixture() {
                 &endpoint_root,
                 &manifest_path,
                 "desktop",
-                "2.5.0",
+                PRODUCT_VERSION,
                 Duration::from_secs(30),
                 move || {
                     let mut command = std::process::Command::new(&broker_path);
@@ -1261,7 +1267,7 @@ fn control_client_client_fixture() {
                 &endpoint_root,
                 Path::new(&manifest_path),
                 "desktop",
-                "2.5.0",
+                PRODUCT_VERSION,
                 Duration::from_secs(15),
             )
         }
@@ -1270,7 +1276,7 @@ fn control_client_client_fixture() {
             &endpoint_root,
             Path::new(&manifest_path),
             "desktop",
-            "2.5.0",
+            PRODUCT_VERSION,
             Duration::from_secs(5),
         )
     };
@@ -1349,7 +1355,7 @@ fn control_client_client_fixture() {
                         stream.write_value(
                             &serde_json::json!({
                                 "claimed_role": "desktop",
-                                "client_product_version": "2.5.0",
+                                "client_product_version": PRODUCT_VERSION,
                                 "request_id": format!("capacity-hello-{index}"),
                                 "supported_protocol_versions": [1],
                             }),
@@ -1394,7 +1400,7 @@ fn control_client_client_fixture() {
                         &capacity_root,
                         &capacity_manifest,
                         "desktop",
-                        "2.5.0",
+                        PRODUCT_VERSION,
                         Duration::from_secs(5),
                     ) {
                         Err(error) => error.code().to_owned(),

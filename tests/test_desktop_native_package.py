@@ -3067,6 +3067,13 @@ def test_windows_ci_uses_default_path_and_full_install_upgrade_reinstall_lifecyc
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     windows = workflow.split("  windows-exe-smoke:", 1)[1]
 
+    assert '$productVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()' in windows
+    assert "$installed.DisplayVersion -ne $productVersion" in windows
+    assert (
+        "Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion "
+        "-Value $predecessorVersion"
+    ) in windows
+    assert "DisplayVersion -ne $productVersion" in windows
     assert '$installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"' in windows
     assert '$installLocationKey = "HKCU:\\Software\\Teerapat Vatpitak\\AI Guard"' in windows
     assert (
@@ -3083,10 +3090,6 @@ def test_windows_ci_uses_default_path_and_full_install_upgrade_reinstall_lifecyc
     assert '"clean-install"' in windows
     assert '"repair"' in windows
     assert '"deterministic-predecessor-upgrade"' in windows
-    assert (
-        'Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value "2.4.999"'
-        in windows
-    )
     assert '"uninstall"' in windows
     assert '"reinstall"' in windows
     assert '"final-cleanup"' in windows
@@ -3245,12 +3248,47 @@ def test_cross_platform_workflow_builds_and_smokes_native_packages():
     assert "--no-bundle" not in workflow
 
 
-def test_tagged_installer_publication_is_fail_closed_until_owner_release_preparation():
+def test_tagged_installer_publication_uses_the_owner_authorized_release_path():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    assert "blocked-until-owner-release-preparation" in workflow
-    assert "release preparation has not been authorized" in workflow
+    assert "blocked-until-owner-release-preparation" not in workflow
+    assert "release preparation has not been authorized" not in workflow
     assert "blocked-until-phase-8-slice-6" not in workflow
     assert "native component manifest is not installed" not in workflow
     assert "build:\n    needs: preflight" in workflow
     assert "checksums-and-attest:\n" in workflow
     assert "needs: build" in workflow
+
+
+def test_release_workflow_finalizes_and_resigns_appimage_before_upload():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    linux_tools = (ROOT / "scripts" / "fetch_tauri_linux_tools.py").read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "candidate_sha:" in workflow
+    assert "Verify the exact candidate commit and clean tree" in workflow
+    assert "AIGUARD_EXTENSION_IDENTITY" in workflow
+    assert "python scripts/prewarm_ner.py" in workflow
+    assert "python scripts/prepare_desktop_native_package.py --build-placeholders" in workflow
+    assert "linuxdeploy-plugin-appimage-x86_64.AppImage" in workflow
+    assert "scripts/fetch_tauri_linux_tools.py" in workflow
+    assert package.APPIMAGE_PLUGIN_SHA256["x86_64"] in linux_tools
+    assert "releases/assets/497460911" in linux_tools
+    assert "tauriScript: python ../scripts/release_tauri_build.py" in workflow
+    assert "release_tauri_build.py" in workflow
+    assert "extract_release_notes.py" in workflow
+    assert "python scripts/stage_release_candidate_assets.py" in workflow
+    assert workflow.count("release-candidate-assets/*") == 3
+    assert "Create the exact candidate artifact manifest" in workflow
+    assert "create_release_candidate_manifest.py" in workflow
+    assert "if: github.event_name == 'push'" in workflow
+
+
+def test_ci_packages_the_exact_production_extension_candidate():
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "extension-package:" in workflow
+    extension_job = workflow.split("  extension-package:", 1)[1].split("\n  pytest:", 1)[0]
+    assert "python scripts/package_extension.py" in extension_job
+    assert "config/chrome-extension-identity.json" in extension_job
+    assert "aiguard-extension-${{ github.sha }}" in extension_job
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in extension_job

@@ -12,6 +12,112 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-14
+
+AI Guard 3.0 moves the local Desktop and Chrome Extension onto one authenticated
+Native Broker boundary. It also promotes the strict HTTP v2 privacy contract,
+the hardened package lifecycle, and the current fail-closed outbound policy.
+
+### Highlights
+
+- Desktop and the Chrome Extension now share a per-user Native Broker that owns
+  the private backend, local session scopes, process admission, and cleanup.
+- The Chrome Extension uses Chrome Native Messaging exclusively. It has no
+  loopback host permission, fixed-port fallback, provider credential, backend
+  address, or PII mapping in browser storage.
+- Windows NSIS, Linux DEB/AppImage, and the relocatable macOS app now carry the
+  broker, native host adapter, host manager, private backend, and a digest-pinned
+  component manifest as one package set.
+- Package recovery covers clean install, repair, predecessor upgrade, same-build
+  reinstall, interrupted replacement/removal, registration repair, and owned
+  cleanup without adopting foreign files or processes.
+
+### Security and privacy
+
+- Local sanitize is transactional: a failed operation publishes no session,
+  mapping, token ordinal, or partial vault state.
+- Session disposal is authenticated and eager across expiry, explicit close,
+  eviction, shutdown, package replacement, and storefront disconnect.
+- Outbound provider text is rescanned immediately before every attempt and is
+  blocked on structured, text-based, or detector-independent residual PII.
+- Public errors and logs use bounded, value-free forms. Raw PII, mappings,
+  private backend endpoints, control credentials, and provider bodies remain
+  outside release evidence and persistent browser storage. The live side-panel
+  document can retain user input, replies, masked output, and restored output
+  until the user clears or replaces them, or the panel closes or reloads.
+- Explicit remote TNER requests fail closed when the service fails or returns an
+  incomplete token stream; local structural engines retain their documented
+  skip-and-continue behavior.
+- PDF redaction now maps detector spans to exact source intervals and fails
+  before output when text-to-bounding-box provenance is incomplete or unsafe.
+
+### Desktop and Extension
+
+- Desktop webview calls use typed Tauri commands into a broker scope instead of
+  connecting to a JavaScript-visible HTTP backend.
+- The Extension keeps one service-worker-owned native port, isolates admitted
+  tabs and panels into separate scopes, validates every sender/result, and
+  disposes state on scope close or connection teardown.
+- Native-host registration is per user on Windows/macOS, package-managed for
+  DEB, and explicit for AppImage. Wrong browser origins and incomplete or
+  digest-mismatched package sets fail closed.
+- The production Extension package uses the owner-approved ID
+  `kdjmkknedgmfphpkjhjdhmjadaelgggm` and contains only the declared
+  `storage`, `clipboardWrite`, `sidePanel`, and `nativeMessaging` permissions.
+
+### Packaging and supported platforms
+
+- Windows x64: per-user NSIS installer, defaulting to
+  `%LOCALAPPDATA%\AI Guard`, with Apps & Features uninstall and signed Tauri
+  updater metadata. The installer itself remains unsigned under the accepted
+  project policy, so Windows may show a SmartScreen warning.
+- macOS Apple silicon: DMG plus updater archive. The app is relocatable and the
+  native-host registration can be repaired or explicitly removed. The package
+  is currently unsigned and not notarized; in-app update is disabled.
+- Linux amd64: DEB installation/removal through `dpkg`, plus a finalized
+  AppImage for user-managed placement. DEB updates remain external package
+  transactions; AppImage replacement is manual and followed by stable-component
+  repair. In-app update is disabled on both shapes.
+- The Chrome Extension is distributed separately from Desktop release assets
+  and requires the matching installed Desktop/native companion. Store review
+  and listing availability remain distinct from unpacked-package acceptance.
+- Microsoft 365 source metadata remains synchronized, but Office is outside the
+  Native Broker v1 distribution and is not a 3.0.0 release artifact. The CLI,
+  hosted adapter, queue emulator, and detector research lanes are not separate
+  public 3.0.0 packages.
+
+### Upgrade notes
+
+- Windows 2.5.0 users can install 3.0.0 over the existing per-user installation;
+  the installer drains the owned runtime, replaces the complete set, repairs
+  native-host registration, and retains the normal install-location preference.
+- DEB users upgrade with the external package manager. AppImage and macOS users
+  replace the package manually, then launch or request native-host repair.
+- Install Desktop 3.0.0 before enabling the 3.0.0 Extension. An older fixed-port
+  Extension/backend composition is not compatible with the Native Messaging
+  path.
+
+### Breaking changes
+
+- First-party HTTP clients use strict contract v2. Explicit mapping fields and
+  permissive v1 response shapes are no longer part of the public local HTTP
+  contract.
+- The Extension no longer connects to localhost and no longer works without the
+  registered 3.0.0 Native Messaging companion.
+
+### Known limitations
+
+- Windows and macOS packages do not carry operating-system publisher
+  signatures; the macOS package is not notarized. Updater signatures verify
+  release bytes but are not a substitute for OS code signing.
+- Text typed directly into a provider-controlled page can be observed by that
+  page before an in-page Mask action. The side panel is the stronger input
+  boundary.
+- Physical scans, handwriting, broad real-form OCR accuracy, Office real-host
+  activation, and official hosted-platform acceptance remain separate gates.
+- AppImage integration is user-scoped and explicit; there is no system package
+  manager entry or automatic uninstall for a user-placed AppImage.
+
 ### Removed
 
 - The winget and Scoop packaging manifests and their `update_packaging.py`

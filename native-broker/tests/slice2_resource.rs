@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 
 use aiguard_native_broker_protocol::backend::{BackendTimeouts, ManagedBackend};
 
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -32,7 +34,7 @@ fn launch_backend() -> ManagedBackend {
         &python_executable(&root),
         &arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_secs(20),
             request: Duration::from_secs(2),

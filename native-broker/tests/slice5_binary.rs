@@ -5,7 +5,7 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 
 const ORIGIN: &str = "chrome-extension://efocdbdljgaaiflfleofbjpenncenhee/";
-const PRODUCT_VERSION: &str = "2.5.0";
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct TempPackage(PathBuf);
 

@@ -107,14 +107,27 @@ _CARGO_LOCK_BROKER_RE = re.compile(
 
 
 def _cargo_lock_get(path: Path) -> str | None:
-    match = _CARGO_LOCK_DESKTOP_RE.search(path.read_text(encoding="utf-8"))
-    return match.group(2) if match else None
+    text = path.read_text(encoding="utf-8")
+    desktop = _CARGO_LOCK_DESKTOP_RE.search(text)
+    broker = _CARGO_LOCK_BROKER_RE.search(text)
+    if desktop is None or broker is None:
+        return None
+    desktop_version = desktop.group(2)
+    broker_version = broker.group(2)
+    if desktop_version != broker_version:
+        return f"{desktop_version} (broker path package has {broker_version})"
+    return desktop_version
 
 
 def _cargo_lock_set(path: Path, new_version: str) -> None:
     text = path.read_text(encoding="utf-8")
-    new_text, n = _CARGO_LOCK_DESKTOP_RE.subn(rf"\g<1>{new_version}\g<3>", text, count=1)
-    if n:
+    new_text, desktop_count = _CARGO_LOCK_DESKTOP_RE.subn(
+        rf"\g<1>{new_version}\g<3>", text, count=1
+    )
+    new_text, broker_count = _CARGO_LOCK_BROKER_RE.subn(
+        rf"\g<1>{new_version}\g<3>", new_text, count=1
+    )
+    if desktop_count and broker_count:
         path.write_text(new_text, encoding="utf-8")
 
 

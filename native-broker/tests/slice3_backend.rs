@@ -15,6 +15,8 @@ use aiguard_native_broker_protocol::BrokerRequest;
 use base64::Engine;
 use serde_json::json;
 
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -147,7 +149,7 @@ fn launch_backend() -> TestBackend {
             &python,
             &arguments,
             &working_directory,
-            "2.5.0",
+            PRODUCT_VERSION,
             BackendTimeouts {
                 startup: Duration::from_secs(20),
                 request: Duration::from_secs(2),
@@ -176,7 +178,7 @@ fn launch_blocking_backend(ready: &Path) -> Arc<Mutex<ManagedBackend>> {
             &python,
             &arguments,
             &root,
-            "2.5.0",
+            PRODUCT_VERSION,
             BackendTimeouts {
                 startup: Duration::from_secs(20),
                 request: Duration::from_secs(2),

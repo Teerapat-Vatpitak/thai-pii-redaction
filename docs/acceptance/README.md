@@ -14,6 +14,7 @@ Detection regression record:
 
 Other acceptance and qualified runtime records:
 
+- [2026-08-14 AI Guard 3.0.0 release certification](2026-08-14-release-3.0.0-certification.md)
 - [2026-08-12 Phase 8 native-broker package/lifecycle recertification](2026-08-12-phase-8-native-broker-package-recertification.md)
 - [2026-08-11 Phase 8 Chrome Native Messaging candidate](2026-08-11-phase-8-slice-5-native-messaging.md)
 - [2026-08-09 Phase 8 native-broker Desktop migration](2026-08-09-phase-8-native-broker-desktop.md)
@@ -207,10 +208,12 @@ package evidence classes separate while covering complete-set admission,
 maintenance drain, live upgrade, interruption/recovery, stale cleanup,
 Windows updater ordering plus explicit non-Windows in-app update rejection,
 uninstall/reinstall, exact-ID real-browser operation, and final
-registration/process cleanup. Slice 6 reaches main only through three exact-
-head independent reviews, branch CI/cross-platform smoke, reviewed-tree
-equality, and green post-main workflows; immutable identifiers are supplied in
-the closure handoff so recording them cannot change the reviewed head. None of
+registration/process cleanup. Slice 6 reached `main` as
+`21f921aa8edb7415551b76f6633ce52fc5e323c6`, tree
+`a701eacfdbfce21a14e2c67c5bb492a0e5c7cb4c`, after three exact-head
+independent reviews, green branch CI `31716919702`, green branch
+cross-platform smoke `31716919706`, reviewed-tree equality, and green post-main
+CI `31719493359` plus cross-platform smoke `31719492934`. None of
 these records establishes Office broker support,
 live-provider/TNER evidence, signing/notarization, a release, deployment, Web
 Store installation, or official hosted acceptance.

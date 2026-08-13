@@ -1,18 +1,18 @@
-# Release workflow retained for historical artifacts and future owner-authorized
-# release preparation. It fails preflight before every publishing job because
-# acceptance work alone never authorizes a tag, release, or installer upload.
+# Owner-authorized release workflow. A pushed immutable version tag builds a
+# draft release; publication still follows verification of the exact draft
+# assets, checksums, updater signatures, and provenance.
 #
 # STATUS: the full Windows/macOS/Linux matrix and checksums/attestation path ran
 # successfully for v2.3.0, v2.4.0, and v2.5.0. That evidence is historical;
-# every new tag remains blocked until a separate release-preparation instruction.
+# every new tag must still pass the current release metadata and asset gates.
 #
 # Verifiability (Horizon-2 #11): build inputs are pinned — Python deps by
 # hash-pinned lockfile, PyInstaller by pin, the NER model by SHA256 in
-# build_sidecar.py, actions by commit SHA, and (REL-12) pip, the Rust toolchain
-# and Node by explicit version rather than "latest"/"stable"/"lts/*". Every
-# release asset is covered by SHA256SUMS + GitHub build provenance
-# (gh attestation verify). This is origin + integrity verification, NOT
-# bit-for-bit reproducibility.
+# build_sidecar.py, actions by commit SHA, Linux Tauri bundling helpers by
+# immutable URL + SHA256, and (REL-12) pip, Rust, and Node by explicit version.
+# Every release asset is compared byte-for-byte with this workflow run before
+# SHA256SUMS and GitHub build provenance are attached. This is origin +
+# integrity verification, NOT bit-for-bit reproducibility.
 #
 # ONE DELIBERATE EXCEPTION: the apt packages below are unversioned. Ubuntu's
 # archive drops superseded versions, so pinning them would break the build the
@@ -22,14 +22,14 @@
 # Two gates from the v2 audit guard the release itself:
 #   REL-1  the pushed tag must equal "v" + VERSION, checked before anything is
 #          built (ci.yml's drift gate never runs on a tag ref).
-#   REL-3  the downloaded asset set must belong to this version, checked before
-#          anything is hashed or attested.
+#   REL-3  the closed downloadable set must match this workflow run's exact
+#          bytes, checked before anything is hashed or attested.
 #
-# Trigger: push an immutable tag like `v3.0.0` after the release-preparation
-# branch has been squashed into main and main is green. Failed tag runs are
-# re-run from the Actions UI; workflow_dispatch is deliberately disabled
-# because a branch name is not a release identity and used to create unusable
-# draft releases.
+# Trigger: a manual candidate build requires an exact 40-character commit SHA
+# and uploads workflow artifacts without creating a Release. Push an immutable
+# tag like `v3.0.0` only after the reviewed candidate is squashed into green
+# main; tag mode creates the draft Release. Failed tag runs are re-run from the
+# Actions UI.
 
 name: Release
 
@@ -37,6 +37,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: "Exact 40-character commit SHA to build without creating a release"
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -51,23 +57,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.ref }}
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
       - name: Verify version, changelog, and tag agree
+        if: github.event_name == 'push'
         env:
           TAG: ${{ github.ref_name }}
         run: python scripts/check_release_readiness.py --expect-tag "$TAG"
 
-      # Acceptance does not authorize publication. Both publishing jobs remain
-      # behind this fail-closed owner-controlled release boundary.
-      - name: Block publication until owner-authorized release preparation
+      - name: Verify the exact candidate commit and clean tree
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
         env:
-          NATIVE_INSTALLER_GATE: blocked-until-owner-release-preparation
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
         run: |
-          echo "::error::$NATIVE_INSTALLER_GATE: release preparation has not been authorized"
-          exit 1
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain)"
+          python scripts/check_release_readiness.py
 
   build:
     needs: preflight
@@ -78,14 +90,18 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      AIGUARD_EXTENSION_IDENTITY: ${{ github.workspace }}/config/chrome-extension-identity.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.ref }}
 
-      - name: Linux system deps (WebKitGTK for Tauri)
+      - name: Linux system deps (Tauri build and production package smoke)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y dbus-daemon libfuse2t64 libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -112,9 +128,7 @@ jobs:
           python -m pip install --require-hashes -r requirements-build.lock
 
       - name: Pre-download the offline NER model
-        # build_sidecar.py bundles ~/pythainlp-data so NER works offline; importing
-        # the thainer engine once fetches it into the runner's home dir.
-        run: python -c "from pythainlp.tag import NER; NER(engine='thainer')"
+        run: python scripts/prewarm_ner.py
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch, 2026-07-16
@@ -143,26 +157,56 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Build the Tauri app and publish the Release
+      - name: Stage invalid build-only Tauri resource manifests
+        run: python scripts/prepare_desktop_native_package.py --build-placeholders
+
+      - name: Preseed every pinned Tauri Linux bundling helper
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/fetch_tauri_linux_tools.py --cache "$HOME/.cache/tauri"
+          plugin="$RUNNER_TEMP/linuxdeploy-plugin-appimage-x86_64.AppImage"
+          test ! -e "$plugin"
+          cp -- "$HOME/.cache/tauri/linuxdeploy-plugin-appimage.AppImage" "$plugin"
+          cmp -- "$HOME/.cache/tauri/linuxdeploy-plugin-appimage.AppImage" "$plugin"
+          chmod 0755 "$plugin"
+
+      - name: Load the dated release notes
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          delimiter="AIGUARD_RELEASE_NOTES_EOF"
+          {
+            echo "body<<$delimiter"
+            python scripts/extract_release_notes.py --version "$(cat VERSION)"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build Tauri artifacts and create the draft in tag mode
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AIGUARD_APPIMAGE_PLUGIN: ${{ runner.temp }}/linuxdeploy-plugin-appimage-x86_64.AppImage
         with:
           projectPath: desktop
-          tagName: ${{ github.ref_name }}
+          tauriScript: python ../scripts/release_tauri_build.py
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
           releaseName: "AI Guard ${{ github.ref_name }}"
           releaseBody: |
-            AI Guard desktop — installers for Windows / macOS / Linux.
-
-            This is a draft starting point. Before publication, replace this
-            paragraph with the dated release-specific section from CHANGELOG.md
-            and retain the verification instructions below.
+            ${{ steps.release_notes.outputs.body }}
 
             **Windows:** the installer is unsigned by design (trust comes from
             verifiability, not a paid certificate — see SECURITY.md). SmartScreen
             will warn on first run: choose **More info → Run anyway**.
+
+            **macOS:** the DMG and updater archive are currently unsigned and not
+            notarized. macOS may require an explicit user override to open them.
 
             **Verify your download** — every asset is listed in `SHA256SUMS` and
             carries GitHub build provenance (both attached by the
@@ -181,65 +225,492 @@ jobs:
           releaseDraft: true
           prerelease: false
 
+      - name: Reverify the Tauri Linux helper cache after bundling
+        if: matrix.os == 'ubuntu-latest'
+        run: >-
+          python scripts/fetch_tauri_linux_tools.py
+          --cache "$HOME/.cache/tauri" --verify-after-build
+
+      - name: Smoke the exact production NSIS package
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundleRoot = "desktop/src-tauri/target/release/bundle/nsis"
+          $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) { throw "expected exactly one production NSIS installer" }
+          $installer = $installers[0].FullName
+          $installerDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash
+          $installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"
+          $preferenceKey = "HKCU:\Software\Teerapat Vatpitak\AI Guard"
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AI Guard"
+          if ((Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath $preferenceKey)) {
+            throw "production NSIS smoke requires a clean runner profile"
+          }
+          New-Item -ItemType Directory -Path release-production-evidence | Out-Null
+          try {
+            $process = Start-Process -FilePath $installer -ArgumentList @("/S") -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "production NSIS install failed" }
+            $installed = Get-ItemProperty -LiteralPath $uninstallKey
+            if ($installed.DisplayVersion -ne (Get-Content -LiteralPath VERSION -Raw).Trim()) {
+              throw "production NSIS registered the wrong version"
+            }
+            python scripts/verify_native_host_registration.py `
+              --shape nsis --state present `
+              --adapter "$installRoot\aiguard-chrome-native-host.exe" `
+              --identity "$env:AIGUARD_EXTENSION_IDENTITY" `
+              > release-production-evidence/production-nsis-registration-present.json
+            if ($LASTEXITCODE -ne 0) { throw "production NSIS registration check failed" }
+            python scripts/smoke_desktop_production_package.py "$installRoot" `
+              --repetitions 2 `
+              --output release-production-evidence/production-nsis-smoke-evidence.json
+            if ($LASTEXITCODE -ne 0) { throw "production NSIS process smoke failed" }
+          }
+          finally {
+            if (Test-Path -LiteralPath $installRoot) {
+              $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter "uninstall*.exe" -File)
+              if ($uninstallers.Count -eq 1) {
+                $cleanup = Start-Process -FilePath $uninstallers[0].FullName -ArgumentList @("/S") -Wait -PassThru
+                if ($cleanup.ExitCode -ne 0) { throw "production NSIS cleanup failed" }
+              }
+            }
+          }
+          $deadline = (Get-Date).AddSeconds(20)
+          while ((Test-Path -LiteralPath $installRoot) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 200
+          }
+          if (Test-Path -LiteralPath $preferenceKey) {
+            if ((Get-Item -LiteralPath $preferenceKey).GetValue("") -ne $installRoot) {
+              throw "production NSIS retained an unexpected install preference"
+            }
+            Remove-Item -LiteralPath $preferenceKey -Force
+          }
+          if ((Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath $preferenceKey)) {
+            throw "production NSIS smoke left package state"
+          }
+          python scripts/verify_native_host_registration.py `
+            --shape nsis --state absent `
+            --adapter "$installRoot\aiguard-chrome-native-host.exe" `
+            --identity "$env:AIGUARD_EXTENSION_IDENTITY" `
+            > release-production-evidence/production-nsis-registration-absent.json
+          if ($LASTEXITCODE -ne 0) { throw "production NSIS cleanup registration check failed" }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash -ne $installerDigest) {
+            throw "production NSIS installer changed during smoke"
+          }
+
+      - name: Smoke the exact production macOS packages
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_root="desktop/src-tauri/target/release/bundle/dmg"
+          updater_root="desktop/src-tauri/target/release/bundle/macos"
+          test "$(find "$dmg_root" -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')" = 1
+          test "$(find "$updater_root" -maxdepth 1 -type f -name '*.app.tar.gz' | wc -l | tr -d ' ')" = 1
+          dmg=$(find "$dmg_root" -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          archive=$(find "$updater_root" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)
+          dmg_digest=$(shasum -a 256 "$dmg" | awk '{print $1}')
+          archive_digest=$(shasum -a 256 "$archive" | awk '{print $1}')
+          work=$(mktemp -d "$RUNNER_TEMP/aiguard-production-macos.XXXXXX")
+          mount="$work/mount"
+          mounted=0
+          cleanup() {
+            for binary in "$work/updater/AI Guard.app/Contents/MacOS/desktop" "$work/dmg/AI Guard.app/Contents/MacOS/desktop"; do
+              [ ! -x "$binary" ] || "$binary" --unregister-native-host >/dev/null 2>&1 || true
+            done
+            if [ "$mounted" = 1 ]; then hdiutil detach "$mount" >/dev/null 2>&1 || true; fi
+            rm -rf -- "$work"
+          }
+          trap cleanup EXIT
+          mkdir -p "$work/updater" "$work/dmg" "$mount" release-production-evidence
+          tar -xzf "$archive" -C "$work/updater"
+          updater_app=$(find "$work/updater" -maxdepth 2 -type d -name '*.app' -print -quit)
+          test -n "$updater_app"
+          updater_package="$updater_app/Contents/MacOS"
+          "$updater_package/desktop" --repair-native-host
+          echo "mac production phase: updater repair passed"
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state present \
+            --adapter "$updater_package/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-updater-registration-present.json
+          echo "mac production phase: updater registration-present check passed"
+          python scripts/smoke_desktop_production_package.py "$updater_package" \
+            --repetitions 2 \
+            --output release-production-evidence/production-updater-smoke-evidence.json
+          echo "mac production phase: updater process smoke passed"
+          "$updater_package/desktop" --unregister-native-host
+          echo "mac production phase: updater unregister passed"
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state absent \
+            --adapter "$updater_package/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-updater-registration-absent.json
+          echo "mac production phase: updater registration-absent check passed"
+
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null
+          mounted=1
+          echo "mac production phase: dmg attach passed"
+          dmg_app=$(find "$mount" -maxdepth 2 -type d -name '*.app' -print -quit)
+          test -n "$dmg_app"
+          ditto "$dmg_app" "$work/dmg/AI Guard.app"
+          echo "mac production phase: dmg copy passed"
+          hdiutil detach "$mount" >/dev/null
+          mounted=0
+          echo "mac production phase: dmg detach passed"
+          dmg_package="$work/dmg/AI Guard.app/Contents/MacOS"
+          "$dmg_package/desktop" --repair-native-host
+          echo "mac production phase: dmg repair passed"
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state present \
+            --adapter "$dmg_package/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-dmg-registration-present.json
+          echo "mac production phase: dmg registration-present check passed"
+          python scripts/smoke_desktop_production_package.py "$dmg_package" \
+            --repetitions 2 \
+            --output release-production-evidence/production-dmg-smoke-evidence.json
+          echo "mac production phase: dmg process smoke passed"
+          "$dmg_package/desktop" --unregister-native-host
+          echo "mac production phase: dmg unregister passed"
+          python scripts/verify_native_host_registration.py \
+            --shape macos --state absent \
+            --adapter "$dmg_package/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-dmg-registration-absent.json
+          echo "mac production phase: dmg registration-absent check passed"
+          test "$(shasum -a 256 "$dmg" | awk '{print $1}')" = "$dmg_digest"
+          test "$(shasum -a 256 "$archive" | awk '{print $1}')" = "$archive_digest"
+          trap - EXIT
+          rm -rf -- "$work"
+
+      - name: Smoke the exact production Linux packages
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb_root="desktop/src-tauri/target/release/bundle/deb"
+          appimage_root="desktop/src-tauri/target/release/bundle/appimage"
+          test "$(find "$deb_root" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = 1
+          test "$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')" = 1
+          deb=$(find "$deb_root" -maxdepth 1 -type f -name '*.deb' -print -quit)
+          appimage=$(find "$appimage_root" -maxdepth 1 -type f -name '*.AppImage' -print -quit)
+          deb_digest=$(sha256sum "$deb" | awk '{print $1}')
+          appimage_digest=$(sha256sum "$appimage" | awk '{print $1}')
+          deb_name=$(dpkg-deb -f "$deb" Package)
+          work=$(mktemp -d "$RUNNER_TEMP/aiguard-production-linux.XXXXXX")
+          deb_installed=0
+          appimage_registered=0
+          cleanup() {
+            if [ "$appimage_registered" = 1 ]; then
+              APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host >/dev/null 2>&1 || true
+            fi
+            if [ "$deb_installed" = 1 ]; then sudo dpkg -r "$deb_name" >/dev/null 2>&1 || true; fi
+            rm -rf -- "$work"
+          }
+          trap cleanup EXIT
+          mkdir -p release-production-evidence
+          sudo dpkg -i "$deb"
+          deb_installed=1
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state present \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-deb-registration-present.json
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_production_package.py /usr/bin --repetitions 2 --output "$1"' \
+            sh release-production-evidence/production-deb-smoke-evidence.json
+          sudo dpkg -r "$deb_name"
+          deb_installed=0
+          python scripts/verify_native_host_registration.py \
+            --shape deb --state absent \
+            --adapter /usr/bin/aiguard-chrome-native-host \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-deb-registration-absent.json
+
+          export XDG_CONFIG_HOME="$work/appimage-config"
+          export XDG_DATA_HOME="$work/appimage-data"
+          mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+          stable_root="$XDG_DATA_HOME/aiguard/native-host-v1/$(cat VERSION)"
+          (cd "$work" && "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null)
+          package="$work/squashfs-root/usr/bin"
+          appimage_registered=1
+          xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+            'python scripts/smoke_desktop_production_package.py "$1" --launcher "$2" --mode appimage-extract-and-run --repetitions 2 --output "$3"' \
+            sh "$package" "$GITHUB_WORKSPACE/$appimage" \
+            release-production-evidence/production-appimage-extract-smoke-evidence.json
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state present \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-appimage-registration-present.json
+          if [ -c /dev/fuse ] && [ -r /dev/fuse ] && [ -w /dev/fuse ]; then
+            xvfb-run -a -e /dev/stderr dbus-run-session -- sh -c \
+              'python scripts/smoke_desktop_production_package.py "$1" --launcher "$2" --mode appimage-fuse --repetitions 1 --output "$3"' \
+              sh "$package" "$GITHUB_WORKSPACE/$appimage" \
+              release-production-evidence/production-appimage-fuse-smoke-evidence.json
+          else
+            printf '%s\n' '{"execution_mode":"appimage-fuse","status":"unavailable_on_runner"}' \
+              > release-production-evidence/production-appimage-fuse-smoke-evidence.json
+          fi
+          APPIMAGE_EXTRACT_AND_RUN=1 "$GITHUB_WORKSPACE/$appimage" --unregister-native-host
+          appimage_registered=0
+          python scripts/verify_native_host_registration.py \
+            --shape appimage --state absent \
+            --adapter "$stable_root/aiguard-chrome-native-host" \
+            --identity "$AIGUARD_EXTENSION_IDENTITY" \
+            > release-production-evidence/production-appimage-registration-absent.json
+          test ! -e "$stable_root"
+          test "$(sha256sum "$deb" | awk '{print $1}')" = "$deb_digest"
+          test "$(sha256sum "$appimage" | awk '{print $1}')" = "$appimage_digest"
+          trap - EXIT
+          rm -rf -- "$work"
+
+      - name: Upload value-free production package smoke evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-production-smoke-${{ matrix.os }}-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-production-evidence/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stage exact candidate bytes under final publication names
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) platform=windows ;;
+            macOS) platform=macos ;;
+            Linux) platform=linux ;;
+            *) echo "unsupported runner OS" >&2; exit 1 ;;
+          esac
+          python scripts/stage_release_candidate_assets.py \
+            --source desktop/src-tauri/target/release/bundle \
+            --output release-candidate-assets \
+            --version "$(cat VERSION)" \
+            --platform "$platform"
+
+      - name: Upload the current-run Windows release bytes
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-build-windows-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload the current-run macOS release bytes
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-build-macos-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload the current-run Linux release bytes
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-build-linux-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  extension-candidate:
+    name: exact production Extension candidate
+    if: github.event_name == 'workflow_dispatch'
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Build the exact production-ID package
+        run: >-
+          python scripts/package_extension.py
+          --identity config/chrome-extension-identity.json
+      - name: Upload the exact Extension release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-candidate-extension-${{ inputs.candidate_sha }}
+          path: dist/aiguard-extension-*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  candidate-manifest:
+    name: exact release candidate artifact manifest
+    if: github.event_name == 'workflow_dispatch'
+    needs: [build, extension-candidate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+      - name: Download the exact current-run Desktop artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: aiguard-release-build-*-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate-assets
+          merge-multiple: true
+      - name: Download the exact Extension artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: aiguard-release-candidate-extension-${{ inputs.candidate_sha }}
+          path: candidate-assets
+          merge-multiple: true
+      - name: Create the exact candidate artifact manifest
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          source_tree=$(git show -s --format=%T "$CANDIDATE_SHA")
+          python scripts/create_release_candidate_manifest.py \
+            --dir candidate-assets \
+            --version "$(cat VERSION)" \
+            --source-sha "$CANDIDATE_SHA" \
+            --source-tree "$source_tree" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output release-candidate-manifest.json
+      - name: Upload the exact candidate manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-candidate-manifest-${{ inputs.candidate_sha }}
+          path: release-candidate-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
   checksums-and-attest:
-    # Hash + attest what users will actually download: pull every asset back
-    # off the draft release, publish SHA256SUMS as another asset, and attach
-    # SLSA build provenance (verify with `gh attestation verify`).
+    # The draft is mutable. Bind it to the current workflow artifacts first,
+    # then hash, redownload, recheck, and attest only the closed final set.
     name: checksums + attestation
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write # upload SHA256SUMS to the release
+      contents: write # replace updater metadata and upload SHA256SUMS
       id-token: write # sign the attestation (Sigstore)
       attestations: write # store the attestation
     steps:
-      # REL-3: the asset check below needs the repo (VERSION + the script).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Download all release assets
+      - name: Download the exact Desktop bytes produced by this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: aiguard-release-build-*-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: current-run-assets
+          merge-multiple: true
+
+      - name: Create the current-run build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_tree=$(git show -s --format=%T "$GITHUB_SHA")
+          python3 scripts/create_release_build_manifest.py \
+            --dir current-run-assets \
+            --version "$(cat VERSION)" \
+            --source-sha "$GITHUB_SHA" \
+            --source-tree "$source_tree" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output release-build-manifest.json
+
+      - name: Upload the current-run build manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-release-build-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-build-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Resolve one exact draft and generate canonical updater metadata
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        # NOTE: download into release-assets/, NOT assets/ — the repo tracks a
-        # top-level assets/ dir (logos), which the checkout step above
-        # materializes. `mkdir assets` would then fail ("File exists") under the
-        # Actions default `bash -e` and kill the job, so no SHA256SUMS and no
-        # attestation would ever be published. `mkdir -p` is NOT the fix: it
-        # would leave the repo's own PNGs in the hashed+attested set.
+        shell: bash
         run: |
-          mkdir release-assets
-          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets; then
-            echo "direct download failed (draft edge case); resolving release id via API"
-            rid=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name==\"$TAG\") | .id" | head -1)
-            [ -n "$rid" ] || { echo "ERROR: no release found for tag $TAG"; exit 1; }
-            gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets" --paginate \
-              --jq '.[] | [.id, .name] | @tsv' |
-            while IFS=$'\t' read -r aid name; do
-              echo "downloading $name"
-              gh api -H "Accept: application/octet-stream" \
-                "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "release-assets/$name"
-            done
-          fi
-          ls -l release-assets
-          [ "$(ls -A release-assets)" ] || { echo "ERROR: zero assets downloaded for $TAG"; exit 1; }
+          set -euo pipefail
+          mkdir generated-release-metadata
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/releases?per_page=100" > exact-releases.json
+          python3 scripts/resolve_release_draft.py \
+            --releases exact-releases.json \
+            --tag "$TAG" \
+            --output release-id.txt
+          release_id=$(cat release-id.txt)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" > exact-release-assets.json
+          python3 scripts/extract_release_notes.py --version "$(cat VERSION)" > release-notes.md
+          pub_date=$(git show -s --format=%cI "$GITHUB_SHA")
+          python3 scripts/create_latest_json.py \
+            --build-manifest release-build-manifest.json \
+            --asset-metadata exact-release-assets.json \
+            --signatures-dir current-run-assets \
+            --notes release-notes.md \
+            --pub-date "$pub_date" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output generated-release-metadata/latest.json
 
-      # REL-3: this job hashes + attests whatever sits on the draft release, which
-      # is not guaranteed to be what this run built (re-run over an old draft,
-      # matrix creating a second draft, anything uploaded in between). Refuse the
-      # set unless every versioned asset belongs to the version being released.
-      # python3 (not python): this job has no setup-python step, and python3 is
-      # what the ubuntu runner image guarantees. The script is pure stdlib.
-      - name: Verify the asset set belongs to this release
+          if python3 - <<'PY'
+          import json
+          assets = json.load(open("exact-release-assets.json", encoding="utf-8"))
+          raise SystemExit(0 if any(item.get("name") == "SHA256SUMS" for item in assets) else 1)
+          PY
+          then
+            gh release delete-asset "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --yes
+          fi
+          gh release upload "$TAG" generated-release-metadata/latest.json \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Download and verify the closed draft set against current-run bytes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
+          set -euo pipefail
+          release_id=$(cat release-id.txt)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" > exact-release-assets.json
+          pub_date=$(git show -s --format=%cI "$GITHUB_SHA")
+          python3 scripts/create_latest_json.py \
+            --build-manifest release-build-manifest.json \
+            --asset-metadata exact-release-assets.json \
+            --signatures-dir current-run-assets \
+            --notes release-notes.md \
+            --pub-date "$pub_date" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output generated-release-metadata/latest-refreshed.json
+          cmp -- generated-release-metadata/latest.json generated-release-metadata/latest-refreshed.json
+          mkdir release-assets
+          python3 - <<'PY' > asset-ids.tsv
+          import json
+          for item in json.load(open("exact-release-assets.json", encoding="utf-8")):
+              print(f"{item['id']}\t{item['name']}")
+          PY
+          while IFS=$'\t' read -r asset_id name; do
+            case "$name" in */*|*\\*|.|..) echo "unsafe release asset name" >&2; exit 1 ;; esac
+            gh api -H "Accept: application/octet-stream" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "release-assets/$name"
+          done < asset-ids.tsv
           python3 scripts/check_release_assets.py \
-            --dir release-assets --expect-version "$(cat VERSION)"
+            --dir release-assets \
+            --expect-version "$(cat VERSION)" \
+            --build-manifest release-build-manifest.json \
+            --expected-latest generated-release-metadata/latest.json
 
       - name: Generate SHA256SUMS
+        shell: bash
         run: |
+          set -euo pipefail
           cd release-assets
-          # Drop any SHA256SUMS pulled back in by a re-run's download step, so
-          # the glob below never hashes (a stale copy of) the sums file itself.
-          rm -f SHA256SUMS
           sha256sum * > ../SHA256SUMS
           mv ../SHA256SUMS .
           cat SHA256SUMS
@@ -250,7 +721,42 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: gh release upload "$TAG" release-assets/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
 
+      - name: Redownload and reverify the final downloadable set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id=$(cat release-id.txt)
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" > final-release-assets.json
+          pub_date=$(git show -s --format=%cI "$GITHUB_SHA")
+          python3 scripts/create_latest_json.py \
+            --build-manifest release-build-manifest.json \
+            --asset-metadata final-release-assets.json \
+            --signatures-dir current-run-assets \
+            --notes release-notes.md \
+            --pub-date "$pub_date" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output generated-release-metadata/latest-final.json
+          cmp -- generated-release-metadata/latest.json generated-release-metadata/latest-final.json
+          mkdir final-release-assets
+          python3 - <<'PY' > final-asset-ids.tsv
+          import json
+          for item in json.load(open("final-release-assets.json", encoding="utf-8")):
+              print(f"{item['id']}\t{item['name']}")
+          PY
+          while IFS=$'\t' read -r asset_id name; do
+            case "$name" in */*|*\\*|.|..) echo "unsafe release asset name" >&2; exit 1 ;; esac
+            gh api -H "Accept: application/octet-stream" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "final-release-assets/$name"
+          done < final-asset-ids.tsv
+          python3 scripts/check_release_assets.py \
+            --dir final-release-assets \
+            --expect-version "$(cat VERSION)" \
+            --build-manifest release-build-manifest.json \
+            --expected-latest generated-release-metadata/latest.json
+
       - name: Attest build provenance for every asset
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: release-assets/*
+          subject-path: final-release-assets/*

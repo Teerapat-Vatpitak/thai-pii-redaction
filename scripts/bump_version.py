@@ -3,9 +3,10 @@
 source of truth (`VERSION`) down.
 
 Writes the new version into: `VERSION`, `extension/manifest.json`, the Office
-Add-in unified and host-specific local manifests plus package/lock files, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`,
-`desktop/src-tauri/Cargo.lock` (only the `desktop` package entry), and
-the native-broker Cargo manifest/lock package entry,
+Add-in unified and host-specific local manifests plus package/lock files,
+`desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`,
+`desktop/src-tauri/Cargo.lock` (the Desktop and broker path-package entries),
+and the native-broker Cargo manifest/lock package entry,
 `desktop/package.json` (if it has a `version` field), and both root-version
 fields in `desktop/package-lock.json`.
 

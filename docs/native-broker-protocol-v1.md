@@ -1,11 +1,10 @@
 # Native broker protocol v1
 
-- Status: normative Slice 1 contract; runtime Slices 2--5 integrated; the Slice
-  6 package/lifecycle closure candidate uses the existing maintenance operation,
-  does not change protocol v1, and becomes integrated only when this exact tree
-  reaches `main` through its closure protocol
+- Status: normative Slice 1 contract; runtime/package Slices 2--6 integrated;
+  Slice 6 uses the existing maintenance operation and does not change protocol
+  v1
 - Protocol version: `1`
-- Product version: independent (`VERSION` remains `2.5.0`)
+- Product version: independent (the release candidate sets `VERSION` to `3.0.0`)
 - HTTP contract: independent (HTTP v2 remains unchanged)
 - Worker envelope: independent (worker v1 remains unchanged)
 
@@ -160,7 +159,7 @@ connect/hello/health may be retried; a PII-bearing operation is never replayed.
 The first complete message is exactly:
 
 ```json
-{"claimed_role":"desktop","client_product_version":"2.5.0","request_id":"hello-1","supported_protocol_versions":[1]}
+{"claimed_role":"desktop","client_product_version":"3.0.0","request_id":"hello-1","supported_protocol_versions":[1]}
 ```
 
 The keys are:
@@ -187,7 +186,7 @@ Adding a negotiable capability requires a compatible protocol revision.
 The success is exactly:
 
 ```json
-{"broker_product_version":"2.5.0","broker_protocol_version":1,"request_id":"hello-1","role":"desktop"}
+{"broker_product_version":"3.0.0","broker_protocol_version":1,"request_id":"hello-1","role":"desktop"}
 ```
 
 `role` is the role bound after the external authenticated role matched the
@@ -482,6 +481,5 @@ manifest contains mapping/session data.
 
 Slice 1 itself implements no retry, disposal, teardown, or backend call. It
 exposes the policy metadata so later slices cannot silently choose weaker
-semantics; integrated Slices 2--5 and the merge-conditional Slice 6 closure tree
-enforce that policy at the runtime, data-plane, native-host, and package
-boundaries.
+semantics; integrated Slices 2--6 enforce that policy at the runtime,
+data-plane, native-host, and package boundaries.

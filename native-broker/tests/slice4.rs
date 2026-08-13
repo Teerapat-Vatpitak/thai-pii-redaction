@@ -25,7 +25,7 @@ use aiguard_native_broker_protocol::{
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
-const PRODUCT_VERSION: &str = "2.5.0";
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BROKER_TEST_NAME: &str = "desktop_broker_subprocess_fixture";
 const BROKER_ENVIRONMENT_TEST_NAME: &str = "desktop_broker_environment_subprocess_fixture";
 const DESKTOP_CLIENT_TEST_NAME: &str = "desktop_client_subprocess_fixture";

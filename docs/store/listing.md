@@ -1,10 +1,13 @@
 # AI Guard — Chrome Web Store listing copy
 
-> Candidate status (2026-08-12): owner-approved unpublished Item ID
+> Candidate status (2026-08-14): owner-approved unpublished Item ID
 > `kdjmkknedgmfphpkjhjdhmjadaelgggm` is bound to the Native Messaging
-> production path. The item remains Draft/unpublished. Do not submit, publish,
-> or claim Web Store installation acceptance; exact-ID browser evidence is an
-> unpacked load. The deterministic test identity remains synthetic only.
+> production path. The owner has authorized submission of the exact reviewed
+> 3.0.0 ZIP through an authenticated Chrome Web Store account. The item remains
+> Draft/unpublished until that action succeeds, and publication or installed-
+> Store acceptance must not be claimed before the store reports it. Exact-ID
+> browser evidence is still an unpacked load. The deterministic test identity
+> remains synthetic only.
 
 ## Single purpose
 
@@ -100,8 +103,8 @@ How it works:
 - [x] Verify the native-host manifest contains exactly
       `chrome-extension://kdjmkknedgmfphpkjhjdhmjadaelgggm/`.
 - [x] Run exact-ID unpacked real-Chromium plus installed-companion acceptance.
-- [ ] Run installed-Web-Store acceptance only if a supported unpublished-item
-      mechanism exists or the owner separately authorizes review/submission.
+- [ ] Submit only the exact reviewed 3.0.0 ZIP, then run installed-Web-Store
+      acceptance if the store exposes an authorized test or published install.
 - [x] Capture only synthetic PII in screenshots and evidence.
 - [ ] Reconfirm category labels and listing length limits at submission time.
 

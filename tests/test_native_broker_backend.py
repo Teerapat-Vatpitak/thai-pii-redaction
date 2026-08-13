@@ -31,6 +31,7 @@ from native_broker_backend import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
+PRODUCT_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 HEADER = struct.Struct(">8sHHHHI")
 
 
@@ -49,7 +50,7 @@ def test_private_backend_bounds_reportlab_search_paths(monkeypatch):
 
 def _bootstrap_packet(
     *,
-    product_version: bytes = b"2.5.0",
+    product_version: bytes = PRODUCT_VERSION.encode("ascii"),
     api_key: bytes | None = None,
     control_token: bytes | None = None,
     socket_info: bytes = b"",
@@ -162,7 +163,7 @@ def test_bootstrap_packet_is_strict_bounded_and_value_free():
     packet, api_key, control_token = _bootstrap_packet()
     credentials, socket_info = decode_bootstrap_packet(packet)
 
-    assert credentials.product_version == "2.5.0"
+    assert credentials.product_version == PRODUCT_VERSION
     assert credentials.api_key == api_key.decode("ascii")
     assert credentials.control_token == control_token.decode("ascii")
     assert socket_info == b""
@@ -350,7 +351,7 @@ def test_prebound_private_backend_health_and_direct_data_denial():
         health = _wait_for_health(address)
         assert health == {
             "status": "ok",
-            "version": "2.5.0",
+            "version": PRODUCT_VERSION,
             "contract_version": 2,
             "capabilities": {
                 "control_token_required": True,

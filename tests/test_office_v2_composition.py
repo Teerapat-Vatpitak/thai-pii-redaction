@@ -14,7 +14,7 @@ CONTRACT_HEADERS = {"X-AIGuard-Contract-Version": "2"}
 def _health(*, control=True, api_key=False):
     return {
         "status": "ok",
-        "version": "2.5.0",
+        "version": composition.PRODUCT_VERSION,
         "contract_version": 2,
         "capabilities": {
             "control_token_required": control,

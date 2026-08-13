@@ -28,7 +28,7 @@ use aiguard_native_broker_protocol::{negotiate_hello, BrokerRequest, ProtocolErr
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-const PRODUCT_VERSION: &str = "2.5.0";
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DESKTOP_LIVE_FIXTURE: &str = "slice6_desktop_live_scope_fixture";
 const EXTENSION_LIVE_FIXTURE: &str = "slice6_extension_live_scope_fixture";
 const MANAGER_DRAIN_FIXTURE: &str = "slice6_manager_drain_fixture";
@@ -526,7 +526,7 @@ fn hello(product_version: &str, versions: serde_json::Value) -> Vec<u8> {
 
 #[test]
 fn compatibility_uses_only_explicit_protocol_intersection() {
-    for client_version in ["2.4.9-fixture", "2.5.0", "9.0.0-fixture"] {
+    for client_version in ["2.4.9-fixture", PRODUCT_VERSION, "9.0.0-fixture"] {
         let negotiated = negotiate_hello(
             &hello(client_version, serde_json::json!([1])),
             "desktop",
@@ -554,8 +554,12 @@ fn compatibility_uses_only_explicit_protocol_intersection() {
         serde_json::json!([1, 1]),
         serde_json::json!(["1"]),
     ] {
-        let error =
-            negotiate_hello(&hello("2.5.0", malformed), "desktop", PRODUCT_VERSION).unwrap_err();
+        let error = negotiate_hello(
+            &hello(PRODUCT_VERSION, malformed),
+            "desktop",
+            PRODUCT_VERSION,
+        )
+        .unwrap_err();
         assert_eq!(error.code(), "request_invalid");
     }
 }

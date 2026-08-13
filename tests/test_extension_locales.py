@@ -273,7 +273,8 @@ def test_package_extension_builds_owner_approved_production_identity_without_ove
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
-    zip_path = tmp_path / "aiguard-extension-2.5.0.zip"
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    zip_path = tmp_path / f"aiguard-extension-{version}.zip"
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
         manifest = json.loads(zf.read("manifest.json"))
@@ -296,6 +297,42 @@ def test_package_extension_builds_owner_approved_production_identity_without_ove
     assert b"localhost" not in packaged_text
     assert b"127.0.0.1" not in packaged_text
     assert b"fetch(" not in packaged_text
+
+
+def test_package_extension_has_reproducible_zip_metadata(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    command = [
+        PY,
+        str(ROOT / "scripts" / "package_extension.py"),
+        "--root",
+        str(ROOT),
+        "--identity",
+        str(PRODUCTION_IDENTITY),
+    ]
+    first_result = subprocess.run(
+        [*command, "--dist-dir", str(first)], capture_output=True, text=True
+    )
+    second_result = subprocess.run(
+        [*command, "--dist-dir", str(second)], capture_output=True, text=True
+    )
+    assert first_result.returncode == 0, first_result.stdout + first_result.stderr
+    assert second_result.returncode == 0, second_result.stdout + second_result.stderr
+
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    first_zip = first / f"aiguard-extension-{version}.zip"
+    second_zip = second / f"aiguard-extension-{version}.zip"
+
+    assert first_zip.read_bytes() == second_zip.read_bytes()
+    with zipfile.ZipFile(first_zip) as archive:
+        assert archive.infolist()
+        for info in archive.infolist():
+            assert info.date_time == (1980, 1, 1, 0, 0, 0)
+            assert info.create_system == 3
+            assert info.external_attr >> 16 == 0o100644
 
 
 def test_package_extension_refuses_to_create_an_identityless_storefront_artifact(tmp_path):
@@ -368,3 +405,24 @@ def test_package_extension_is_stdlib_only():
     source = (ROOT / "scripts" / "package_extension.py").read_text(encoding="utf-8")
     for banned in ("import fastapi", "import requests", "import httpx"):
         assert banned not in source
+
+
+def test_public_release_and_privacy_text_describes_live_panel_retention_honestly():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").casefold()
+    policy = (ROOT / "docs" / "store" / "privacy-policy.md").read_text(encoding="utf-8")
+    policy_folded = policy.casefold()
+    policy_words = " ".join(policy_folded.split())
+
+    assert "outside storefront state" not in changelog
+    assert "live side-panel" in changelog
+    assert "until you clear or replace" in policy_words
+    assert "closed or reloaded" in policy_words
+    assert "not written to chrome storage or disk" in policy_words
+    assert "หน่วยความจำของเอกสารแผงด้านข้างที่เปิดอยู่" in policy
+    assert "จนกว่าคุณจะล้างหรือแทนที่" in policy
+    assert "ไม่เขียนลง chrome storage หรือดิสก์" in policy_folded
+
+
+def test_v3_native_broker_protocol_examples_do_not_claim_v2_5_runtime():
+    protocol = (ROOT / "docs" / "native-broker-protocol-v1.md").read_text(encoding="utf-8")
+    assert "2.5.0" not in protocol

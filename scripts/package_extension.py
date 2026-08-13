@@ -30,6 +30,16 @@ from native_host_identity import load_extension_identity
 
 EXCLUDED_NAMES = {"README.md"}
 EXCLUDED_DIRECTORIES = {"tests"}
+ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+
+
+def _zip_info(name: str) -> zipfile.ZipInfo:
+    """Return stable regular-file metadata for a reproducible upload ZIP."""
+    info = zipfile.ZipInfo(name, date_time=ZIP_TIMESTAMP)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.create_system = 3
+    info.external_attr = 0o100644 << 16
+    return info
 
 
 def _read_version(root: Path) -> str:
@@ -169,14 +179,13 @@ def build_zip(
     dist_dir.mkdir(parents=True, exist_ok=True)
     zip_path = dist_dir / f"aiguard-extension-{expected}.zip"
 
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for archive_name, value in encoded_files:
             if archive_name == "manifest.json":
                 manifest["key"] = identity.public_key
                 encoded = json.dumps(manifest, ensure_ascii=True, indent=2) + "\n"
-                zf.writestr(archive_name, encoded.encode("utf-8"))
-            else:
-                zf.writestr(archive_name, value)
+                value = encoded.encode("utf-8")
+            zf.writestr(_zip_info(archive_name), value)
 
     return zip_path
 

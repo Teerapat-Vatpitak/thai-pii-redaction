@@ -5,6 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aiguard_native_broker_protocol::backend::{BackendTimeouts, ManagedBackend};
 
+const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -97,7 +99,7 @@ fn launch_backend(shutdown: Duration) -> ManagedBackend {
         &python,
         &arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_secs(20),
             request: Duration::from_secs(2),
@@ -217,7 +219,7 @@ runpy.run_path({launcher}, run_name="__main__")
         &python,
         &arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_secs(20),
             request: Duration::from_secs(2),
@@ -363,11 +365,12 @@ fn incompatible_or_unhealthy_backend_fails_closed_and_is_reaped() {
         "--native-broker-backend".to_owned(),
     ];
     let (python, launcher_arguments) = python_command(&root, &requested_launcher);
+    let incompatible_version = format!("{PRODUCT_VERSION}-incompatible-fixture");
     let incompatible = ManagedBackend::spawn_synthetic_for_test(
         &python,
         &launcher_arguments,
         &root,
-        "2.5.1",
+        &incompatible_version,
         BackendTimeouts {
             startup: Duration::from_secs(5),
             request: Duration::from_millis(250),
@@ -383,7 +386,7 @@ fn incompatible_or_unhealthy_backend_fails_closed_and_is_reaped() {
         &unhealthy_python,
         &unhealthy_arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_millis(300),
             request: Duration::from_millis(100),
@@ -675,7 +678,7 @@ raise SystemExit(main(prepare))
         &python,
         &arguments,
         &root,
-        "2.5.0",
+        PRODUCT_VERSION,
         BackendTimeouts {
             startup: Duration::from_secs(60),
             request: Duration::from_secs(1),

@@ -4,9 +4,9 @@ The published 2.5.0 installer on the
 [releases page](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/latest)
 predates the current broker-backed Desktop/Extension package. This page covers two distinct
 developer paths: the fixed-port HTTP-v2 backend used by Office, API, and demo;
-and the broker-backed Desktop/Extension package source path. Slice 6's closure
-candidate becomes integrated only through its recorded exact-tree protocol;
-these developer commands are not installed-package acceptance.
+and the broker-backed Desktop/Extension package source path. Slice 6 is
+integrated through its recorded exact-tree protocol; these developer commands
+are not installed-package or 3.0.0 release-artifact acceptance.
 
 ## Requirements
 

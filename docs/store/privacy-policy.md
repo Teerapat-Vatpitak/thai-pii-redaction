@@ -1,6 +1,6 @@
 # AI Guard — นโยบายความเป็นส่วนตัว / Privacy Policy
 
-_อัปเดตล่าสุด / Last updated: 2026-08-12_
+_อัปเดตล่าสุด / Last updated: 2026-08-14_
 
 ลิงก์ถาวร / Permanent URL:
 `https://github.com/Teerapat-Vatpitak/thai-pii-redaction/blob/main/docs/store/privacy-policy.md`
@@ -26,11 +26,14 @@ remote TNER, provider ที่ต้องใช้ credential, provider select
 store และไม่อ่าน/ส่งต่อค่า credential ของ AI for Thai หรือ provider ใด ๆ
 `fake` อยู่เฉพาะใน conformance support ภายใน
 
-เมื่อกด Mask หรือ Restore ข้อความและผลลัพธ์อยู่ชั่วคราวในหน่วยความจำของ
-Extension/native adapter/broker/backend ระหว่าง operation เท่านั้น Canonical
-mapping ระหว่างค่าจริงกับ placeholder อยู่ในหน่วยความจำของ private Python
-backend และไม่จงใจเขียนลงดิสก์ Python session ID, mapping, backend address,
-backend credential และ provider credential ไม่ถูกส่งให้ Extension JavaScript
+เมื่อกด Mask หรือ Restore ข้อมูลที่ส่งผ่าน native adapter/broker/backend จะอยู่
+ในหน่วยความจำระหว่าง operation อย่างไรก็ตาม ช่อง input/reply และผลที่แสดงจะอยู่
+ในหน่วยความจำของเอกสารแผงด้านข้างที่เปิดอยู่ จนกว่าคุณจะล้างหรือแทนที่ข้อมูล
+หรือปิด/โหลดแผงใหม่ AI Guard ไม่เขียนลง Chrome storage หรือดิสก์สำหรับค่าเหล่านี้
+Canonical mapping ระหว่างค่าจริงกับ placeholder อยู่ในหน่วยความจำของ private
+Python backend และไม่จงใจเขียนลงดิสก์ Python session ID, mapping, backend
+address, backend credential และ provider credential ไม่ถูกส่งให้ Extension
+JavaScript
 
 Service worker เก็บ broker handles ในหน่วยความจำเท่านั้น โดยแยก scope ต่อ tab
 และต่อ side-panel instance เมื่อ native port หลุด, service worker restart,
@@ -84,11 +87,14 @@ does not support remote TNER, credential-requiring providers, provider
 selection, or a credential store, and it does not read or forward AI for Thai
 or provider credential values. `fake` remains internal conformance support.
 
-Mask/Restore input and output exist transiently in process memory while an
-operation runs. The canonical real-value-to-placeholder mapping remains in the
-private Python backend's memory and is not deliberately written to disk.
-Python session IDs, mappings, backend addresses/credentials, and provider
-credentials never reach Extension JavaScript.
+Values passing through the native adapter, broker, and backend exist in process
+memory while an operation runs. Input/reply fields and displayed masked or
+restored output remain in the live side-panel document memory until you clear
+or replace them, or the panel is closed or reloaded. They are not written to
+Chrome storage or disk by AI Guard. The canonical real-value-to-placeholder
+mapping remains in the private Python backend's memory and is not deliberately
+written to disk. Python session IDs, mappings, backend addresses/credentials,
+and provider credentials never reach Extension JavaScript.
 
 The service worker keeps broker handles only in memory and uses a separate
 scope for every tab and side-panel instance. Native disconnect, worker or

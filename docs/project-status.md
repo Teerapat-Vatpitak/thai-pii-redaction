@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -117,9 +117,9 @@ source through that boundary with broker-backed disposal and no direct
 backend/data-plane HTTP or Python lifecycle authority. Slice 5 implements the
 Extension's broker-backed disposal and Native Messaging boundary. Slice 6
 completes installed package admission, maintenance drain, atomic replacement,
-and cleanup. Slices 1--5 are integrated; Slice 6 becomes integrated when this
-exact closure tree reaches `main` through the protocol recorded below. Office
-remains unchanged and outside broker v1.
+and cleanup. Slices 1--6 are integrated on `main`; the exact Slice 6 closure
+tree, branch workflows, independent reviews, and post-main workflows are
+recorded below. Office remains unchanged and outside broker v1.
 
 Historical Phase 7 handoff status: **merged; main CI green; Phase 8 was then
 deferred**. The
@@ -229,9 +229,9 @@ macOS production-origin manifests. The exact evidence and remaining Web Store
 classification limitation are in the
 [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md).
 
-The Phase 8 Slice 6 source closure repair is locally complete in its affected
-scopes; a replacement exact-head review and workflow candidate remains pending.
-It was recovered from
+The Phase 8 Slice 6 package/lifecycle work is integrated on `main` at
+`21f921aa8edb7415551b76f6633ce52fc5e323c6`, tree
+`a701eacfdbfce21a14e2c67c5bb492a0e5c7cb4c`. It was recovered from
 preserved branch `codex/phase-8-native-broker-package-recertification`; exact
 checkpoint `d1ee42557c2b620d37a07504aea9e33047599746` remains the pre-final local
 executable/package record. Every installed client now admits only one complete
@@ -398,18 +398,27 @@ exact canonical `$APPDIR/usr/bin` source on a read-only filesystem; it still
 requires one owner/device, regular non-symlink one-link files, exact modes, and
 the existing digest/build-ID checks. Stable published components remain
 strictly effective-user-owned. Focused workflow checks and the updated 22-test
-WSL manager suite pass. A replacement immutable head still requires all three
-reviews and exact-head/post-main workflows before Slice 6 is integrated.
+WSL manager suite pass. The replacement then passed all three independent
+reviews, branch CI `31716919702` (14/14), branch cross-platform smoke
+`31716919706` (2/2), reviewed-tree equality, and post-main CI `31719493359`
+(14/14) plus cross-platform smoke `31719492934` (2/2). Slice 6 is integrated as
+main commit `21f921aa`, tree `a701eacf`.
 
 Authoritative PDF source-to-box
 intervals are tracked as the separate third Phase 8 unit below.
 
-Post-integration branch hygiene was conservative and evidence-based: 38 local,
-49 origin, and 50 unique branch names became 35/35/35 after deleting the
-integrated Slice 4 branch, true-ancestor Phase 7/remediation refs, and twelve
-true-ancestor remote historical refs. No open PR existed. Every remaining
-non-`main` branch remains REVIEW/UNKNOWN pending separate patch-equivalence or
-unique-work analysis; no tag or release was changed.
+The 2026-08-14 release-preparation branch audit began from exact clean `main`
+`21f921aa8edb7415551b76f6633ce52fc5e323c6`, with 35 local and 35 live remote
+branches. It recorded every tip, merge base, branch/main unique commit set,
+content representation, completed-task mapping, PR state, protection state,
+and ownership classification before mutation. No open PR, protected branch,
+or unclear/meaningful unmerged work was found. Thirty-four fully represented
+completed-task branches were classified SAFE TO DELETE and removed with normal
+non-force remote deletion followed by local deletion; zero branches required
+review. Cleanup left only `main` locally and remotely before
+`codex/3.0.0-release-certification` was created from that exact clean commit.
+The pre-deletion ledger is retained under `.git` with SHA-256
+`B48C6E1229BE06744DEFF1E551989885572C973ED2659B2F44E5B9CB765E48DA`.
 
 Phase 8 second-unit status:
 **shared provider orchestration integrated; branch CI green; external
@@ -474,9 +483,7 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR and Slices 1--5 integrated; the Slice 6 package/lifecycle closure
-candidate is complete and becomes integrated only through its exact-tree
-closure protocol**. The owner
+**ADR and Slices 1--6 integrated; release certification is in progress**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -954,8 +961,8 @@ applicable trade. The baseline was not moved.
 |---|---|---|
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
 | AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain skip-and-continue behavior; the separate fine-tuned offset engine is outside this change. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
-| Browser extension | Slice 5 integrated; Slice 6 lifecycle closure candidate | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, and uninstall in Slice 5. Slice 6 adds live upgrade, old-scope invalidation, restart, repair, uninstall/reinstall, and simultaneous Desktop + Extension operation against a pre-final installed artifact, followed by exact-head workflow certification. The Web Store item remains unpublished Draft; unpacked real-browser evidence is not Web Store installation. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. Slice 6 is integrated only under the exact-tree closure condition above. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md) and [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md). |
-| Desktop app | Slice 4 integrated; Slice 6 lifecycle closure candidate | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Slice 4 routes webview operations through typed Tauri commands and hotkeys through the authenticated `desktop` role. Slice 5 adds the production-keyed Chrome adapter and package registration. Slice 6 adds strict complete-set admission, maintenance drain, updater ordering, atomic AppImage stable-root repair, DEB/NSIS lifecycle hooks, safe stale-endpoint cleanup, and package install/upgrade/remove/reinstall workflows. Pre-final installed NSIS/real-browser evidence and exact-head CI/cross-platform package evidence are kept distinct in the Slice 6 record. Slice 6 becomes integrated only under the exact-tree closure condition above. Signing, notarization, release, deployment, and Web Store publication remain outside this slice. |
+| Browser extension | Slices 5--6 integrated; 3.0.0 publication candidate | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, upgrade, restart, repair, uninstall/reinstall, and simultaneous Desktop + Extension operation. Exact branch and post-main Slice 6 workflows are green. The 3.0.0 candidate adds a deterministic production-ID ZIP retained as a separate CI artifact for Chrome Web Store review; it is not a GitHub Desktop release asset. The Web Store item remains unpublished Draft until an exact reviewed ZIP is submitted and the store reports a later state. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md), [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md), and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
+| Desktop app | Slices 4--6 integrated; 3.0.0 release candidate | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Current source routes webview operations through typed Tauri commands and hotkeys through the authenticated `desktop` role, ships the production-keyed Chrome adapter and package registration, and implements strict complete-set admission, maintenance drain, updater ordering, atomic AppImage stable-root repair, DEB/NSIS lifecycle hooks, safe stale-endpoint cleanup, and package install/upgrade/remove/reinstall workflows. Exact Slice 6 branch and post-main workflows are green. The 3.0.0 release workflow is being certified for unsigned Windows x64 NSIS, unsigned/unnotarized macOS arm64 DMG plus updater archive, Linux amd64 DEB and finalized AppImage, updater signatures, checksums, and provenance. Updater signatures authenticate bytes but do not replace platform publisher signing. See the [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md) and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. Office is outside broker v1; its web-add-in architecture is unchanged, and any future native host/bridge requires a separate ADR. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |
 | CLI | Verified | Sanitize/report/receipt and end-to-end pipeline tests pass. Current source uses the shared protected-provider policy, rescans before every actual attempt, caps retries at three, and preserves its stateful snapshot/rollback semantics. This has automated evidence, while the changed provider path still needs the fresh live run tracked under Protected provider roundtrip. |
 | Demo playground | Hardening open | The exact 2026-07-23 browser candidate passed token/surrogate roundtrip, protected Pathumma, guard warning, responsive layouts, report download/open, and positive PDF preview/download checks; that dated evidence remains historical and predates the current backend residual/v2/token changes. Current source validates strict v2 health/operation responses, fails residual or malformed results closed, reaches providers through the shared orchestration layer, and uses authoritative PDF source intervals behind the redaction route. Fresh browser/live PDF evidence remains open. |
@@ -976,7 +983,7 @@ applicable trade. The baseline was not moved.
 | Platform LLM endpoint | Acceptance pending | The platform issued an endpoint, model identifier, and secret out of band. No secret or account identifier is stored here. A dated pre-final sibling protected roundtrip passed and a two-worker 60-second live soak recorded 50 successes and no failures. The credential was later exposed in agent transcript output by a read-only Compose expansion and must be rotated/reissued before any further use; the residual ignored `.env` file was removed without reading it. Exact final-candidate live acceptance and a roundtrip originating from platform infrastructure remain open, together with quota, acceptable-use, logging policy, and timeout ownership. The model was separately scored as a detector on gold v4 ([ADR](decisions/2026-07-28-tokenmind-detector-and-aift-port.md)). |
 | Retry/failure emulator | Verified locally | The repeatable local runner passes duplicate/conflict, failed submit, same-process provider idempotency, malformed/version/size, provider-timeout, handler-crash, concurrency, and honeytoken cases. It does not claim cross-process exactly-once or official ack/nack semantics. |
 | Load/soak and official failure acceptance | Hardening open; official acceptance externally gated | Dated local current-core fake-provider and live-provider soaks are green, including restart recovery and zero observed failures in the recorded runs. Independent review, final local image identification, and exact provider-free check/deploy are complete. Exact live acceptance waits for credential rotation. Core PDF source-to-box correctness now has local automated evidence; public HTTPS/browser behavior, proxy-aware login limiting, sibling composition, and the red PDF resource/capability decision remain pre-push gates. Cold-build timing, outbound connectivity, platform-visible logs/resources, real proxy behavior, and sign-off require the owner-gated GitLab project creation/push and platform evidence. |
-| Version/tag/release pipeline | Historical v2.5.0 verified; current publishing blocked | v2.5.0 is published as Latest from exact merge commit `24914ab`. Its main CI, cross-platform smoke, metadata preflight, Windows/macOS/Linux builds, checksums, provenance, and Windows upgrade/runtime checks passed for that pre-broker artifact. Slices 4--6 define the broker-enabled component set and lifecycle, but Slice 6 is certification work, not a release. `VERSION` remains `2.5.0`; no tag, release, signing/notarization, updater channel, Web Store submission, or publication changes in this slice. The intentional release-workflow stop remains until a separate owner-authorized release-preparation task evaluates the integrated evidence. The superseded unpublished v2.4.1 draft/tag is not moved or reused. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md)). |
+| Version/tag/release pipeline | 3.0.0 certification in progress | v2.5.0 remains the published Latest release from exact merge commit `24914ab`; its evidence applies only to that pre-broker artifact. The owner authorized 3.0.0 release preparation on 2026-08-14 from exact clean `main` `21f921aa`. `VERSION`, Desktop/Tauri, Extension, Native Broker, Office source metadata, lockfiles, and the deliberate server fallback now agree on `3.0.0`; the changelog and readiness checks agree. The first 3.0.0 workflow candidate was invalidated before tagging because review found mutable draft provenance, unpinned Tauri Linux helpers, missing execution of final production macOS/Linux package bytes, and inaccurate side-panel retention wording. The replacement workflow creates a draft only, pre-pins all five Tauri Linux helpers, finalizes/re-signs the exact AppImage, black-box smokes every final production package class, binds the closed draft byte set to a current-run source/run manifest, regenerates canonical updater metadata, redownloads and rechecks the final set, then attaches checksums/provenance. No `v3.0.0` tag or 3.0.0 GitHub Release exists yet, and the Chrome Web Store item remains separate. Windows stays unsigned under the accepted policy; macOS is unsigned and not notarized; Tauri updater signatures are required but are not publisher code signing. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md); [certification](acceptance/2026-08-14-release-3.0.0-certification.md)). |
 
 ## Internal-plan differences resolved here
 

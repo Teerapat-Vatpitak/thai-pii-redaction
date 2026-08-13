@@ -310,10 +310,10 @@ key derives that exact ID, and the host admits only
 exact-ID unpacked Chromium, installed NSIS companion, and cross-platform package
 smoke pass. Synthetic identity remains test-only. The Web Store item remains an
 unpublished Draft, so unpacked-browser evidence is not Web Store installation.
-Slice 5 is integrated. The Slice 6 closure candidate completes package
-transaction ownership, live drain, and installed lifecycle recertification
-without changing protocol v1; it becomes integrated only when this exact tree
-reaches `main` through the recorded review/workflow protocol.
+Slices 5 and 6 are integrated. Slice 6 completes package transaction ownership,
+live drain, and installed lifecycle recertification without changing protocol
+v1. Its exact reviewed tree reached `main` through the recorded branch and
+post-main workflow protocol.
 
 Each window label owns its scope within the one Desktop connection. Closing a
 window removes its local authority before requesting scope close; app quit does

@@ -46,6 +46,38 @@ jobs:
           version: "0.14.2"
           args: format --check
 
+  extension-package:
+    name: exact production Extension package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Build the exact production-ID Chrome Web Store candidate
+        run: >-
+          python scripts/package_extension.py
+          --identity config/chrome-extension-identity.json
+      - name: Record the exact package digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(cat VERSION)
+          package="dist/aiguard-extension-$version.zip"
+          test -f "$package"
+          sha256sum "$package" > "$package.sha256"
+      - name: Upload the exact Extension candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aiguard-extension-${{ github.sha }}
+          path: |
+            dist/aiguard-extension-*.zip
+            dist/aiguard-extension-*.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
   pytest:
     name: pytest (${{ matrix.os }})
     strategy:
@@ -529,6 +561,20 @@ jobs:
             throw "expected exactly one NSIS installer, found $($installers.Count)"
           }
           $installer = $installers[0].FullName
+          $productVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          $versionParts = @($productVersion.Split('.') | ForEach-Object { [int]$_ })
+          if ($versionParts.Count -ne 3) {
+            throw "VERSION must contain exactly three numeric components"
+          }
+          if ($versionParts[2] -gt 0) {
+            $predecessorVersion = "$($versionParts[0]).$($versionParts[1]).$($versionParts[2] - 1)"
+          } elseif ($versionParts[1] -gt 0) {
+            $predecessorVersion = "$($versionParts[0]).$($versionParts[1] - 1).999"
+          } elseif ($versionParts[0] -gt 0) {
+            $predecessorVersion = "$($versionParts[0] - 1).999.999"
+          } else {
+            throw "VERSION has no valid deterministic predecessor"
+          }
           $installRoot = Join-Path $env:LOCALAPPDATA "AI Guard"
           $packageLockPath = Join-Path $env:LOCALAPPDATA "AI Guard.aiguard-package-lifecycle-v1.lock"
           $customLockProbeRoot = Join-Path $env:RUNNER_TEMP "aiguard-lock-probe"
@@ -812,18 +858,18 @@ jobs:
             Write-RegistrationEvidence "present" "repair-registration-present"
             Invoke-Smoke "repair"
 
-            # VERSION stays 2.5.0. Exercise NSIS's real upgrade branch by
-            # lowering only this product-owned installed-version registry
-            # fixture; the on-disk component set and candidate bytes remain
-            # the exact 2.5.0 package under test.
+            # Exercise NSIS's real upgrade branch by lowering only this
+            # product-owned installed-version registry fixture. The on-disk
+            # component set and candidate bytes remain the exact package under
+            # test.
             $installed = Get-ItemProperty -LiteralPath $uninstallKey
-            if ($installed.DisplayVersion -ne "2.5.0" -or $installed.InstallLocation.Trim('"') -ne $installRoot) {
+            if ($installed.DisplayVersion -ne $productVersion -or $installed.InstallLocation.Trim('"') -ne $installRoot) {
               throw "installed upgrade fixture identity mismatch"
             }
-            Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value "2.4.999"
+            Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $predecessorVersion
             $lifecycle += "deterministic-predecessor-upgrade"
             Invoke-ExactInstaller
-            if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne "2.5.0") {
+            if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne $productVersion) {
               throw "NSIS upgrade did not publish the candidate version"
             }
             Assert-InstalledSet "upgrade"
