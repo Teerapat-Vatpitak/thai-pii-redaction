@@ -67,10 +67,19 @@ In-page Mask ทำงานหลังข้อความดิบถูก�
 - `sidePanel` — เปิดพื้นที่ทำงานแบบ docked
 - `nativeMessaging` — เชื่อม service worker กับ native host ที่ลงทะเบียนไว้
 - content-script matches แบบเจาะจง — แสดง Mask/Restore บน ChatGPT, Claude,
-  Gemini, Grok, Perplexity และ GLM/Z.ai
+  Gemini, Grok, Perplexity, Z.ai, ChatGLM และ BigModel
 
 ไม่มี production loopback `host_permissions`, broad host permission,
 analytics, tracking หรือการขายข้อมูล
+
+### Chrome Web Store Limited Use
+
+AI Guard ยืนยันว่าการใช้ข้อมูลที่ได้รับจาก Google APIs จะเป็นไปตาม
+[Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use/)
+รวมถึงข้อกำหนด Limited Use คำยืนยันนี้ใช้แม้ข้อมูลผู้ใช้จะประมวลผลเฉพาะบน
+อุปกรณ์ของผู้ใช้ Installed Extension ใช้ข้อมูลเฉพาะเพื่อวัตถุประสงค์เดียวที่
+เปิดเผยไว้ด้านบน และไม่ขาย ไม่ใช้เพื่อการโฆษณาหรือประเมินความน่าเชื่อถือทาง
+เครดิต และไม่ส่งข้อมูลให้ผู้ดูแลหรือ data broker
 
 ## English
 
@@ -129,10 +138,21 @@ reviewed masked result into the site.
 - `sidePanel` — opens the docked workspace
 - `nativeMessaging` — connects the service worker to the registered local host
 - exact content-script matches — provide Mask/Restore controls on ChatGPT,
-  Claude, Gemini, Grok, Perplexity, and GLM/Z.ai
+  Claude, Gemini, Grok, Perplexity, Z.ai, ChatGLM, and BigModel
 
 There is no production loopback `host_permissions`, broad host permission,
 analytics, tracking, or sale of user data.
+
+### Chrome Web Store Limited Use
+
+AI Guard affirms that its use of information received from Google APIs will
+adhere to the
+[Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use/),
+including the Limited Use requirements. This affirmation applies even when
+user data is processed only on the user's device. The installed Extension uses
+that data only for the single purpose disclosed above and does not sell it, use
+it for advertising or creditworthiness, or transfer it to the maintainer or a
+data broker.
 
 ## ติดต่อ / Contact
 

@@ -52,9 +52,9 @@ permission.
 ## Content-script matches
 
 The unchanged exact site list covers ChatGPT, Claude, Gemini, Grok,
-Perplexity, and GLM/Z.ai. The content script renders user-invoked Mask/Restore
-controls and locates likely composer/reply elements. It never opens a native
-port or talks to a network endpoint.
+Perplexity, Z.ai, ChatGLM, and BigModel. The content script renders
+user-invoked Mask/Restore controls and locates likely composer/reply elements.
+It never opens a native port or talks to a network endpoint.
 
 Raw text used by in-page Mask has already entered provider-controlled DOM.
 Site code may observe or transmit the draft before replacement. Users needing

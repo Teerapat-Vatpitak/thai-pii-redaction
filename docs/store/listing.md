@@ -40,8 +40,8 @@ AI Guard — ปกปิดข้อมูลส่วนบุคคลก่�
 **คำอธิบายแบบละเอียด**
 
 AI Guard ช่วยตรวจและปกปิดข้อมูลส่วนบุคคลของคนไทยก่อนส่งข้อความให้ ChatGPT,
-Claude, Gemini, Grok, Perplexity หรือ GLM/Z.ai และคืนค่าข้อมูลจริงจากคำตอบใน
-เครื่องของผู้ใช้
+Claude, Gemini, Grok, Perplexity, Z.ai, ChatGLM หรือ BigModel และคืนค่าข้อมูล
+จริงจากคำตอบในเครื่องของผู้ใช้
 
 Extension ใช้ Chrome Native Messaging ไปยัง Desktop companion ที่ลงทะเบียน
 ไว้ จากนั้น shared broker จะเรียก private backend และ detector `thainer`
@@ -73,8 +73,8 @@ Masks Thai PII locally before AI chats; side-panel entry isolates raw text, with
 **Detailed description**
 
 AI Guard detects and masks Thai PII before text is sent to ChatGPT, Claude,
-Gemini, Grok, Perplexity, or GLM/Z.ai, then restores the original values
-locally from the reply.
+Gemini, Grok, Perplexity, Z.ai, ChatGLM, or BigModel, then restores the
+original values locally from the reply.
 
 The Extension uses Chrome Native Messaging to a registered Desktop companion.
 The shared broker calls a private backend with the local `thainer` detector;
