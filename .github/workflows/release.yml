@@ -467,7 +467,7 @@ jobs:
           rm -rf -- "$work"
 
       - name: Upload value-free production package smoke evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-production-smoke-${{ matrix.os }}-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-production-evidence/*
@@ -492,7 +492,7 @@ jobs:
 
       - name: Upload the current-run Windows release bytes
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-build-windows-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-candidate-assets/*
@@ -502,7 +502,7 @@ jobs:
 
       - name: Upload the current-run macOS release bytes
         if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-build-macos-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-candidate-assets/*
@@ -512,7 +512,7 @@ jobs:
 
       - name: Upload the current-run Linux release bytes
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-build-linux-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-candidate-assets/*
@@ -538,7 +538,7 @@ jobs:
           python scripts/package_extension.py
           --identity config/chrome-extension-identity.json
       - name: Upload the exact Extension release candidate
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-candidate-extension-${{ inputs.candidate_sha }}
           path: dist/aiguard-extension-*.zip
@@ -583,7 +583,7 @@ jobs:
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --output release-candidate-manifest.json
       - name: Upload the exact candidate manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-candidate-manifest-${{ inputs.candidate_sha }}
           path: release-candidate-manifest.json
@@ -626,7 +626,7 @@ jobs:
             --output release-build-manifest.json
 
       - name: Upload the current-run build manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aiguard-release-build-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-build-manifest.json
