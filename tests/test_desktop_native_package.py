@@ -1727,7 +1727,8 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
     assert payload_missing.returncode == 17
     assert payload_missing.stdout == "D17"
     assert (
-        run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode == 17
+        run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode
+        == 17
     )
     assert run_payload_normalization("payload-empty", empty="aiguard.exe")[0].returncode == 17
     assert (
