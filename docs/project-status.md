@@ -15,12 +15,16 @@ code map must have a row here; `tests/test_docs_coverage.py` enforces that.
 The owner authorized a compatible `3.0.1` hotfix investigation and candidate on
 2026-08-17. The published `v3.0.0` release remains the current public Desktop
 release; no `v3.0.1` tag, draft, or public publication exists yet. Local
-diagnostic packages do exist. The latest exact external-retest candidate was
-built from source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59` and has
-SHA-256 `00FD41820D05D0D90649BA5946E3E3C1614D8C2B6E2258164E88F8C71F4E4211`;
-it is unsigned (`Authenticode: NotSigned`) and is not a public release. Its
-first external-machine run failed as `D10 unclassified`; that package is now
-superseded and must not be retried.
+diagnostic packages do exist. The first external candidate, built from
+`08fe927d7d708548d9572bb2aa1b5f2818f8da59` with SHA-256
+`00FD41820D05D0D90649BA5946E3E3C1614D8C2B6E2258164E88F8C71F4E4211`,
+failed as `D10 unclassified`; it is superseded and must never be retried. The
+current one-time external Retest-2 candidate is built from source commit
+`bc45c4646d140235e6c1c63ceb1c550d3d26eff7`, source tree
+`7d9bdbf336f57e40d4e616f807e30b98da6765b1`, and has SHA-256
+`EABA6633BF2AA3AB78BA6BFA023D0435ACBD4B9FF89B5C9E21B732EEA24D9FA0`.
+It is unsigned (`Authenticode: NotSigned`), unpublished, and its external result
+is pending.
 
 Two independently observed failures define the hotfix scope:
 
@@ -87,7 +91,7 @@ external-machine retest are required.
 
 The first local `3.0.1` NSIS diagnostic package passed clean install,
 same-path reinstall, five-run direct-package smoke, uninstall cleanup, and a
-second clean install with zero broker/backend process delta. It is superseded:
+second clean install with zero broker/backend process delta. It was superseded:
 the first complete Python run then found that the deliberately hand-maintained
 `app/server.py` last-resort literal still said `3.0.0`. The literal is now
 `3.0.1`; its focused version contract passes `20/20`, and the fresh complete
@@ -97,12 +101,14 @@ plus production build; Desktop Rust passes 31 all-feature tests; the official
 Windows Native Broker runtime command passes every active protocol, transport,
 backend, lifecycle, resource, data-plane, Desktop/Extension, registration, and
 Slice 6 test with only its explicit subprocess-fixture ignores. Rustfmt and
-strict Clippy pass for both crates. The replacement NSIS was rebuilt from exact
-source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59`, passed the same local
-install/reinstall/smoke/uninstall lifecycle, and is the current external-retest
-candidate identified above. It must still pass the external-machine retest and
-release gates before any `v3.0.1` publication. The `00FD...` candidate is now
-the failed/superseded diagnostic described above, not the next retest package.
+strict Clippy pass for both crates. The later `00FD...` package passed the same
+local install/reinstall/smoke/uninstall lifecycle but failed the external test
+as D10 and is superseded. The numeric-exit correction at `bc45c464...` passes
+the native-package contract `102/102` with one expected skip; its exact
+`EABA...` package passed local same-path upgrade, installed-backend health and
+sanitize, reinstall, uninstall cleanup, and zero residual product processes.
+That current Retest-2 package still must pass its one external-machine run and
+all release gates before any `v3.0.1` publication.
 
 The committed performance baseline remains red but is stale on unmodified
 source. On the same machine and exact Python/dependency environment, unmodified
