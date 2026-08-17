@@ -2,22 +2,30 @@
 
 Var AIGUARD_TRANSACTION_TOKEN
 
-!macro AIGUARD_ABORT_FIXED_STAGE EXIT_CODE STAGE_CODE FAILURE_KIND
+!macro AIGUARD_ABORT_FIXED_STAGE EXIT_CODE FAILURE_KIND
   ${If} ${EXIT_CODE} != 0
-    ${If} ${STAGE_CODE} == "D11"
+    ; The process exit code is the authoritative classification channel.
+    ; Stdout may be empty under nsExec on otherwise valid Windows hosts.
+    ${If} ${EXIT_CODE} == 11
       Abort "AI Guard ${FAILURE_KIND} failed (D11 install root)."
-    ${ElseIf} ${STAGE_CODE} == "D12"
+    ${ElseIf} ${EXIT_CODE} == 12
       Abort "AI Guard ${FAILURE_KIND} failed (D12 PowerShell runtime)."
-    ${ElseIf} ${STAGE_CODE} == "D13"
+    ${ElseIf} ${EXIT_CODE} == 13
       Abort "AI Guard ${FAILURE_KIND} failed (D13 control state)."
-    ${ElseIf} ${STAGE_CODE} == "D14"
+    ${ElseIf} ${EXIT_CODE} == 14
       Abort "AI Guard ${FAILURE_KIND} failed (D14 component conflict)."
-    ${ElseIf} ${STAGE_CODE} == "D15"
+    ${ElseIf} ${EXIT_CODE} == 15
       Abort "AI Guard ${FAILURE_KIND} failed (D15 process drain)."
-    ${ElseIf} ${STAGE_CODE} == "D16"
+    ${ElseIf} ${EXIT_CODE} == 16
       Abort "AI Guard ${FAILURE_KIND} failed (D16 component cleanup)."
-    ${ElseIf} ${STAGE_CODE} == "D17"
+    ${ElseIf} ${EXIT_CODE} == 17
       Abort "AI Guard ${FAILURE_KIND} failed (D17 payload validation)."
+    ${ElseIf} ${EXIT_CODE} == 1
+      Abort "AI Guard ${FAILURE_KIND} failed (D12 PowerShell runtime)."
+    ${ElseIf} ${EXIT_CODE} == "error"
+      Abort "AI Guard ${FAILURE_KIND} failed (D12 PowerShell runtime)."
+    ${ElseIf} ${EXIT_CODE} == "timeout"
+      Abort "AI Guard ${FAILURE_KIND} failed (D12 PowerShell runtime)."
     ${Else}
       Abort "AI Guard ${FAILURE_KIND} failed (D10 unclassified)."
     ${EndIf}
@@ -50,7 +58,7 @@ Var AIGUARD_TRANSACTION_TOKEN
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", p 0) i .r8'
   SetOutPath "$INSTDIR"
-  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 $7 "native component drain"
+  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 "native component drain"
 !macroend
 
 !macro AIGUARD_NORMALIZE_PACKAGE_PAYLOAD
@@ -70,7 +78,7 @@ Var AIGUARD_TRANSACTION_TOKEN
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", p 0) i .r8'
   SetOutPath "$INSTDIR"
-  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 $7 "native payload validation"
+  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 "native payload validation"
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL

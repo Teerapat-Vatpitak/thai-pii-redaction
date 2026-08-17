@@ -1271,6 +1271,8 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
     assert "Get-Acl" not in drain_script
     assert "AIGUARD_COMPONENT_MAINTENANCE_V1`n" in drain_script
     assert "[Console]::Out.Write($code)" in drain_script
+    assert "exit $exitCode" in drain_script
+    assert "Stdout is optional supporting" in drain_script
     for code, label in (
         ("D11", "install root"),
         ("D12", "PowerShell runtime"),
@@ -1282,6 +1284,13 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
     ):
         assert code in drain_script
         assert f"{code} {label}" in nsis
+    for exit_code in range(11, 18):
+        assert f"${{EXIT_CODE}} == {exit_code}" in nsis
+    assert "${STAGE_CODE}" not in nsis
+    assert '!insertmacro AIGUARD_ABORT_FIXED_STAGE $0 "native component drain"' in nsis
+    assert '!insertmacro AIGUARD_ABORT_FIXED_STAGE $0 "native payload validation"' in nsis
+    assert '${EXIT_CODE} == "error"' in nsis
+    assert '${EXIT_CODE} == "timeout"' in nsis
     drain_macro = nsis.split("!macro AIGUARD_WAIT_AND_REMOVE_LAUNCHERS", 1)[1].split(
         "!macroend", 1
     )[0]
@@ -1672,7 +1681,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         (b"0" * 64) + b"\n",
         hardlink_marker=True,
     )
-    assert hardlink_marker.returncode == 1
+    assert hardlink_marker.returncode == 13
     assert hardlink_marker.stdout == "D13"
     assert (
         run_with_controls(
@@ -1680,7 +1689,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
             (b"0" * 64) + b"\n",
             hardlink_receipt=True,
         ).returncode
-        == 1
+        == 13
     )
     for label, malformed in (
         ("extra-lf", (b"0" * 64) + b"\n\n"),
@@ -1688,7 +1697,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         ("nul-byte", (b"0" * 64) + b"\x00"),
         ("uppercase", (b"A" * 64) + b"\n"),
     ):
-        assert run_with_controls(label, malformed).returncode == 1
+        assert run_with_controls(label, malformed).returncode == 13
 
     marker_only, normalized_marker = run_marker_only("marker-only")
     assert marker_only.returncode == 0, marker_only.stderr
@@ -1715,25 +1724,25 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         assert (resumed_root / name).read_bytes() == expected
 
     payload_missing = run_payload_normalization("payload-missing", missing="desktop.exe")[0]
-    assert payload_missing.returncode == 1
+    assert payload_missing.returncode == 17
     assert payload_missing.stdout == "D17"
     assert (
-        run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode == 1
+        run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode == 17
     )
-    assert run_payload_normalization("payload-empty", empty="aiguard.exe")[0].returncode == 1
+    assert run_payload_normalization("payload-empty", empty="aiguard.exe")[0].returncode == 17
     assert (
         run_payload_normalization(
             "payload-malformed-receipt",
             receipt_bytes=(b"A" * 64) + b"\n",
         )[0].returncode
-        == 1
+        == 13
     )
     assert (
         run_payload_normalization(
             "payload-hardlink",
             hardlink="aiguard-native-host-manager.exe",
         )[0].returncode
-        == 1
+        == 17
     )
     if not token_owner_matches_user():
         assert (
@@ -1742,7 +1751,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
                 receipt_bytes=(b"2" * 64) + b"\n",
                 receipt_current_owner=False,
             )[0].returncode
-            == 1
+            == 13
         )
     try:
         payload_reparse = run_payload_normalization(
@@ -1752,7 +1761,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
     except OSError:
         pass
     else:
-        assert payload_reparse.returncode == 1
+        assert payload_reparse.returncode == 17
 
     collision_directory = tmp_path / "nsis-plugin-collision"
     collision_directory.mkdir()
@@ -1764,7 +1773,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         "plugin-system-collision",
         command_cwd=collision_directory,
     )
-    assert collision_result.returncode == 1
+    assert collision_result.returncode == 12
     assert collision_result.stdout == "D12"
     isolated_result, _ = run_marker_only(
         "plugin-system-isolated",
@@ -1772,20 +1781,20 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
     )
     assert isolated_result.returncode == 0, isolated_result.stderr
 
-    assert run_marker_only("marker-hardlink", hardlink=True)[0].returncode == 1
+    assert run_marker_only("marker-hardlink", hardlink=True)[0].returncode == 13
     for label, malformed in (
         ("marker-extra-lf", b"AIGUARD_COMPONENT_MAINTENANCE_V1\n\n"),
         ("marker-altered", b"AIGUARD_COMPONENT_MAINTENANCE_V2\n"),
     ):
         malformed_marker = run_marker_only(label, malformed)[0]
-        assert malformed_marker.returncode == 1
+        assert malformed_marker.returncode == 13
         assert malformed_marker.stdout == "D13"
     try:
         reparse_result, _ = run_marker_only("marker-reparse", reparse=True)
     except OSError:
         pass
     else:
-        assert reparse_result.returncode == 1
+        assert reparse_result.returncode == 13
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
@@ -1815,7 +1824,7 @@ def test_native_component_drain_missing_root_has_fixed_value_free_stage():
         text=True,
     )
 
-    assert result.returncode == 1
+    assert result.returncode == 11
     assert result.stdout == "D11"
     assert result.stderr == ""
 

@@ -5,15 +5,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 $failureCode = "D11"
+$stageExitCodes = @{
+    D10 = 10
+    D11 = 11
+    D12 = 12
+    D13 = 13
+    D14 = 14
+    D15 = 15
+    D16 = 16
+    D17 = 17
+}
 
 function Stop-Drain([string] $code) {
+    $exitCode = $stageExitCodes[$code]
+    if ($null -eq $exitCode) {
+        $code = "D10"
+        $exitCode = $stageExitCodes[$code]
+    }
     try {
         [Console]::Out.Write($code)
     }
     catch {
         # The installer still receives the non-zero exit if stdout is unavailable.
     }
-    exit 1
+    # NSIS classifies the numeric process result. Stdout is optional supporting
+    # evidence only because some external hosts do not expose Console.Out to
+    # nsExec even though the process exit code remains intact.
+    exit $exitCode
 }
 
 trap {

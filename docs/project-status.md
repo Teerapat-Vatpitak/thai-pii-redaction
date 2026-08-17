@@ -18,7 +18,9 @@ release; no `v3.0.1` tag, draft, or public publication exists yet. Local
 diagnostic packages do exist. The latest exact external-retest candidate was
 built from source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59` and has
 SHA-256 `00FD41820D05D0D90649BA5946E3E3C1614D8C2B6E2258164E88F8C71F4E4211`;
-it is unsigned (`Authenticode: NotSigned`) and is not a public release.
+it is unsigned (`Authenticode: NotSigned`) and is not a public release. Its
+first external-machine run failed as `D10 unclassified`; that package is now
+superseded and must not be retried.
 
 Two independently observed failures define the hotfix scope:
 
@@ -76,7 +78,12 @@ runtime/Add-Type `D12`, malformed/hardlinked control `D13`, and missing payload
 `D17`; the complete Desktop native-package contract passes `102` tests with one
 expected platform skip. The exact NSIS candidate now exists, but the
 external-machine retest is still required before this incident may be called
-fixed.
+fixed. The first external run of that candidate reached the hook but exposed
+`D10`, proving that stdout was not a reliable classification channel under that
+NSIS host. The correction makes numeric process exit codes `11` through `17`
+authoritative, treats PowerShell launch/parser exit `1|error|timeout` as `D12`,
+and retains stdout only as optional corroboration. A rebuilt package and a new
+external-machine retest are required.
 
 The first local `3.0.1` NSIS diagnostic package passed clean install,
 same-path reinstall, five-run direct-package smoke, uninstall cleanup, and a
@@ -94,7 +101,8 @@ strict Clippy pass for both crates. The replacement NSIS was rebuilt from exact
 source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59`, passed the same local
 install/reinstall/smoke/uninstall lifecycle, and is the current external-retest
 candidate identified above. It must still pass the external-machine retest and
-release gates before any `v3.0.1` publication.
+release gates before any `v3.0.1` publication. The `00FD...` candidate is now
+the failed/superseded diagnostic described above, not the next retest package.
 
 The committed performance baseline remains red but is stale on unmodified
 source. On the same machine and exact Python/dependency environment, unmodified
