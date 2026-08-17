@@ -103,6 +103,22 @@ def test_digit_truncation_and_label_trim_compose():
     assert segs == ["อรุณี วัฒนสิทธิ์"], segs
 
 
+def test_multiline_model_tail_uses_the_same_closed_role_trim():
+    text = "**คำตอบ:**\n\nผู้สมัครสังเคราะห์ สมชาย ใจดี"
+    start = text.index("คำตอบ")
+
+    spans = tbd._name_hygiene(text, start, len(text))
+    values = [text[lo:hi] for lo, hi in spans]
+
+    assert values == ["สังเคราะห์ สมชาย ใจดี"]
+
+
+def test_provider_markdown_label_is_not_a_person_name():
+    text = "**คำตอบ:**\n\nข้อความสังเคราะห์ทั่วไป"
+
+    assert "คำตอบ:**" not in _tb_names(text)
+
+
 # ── D. safety controls: whole-token evidence, group floor, titles ──────────
 
 
