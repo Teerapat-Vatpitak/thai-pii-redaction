@@ -52,7 +52,11 @@ Var AIGUARD_TRANSACTION_TOKEN
   File /oname=aiguard-native-component-drain.ps1 "${AIGUARD_HOOK_DIR}\native-component-drain.ps1"
   ; Avoid the NSIS System.dll in $PLUGINSDIR shadowing .NET references used by Add-Type.
   SetOutPath "$INSTDIR"
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1"`
+  ; State the policy for our own bundled script instead of inheriting the
+  ; machine's. Windows client defaults to Restricted, under which -File refuses
+  ; an unsigned script and exits 1 -- surfaced here as D12 with nothing
+  ; installed. The switch applies to this process only and changes no setting.
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\aiguard-native-component-drain.ps1"`
   Pop $0
   Pop $7
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"
@@ -72,7 +76,8 @@ Var AIGUARD_TRANSACTION_TOKEN
   SetOutPath "$PLUGINSDIR"
   File /oname=aiguard-native-component-drain.ps1 "${AIGUARD_HOOK_DIR}\native-component-drain.ps1"
   SetOutPath "$INSTDIR"
-  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1" -Mode NormalizePayload`
+  ; Same reason as the drain launcher above.
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\aiguard-native-component-drain.ps1" -Mode NormalizePayload`
   Pop $0
   Pop $7
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"

@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import stat
 import struct
@@ -1302,6 +1303,17 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
     )
     assert drain_macro.index('SetOutPath "$INSTDIR"') < drain_macro.index("nsExec::ExecToStack")
     assert "NSIS System.dll" in drain_macro
+    # Windows client machines default to a Restricted execution policy, under
+    # which `powershell.exe -File` refuses an unsigned script and exits 1 --
+    # which this hook reports as D12. The installer must therefore state the
+    # policy for its own bundled script rather than inherit the machine's.
+    # A developer machine relaxed long ago hides this failure completely, so
+    # every invocation is pinned here, not just the one that was reported.
+    launchers = re.findall(r"nsExec::ExecToStack `[^`]*powershell\.exe[^`]*`", nsis)
+    assert len(launchers) == 2
+    for launcher in launchers:
+        assert "-ExecutionPolicy Bypass" in launcher
+        assert "-NonInteractive" in launcher
     assert ".aiguard-component-transaction-v1" in nsis
     assert "resume-package nsis" in nsis
     assert "AIGUARD_NORMALIZE_PACKAGE_PAYLOAD" in nsis
@@ -1310,7 +1322,13 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
         "resume-package nsis"
     )
     assert "-Mode NormalizePayload" in nsis
-    assert "ExecutionPolicy" not in nsis
+    # This once asserted the opposite -- that the hook never names an execution
+    # policy at all. That rule was never validated against a machine carrying
+    # the Windows client default of Restricted, where it is precisely what
+    # aborts a fresh install at D12. Do not reinstate it: the policy is not a
+    # security boundary, the switch is process-scoped, and the script being run
+    # is the installer's own extracted payload, already admitted by digest.
+    assert "ExecutionPolicy Bypass" in nsis
     assert "aiguard_recover_remove" in nsis
     assert 'StrCmp $5 "f" aiguard_uninstall_token_character' in nsis
     assert nsis.count("!insertmacro AIGUARD_WAIT_AND_REMOVE_LAUNCHERS") == 2
@@ -1539,6 +1557,11 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         "-NoLogo",
         "-NoProfile",
         "-NonInteractive",
+        # Mirrors the installer hook. Without it this run inherits whatever
+        # policy the developer's machine happens to carry, which is how a
+        # Restricted-default user machine stayed invisible to this suite.
+        "-ExecutionPolicy",
+        "Bypass",
         "-File",
         str(ROOT / "desktop" / "src-tauri" / "windows" / "native-component-drain.ps1"),
     ]

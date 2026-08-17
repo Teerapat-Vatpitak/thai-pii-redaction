@@ -23,8 +23,29 @@ current one-time external Retest-2 candidate is built from source commit
 `bc45c4646d140235e6c1c63ceb1c550d3d26eff7`, source tree
 `7d9bdbf336f57e40d4e616f807e30b98da6765b1`, and has SHA-256
 `EABA6633BF2AA3AB78BA6BFA023D0435ACBD4B9FF89B5C9E21B732EEA24D9FA0`.
-It is unsigned (`Authenticode: NotSigned`), unpublished, and its external result
-is pending.
+It is unsigned (`Authenticode: NotSigned`) and unpublished. Its external run has
+now happened, and it is superseded because that run identified the cause. The
+classification worked: it named `D12 PowerShell runtime` where the previous
+package could only say `D10`.
+
+The hook launched the installer's own extracted script without stating an
+execution policy, so it inherited the user machine's. Windows client defaults to
+`Restricted`, under which `powershell.exe -File` refuses an unsigned script and
+exits `1`, which this hook reports as `D12`. Running the exact shipped script
+under `-ExecutionPolicy Restricted` reproduces it locally: exit `1` with
+`running scripts is disabled on this system`. That also explains the earlier
+`D10` — the script never ran, so there was no stdout to classify. The developer
+machine carries `RemoteSigned`, under which a local unsigned script runs, so no
+local run, contract, or CI job could observe this at all.
+
+Both launchers now state `-ExecutionPolicy Bypass`. It is process-scoped,
+changes no machine setting, and applies only to the installer's own extracted
+payload, which the manager still admits by digest. A test previously asserted
+that the hook never names an execution policy; that assertion was the defect's
+direct cause and is replaced by its inverse, with the reasoning recorded in
+place so it is not reinstated. The native-package contract passes `102` with one
+expected platform skip. A rebuilt package and one more external-machine run
+remain required before any `v3.0.1` publication.
 
 Two independently observed failures define the hotfix scope:
 
