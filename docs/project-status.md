@@ -14,7 +14,11 @@ code map must have a row here; `tests/test_docs_coverage.py` enforces that.
 
 The owner authorized a compatible `3.0.1` hotfix investigation and candidate on
 2026-08-17. The published `v3.0.0` release remains the current public Desktop
-release; no `v3.0.1` tag, draft, package, or publication exists yet.
+release; no `v3.0.1` tag, draft, or public publication exists yet. Local
+diagnostic packages do exist. The latest exact external-retest candidate was
+built from source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59` and has
+SHA-256 `00FD41820D05D0D90649BA5946E3E3C1614D8C2B6E2258164E88F8C71F4E4211`;
+it is unsigned (`Authenticode: NotSigned`) and is not a public release.
 
 Two independently observed failures define the hotfix scope:
 
@@ -70,8 +74,9 @@ install path, username, process arguments, or file content is persisted or
 displayed. Windows PowerShell 5.1 execution proves missing-root `D11`, blocked
 runtime/Add-Type `D12`, malformed/hardlinked control `D13`, and missing payload
 `D17`; the complete Desktop native-package contract passes `102` tests with one
-expected platform skip. An exact NSIS candidate and the external-machine retest
-are still required before this incident may be called fixed.
+expected platform skip. The exact NSIS candidate now exists, but the
+external-machine retest is still required before this incident may be called
+fixed.
 
 The first local `3.0.1` NSIS diagnostic package passed clean install,
 same-path reinstall, five-run direct-package smoke, uninstall cleanup, and a
@@ -85,9 +90,11 @@ plus production build; Desktop Rust passes 31 all-feature tests; the official
 Windows Native Broker runtime command passes every active protocol, transport,
 backend, lifecycle, resource, data-plane, Desktop/Extension, registration, and
 Slice 6 test with only its explicit subprocess-fixture ignores. Rustfmt and
-strict Clippy pass for both crates. The exact final NSIS must therefore be
-rebuilt after the evidence commit before it replaces the superseded Downloads
-candidate.
+strict Clippy pass for both crates. The replacement NSIS was rebuilt from exact
+source commit `08fe927d7d708548d9572bb2aa1b5f2818f8da59`, passed the same local
+install/reinstall/smoke/uninstall lifecycle, and is the current external-retest
+candidate identified above. It must still pass the external-machine retest and
+release gates before any `v3.0.1` publication.
 
 The committed performance baseline remains red but is stale on unmodified
 source. On the same machine and exact Python/dependency environment, unmodified
