@@ -44,8 +44,32 @@ payload, which the manager still admits by digest. A test previously asserted
 that the hook never names an execution policy; that assertion was the defect's
 direct cause and is replaced by its inverse, with the reasoning recorded in
 place so it is not reinstated. The native-package contract passes `102` with one
-expected platform skip. A rebuilt package and one more external-machine run
-remain required before any `v3.0.1` publication.
+expected platform skip.
+
+The rebuilt candidate is a production NSIS bundle (no `package-smoke` feature)
+from clean tree `3570648c1c4c7a4c3c7c50237858b261a1f608e4`, with SHA-256
+`B8906F6782C807639164C170D402DB11C8A047E152D5EA18E48860F3879408C9`, still
+unsigned (`Authenticode: NotSigned`). Its packaged drain script is byte-equal to
+source after newline normalization. The compiled NSIS instructions are LZMA
+payload, so the switch itself cannot be read back out of the shipped bytes; that
+was established behaviorally instead.
+
+The failing condition was reproduced on the developer machine rather than
+waiting for another external round trip. `CurrentUser` was set to `Restricted`
+and the inherited `PSExecutionPolicyPreference=Bypass` was cleared, after which
+a fresh Windows PowerShell child reported `Restricted` and the shipped drain
+script invoked the old way was refused with
+`running scripts is disabled on this system`. The rebuilt installer then ran
+`/S` under that exact condition and exited `0`; `%LOCALAPPDATA%\AI Guard`
+carries the fresh payload, `desktop.exe` reports `3.0.1`, the uninstall entry
+reads `AI Guard 3.0.1`, and the native-host manifest was written after the drain
+step, so the drain executed and passed. `CurrentUser` was then restored to
+`Undefined` and `LocalMachine` remains `RemoteSigned`.
+
+That is a local reproduction of the reported condition, not a run on the
+reporter's machine. One external-machine run on the rebuilt candidate is still
+wanted before any `v3.0.1` publication, since that machine may differ in ways
+this reproduction does not cover.
 
 Two independently observed failures define the hotfix scope:
 
