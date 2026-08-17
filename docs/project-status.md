@@ -73,6 +73,38 @@ runtime/Add-Type `D12`, malformed/hardlinked control `D13`, and missing payload
 expected platform skip. An exact NSIS candidate and the external-machine retest
 are still required before this incident may be called fixed.
 
+The first local `3.0.1` NSIS diagnostic package passed clean install,
+same-path reinstall, five-run direct-package smoke, uninstall cleanup, and a
+second clean install with zero broker/backend process delta. It is superseded:
+the first complete Python run then found that the deliberately hand-maintained
+`app/server.py` last-resort literal still said `3.0.0`. The literal is now
+`3.0.1`; its focused version contract passes `20/20`, and the fresh complete
+Python run passes `2685` with 33 expected skips and one existing Starlette
+deprecation warning. Root JavaScript passes `163/163`; Office passes `129/129`
+plus production build; Desktop Rust passes 31 all-feature tests; the official
+Windows Native Broker runtime command passes every active protocol, transport,
+backend, lifecycle, resource, data-plane, Desktop/Extension, registration, and
+Slice 6 test with only its explicit subprocess-fixture ignores. Rustfmt and
+strict Clippy pass for both crates. The exact final NSIS must therefore be
+rebuilt after the evidence commit before it replaces the superseded Downloads
+candidate.
+
+The committed performance baseline remains red but is stale on unmodified
+source. On the same machine and exact Python/dependency environment, unmodified
+`63cb5f7` measured detect 5.21 ms, sanitize 14.56 ms, restore 0.23 ms, PDF
+redaction 71.62 ms, and 152.4 MiB RSS. The candidate measured 5.60 ms, 14.36
+ms, 0.24 ms, 69.93 ms, and 152.6 MiB respectively. The hotfix therefore adds
+no measured regression versus its exact source control; sanitize is about 1.4%
+faster in the controlled pair, while both remain above the obsolete committed
+10.1 ms anchor. The baseline is not moved.
+
+GitHub run 32026818615 passed the first hotfix cross-platform smoke. Companion
+CI run 32026818605 passed packaging, Windows installed NSIS, Extension, Docker,
+version metadata, Rust, JavaScript, Office, and all three OS Native Broker jobs,
+but its three Python tiers were red only because they preceded the corrected
+fallback literal. That exact run is superseded; the final source commit requires
+a fresh full CI and cross-platform run.
+
 Benchmark note: `blind-v1` is a closed historical evidence set. Its six-reveal
 budget is exhausted, so it must not be described as an active blind evaluation
 or used for further tuning. A future blind measurement requires a newly frozen

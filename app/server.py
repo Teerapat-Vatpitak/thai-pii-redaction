@@ -178,7 +178,7 @@ def _read_version() -> str:
             continue
     # Last-resort fallback, outside the single-source system by design:
     # bump this literal at release time (scripts/bump_version.py does not).
-    return "3.0.0"
+    return "3.0.1"
 
 
 __version__ = _read_version()
