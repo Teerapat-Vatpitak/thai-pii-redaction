@@ -128,14 +128,42 @@ def _layer1_pii_scan(
 
     if unexpected:
         flags.append(f"unexpected_pii_count:{len(unexpected)}")
-        spans = tuple(
-            (entity.span[0], entity.span[1])
-            for entity in unexpected
-            if 0 <= entity.span[0] < entity.span[1] <= len(text)
-        )
-        return False, flags, spans
+        spans: list[tuple[int, int]] = []
+        for entity in unexpected:
+            if not 0 <= entity.span[0] < entity.span[1] <= len(text):
+                continue
+            # A detected span often straddles an authoritative range: the
+            # detector reads the restored value and the provider's own words
+            # around it as one entity. Report only the part outside, so a caller
+            # that masks these offsets removes the fabricated material without
+            # also erasing a value the reverse mapper itself put there.
+            spans.extend(_subtract_ranges(entity.span[0], entity.span[1], expected_ranges))
+        return False, flags, tuple(spans)
 
     return True, flags, ()
+
+
+def _subtract_ranges(
+    start: int,
+    end: int,
+    ranges: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Return the parts of [start, end) that no range in ``ranges`` covers."""
+    remaining = [(start, end)]
+    for covered_start, covered_end in ranges:
+        nxt: list[tuple[int, int]] = []
+        for piece_start, piece_end in remaining:
+            if covered_end <= piece_start or covered_start >= piece_end:
+                nxt.append((piece_start, piece_end))
+                continue
+            if piece_start < covered_start:
+                nxt.append((piece_start, covered_start))
+            if covered_end < piece_end:
+                nxt.append((covered_end, piece_end))
+        remaining = nxt
+        if not remaining:
+            break
+    return remaining
 
 
 def _layer2_completeness(

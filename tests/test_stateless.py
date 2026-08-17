@@ -624,11 +624,34 @@ def test_restore_reports_where_generated_pii_was_found():
     )
 
     assert back.generated_pii_count >= 1
-    assert len(back.generated_pii_spans) == back.generated_pii_count
+    assert back.generated_pii_spans
     for start, end in back.generated_pii_spans:
         assert 0 <= start < end <= len(back.restored_text)
     covered = "".join(back.restored_text[start:end] for start, end in back.generated_pii_spans)
     assert "สมหญิง" in covered
+
+
+def test_restore_never_reports_authoritative_restored_text_as_generated():
+    """Masking these offsets must not erase what the reverse mapper inserted.
+
+    The detector routinely reads a restored value together with the provider's
+    surrounding words as one entity. Reporting that whole entity would make a
+    masking caller delete the caller's own mapping result.
+    """
+    source = "ผู้สมัครสังเคราะห์ สมชาย ใจดี"
+    out = sanitize_stateless(source, mode="token", salt="s")
+
+    back = restore_stateless(
+        f"เรียน หัวหน้าแผนก\n{out.sanitized_text} ขออนุญาตลาพักร้อนเป็นเวลา 3 วัน",
+        mapping=out.mapping,
+        mode="token",
+    )
+
+    assert back.leftover_pseudonyms == []
+    masked = back.restored_text
+    for start, end in sorted(back.generated_pii_spans, reverse=True):
+        masked = masked[:start] + masked[end:]
+    assert "สมชาย ใจดี" in masked
 
 
 def test_restore_reports_no_generated_pii_spans_when_the_reply_is_clean():
