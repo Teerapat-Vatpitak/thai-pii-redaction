@@ -606,6 +606,41 @@ def test_restore_flags_a_duplicate_of_a_known_original_outside_restored_span():
     assert back.generated_pii_count >= 1
 
 
+def test_restore_reports_where_generated_pii_was_found():
+    """Offsets let a caller mask exactly what the validator objected to.
+
+    Reporting only a count forces the caller into all-or-nothing handling: it
+    must either publish text the validator distrusts or discard the whole
+    reply. The detector runs out of its calibrated domain on provider prose, so
+    all-or-nothing turns an ordinary precision miss into total unavailability.
+    """
+    source = "ผู้สมัครสังเคราะห์ สมชาย ใจดี ติดต่อ test@example.invalid"
+    out = sanitize_stateless(source, mode="token", salt="s")
+
+    back = restore_stateless(
+        f"ผู้ติดต่อใหม่ นายสมหญิง ทดสอบดี\n{out.sanitized_text}",
+        mapping=out.mapping,
+        mode="token",
+    )
+
+    assert back.generated_pii_count >= 1
+    assert len(back.generated_pii_spans) == back.generated_pii_count
+    for start, end in back.generated_pii_spans:
+        assert 0 <= start < end <= len(back.restored_text)
+    covered = "".join(back.restored_text[start:end] for start, end in back.generated_pii_spans)
+    assert "สมหญิง" in covered
+
+
+def test_restore_reports_no_generated_pii_spans_when_the_reply_is_clean():
+    source = "ผู้สมัครสังเคราะห์ สมชาย ใจดี ติดต่อ test@example.invalid"
+    out = sanitize_stateless(source, mode="token", salt="s")
+
+    back = restore_stateless(out.sanitized_text, mapping=out.mapping, mode="token")
+
+    assert back.generated_pii_count == 0
+    assert back.generated_pii_spans == ()
+
+
 def test_restore_reports_pseudonyms_it_could_not_account_for():
     """A model reply may drop or mangle a token; the caller has to learn that.
 

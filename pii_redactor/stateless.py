@@ -60,6 +60,9 @@ class StatelessRestoreResult:
     warnings: list[str]
     generated_pii_count: int = 0
     foreign_replacement_count: int = 0
+    # Offsets into restored_text for the spans Layer 1 judged unexpected, so a
+    # caller can mask exactly those instead of discarding the whole reply.
+    generated_pii_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass
@@ -417,6 +420,7 @@ def _restore_stateless_impl(
         restored = result.text
         flags = list(result.flags)
         generated_pii_count = 0
+        generated_pii_spans: tuple[tuple[int, int], ...] = ()
         try:
             validate_output(
                 result,
@@ -425,6 +429,9 @@ def _restore_stateless_impl(
             )
         except OutputPIILeakError as error:
             generated_pii_count = error.count
+            generated_pii_spans = tuple(
+                (start, end) for start, end in error.spans if end <= len(restored)
+            )
             discard_exception_graph(error)
 
         # Counted here rather than taken from the audit summary: the caller's
@@ -446,6 +453,7 @@ def _restore_stateless_impl(
             warnings=flags,
             generated_pii_count=generated_pii_count,
             foreign_replacement_count=int(result.audit_summary.get("foreign_token_count", 0)),
+            generated_pii_spans=generated_pii_spans,
         )
     finally:
         cleanup_ok = _clear_throwaway_vault(vault)
@@ -462,6 +470,7 @@ def _restore_stateless_impl(
         leftover = []
         unused = []
         generated_pii_count = 0
+        generated_pii_spans = ()
         pseudonym = None
         original = None
         raise StatelessProcessingError(_RESTORE_FAILURE_CODE)

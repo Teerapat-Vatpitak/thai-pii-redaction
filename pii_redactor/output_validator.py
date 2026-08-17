@@ -29,15 +29,41 @@ class ValidationResult:
 class PIILeakError(Exception):
     """Layer 1: Unexpected PII found in final output. Pipeline must halt immediately."""
 
-    def __init__(self, *_discarded: object, count: int = 1):
+    def __init__(
+        self,
+        *_discarded: object,
+        count: int = 1,
+        spans: object = (),
+    ):
         self.count = count if type(count) is int and count > 0 else 1
+        # Offsets only, never values. The message stays value-free so a logged
+        # exception still cannot carry PII, while a caller that already holds
+        # the text can mask exactly what this layer objected to instead of
+        # having to discard the whole output.
+        self.spans = _clean_spans(spans)
         super().__init__("Unexpected PII detected in output")
+
+
+def _clean_spans(spans: object) -> tuple[tuple[int, int], ...]:
+    if not isinstance(spans, (tuple, list)):
+        return ()
+    cleaned: list[tuple[int, int]] = []
+    for item in spans:
+        if (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and type(item[0]) is int
+            and type(item[1]) is int
+            and 0 <= item[0] < item[1]
+        ):
+            cleaned.append((item[0], item[1]))
+    return tuple(cleaned)
 
 
 def _layer1_pii_scan(
     reverse_result: ReverseResult,
     vault: SessionVault,
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], tuple[tuple[int, int], ...]]:
     """
     Run the shared structured and text-based detector on restored text.
 
@@ -54,7 +80,9 @@ def _layer1_pii_scan(
         vault: SessionVault containing expected originals
 
     Returns:
-        (pii_clean, flags) where pii_clean=True if all detected PII is expected
+        (pii_clean, flags, unexpected_spans) where pii_clean=True if all
+        detected PII is expected. The spans are offsets into the restored text,
+        reported so a caller can mask them precisely.
     """
     flags = []
     text = reverse_result.text
@@ -100,9 +128,14 @@ def _layer1_pii_scan(
 
     if unexpected:
         flags.append(f"unexpected_pii_count:{len(unexpected)}")
-        return False, flags
+        spans = tuple(
+            (entity.span[0], entity.span[1])
+            for entity in unexpected
+            if 0 <= entity.span[0] < entity.span[1] <= len(text)
+        )
+        return False, flags, spans
 
-    return True, flags
+    return True, flags, ()
 
 
 def _layer2_completeness(
@@ -213,7 +246,7 @@ def validate_output(
     all_flags = []
 
     # Layer 1: PII scan
-    l1_ok, l1_flags = _layer1_pii_scan(reverse_result, vault)
+    l1_ok, l1_flags, l1_spans = _layer1_pii_scan(reverse_result, vault)
     all_flags.extend(l1_flags)
 
     if not l1_ok:
@@ -226,7 +259,7 @@ def validate_output(
                     unexpected_count += int(flag[len(prefix) :])
                 except ValueError:
                     unexpected_count += 1
-        raise PIILeakError(count=unexpected_count)
+        raise PIILeakError(count=unexpected_count, spans=l1_spans)
 
     # Layer 2: Completeness
     l2_ok, l2_flags = _layer2_completeness(reverse_result, entity_registry, vault)
