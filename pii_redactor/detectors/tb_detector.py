@@ -140,6 +140,10 @@ _NAME_DOC_COMPOUND_RE = re.compile(
 # the strict shape gate below would otherwise discard the name because of a
 # comma. Deliberately narrow: only characters that end a clause.
 _NAME_SEGMENT_TRIM_CHARS = ",.;:!?)]}\"'"
+# Provider replies commonly add this fixed Thai label with Markdown markers.
+# The CRF can tag the label text itself as PERSON; it is presentation syntax,
+# never a person's name. Keep this exact instead of weakening all head spans.
+_NAME_FORMAT_LABEL_RE = re.compile(r"^[*_`# \t]*คำตอบ[:：*_`# \t]*$")
 # A digit run (with its separators) inside a NAME span is the same class of
 # invariant as the line break: a person's name never contains one. The CRF
 # glues a trailing account number into the PERSON span ("บัญชี ศักดิ์ชัย
@@ -285,6 +289,17 @@ def _name_hygiene(text: str, start: int, end: int) -> list[tuple[int, int]]:
         lstripped = line.lstrip()
         pad = len(line) - len(lstripped)
         seg = lstripped.rstrip().rstrip(_NAME_SEGMENT_TRIM_CHARS).rstrip()
+        if _NAME_FORMAT_LABEL_RE.fullmatch(seg):
+            return None
+        t_lo, _t_hi = trim_same_line_name_edges(seg)
+        first_group = re.match(r"[^ \t]+", seg)
+        # Tail segments deliberately retain a separately spaced role group.
+        # Only split a role token that is glued to name material in the same
+        # group, the exact boundary that otherwise crosses a restored range.
+        if first_group is not None and 0 < t_lo < first_group.end():
+            seg = seg[t_lo:]
+        else:
+            t_lo = 0
         if len(seg) < 2:
             return None
         if _NAME_DOC_COMPOUND_RE.match(seg):
@@ -293,11 +308,13 @@ def _name_hygiene(text: str, start: int, end: int) -> list[tuple[int, int]]:
             return None
         if is_non_person_segment(seg):
             return None
-        seg_start = line_start + pad
+        seg_start = line_start + pad + t_lo
         return (seg_start, seg_start + len(seg))
 
     entity_text = text[start:end]
     if "\n" not in entity_text and not _NAME_DIGIT_RUN_RE.search(entity_text):
+        if _NAME_FORMAT_LABEL_RE.fullmatch(entity_text.strip()):
+            return []
         compound = _NAME_DOC_COMPOUND_RE.match(entity_text)
         if compound:
             # A document compound at the head does NOT mean the whole span is
@@ -354,7 +371,11 @@ def _name_hygiene(text: str, start: int, end: int) -> list[tuple[int, int]]:
                 if got:
                     spans.append(got)
             seg = head.rstrip()
-            if len(seg) < 2 or _NAME_DOC_COMPOUND_RE.match(seg):
+            if (
+                len(seg) < 2
+                or _NAME_FORMAT_LABEL_RE.fullmatch(seg.strip())
+                or _NAME_DOC_COMPOUND_RE.match(seg)
+            ):
                 continue
             # Same-line role/label edge trim (B1/B2/B3), re-checking the
             # compound gate on the result: a trim can expose a document

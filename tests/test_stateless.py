@@ -561,6 +561,37 @@ def test_restore_closes_the_round_trip_without_server_state():
     assert not back.leftover_pseudonyms
 
 
+def test_restore_accepts_exact_tokens_with_provider_markdown_and_role_context():
+    source = "ผู้สมัครสังเคราะห์ สมชาย ใจดี ติดต่อ test@example.invalid"
+    out = sanitize_stateless(source, mode="token", salt="s")
+
+    back = restore_stateless(
+        f"**คำตอบ:**\n\n{out.sanitized_text}",
+        mapping=out.mapping,
+        mode="token",
+    )
+
+    assert back.restored_text == f"**คำตอบ:**\n\n{source}"
+    assert back.replaced_count == len(out.mapping) == 2
+    assert back.leftover_pseudonyms == []
+    assert back.generated_pii_count == 0
+
+
+def test_restore_still_flags_a_provider_generated_name_beside_exact_tokens():
+    source = "ผู้สมัครสังเคราะห์ สมชาย ใจดี ติดต่อ test@example.invalid"
+    out = sanitize_stateless(source, mode="token", salt="s")
+
+    back = restore_stateless(
+        f"ผู้ติดต่อใหม่ นายสมหญิง ทดสอบดี\n{out.sanitized_text}",
+        mapping=out.mapping,
+        mode="token",
+    )
+
+    assert back.replaced_count == len(out.mapping) == 2
+    assert back.leftover_pseudonyms == []
+    assert back.generated_pii_count >= 1
+
+
 def test_restore_flags_a_duplicate_of_a_known_original_outside_restored_span():
     original = "081-234-5678"
     out = sanitize_stateless(f"เบอร์ {original}", mode="token", salt="s")
