@@ -1270,6 +1270,18 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
     assert "SequenceEqual[byte]" not in drain_script
     assert "Get-Acl" not in drain_script
     assert "AIGUARD_COMPONENT_MAINTENANCE_V1`n" in drain_script
+    assert "[Console]::Out.Write($code)" in drain_script
+    for code, label in (
+        ("D11", "install root"),
+        ("D12", "PowerShell runtime"),
+        ("D13", "control state"),
+        ("D14", "component conflict"),
+        ("D15", "process drain"),
+        ("D16", "component cleanup"),
+        ("D17", "payload validation"),
+    ):
+        assert code in drain_script
+        assert f"{code} {label}" in nsis
     drain_macro = nsis.split("!macro AIGUARD_WAIT_AND_REMOVE_LAUNCHERS", 1)[1].split(
         "!macroend", 1
     )[0]
@@ -1279,7 +1291,7 @@ def test_native_package_hooks_drain_before_replacement_and_keep_fixed_diagnostic
     assert drain_macro.index("File /oname=aiguard-native-component-drain.ps1") < (
         drain_macro.index('SetOutPath "$INSTDIR"')
     )
-    assert drain_macro.index('SetOutPath "$INSTDIR"') < drain_macro.index("ExecWait")
+    assert drain_macro.index('SetOutPath "$INSTDIR"') < drain_macro.index("nsExec::ExecToStack")
     assert "NSIS System.dll" in drain_macro
     assert ".aiguard-component-transaction-v1" in nsis
     assert "resume-package nsis" in nsis
@@ -1654,14 +1666,14 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
 
     valid = run_with_controls("valid", (b"0" * 64) + b"\n")
     assert valid.returncode == 0, valid.stderr
-    assert (
-        run_with_controls(
-            "hardlink-marker",
-            (b"0" * 64) + b"\n",
-            hardlink_marker=True,
-        ).returncode
-        == 1
+    assert valid.stdout == ""
+    hardlink_marker = run_with_controls(
+        "hardlink-marker",
+        (b"0" * 64) + b"\n",
+        hardlink_marker=True,
     )
+    assert hardlink_marker.returncode == 1
+    assert hardlink_marker.stdout == "D13"
     assert (
         run_with_controls(
             "hardlink-receipt",
@@ -1702,7 +1714,9 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
     for name, expected in resumed_before.items():
         assert (resumed_root / name).read_bytes() == expected
 
-    assert run_payload_normalization("payload-missing", missing="desktop.exe")[0].returncode == 1
+    payload_missing = run_payload_normalization("payload-missing", missing="desktop.exe")[0]
+    assert payload_missing.returncode == 1
+    assert payload_missing.stdout == "D17"
     assert (
         run_payload_normalization("payload-missing-marker", marker_present=False)[0].returncode == 1
     )
@@ -1751,6 +1765,7 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         command_cwd=collision_directory,
     )
     assert collision_result.returncode == 1
+    assert collision_result.stdout == "D12"
     isolated_result, _ = run_marker_only(
         "plugin-system-isolated",
         use_install_root_cwd=True,
@@ -1762,13 +1777,47 @@ def test_native_component_drain_executes_in_windows_powershell_51(request):
         ("marker-extra-lf", b"AIGUARD_COMPONENT_MAINTENANCE_V1\n\n"),
         ("marker-altered", b"AIGUARD_COMPONENT_MAINTENANCE_V2\n"),
     ):
-        assert run_marker_only(label, malformed)[0].returncode == 1
+        malformed_marker = run_marker_only(label, malformed)[0]
+        assert malformed_marker.returncode == 1
+        assert malformed_marker.stdout == "D13"
     try:
         reparse_result, _ = run_marker_only("marker-reparse", reparse=True)
     except OSError:
         pass
     else:
         assert reparse_result.returncode == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
+def test_native_component_drain_missing_root_has_fixed_value_free_stage():
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32"
+        / "WindowsPowerShell"
+        / "v1.0"
+        / "powershell.exe"
+    )
+    environment = os.environ.copy()
+    environment.pop("AIGUARD_INTERNAL_INSTALL_ROOT", None)
+    result = subprocess.run(
+        [
+            str(powershell),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            str(ROOT / "desktop" / "src-tauri" / "windows" / "native-component-drain.ps1"),
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == "D11"
+    assert result.stderr == ""
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
@@ -2647,7 +2696,7 @@ def test_linux_process_count_skips_uninspectable_unrelated_same_user_process(tmp
     monkeypatch.setattr(
         smoke_package.subprocess,
         "check_output",
-        lambda *_args, **_kwargs: (f"{current_pid} 1000 python\n202 1000 protected-worker\n"),
+        lambda *_args, **_kwargs: f"{current_pid} 1000 python\n202 1000 protected-worker\n",
     )
 
     def executable_path(pid):
@@ -2673,7 +2722,7 @@ def test_unix_process_count_fails_closed_when_executable_path_is_unavailable(tmp
     monkeypatch.setattr(
         smoke_package.subprocess,
         "check_output",
-        lambda *_args, **_kwargs: (f"{current_pid} 1000 python\n202 1000 aiguard-native-\n"),
+        lambda *_args, **_kwargs: f"{current_pid} 1000 python\n202 1000 aiguard-native-\n",
     )
 
     def executable_path(pid):

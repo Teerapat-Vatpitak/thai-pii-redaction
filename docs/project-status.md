@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-14
+Updated: 2026-08-17
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -9,6 +9,69 @@ This document answers one question: **what is actually finished, and what is the
 evidence**. It is not the code map ([CODEMAP.md](../CODEMAP.md)) and it does not set
 priority or order ([ROADMAP.md](../ROADMAP.md)). Every storefront named in the
 code map must have a row here; `tests/test_docs_coverage.py` enforces that.
+
+## 3.0.1 hotfix incidents
+
+The owner authorized a compatible `3.0.1` hotfix investigation and candidate on
+2026-08-17. The published `v3.0.0` release remains the current public Desktop
+release; no `v3.0.1` tag, draft, package, or publication exists yet.
+
+Two independently observed failures define the hotfix scope:
+
+- An external Windows user downloaded the published x64 NSIS package and saw
+  three deterministic aborts at `AI Guard native component drain failed` during
+  a fresh install attempt. The current hook maps environment setup, control-file
+  validation, launcher isolation, CIM process inspection, and cleanup failures
+  to one value-free message, so the screenshot establishes a real delivery-path
+  compatibility failure but cannot identify the failed stage. The first
+  candidate must add bounded value-free stage evidence without logging paths,
+  identities, process arguments, or user data, then pass clean install, upgrade,
+  interrupted-retry, uninstall, and that external-machine retest.
+- A fresh public Hosted Standard/Token run in the sibling AIFT deployment
+  returned HTTP `200` and a Pathumma response that preserved both exact tokens.
+  Restoration replaced both mappings with zero leftovers and the safety gate
+  passed, but output validation reported two generated-PII findings: the
+  provider-added Markdown label `คำตอบ:**` was falsely detected as `NAME`, and
+  another `NAME` span expanded from the restored original into the unchanged
+  `ผู้สมัคร` prefix. This is a shared-core precision/provenance defect, not a
+  malformed provider response. The hotfix must retain fail-closed unexpected-PII
+  handling, add the exact regression plus adversarial generated-PII negatives,
+  and pass the repository performance and detector gates before the sibling port
+  may consume it.
+
+Work is isolated in `codex/3.0.1-hotfix` from clean current `main`; unrelated
+dirty detector-evaluation work remains untouched in its original worktree.
+The exact starting commit is
+`63cb5f7bfd4b3133d7a6d63446e187a97e47010f`. Stage-0 baselines pass the existing
+output-validator contract `43/43`, the Windows PowerShell 5.1 drain plus hook
+contract `2/2`, and the sibling's exact Core-image execute contract `9/9`.
+
+Stage 1 now has a local source correction. The strict output-validator rule that
+rejects any generated PII extending beyond authoritative restored ranges is
+unchanged. Instead, CRF NAME hygiene rejects only the exact provider-format
+label `คำตอบ` plus presentation punctuation, and a multiline tail trims a role
+prefix only when the role and name material are glued inside the same first
+space group. A separately spaced role remains over-masked as before. The exact
+public synthetic restoration now replaces both mappings with zero leftovers and
+zero generated-PII findings; a response that actually adds a fabricated person
+still reports generated PII. Focused NAME boundary/recall, stateless, and output
+validation evidence passes `245/245`, with the two explicit positive/adversarial
+restoration regressions also passing. Broader performance, full-suite, port,
+image, and release evidence remain pending.
+
+Stage 3 diagnostic hardening is also implemented locally but the external
+failure is not yet closed. The PowerShell drain emits only one fixed code and a
+non-zero exit: `D11` install root, `D12` PowerShell runtime, `D13` control state,
+`D14` component conflict, `D15` process drain, `D16` component cleanup, or
+`D17` payload validation. NSIS captures only that exact output, maps it to a
+bounded user-visible stage, and otherwise uses `D10 unclassified`; an admitted
+old manager failure is separately `D18 manager drain`. No exception text,
+install path, username, process arguments, or file content is persisted or
+displayed. Windows PowerShell 5.1 execution proves missing-root `D11`, blocked
+runtime/Add-Type `D12`, malformed/hardlinked control `D13`, and missing payload
+`D17`; the complete Desktop native-package contract passes `102` tests with one
+expected platform skip. An exact NSIS candidate and the external-machine retest
+are still required before this incident may be called fixed.
 
 Benchmark note: `blind-v1` is a closed historical evidence set. Its six-reveal
 budget is exhausted, so it must not be described as an active blind evaluation

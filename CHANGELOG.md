@@ -12,6 +12,21 @@ log — see `git log` for full detail on any release.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-17
+
+### Fixed
+
+- Thai NAME boundary hygiene no longer treats the fixed provider-format label
+  `คำตอบ` as a person, and trims a role prefix from a multiline CRF tail only
+  when the role and name are glued in the same space group. Exact restored PII
+  remains authorized only inside provenance ranges; genuinely provider-generated
+  PII still fails closed.
+- The Windows NSIS native-component transaction now reports one bounded,
+  value-free failure stage instead of collapsing root, PowerShell, control,
+  conflict, process, cleanup, and payload failures into one generic message.
+  It does not expose paths, usernames, process arguments, file contents, or
+  exception text.
+
 ## [3.0.0] - 2026-08-14
 
 AI Guard 3.0 moves the local Desktop and Chrome Extension onto one authenticated

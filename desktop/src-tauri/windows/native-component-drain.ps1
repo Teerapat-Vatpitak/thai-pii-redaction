@@ -4,17 +4,33 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$failureCode = "D11"
+
+function Stop-Drain([string] $code) {
+    try {
+        [Console]::Out.Write($code)
+    }
+    catch {
+        # The installer still receives the non-zero exit if stdout is unavailable.
+    }
+    exit 1
+}
+
+trap {
+    Stop-Drain $failureCode
+}
+
 $root = [Environment]::GetEnvironmentVariable(
     "AIGUARD_INTERNAL_INSTALL_ROOT",
     "Process"
 )
 if ([string]::IsNullOrEmpty($root)) {
-    exit 1
+    Stop-Drain "D11"
 }
 $driveAbsolute = $root -match '^[A-Za-z]:[\\/]'
 $uncAbsolute = $root -match '^\\\\[^\\]+\\[^\\]+(?:\\|$)'
 if (-not $driveAbsolute -and -not $uncAbsolute) {
-    exit 1
+    Stop-Drain "D11"
 }
 
 $names = @(
@@ -35,6 +51,7 @@ $processFilter = @(
 $originals = @($names | ForEach-Object { [IO.Path]::Combine($root, $_) })
 $quarantines = @($originals | ForEach-Object { "$_.aiguard-slice6-quarantine" })
 
+$failureCode = "D12"
 if (-not ("AiGuardPackageFileIdentity" -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -391,6 +408,7 @@ public static class AiGuardPackageFileIdentity
 '@
 }
 
+$failureCode = "D13"
 function Assert-ControlFile([string] $path, [byte[]] $expected, [bool] $requireOwner) {
     $item = Get-Item -LiteralPath $path -Force
     if (
@@ -441,6 +459,7 @@ try {
         Assert-ControlFile $receipt $receiptBytes $true
     }
     if ($Mode -eq "NormalizePayload") {
+        $failureCode = "D17"
         if (-not (Test-Path -LiteralPath $marker)) {
             throw "invalid package control file"
         }
@@ -451,24 +470,25 @@ try {
     }
 }
 catch {
-    exit 1
+    Stop-Drain $failureCode
 }
 
 if ($Mode -eq "NormalizePayload") {
     exit 0
 }
 
+$failureCode = "D14"
 for ($index = 0; $index -lt $originals.Count; $index++) {
     if (
         (Test-Path -LiteralPath $originals[$index]) -and
         (Test-Path -LiteralPath $quarantines[$index])
     ) {
-        exit 1
+        Stop-Drain "D14"
     }
     if (Test-Path -LiteralPath $quarantines[$index]) {
         $item = Get-Item -LiteralPath $quarantines[$index] -Force
         if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            exit 1
+            Stop-Drain "D14"
         }
     }
 }
@@ -483,6 +503,7 @@ function Get-NormalizedProcessPath([string] $path) {
     return $path
 }
 
+$failureCode = "D15"
 $deadline = [Diagnostics.Stopwatch]::StartNew()
 try {
     $isolated = $false
@@ -547,6 +568,7 @@ try {
     if ($clearSamples -lt 10) {
         throw "live component did not exit"
     }
+    $failureCode = "D16"
     foreach ($path in $quarantines) {
         if (Test-Path -LiteralPath $path) {
             [IO.File]::Delete($path)
@@ -560,5 +582,5 @@ try {
 catch {
     # Keep every completed quarantine in place. The package barrier and removed
     # browser discovery make this a fail-closed state that a retry can resume.
-    exit 1
+    Stop-Drain $failureCode
 }

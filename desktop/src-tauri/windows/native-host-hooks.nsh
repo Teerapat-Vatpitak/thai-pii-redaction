@@ -2,6 +2,28 @@
 
 Var AIGUARD_TRANSACTION_TOKEN
 
+!macro AIGUARD_ABORT_FIXED_STAGE EXIT_CODE STAGE_CODE FAILURE_KIND
+  ${If} ${EXIT_CODE} != 0
+    ${If} ${STAGE_CODE} == "D11"
+      Abort "AI Guard ${FAILURE_KIND} failed (D11 install root)."
+    ${ElseIf} ${STAGE_CODE} == "D12"
+      Abort "AI Guard ${FAILURE_KIND} failed (D12 PowerShell runtime)."
+    ${ElseIf} ${STAGE_CODE} == "D13"
+      Abort "AI Guard ${FAILURE_KIND} failed (D13 control state)."
+    ${ElseIf} ${STAGE_CODE} == "D14"
+      Abort "AI Guard ${FAILURE_KIND} failed (D14 component conflict)."
+    ${ElseIf} ${STAGE_CODE} == "D15"
+      Abort "AI Guard ${FAILURE_KIND} failed (D15 process drain)."
+    ${ElseIf} ${STAGE_CODE} == "D16"
+      Abort "AI Guard ${FAILURE_KIND} failed (D16 component cleanup)."
+    ${ElseIf} ${STAGE_CODE} == "D17"
+      Abort "AI Guard ${FAILURE_KIND} failed (D17 payload validation)."
+    ${Else}
+      Abort "AI Guard ${FAILURE_KIND} failed (D10 unclassified)."
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 !macro AIGUARD_ACQUIRE_PACKAGE_LOCK
   ; One per-user product file serializes every supported install root across
   ; console/RDP sessions. Delete-on-close leaves no lock state.
@@ -16,19 +38,19 @@ Var AIGUARD_TRANSACTION_TOKEN
   ; PowerShell source. The embedded fixed script isolates launchers first.
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", w "$INSTDIR") i .r8'
   ${If} $8 == 0
-    Abort "AI Guard native component drain failed."
+    Abort "AI Guard native component drain failed (D11 install root)."
   ${EndIf}
   SetOutPath "$PLUGINSDIR"
   File /oname=aiguard-native-component-drain.ps1 "${AIGUARD_HOOK_DIR}\native-component-drain.ps1"
   ; Avoid the NSIS System.dll in $PLUGINSDIR shadowing .NET references used by Add-Type.
   SetOutPath "$INSTDIR"
-  ExecWait `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1"` $0
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1"`
+  Pop $0
+  Pop $7
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", p 0) i .r8'
   SetOutPath "$INSTDIR"
-  ${If} $0 != 0
-    Abort "AI Guard native component drain failed."
-  ${EndIf}
+  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 $7 "native component drain"
 !macroend
 
 !macro AIGUARD_NORMALIZE_PACKAGE_PAYLOAD
@@ -37,18 +59,18 @@ Var AIGUARD_TRANSACTION_TOKEN
   ; ordinary manager performs its strict manifest and digest admission.
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", w "$INSTDIR") i .r8'
   ${If} $8 == 0
-    Abort "AI Guard native payload validation failed."
+    Abort "AI Guard native payload validation failed (D11 install root)."
   ${EndIf}
   SetOutPath "$PLUGINSDIR"
   File /oname=aiguard-native-component-drain.ps1 "${AIGUARD_HOOK_DIR}\native-component-drain.ps1"
   SetOutPath "$INSTDIR"
-  ExecWait `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1" -Mode NormalizePayload` $0
+  nsExec::ExecToStack `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -File "$PLUGINSDIR\aiguard-native-component-drain.ps1" -Mode NormalizePayload`
+  Pop $0
+  Pop $7
   Delete "$PLUGINSDIR\aiguard-native-component-drain.ps1"
   System::Call 'kernel32::SetEnvironmentVariableW(w "AIGUARD_INTERNAL_INSTALL_ROOT", p 0) i .r8'
   SetOutPath "$INSTDIR"
-  ${If} $0 != 0
-    Abort "AI Guard native payload validation failed."
-  ${EndIf}
+  !insertmacro AIGUARD_ABORT_FIXED_STAGE $0 $7 "native payload validation"
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
@@ -63,7 +85,7 @@ Var AIGUARD_TRANSACTION_TOKEN
     Goto aiguard_wait_old_processes
   ${EndIf}
   ${If} $8 == 0
-    Abort "AI Guard native component drain failed."
+    Abort "AI Guard native component drain failed (D18 manager drain)."
   ${EndIf}
   ; The pre-Slice-6 manager has no drain action. Establish the fixed barrier
   ; and remove the old host discovery before waiting for every old product
@@ -79,7 +101,7 @@ Var AIGUARD_TRANSACTION_TOKEN
   ClearErrors
   FileOpen $1 "$INSTDIR\.aiguard-component-maintenance-v1" w
   ${If} ${Errors}
-    Abort "AI Guard native component drain failed."
+    Abort "AI Guard native component drain failed (D13 control state)."
   ${EndIf}
   FileWrite $1 "AIGUARD_COMPONENT_MAINTENANCE_V1$\n"
   FileClose $1
@@ -90,14 +112,14 @@ Var AIGUARD_TRANSACTION_TOKEN
   ClearErrors
   FileOpen $1 "$INSTDIR\.aiguard-component-maintenance-v1" r
   ${If} ${Errors}
-    Abort "AI Guard native component drain failed."
+    Abort "AI Guard native component drain failed (D13 control state)."
   ${EndIf}
   FileRead $1 $2
   FileRead $1 $3
   FileClose $1
   ${If} $2 != "AIGUARD_COMPONENT_MAINTENANCE_V1$\n"
   ${OrIf} $3 != ""
-    Abort "AI Guard native component drain failed."
+    Abort "AI Guard native component drain failed (D13 control state)."
   ${EndIf}
   ; Validate only exact product-owned discovery. Launcher quarantine makes the
   ; existing path undiscoverable during the proof, while an aborted proof can
