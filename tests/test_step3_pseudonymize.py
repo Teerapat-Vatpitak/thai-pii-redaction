@@ -211,6 +211,70 @@ def test_consistency_scan_handles_a_self_overlapping_original():
     assert result.text == "สมชาย สมชายก"
 
 
+def test_consistency_scan_does_not_rescan_the_document_per_entity(monkeypatch):
+    """The scan re-derived every pseudonym range from scratch for each entity,
+    so a long paste re-scanned the whole document once per entity and masking
+    grew with entities x length. Nothing changes between those calls unless the
+    scan itself rewrote the text."""
+    import pii_redactor.anonymizer.anonymizer as anon_mod
+
+    phones = [f"08{i % 9 + 1}-{100 + i:03d}-{1000 + i:04d}" for i in range(40)]
+    text = "\n".join(f"ผู้ติดต่อรายที่ {i} หมายเลขโทรศัพท์ {phone}" for i, phone in enumerate(phones))
+    entities = [
+        _make_entity("PHONE", text, text.index(phone), text.index(phone) + len(phone))
+        for phone in phones
+    ]
+    registry = EntityRegistry(entities=entities, fp_count=len(entities), tb_count=0)
+
+    scanned = []
+    real_ranges = anon_mod.pseudonym_ranges
+
+    def counting_ranges(scan_text, pseudonyms):
+        scanned.append(len(scan_text))
+        return real_ranges(scan_text, pseudonyms)
+
+    monkeypatch.setattr(anon_mod, "pseudonym_ranges", counting_ranges)
+    result = anonymize(text, registry, SessionVault(), salt=SALT, mode="token")
+
+    assert all(phone not in result.text for phone in phones)
+    assert len(scanned) <= 3, (
+        f"{len(scanned)} whole-document passes ({sum(scanned)} chars) for "
+        f"{len(entities)} entities — the scan still re-derives every pseudonym "
+        f"range once per entity"
+    )
+
+
+def test_reuse_check_folds_the_document_once(monkeypatch):
+    """Reusing a prior pseudonym asks whether the candidate already occurs in
+    the source, and that check folded the WHOLE document once per entity. A
+    long paste that repeats one value folded it hundreds of times."""
+    import pii_redactor.anonymizer.anonymizer as anon_mod
+
+    phone = "081-234-5678"
+    text = "\n".join(f"ผู้ติดต่อรายที่ {i} หมายเลขโทรศัพท์ {phone}" for i in range(40))
+    entities = [
+        _make_entity("PHONE", text, start, start + len(phone))
+        for start in anon_mod._find_all(text, phone)
+    ]
+    registry = EntityRegistry(entities=entities, fp_count=len(entities), tb_count=0)
+
+    folded = []
+    real_compact = anon_mod._compact_identity
+
+    def counting_compact(value):
+        folded.append(len(value))
+        return real_compact(value)
+
+    monkeypatch.setattr(anon_mod, "_compact_identity", counting_compact)
+    result = anonymize(text, registry, SessionVault(), salt=SALT, mode="token")
+
+    assert phone not in result.text
+    assert sum(folded) <= 3 * len(text), (
+        f"folded {sum(folded)} chars for a {len(text)}-char text with "
+        f"{len(entities)} entities — the whole document is still folded per entity"
+    )
+
+
 def test_consistency_scan_still_replaces_an_untagged_repeat():
     """The scan's actual job: a value the detector tagged once but that occurs
     twice must be replaced at both occurrences, not just the tagged span."""

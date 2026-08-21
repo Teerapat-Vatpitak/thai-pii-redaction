@@ -90,17 +90,20 @@ def _compact_identity(value: str) -> str:
 def _safe_to_reuse(
     candidate: str,
     original: str,
-    source_text: str,
+    compact_source: str,
     data_type: str,
 ) -> bool:
-    """Return whether a prior pseudonym can safely represent this turn."""
+    """Return whether a prior pseudonym can safely represent this turn.
+
+    Takes the source text already folded: it is the same text for every entity
+    of one document, and folding it per entity cost length x entities.
+    """
     if not candidate:
         return False
     typed_candidate = canonical_value(data_type, candidate)
     typed_original = canonical_value(data_type, original)
     compact_candidate = _compact_identity(candidate)
     compact_original = _compact_identity(original)
-    compact_source = _compact_identity(source_text)
     return (
         bool(compact_candidate)
         and (not typed_original or typed_original not in typed_candidate)
@@ -135,6 +138,7 @@ def _generate_unique_pseudonym(
     salt: str,
     vault: SessionVault,
     all_originals: set[str],
+    compact_text: str,
 ) -> str:
     """Generate a pseudonym that cannot be confused with anyone else's data.
 
@@ -168,14 +172,14 @@ def _generate_unique_pseudonym(
         and _safe_to_reuse(
             existing.pseudonym,
             original,
-            text,
+            compact_text,
             entity.data_type,
         )
     ):
         return existing.pseudonym
 
     def _available(candidate: str) -> bool:
-        if not _safe_to_reuse(candidate, original, text, entity.data_type):
+        if not _safe_to_reuse(candidate, original, compact_text, entity.data_type):
             return False  # empty, identity, and embedded-original values do not mask
         owner_id = vault._reverse.get(candidate)
         if owner_id is not None:
@@ -199,7 +203,7 @@ def _generate_unique_pseudonym(
     base = candidate
     suffix_ok = (
         entity.redact_type != "FP"
-        and _safe_to_reuse(base, original, text, entity.data_type)
+        and _safe_to_reuse(base, original, compact_text, entity.data_type)
         and base not in all_originals
     )
     if suffix_ok:
@@ -221,7 +225,7 @@ def _generate_unique_pseudonym(
     )
 
 
-def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
+def _next_token(entity: Entity, text: str, vault: SessionVault, compact_text: str) -> str:
     """Reuse a safe token or take the next ordinal for this data type."""
     existing = vault.get_by_original(entity.original_text, data_type=entity.data_type)
     candidates: list[VaultRecord] = []
@@ -243,7 +247,7 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
             and _safe_to_reuse(
                 candidate.pseudonym,
                 entity.original_text,
-                text,
+                compact_text,
                 entity.data_type,
             )
         ):
@@ -254,7 +258,7 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
             continue
         if record.data_type == entity.data_type:
             ordinal = token_ordinal_from_candidate(record.pseudonym, entity.data_type)
-        elif _seeded_token_is_admissible(record, entity.data_type, text):
+        elif _seeded_token_is_admissible(record, entity.data_type, compact_text):
             ordinal = token_ordinal_from_candidate(
                 record.pseudonym,
                 entity.data_type,
@@ -280,7 +284,7 @@ def _next_token(entity: Entity, text: str, vault: SessionVault) -> str:
 def _seeded_token_is_admissible(
     record: VaultRecord,
     data_type: str,
-    text: str,
+    compact_text: str,
 ) -> bool:
     """Return whether one caller-held token may affect this turn."""
     return (
@@ -289,14 +293,14 @@ def _seeded_token_is_admissible(
         and _safe_to_reuse(
             record.pseudonym,
             record.original,
-            text,
+            compact_text,
             data_type,
         )
     )
 
 
 def _adopt_seeded_token_namespace(
-    text: str,
+    compact_text: str,
     entity_registry: EntityRegistry,
     vault: SessionVault,
 ) -> None:
@@ -313,7 +317,7 @@ def _adopt_seeded_token_namespace(
         detected_types = detected_types_by_original.get(record.original)
         if detected_types is not None and data_type not in detected_types:
             continue
-        if data_type is None or not _seeded_token_is_admissible(record, data_type, text):
+        if data_type is None or not _seeded_token_is_admissible(record, data_type, compact_text):
             continue
         namespace = token_namespace_from_candidate(record.pseudonym)
         if namespace is not None:
@@ -397,8 +401,10 @@ def anonymize(
     """
     pseudonymized = text
     replacement_highlights: list[ReplacementHighlight] = []
+    # One folded copy of the source for every reuse check in this call.
+    compact_text = _compact_identity(text)
     if mode == "token":
-        _adopt_seeded_token_namespace(text, entity_registry, vault)
+        _adopt_seeded_token_namespace(compact_text, entity_registry, vault)
 
     # Step 1: sort entities by span start DESCENDING (tail-first)
     sorted_entities = sorted(
@@ -415,9 +421,11 @@ def anonymize(
             pseudonym = existing.pseudonym
         else:
             if mode == "token":
-                pseudonym = _next_token(entity, text, vault)
+                pseudonym = _next_token(entity, text, vault, compact_text)
             else:
-                pseudonym = _generate_unique_pseudonym(entity, text, salt, vault, all_originals)
+                pseudonym = _generate_unique_pseudonym(
+                    entity, text, salt, vault, all_originals, compact_text
+                )
             vault.write(
                 VaultRecord(
                     entity_id=entity.entity_id,
@@ -450,6 +458,12 @@ def anonymize(
         if rec is not None:
             known_pseudonyms_scan.add(rec.pseudonym)
 
+    scan_pseudonyms = [p for p in known_pseudonyms_scan if p]
+    # Those ranges depend only on the text and that fixed pseudonym list, so
+    # they are derived once and kept until this scan itself rewrites the text.
+    # Re-deriving them per entity made masking cost entities x document length,
+    # and a long paste took minutes.
+    protected: list[tuple[int, int]] | None = None
     for entity in sorted_entities:
         existing = vault.get_by_entity_id(entity.entity_id)
         if existing is None:
@@ -466,7 +480,8 @@ def anonymize(
         # longer matched the vault, so reverse_map could not restore it and the
         # original was lost. Whole-string equality does not catch that; the
         # hazard is containment. Same positional rule as reverse_mapper.
-        protected = pseudonym_ranges(pseudonymized, [p for p in known_pseudonyms_scan if p])
+        if protected is None:
+            protected = pseudonym_ranges(pseudonymized, scan_pseudonyms)
         hits = [
             (i, i + len(original))
             for i in _find_all(pseudonymized, original)
@@ -482,6 +497,8 @@ def anonymize(
                 data_type=entity.data_type,
                 redact_type=entity.redact_type,
             )
+        if hits:
+            protected = None
 
     # Step 5: post-replace PII leak check
     # Collect known pseudonyms so they are not mistaken for real PII leaks.
