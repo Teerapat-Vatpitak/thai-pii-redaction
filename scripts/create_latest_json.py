@@ -137,8 +137,6 @@ def create_latest(
 
     windows = f"AI.Guard_{version}_x64-setup.exe"
     macos = f"AI.Guard_{version}_aarch64.app.tar.gz"
-    appimage = f"AI.Guard_{version}_amd64.AppImage"
-    deb = f"AI.Guard_{version}_amd64.deb"
 
     def update(asset: str) -> dict[str, str]:
         return {
@@ -157,9 +155,10 @@ def create_latest(
             "darwin-aarch64-app": update(macos),
             "windows-x86_64": update(windows),
             "windows-x86_64-nsis": update(windows),
-            "linux-x86_64": update(appimage),
-            "linux-x86_64-appimage": update(appimage),
-            "linux-x86_64-deb": update(deb),
+            # No Linux keys since 3.0.1: the Desktop no longer ships AppImage or
+            # DEB. A 3.0.0 Linux install keeps working and its updater simply
+            # finds no entry for its platform, which Tauri reports as "up to
+            # date" rather than an error.
         },
     }
     output.parent.mkdir(parents=True, exist_ok=True)

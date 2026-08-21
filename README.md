@@ -160,7 +160,15 @@ Download Desktop 3.0.0 from the
 |---|---|
 | Windows x64 | [`AI.Guard_3.0.0_x64-setup.exe`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_x64-setup.exe) |
 | macOS Apple silicon | [`AI.Guard_3.0.0_aarch64.dmg`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_aarch64.dmg) |
-| Linux amd64 | [`AI.Guard_3.0.0_amd64.AppImage`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_amd64.AppImage) or [`AI.Guard_3.0.0_amd64.deb`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_amd64.deb) |
+| Linux amd64 | [`AI.Guard_3.0.0_amd64.AppImage`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_amd64.AppImage) or [`AI.Guard_3.0.0_amd64.deb`](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/releases/download/v3.0.0/AI.Guard_3.0.0_amd64.deb) (final Linux build, see below) |
+
+**3.0.0 is the last Desktop release with a Linux package.** Later releases build
+Windows and macOS only. The 3.0.0 AppImage and DEB above stay published and keep
+working, but they will not receive an update: `latest.json` no longer carries a
+`linux-x86_64` entry, so an installed 3.0.0 reports itself as up to date instead
+of failing. Linux users who want newer detection code can run from source, which
+is unaffected, or use the hosted service. Nothing was removed from the codebase,
+so the packaging can come back without redoing its certification.
 
 Each Desktop package bundles the backend, so no Python setup is required.
 Windows packages do not carry an Authenticode publisher signature. macOS

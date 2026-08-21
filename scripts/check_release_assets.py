@@ -36,10 +36,6 @@ def required_build_assets(version: str) -> set[str]:
         f"AI.Guard_{version}_aarch64.dmg",
         f"AI.Guard_{version}_aarch64.app.tar.gz",
         f"AI.Guard_{version}_aarch64.app.tar.gz.sig",
-        f"AI.Guard_{version}_amd64.AppImage",
-        f"AI.Guard_{version}_amd64.AppImage.sig",
-        f"AI.Guard_{version}_amd64.deb",
-        f"AI.Guard_{version}_amd64.deb.sig",
     }
 
 

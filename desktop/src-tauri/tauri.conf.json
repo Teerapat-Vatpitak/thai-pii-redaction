@@ -38,9 +38,7 @@
     "targets": [
       "nsis",
       "app",
-      "dmg",
-      "deb",
-      "appimage"
+      "dmg"
     ],
     "externalBin": [
       "binaries/aiguard",

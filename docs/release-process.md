@@ -5,6 +5,15 @@ and public GitHub Release. The hosted API contract has its own
 `contract_version`; a product release does not automatically break that
 contract.
 
+**Platform scope since 3.0.0.** The release matrix builds Windows and macOS
+only. `desktop/src-tauri/tauri.conf.json` no longer lists `deb` or `appimage`
+as bundle targets, `latest.json` carries no `linux-x86_64` entry, and
+`scripts/check_release_assets.py` no longer requires the Linux assets. The
+Linux sections further down still describe live, tested code: the bundling
+helpers, the AppImage finalizer, and the DEB maintainer scripts were kept so
+Linux packaging can be restored without recertifying the lifecycle. They simply
+do not run for a release today.
+
 ## Sources of truth
 
 - `VERSION` - product version.

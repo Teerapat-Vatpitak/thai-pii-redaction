@@ -1,6 +1,11 @@
-# Build the ordinary macOS/Linux Desktop packages and exercise relocated or
-# extracted layouts through production JavaScript and typed Tauri commands.
-# The existing Unix sidecar watchdog remains part of the same native-runner gate.
+# Build the ordinary macOS Desktop package and exercise relocated layouts
+# through production JavaScript and typed Tauri commands. The existing Unix
+# sidecar watchdog remains part of the same native-runner gate.
+#
+# The matrix dropped `ubuntu-latest` when the Desktop stopped shipping AppImage
+# and DEB. Every `ubuntu-latest` step below is therefore inert, kept rather than
+# deleted so restoring Linux packaging is a one-line matrix change instead of a
+# rewrite of a certified lifecycle.
 name: Smoke (cross-platform)
 
 permissions:
@@ -22,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       AIGUARD_EXTENSION_IDENTITY: ${{ github.workspace }}/config/chrome-extension-identity.json

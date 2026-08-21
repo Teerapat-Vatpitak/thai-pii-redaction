@@ -87,8 +87,13 @@ jobs:
       contents: write # create the draft Release and upload installers
     strategy:
       fail-fast: false
+      # `ubuntu-latest` left the matrix when the Desktop stopped shipping
+      # AppImage and DEB. The `matrix.os == 'ubuntu-latest'` steps below are
+      # inert rather than deleted: the Linux bundling helpers, the AppImage
+      # finalizer, and the DEB maintainer scripts stay certified, so restoring
+      # Linux packaging is this one line plus the `tauri.conf.json` targets.
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       AIGUARD_EXTENSION_IDENTITY: ${{ github.workspace }}/config/chrome-extension-identity.json

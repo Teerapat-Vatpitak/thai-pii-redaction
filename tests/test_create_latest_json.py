@@ -75,14 +75,14 @@ def test_latest_is_canonical_and_uses_exact_release_asset_ids(tmp_path):
     document = json.loads(output.read_text(encoding="utf-8"))
     assert document["version"] == "3.0.0"
     assert document["notes"] == "Release-specific notes.\n"
+    # No `linux-*` keys: the Desktop stopped shipping AppImage and DEB, and an
+    # updater entry pointing at an asset this release never built would send a
+    # 3.0.0 Linux install after a download that does not exist.
     assert set(document["platforms"]) == {
         "darwin-aarch64",
         "darwin-aarch64-app",
         "windows-x86_64",
         "windows-x86_64-nsis",
-        "linux-x86_64",
-        "linux-x86_64-appimage",
-        "linux-x86_64-deb",
     }
     for update in document["platforms"].values():
         assert update["url"].startswith(

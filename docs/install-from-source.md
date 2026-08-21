@@ -143,6 +143,10 @@ Do not copy individual native executables between installs: every runtime
 requires the exact complete manifest set, fixed owner/mode/link state, and
 matching embedded build markers/digests. An interrupted repair either restores
 one complete set or remains fail-closed; it never restores an old mapping.
+Since 3.0.0 no DEB or AppImage is published, so the two Linux paths below apply
+only to a 3.0.0 install or to a package you build yourself from this source.
+Running from source on Linux is unaffected and stays supported.
+
 Windows uses the NSIS installer/uninstaller, DEB uses `dpkg`, and AppImage uses
 its transient `AppRun` or explicit unregister path. Manually calling the
 manager is an internal package/test operation, not a supported substitute for

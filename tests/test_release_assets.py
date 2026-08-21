@@ -239,11 +239,11 @@ def test_version_tokens_helper_extracts_semver_only():
 
 def test_rejects_a_partial_cross_platform_release(tmp_path):
     assets = set(_complete_assets("2.3.0"))
-    assets.remove("AI.Guard_2.3.0_amd64.AppImage")
+    assets.remove("AI.Guard_2.3.0_aarch64.dmg")
     _touch(tmp_path, *assets)
     result = _run(tmp_path, "2.3.0")
     assert result.returncode == 1
-    assert "AppImage" in (result.stdout + result.stderr)
+    assert "dmg" in (result.stdout + result.stderr)
 
 
 @pytest.mark.parametrize(
@@ -251,8 +251,6 @@ def test_rejects_a_partial_cross_platform_release(tmp_path):
     (
         "AI.Guard_2.3.0_x64-setup.exe.sig",
         "AI.Guard_2.3.0_aarch64.app.tar.gz.sig",
-        "AI.Guard_2.3.0_amd64.deb.sig",
-        "AI.Guard_2.3.0_amd64.AppImage.sig",
     ),
 )
 def test_rejects_a_release_missing_any_required_updater_signature(tmp_path, signature):
