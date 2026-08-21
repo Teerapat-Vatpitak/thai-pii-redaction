@@ -1,6 +1,6 @@
 # Project status
 
-Updated: 2026-08-14
+Updated: 2026-08-21
 
 This is the acceptance ledger for the current roadmap. It distinguishes code
 existence from evidence on the real delivery path.
@@ -9,6 +9,26 @@ This document answers one question: **what is actually finished, and what is the
 evidence**. It is not the code map ([CODEMAP.md](../CODEMAP.md)) and it does not set
 priority or order ([ROADMAP.md](../ROADMAP.md)). Every storefront named in the
 code map must have a row here; `tests/test_docs_coverage.py` enforces that.
+
+Release state: `v3.0.0` is tagged at commit `11fe8c1` and is the published
+GitHub Release (published 2026-08-14; verified against the live release API on
+2026-08-21 — not a draft). The published asset set is the Windows x64 NSIS
+installer, the macOS aarch64 DMG plus updater archive, the Linux amd64 DEB and
+finalized AppImage, Tauri updater `.sig` files for the NSIS installer, macOS
+updater archive, DEB, and AppImage, `latest.json`, and `SHA256SUMS` with
+GitHub build provenance. The separately
+certified production Extension ZIP `aiguard-extension-3.0.0.zip` (295,228
+bytes, SHA-256
+`feb048775ec3d2a2c57ade08b37000fc4fa035a72ffb77db201e5eb838357670`) was
+attached to the same release on 2026-08-14 for manual/developer installation;
+it is outside the Desktop `SHA256SUMS`/provenance set and is verified by its
+own checksum. The Chrome Web Store item remains unpublished; exact-ZIP store
+submission remains a separate owner-gated outward action. Per-gate closure
+results were not appended to the
+[3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md)
+at publication time; that record now carries a dated addendum recording the
+verified publication facts, which are publication evidence only, not
+retroactive proof of any individual certification gate.
 
 Benchmark note: `blind-v1` is a closed historical evidence set. Its six-reveal
 budget is exhausted, so it must not be described as an active blind evaluation
@@ -252,142 +272,22 @@ it is not component-replacement evidence. In-app macOS, DEB, and AppImage
 updates are rejected before updater access; external/user package replacement
 remains the supported path on those platforms.
 
-Pre-final `d1ee425` installed evidence includes the production-keyed Extension in
-Google Chrome for Testing 145, a normal-default-path NSIS companion,
-Desktop-only, Extension-only, and simultaneous Desktop + Extension operation,
-live upgrade, repair, interruption recovery, uninstall/reinstall, wrong-origin
-rejection, restart invalidation, zero final candidate registration/process
-delta, and real WSL lifecycle tests. That NSIS is 141,103,791 bytes with
-SHA-256
-`92b6840b53cbda6ee567a560dea70fbc59e651199391b94260b0797a313d8faa`.
-The actual `a6318d8` predecessor also passed fail-closed live-Extension
-transition and first-retry recovery. The pre-existing July installation was
-restored byte-for-byte afterward. macOS relocation, real
-DEB package-manager lifecycle, finalized AppImage extract-and-run/warm stable
-`AppRun`, and normal FUSE when the runner supports it remain separately
-classified workflow evidence. Recovery of the preserved exact head exposed a
-shutdown-response race and an over-broad Windows process query. The final tree
-accepts only boundedly proven endpoint inactivity after unavailable/timeout
-drain results and queries only the five fixed package process names before exact
-path validation. Review then closed AppImage drain reachability, extended-UNC
-normalization, product-wide cross-session Windows transaction locking, fresh-
-process NSIS receipt recovery with Windows PowerShell 5.1-compatible control-
-file validation, and retry-idempotent partial DEB removal. The latest preserved-
-head failures are also closed locally without weakening production checks:
-Windows test copies explicitly receive destination ownership; the smoke release
-marker is published only after complete pending-file write and flush; receipts
-must be exactly 64 case-sensitive lower-hex bytes plus one LF; and the bounded
-Linux lifecycle fixture nests a 45-second drain inside 55-second process and
-75-second signal
-deadlines. A later invalidated head exposed the separate Slice 6 full-package
-fixture, uppercase PowerShell matching, and a live DEB harness that expected the
-drained old Desktop to run the new package workflow. Those are closed locally by
-setting every fixture destination owner, requiring case-sensitive receipt
-matching, proving old-session invalidation in a bounded first phase, and then
-re-attesting and fully smoking the newly installed Desktop. The earlier
-obsolete run's NSIS tool download disconnected externally and still requires a
-green exact-head replacement job. Later obsolete heads were invalidated when a
-DEB assertion could overstate structured invalidation and when exact-head
-execution exposed a bounded startup-busy transition, a maintenance handshake
-deadline consumed by strict component hashing, and a Windows package failure
-whose post-cleanup artifact retained only the exact marker without locating the
-failing phase. A later final review invalidated its candidate because a late
-maintenance connection could reset the request deadline and pre-request
-operation timeouts were not retried. The current source requires explicit
-second-operation invalidation, accepts startup busy only through bounded
-readiness, prepares strict maintenance identity once, retries only pre-request
-transient connections while the endpoint proves active, and threads one
-absolute outer deadline through connect/hello, the single drain request, and
-inactivity proof.
-
-Candidate `854b6aba84cd7728cb0801fe4ed24b5cd206f783` was then invalidated:
-CI run `31694499510` passed 13 of 14 jobs but failed the Windows installed
-package, while cross-platform run `31694499478` passed macOS and failed Ubuntu.
-Neither failed run is closure evidence. Local reproduction proved one real
-pre-extraction failure mechanism: PowerShell 5.1 `Add-Type` resolved NSIS's
-native `$PLUGINSDIR\System.dll` because that plugin directory was also the child
-working directory. The hook now changes to `$INSTDIR` before executing the
-embedded script. The executable regression reproduces the collision and the
-corrected working directory, and an ordinary local Tauri NSIS candidate passed
-the affected lifecycle. That evidence did not locate the hosted failure phase.
-The Ubuntu log also lacked its final command, but review confirmed that the
-workflow incorrectly required two concurrent AppImage repairs to both succeed
-despite the deliberate nonblocking product lease. The replacement workflow
-proves fixed status 75 and no component or registration mutation under a held
-lease, then releases it and requires bounded release and repair. Once the Linux
-package-layout step initializes its phase tracker, the `always()` artifact step
-is configured to upload the latest-started coarse phase and any value-free
-partial evidence; it does not guarantee an artifact for earlier failures or
-runner loss.
-
-Candidate `ea8eb7725bf6d31a95e4db03f99bca6bf46ef2e2` then passed all three
-read-only reviews but was invalidated by exact-head execution. CI run
-`31705549161` passed 13 of 14 jobs and failed only Windows installed-package
-job `94465065578`; artifact `9183413143` records a full extracted payload plus
-marker and uninstaller, absent registration, and failed primary/uninstall
-cleanup, but no ACL or exact failing subcommand. Cross-platform run
-`31705549230` passed macOS job `94465065913` and failed Ubuntu job
-`94465065907`; artifact `9183764469` records
-`deb-interrupted-remove-recovery` as the latest-started phase after completed
-initial DEB, upgrade, remove, reinstall, and reinstall-smoke evidence, with no
-AppImage evidence. Neither red run counts as closure evidence.
-
-Source-path recovery found that elevated NSIS extraction can create the fixed
-payload with process `TokenOwner` while strict installed admission requires
-personal `TokenUser`; the obsolete artifact did not retain ACLs, so this is a
-mechanism-consistent diagnosis rather than a retroactive ACL claim. The
-post-install PowerShell 5.1 bootstrap now handle-validates only the marker,
-optional exact receipt, fixed five components, component manifest, and
-uninstaller; permits source ownership only from exact `TokenUser` or exact
-process `TokenOwner`; rejects empty, reparse, or linked files; changes every
-payload owner to `TokenUser`; and rechecks identity and owner before the
-unchanged strict manager revalidates schema/build IDs/digests. Receipt-bearing
-authority is never normalized, and ordinary admission still rejects group
-ownership. The exact-head job records a privacy-safe owner-difference boolean.
-
-The Ubuntu source path independently showed that `cleanup deb` required a
-complete manifest before dispatch even though interrupted `prerm` had already
-unlinked Desktop. Only that cleanup/shape pair now uses incomplete-removal
-loading while still verifying the exact manager digest, build marker, path,
-mode, owner, link, and identity; all other operations keep complete-set
-admission. Fine-grained phase-start markers and 60-second bounds now surround
-the manager and both retry calls. Actual PowerShell 5.1, WSL manager 22/22,
-WSL Slice 6 10 active/4 expected ignores, both Windows native 167-active/14-
-ignore matrices, and a fresh isolated local NSIS install/smoke/uninstall are
-green. The affected Python selection collected 124 tests: 121 passed and three
-platform checks skipped. These changes have local affected-lane evidence only
-until the replacement head passes the protocol. Three exact-head read-only
-reviews, branch and post-main CI/cross-platform smoke, reviewed-tree
-equality, and deletion of only the integrated branch form the enforced closure
-protocol. This text describes integrated truth only when that exact tree is on
-`main` after those gates. See the
+The pre-final `d1ee425` installed evidence (production-keyed Extension in
+Chrome for Testing 145, normal-default-path NSIS companion, upgrade, repair,
+interruption recovery, uninstall/reinstall, real WSL lifecycle tests), the
+recovery findings it exposed, and the three subsequent exact-head candidates
+(`854b6ab`, `ea8eb77`, `097d41d`) that each passed independent review but were
+invalidated by exact-head CI or cross-platform execution are recorded
+candidate by candidate — with their run/artifact numbers, root-cause
+diagnostics, and the source repairs each failure produced (the PowerShell 5.1
+`Add-Type`/NSIS plugin collision, elevated-NSIS `TokenOwner` payload
+ownership, interrupted-`prerm` DEB cleanup admission, the Windows lock-probe
+`SetOutPath` directory, and root-owned read-only FUSE staging) — in the
 [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md).
-
-Candidate `097d41d4d7c141f0e001ded1cbb868c0c45ae7d7`, tree
-`9d74a768814d18d064da11300de2da0e1428fe48`, passed its independent
-correctness/security and package/deployment reviews but was invalidated by
-exact-head execution. CI run `31713219318` passed 13 of 14 jobs; only Windows
-package job `94491279795` failed. Artifact `9186697047` proves that the hosted
-token had distinct `TokenOwner` and `TokenUser`, yet clean install, exact
-inventory, four registrations, two-run installed smoke, and final cleanup all
-succeeded. Failure occurred in the concurrent-lock phase. The generated Tauri
-installer creates `$INSTDIR` through `SetOutPath` before the product preinstall
-hook. The artifact did not retain each contender's exit status. Source ordering
-and a local held-lock run of the exact custom-root artifact reproduced nonzero
-exit plus only that empty directory, which the workflow incorrectly treated as
-package state.
-
-Cross-platform run `31713219299` passed macOS job `94491279822` and failed
-Ubuntu job `94491280004`. Artifact `9186746050` contains complete DEB lifecycle
-evidence and complete AppImage stable, contention, repair, reinstall, and
-extract-and-run evidence. The job then emitted fixed failure stage
-`appimage_repair` during normal FUSE launch. The pinned AppImage tool produces
-root-owned SquashFS bytes; an exact pinned-runtime WSL probe confirmed that
-normal FUSE presents them as UID 0 on a read-only mount, while extracted bytes
-are effective-user-owned. Transient staging's additional effective-user-only
-predicate therefore contradicted its already strict manifest admission. Both
-failed workflows and their partial artifacts are historical diagnostics, not
-closure evidence.
+None of those red runs is closure evidence; the enforced closure protocol
+remained three exact-head read-only reviews, branch and post-main
+CI/cross-platform smoke, reviewed-tree equality, and deletion of only the
+integrated branch.
 
 The replacement changes neither the production Windows lock nor workflow
 success criteria. The lock probe accepts only an absent or exact empty,
@@ -483,7 +383,7 @@ hosts, hosted PDF resource/timeouts, deployment, and official-platform
 acceptance remain open.
 
 Phase 8 native-broker architecture status:
-**ADR and Slices 1--6 integrated; release certification is in progress**. The owner
+**ADR and Slices 1--6 integrated; shipped in the published v3.0.0 release**. The owner
 approved the hybrid per-user named-pipe/filesystem-UDS design, Chrome native
 messaging, allowlisted Tauri bridge, broker-prebound authenticated loopback
 backend, explicit unsigned-distribution limits, Desktop-companion
@@ -646,114 +546,19 @@ disposal, PDF, no replay, disconnect/timeout/uncertainty, malformed/oversized
 responses, request-ID uniqueness, terminal limits, restart/stale generation,
 and 24 repeated connect/scope/quit cycles without resource growth.
 
-Historical dirty-tree evidence also installed an ordinary Windows NSIS
-candidate with the component manifest beside the Desktop, broker, and backend.
-That provisional installer's SHA-256 is
-`7277341A62CEF70C8431BE4AEA51E9C0CA916E8C01ABDC8D0267C087869AE681`.
-After installation into `artifacts/slice4-nsis-installed`, twelve total
-launches exercised production package JavaScript through actual typed Tauri
-commands: health, analyze, fresh/continuation sanitize,
-native validated masked copy, reidentify, report, PDF, audit, and dispose/reset.
-The harness did not exercise detect, guard, roundtrip, a fake-provider
-roundtrip, a live provider, or live TNER. Five-run cold process time was
-5,058.208 ms and warm median was 994.843 ms; cold Desktop ready was 4,121.709
-ms and warm readiness ranged from 631.752 to 669.630 ms. Broker and backend
-process deltas were zero. Peak resources were Desktop 34.812 MiB/538 handles,
-broker 7.469 MiB/108, and backend 195.898 MiB/317.
+The historical dirty-tree installed-Windows NSIS evidence (twelve launches
+through actual typed Tauri commands, zero broker/backend process delta) and
+the clean predecessor chain `c6dcad1` → `0424716` → `8be9523` → `6ad3422` →
+`3836024` → `73dcca4` → `8194c23` — each with its exact CI/cross-platform run
+numbers, artifact digests, evidence-class qualifications (installed Windows
+NSIS, relocated macOS app, extracted DEB, and finalized outer-AppImage plus
+verified warm-`AppRun` are separate classes; relocation and extraction are not
+installation evidence), and the specific Linux harness/AppImage finalization
+defect each red run exposed and the next predecessor repaired — are recorded
+predecessor by predecessor in the
+[Slice 4 record](acceptance/2026-08-09-phase-8-native-broker-desktop.md).
 
-This is exact dirty-tree installed-Windows evidence, not evidence for any clean
-executable checkpoint. Clean predecessor
-`c6dcad168395e44cc52a72674f0ff9d72483cbcf`
-[passed all 14 CI jobs](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31325662048),
-including two launches from a fresh isolated NSIS installation. Later
-predecessor `0424716aabe5dcdbe07e79c9cd070879e6c7a44a` had a green macOS job in
-[cross-platform run 31326610316](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31326610316):
-it built and twice smoked an exact app copied to a new path. The overall run
-failed on Linux, and that macOS job is relocated-app evidence, not installer,
-DMG, notarization, or `/Applications` evidence.
-
-Earlier predecessor `8be9523` passed all 14 jobs in
-[CI run 31327288545](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288545)
-including two launches from the exact isolated Windows NSIS installation. The
-tested installer SHA-256 was
-`dfa777757ec9961679dcd5074fa48cffb446166fb2b229d418e1f5eb816ebc6c`.
-Its macOS job built, relocated, and twice smoked the app successfully in
-[cross-platform package run 31327288595](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31327288595).
-Its tested-app archive SHA-256 is
-`5ec08f3d0d2ab051fa4f1b43d33fc31bd1770b86d33d06a402993c689335b96b`;
-the two runs left zero broker/backend process delta. Cross-platform run
-31327288595 is nevertheless red: Linux job `93279571732` failed before Desktop
-launch because process inspection treated an unrelated protected same-UID
-process as fatal. That is a diagnostic harness failure and supplies no Linux
-DEB/AppImage result. Installed Windows NSIS, relocated macOS app, extracted
-DEB, and finalized outer-AppImage plus verified warm-`AppRun` smoke are separate
-evidence classes. Relocation and extraction are not installation evidence, and
-the AppImage path is not normal FUSE/double-click or installation evidence.
-
-Predecessor `6ad3422` repairs that Linux harness with
-a process-name prefilter followed by exact `/proc` path and fail-closed
-inspection for actual component candidates. Independent review found no new
-blocker; 56 focused
-package/workflow tests, Ruff, format, diff-check, and a real WSL clean-parser
-probe pass locally. Checkpoint
-[CI run 31328047804](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047804)
-passes all 14 jobs, including the two-run installed Windows NSIS smoke.
-[Cross-platform package run 31328047802](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31328047802)
-is red. Its relocated macOS job passes with tested-app
-archive SHA-256
-`8d22957bba783737df954dee5c2a76a012ebeb1bb6f4c1f04886e93916245939`;
-the extracted DEB also completes both runs, but AppImage component digest
-verification fails before AppImage Desktop launch because packaging mutates the
-component bytes after the pre-bundle hashes. No AppImage or full Linux pass is
-claimed from that predecessor.
-
-Predecessor `3836024` leaves the AppImage pre-manifest invalid until it can hash
-the actual post-linuxdeploy AppDir components and repack with a checksum-pinned
-plugin.
-[CI run 31329794579](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794579)
-passed all 14 jobs, but
-[cross-platform package run 31329794568](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31329794568)
-is red: macOS passed and Linux failed finalization before package smoke because
-the first prefix guard did not allow appimagetool's defined `.digest_md5`
-rewrite.
-
-Predecessor executable checkpoint `73dcca4` copies the trusted original runtime
-prefix before repacking. For the pinned, scrubbed no-sign/no-update invocation,
-it parses both little-endian x86-64 ELF64 prefixes, permits mutation only in the
-single non-executable, non-overlapping 16-byte `.digest_md5` section, rejects
-executable load-segment overlap, and requires every other prefix byte to match.
-Its 76 focused package/workflow tests and exact-delta independent review passed
-with no P0/P1/P2.
-[CI run 31345691672](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691672)
-passed 14/14 including installed Windows NSIS. Its
-[cross-platform package run 31345691667](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31345691667)
-is red: relocated macOS and extracted DEB passed, but the AppImage harness
-bypassed the outer runtime/`AppRun` and produced no marker.
-
-Predecessor `8194c23` adds a separate precreated canonical private evidence
-directory for AppImage native-start and every fixed marker, rejects an invalid
-supplied root without a package-directory fallback, and creates marker files
-without overwrite. An independent extraction attests finalized bytes;
-repetition one executes the exact outer AppImage with
-`--appimage-extract-and-run`, and the warm repetition re-attests the retained
-live root before launching its `AppRun`.
-[CI run 31348501253](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501253)
-is red, 10/14, only because the new canonical-root test used non-portable path
-spellings. Its installed-NSIS job nevertheless passed two launches and uploaded
-artifact `9048319122`; the published
-`545833b2d71d0cd8d77036e62da7a310a7e4cbc0dd272c6a6f3bbc10fbac71f6`
-digest belongs to the GitHub artifact ZIP, not the installer payload. Separate
-[cross-platform package run 31348501256](https://github.com/Teerapat-Vatpitak/thai-pii-redaction/actions/runs/31348501256)
-passed 2/2. Its relocated macOS tested archive SHA-256 is
-`48881bf929258fe980ff43b2dc4fa948b0a122e55cbb1508bdf9e817a533a624`;
-the Linux artifact contains a directly smoked DEB with SHA-256
-`5f6dde7aed7335ccb6944560fc4aecc993c09a6c6f5cbd18964b0ae2074ca127`
-and finalized AppImage with SHA-256
-`0b139d9f03d88d1a2984445de8d2e08d29fe42ce6120072524dd9ed5ed8cc17d`.
-The latter passed with
-`execution_mode=outer_appimage_extract_and_run_then_verified_apprun`.
-
-Current exact checkpoint `492dad34361b09d7ffa58fa192a2447de7414418`
+Final exact checkpoint `492dad34361b09d7ffa58fa192a2447de7414418`
 retains that production contract and repairs only portable canonical-path test
 construction. Focused package/workflow Python tests pass 100 with one expected
 Windows Unix-mode skip. Full local Rust runs of 19 default and 26 all-feature
@@ -961,8 +766,8 @@ applicable trade. The baseline was not moved.
 |---|---|---|
 | Pathumma provider | Hardening open | Repeatable live completion and protected-roundtrip checks passed for the dated 2026-07 candidate; marker preservation remains quality telemetry because a generative response need not repeat every entity. The current outbound-policy source path postdates that live run and must be rerun against Pathumma. |
 | AI for Thai TNER engine | Hardening open | The live parallel `words`/`POS`/`tags` shape and end-to-end `PER/LOC/ORG/DTM` mapping passed on 2026-07-23. Current source now treats any failed explicitly selected TNER chunk as whole-operation `ner_unavailable` and any malformed, unequal, misaligned, or truncated token stream as whole-operation `ner_incomplete`; earlier results are discarded and later remote/provider/PDF/session publication is stopped. Fixed value-free metadata is covered across core, local-session/stateless, HTTP v2, hosted, PDF, and worker-v1 boundaries. The shared BIO/chunk engines (`thainer`, WangchanBERTa, and union) retain skip-and-continue behavior; the separate fine-tuned offset engine is outside this change. This changed path still needs a fresh live response-shape and end-to-end mapping run; historical live evidence does not certify it. |
-| Browser extension | Slices 5--6 integrated; 3.0.0 publication candidate | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, upgrade, restart, repair, uninstall/reinstall, and simultaneous Desktop + Extension operation. Exact branch and post-main Slice 6 workflows are green. The 3.0.0 candidate adds a deterministic production-ID ZIP retained as a separate CI artifact for Chrome Web Store review; it is not a GitHub Desktop release asset. The Web Store item remains unpublished Draft until an exact reviewed ZIP is submitted and the store reports a later state. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md), [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md), and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
-| Desktop app | Slices 4--6 integrated; 3.0.0 release candidate | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Current source routes webview operations through typed Tauri commands and hotkeys through the authenticated `desktop` role, ships the production-keyed Chrome adapter and package registration, and implements strict complete-set admission, maintenance drain, updater ordering, atomic AppImage stable-root repair, DEB/NSIS lifecycle hooks, safe stale-endpoint cleanup, and package install/upgrade/remove/reinstall workflows. Exact Slice 6 branch and post-main workflows are green. The 3.0.0 release workflow is being certified for unsigned Windows x64 NSIS, unsigned/unnotarized macOS arm64 DMG plus updater archive, Linux amd64 DEB and finalized AppImage, updater signatures, checksums, and provenance. Updater signatures authenticate bytes but do not replace platform publisher signing. See the [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md) and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
+| Browser extension | Slices 5--6 integrated; 3.0.0 released for manual install; Web Store publication pending | Current source uses one service-worker-owned Chrome Native Messaging port to `th.ac.psu.aiguard.native_host`, separate broker scopes per admitted tab/panel, memory-only handles, strict sender/result validation, confirmed disposal or connection teardown, and no PII-bearing replay. Production manifest/code has no loopback permission, HTTP client/fallback, backend ID/credential, provider command, or remote TNER. The installed boundary is local `thainer`; `fake` is internal conformance only. Owner-approved production ID `kdjmkknedgmfphpkjhjdhmjadaelgggm` and its exact one-origin host manifest passed production packaging, exact-ID unpacked Chromium 145, installed NSIS companion, wrong-origin, scope/lifecycle, coexistence, upgrade, restart, repair, uninstall/reinstall, and simultaneous Desktop + Extension operation. Exact branch and post-main Slice 6 workflows are green. The deterministic production-ID ZIP `aiguard-extension-3.0.0.zip` (SHA-256 `feb048775ec3d2a2c57ade08b37000fc4fa035a72ffb77db201e5eb838357670`) is attached to the published v3.0.0 GitHub Release for manual/developer installation; it sits outside the Desktop `SHA256SUMS`/provenance set and is verified by its own checksum. Manual load-unpacked distribution is not Chrome Web Store installation. The Web Store item remains unpublished Draft until an exact reviewed ZIP is submitted and the store reports a later state. Raw text typed into provider-controlled DOM can still be observed before in-page Mask; the side panel is the stronger entry boundary. See the [Slice 5 record](acceptance/2026-08-11-phase-8-slice-5-native-messaging.md), [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md), and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
+| Desktop app | Slices 4--6 integrated; released as 3.0.0 | The published Windows `2.5.0` installer passed its exact historical checklist and Issue #69 revalidation; the [dated record](acceptance/2026-08-02-desktop-2.5.0-issue-69-run.md) remains valid only for that pre-broker artifact. Current source routes webview operations through typed Tauri commands and hotkeys through the authenticated `desktop` role, ships the production-keyed Chrome adapter and package registration, and implements strict complete-set admission, maintenance drain, updater ordering, atomic AppImage stable-root repair, DEB/NSIS lifecycle hooks, safe stale-endpoint cleanup, and package install/upgrade/remove/reinstall workflows. Exact Slice 6 branch and post-main workflows are green. The 3.0.0 release is published with unsigned Windows x64 NSIS, unsigned/unnotarized macOS arm64 DMG plus updater archive, Linux amd64 DEB and finalized AppImage, updater signatures, checksums, and provenance (see Release state above). Updater signatures authenticate bytes but do not replace platform publisher signing. See the [Slice 6 record](acceptance/2026-08-12-phase-8-native-broker-package-recertification.md) and [3.0.0 certification record](acceptance/2026-08-14-release-3.0.0-certification.md). |
 | Microsoft 365 Add-in | Acceptance pending | The shared task pane, host adapters, memory-only session state, writeback guards, and Word-only release-manifest gate remain in source. Current Office code validates exact v2 health/operation DTOs, gates readiness only on `api_key_required`, accepts control-plane protection without asking JavaScript for that credential, and blocks malformed/incomplete/unsafe Apply, Insert, or Copy paths. Automated manifest/type/build/unit gates cover the source. A dated exact-candidate local runner separately built and booted the packaged backend, validated strict-v2 health/token-sanitize/reidentify directly, and repeated that API flow through the Office HTTPS development proxy using pre-existing trusted certificate files that remained unchanged. This was not an Office JavaScript, Office-host, sideload, installed-package, provider, release, or deployment run. Office is outside broker v1; its web-add-in architecture is unchanged, and any future native host/bridge requires a separate ADR. The eight real-host/package gates remain unchanged: Word table and missing-key/provider/expired-session; Excel changed-value/formula cancellation and Pathumma Copy-only; PowerPoint unselected-content isolation, missing API 1.5, and Pathumma Copy-only; then the exact promoted three-host unified-package activation run. |
 | CLI | Verified | Sanitize/report/receipt and end-to-end pipeline tests pass. Current source uses the shared protected-provider policy, rescans before every actual attempt, caps retries at three, and preserves its stateful snapshot/rollback semantics. This has automated evidence, while the changed provider path still needs the fresh live run tracked under Protected provider roundtrip. |
 | Demo playground | Hardening open | The exact 2026-07-23 browser candidate passed token/surrogate roundtrip, protected Pathumma, guard warning, responsive layouts, report download/open, and positive PDF preview/download checks; that dated evidence remains historical and predates the current backend residual/v2/token changes. Current source validates strict v2 health/operation responses, fails residual or malformed results closed, reaches providers through the shared orchestration layer, and uses authoritative PDF source intervals behind the redaction route. Fresh browser/live PDF evidence remains open. |
@@ -983,7 +788,7 @@ applicable trade. The baseline was not moved.
 | Platform LLM endpoint | Acceptance pending | The platform issued an endpoint, model identifier, and secret out of band. No secret or account identifier is stored here. A dated pre-final sibling protected roundtrip passed and a two-worker 60-second live soak recorded 50 successes and no failures. The credential was later exposed in agent transcript output by a read-only Compose expansion and must be rotated/reissued before any further use; the residual ignored `.env` file was removed without reading it. Exact final-candidate live acceptance and a roundtrip originating from platform infrastructure remain open, together with quota, acceptable-use, logging policy, and timeout ownership. The model was separately scored as a detector on gold v4 ([ADR](decisions/2026-07-28-tokenmind-detector-and-aift-port.md)). |
 | Retry/failure emulator | Verified locally | The repeatable local runner passes duplicate/conflict, failed submit, same-process provider idempotency, malformed/version/size, provider-timeout, handler-crash, concurrency, and honeytoken cases. It does not claim cross-process exactly-once or official ack/nack semantics. |
 | Load/soak and official failure acceptance | Hardening open; official acceptance externally gated | Dated local current-core fake-provider and live-provider soaks are green, including restart recovery and zero observed failures in the recorded runs. Independent review, final local image identification, and exact provider-free check/deploy are complete. Exact live acceptance waits for credential rotation. Core PDF source-to-box correctness now has local automated evidence; public HTTPS/browser behavior, proxy-aware login limiting, sibling composition, and the red PDF resource/capability decision remain pre-push gates. Cold-build timing, outbound connectivity, platform-visible logs/resources, real proxy behavior, and sign-off require the owner-gated GitLab project creation/push and platform evidence. |
-| Version/tag/release pipeline | 3.0.0 certification in progress | v2.5.0 remains the published Latest release from exact merge commit `24914ab`; its evidence applies only to that pre-broker artifact. The owner authorized 3.0.0 release preparation on 2026-08-14 from exact clean `main` `21f921aa`. `VERSION`, Desktop/Tauri, Extension, Native Broker, Office source metadata, lockfiles, and the deliberate server fallback now agree on `3.0.0`; the changelog and readiness checks agree. The first 3.0.0 workflow candidate was invalidated before tagging because review found mutable draft provenance, unpinned Tauri Linux helpers, missing execution of final production macOS/Linux package bytes, and inaccurate side-panel retention wording. The replacement workflow creates a draft only, pre-pins all five Tauri Linux helpers, finalizes/re-signs the exact AppImage, black-box smokes every final production package class, binds the closed draft byte set to a current-run source/run manifest, regenerates canonical updater metadata, redownloads and rechecks the final set, then attaches checksums/provenance. No `v3.0.0` tag or 3.0.0 GitHub Release exists yet, and the Chrome Web Store item remains separate. Windows stays unsigned under the accepted policy; macOS is unsigned and not notarized; Tauri updater signatures are required but are not publisher code signing. Distribution remains release assets rather than package-manager manifests ([record](decisions/2026-07-29-store-distribution-and-signing.md); [certification](acceptance/2026-08-14-release-3.0.0-certification.md)). |
+| Version/tag/release pipeline | v3.0.0 published; per-gate certification record incomplete | `v3.0.0` is tagged at `11fe8c1` and published as the current GitHub Release (2026-08-14; verified live 2026-08-21, not a draft). The published asset set — Windows x64 NSIS, macOS aarch64 DMG plus updater archive, Linux amd64 DEB and finalized AppImage, updater `.sig` files for the NSIS installer, macOS updater archive, DEB, and AppImage, `latest.json`, `SHA256SUMS`, and GitHub build provenance — matches the certified release surface, and the separately certified Extension ZIP was attached the same day. The owner authorized the release from exact clean `main` `21f921aa`; `VERSION`, Desktop/Tauri, Extension, Native Broker, Office source metadata, lockfiles, and the deliberate server fallback agree on `3.0.0`. The first workflow candidate was invalidated before tagging (mutable draft provenance, unpinned Tauri Linux helpers, missing final-byte package execution, inaccurate side-panel retention wording); the replacement workflow that shipped creates a draft only, pre-pins the Tauri Linux helpers, finalizes/re-signs the exact AppImage, black-box smokes every final production package class, binds the draft byte set to a source/run manifest, regenerates canonical updater metadata, redownloads and rechecks the final set, then attaches checksums/provenance. Per-gate closure results were not appended to the certification record at publication time; the publication facts are recorded in its dated addendum and are not retroactive per-gate proof. Windows stays unsigned under the accepted policy; macOS is unsigned and not notarized; Tauri updater signatures are required but are not publisher code signing. Distribution remains release assets rather than package-manager manifests; v2.5.0 evidence applies only to that pre-broker artifact ([record](decisions/2026-07-29-store-distribution-and-signing.md); [certification](acceptance/2026-08-14-release-3.0.0-certification.md)). |
 
 ## Internal-plan differences resolved here
 

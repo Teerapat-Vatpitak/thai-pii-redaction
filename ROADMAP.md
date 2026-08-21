@@ -35,16 +35,16 @@ release rules live in [docs/release-process.md](docs/release-process.md).
 
 ## Where the project stands
 
-- `v2.5.0` is released with checksums and build provenance. The release
-  pipeline (tag, CI, cross-platform builds, attestation) has run end to end on
-  a real tag.
+- `v3.0.0` is tagged and published as the current GitHub Release (2026-08-14)
+  with checksums and build provenance; the manually installable Extension ZIP
+  is attached to the same release. `v2.5.0` evidence applies only to that
+  pre-broker artifact. The Chrome Web Store item remains unpublished until
+  exact-ZIP submission; publication details and their evidence limits are in
+  [docs/project-status.md](docs/project-status.md).
 - Phase 8 native-broker Slices 1--6 are integrated on `main` at
   `21f921aa8edb7415551b76f6633ce52fc5e323c6`; exact branch and post-main CI and
-  cross-platform package smoke are green. Owner-authorized 3.0.0 certification
-  is in progress on `codex/3.0.0-release-certification`. The source metadata and
-  changelog now identify 3.0.0, but no `v3.0.0` tag or release has been created
-  and the Chrome Web Store item remains unpublished until exact-artifact review
-  and submission.
+  cross-platform package smoke are green, and those slices ship in the
+  published 3.0.0 packages.
 - Dated feature acceptance exists for the exact extension, desktop, CLI, API,
   container, and demo candidates named in those records. It remains historical
   evidence for those artifacts, not acceptance of later hardening changes.
@@ -549,10 +549,11 @@ reviewed, independently revertible integration units in this order:
    upgrade recovery, stale cleanup, uninstall/reinstall, and installed lifecycle
    recertification. The repeated final pixel-level UI pass was unavailable at
    the Windows lock screen and is not claimed. Exact Slice 6 branch/post-main
-   workflow evidence is green at integrated main `21f921aa`; this is integration
-   evidence, not yet a 3.0.0 release claim. The separately owner-authorized
-   3.0.0 certification now evaluates the completed Slices 4--6 evidence,
-   release workflow, and exact artifacts. Office remains
+   workflow evidence is green at integrated main `21f921aa`; that is
+   integration evidence, and the separately owner-authorized 3.0.0
+   certification concluded with the published `v3.0.0` release on 2026-08-14
+   (publication facts and their evidence limits are in
+   [docs/project-status.md](docs/project-status.md)). Office remains
    outside broker v1. The third
    separately reviewable unit adds authoritative PDF source-to-box intervals:
    pdfplumber, pdfium, and retained OCR fragments carry exact provenance into
@@ -571,9 +572,9 @@ evidence only for their affected paths. Fresh automated, packaged, real-host,
 live-provider, or official-platform evidence must match the strength of the
 changed path. Shared provider orchestration has current-source automated
 evidence, while its packaged, live-provider, real-host, and official-platform
-recertification remains open. The owner-authorized release candidate now sets
-`VERSION` and synchronized package metadata to `3.0.0`; certification, exact
-artifact review, tag creation, and publication remain distinct gates.
+recertification remains open. The owner-authorized 3.0.0 release is tagged and
+published (2026-08-14) with synchronized package metadata; Chrome Web Store
+submission remains a distinct owner-gated gate.
 
 The browser in-page flow cannot guarantee that provider page code did not
 observe raw text typed into its composer before Mask. This campaign can protect
